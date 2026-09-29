@@ -1,0 +1,231 @@
+---
+title: "get_eff 竞争风险 CIF：FGR 与 CSC 的耗时和结果差异"
+subtitle: "cif_args 与 show_surdiff 在不同样本量下的基准评估"
+date: 2026-09-29
+---
+
+```{r}
+#| label: setup
+#| include: false
+t <- read.csv("bench/bench_timing.csv")
+med <- aggregate(elapsed ~ n + cfg, t, median)
+w <- reshape(med, idvar = "n", timevar = "cfg", direction = "wide")
+names(w) <- sub("^elapsed\\.", "", names(w))
+w <- w[order(w$n), ]
+n_lab <- ifelse(w$n > 4387, paste0(w$n, "\\*"), w$n)
+f2 <- function(x) ifelse(x < 10, sprintf("%.2f", x), sprintf("%.1f", x))
+```
+
+评估对象是 RegR 0.1.3（commit `7f2aced`）的 `get_eff()`，在竞争风险分析（`surv = FALSE`）中比较两个设置：
+
+- `cif_args = list(model = c("FGR", "CSC"))`：调整后 CIF（`sur_direct`）的工作模型。`"FGR"`（默认）是 Fine-Gray 模型，只能用 50 次 bootstrap 求 CI；`"CSC"` 是各原因 Cox 模型，用 `riskRegression::ate()` 的解析方差。
+- `show_surdiff = TRUE / FALSE`：是否生成 CIF / ΔCIF 表（`sur_*`）。
+
+## 结论
+
+1. **CSC 比 FGR 快得多，而且样本越大差距越大。**单看 CIF 表新增的耗时，FGR 是 CSC 的 5 倍（n = 500）、10 倍（n = 4387，完整真实数据）、约 96 倍（n = 35096）。整次调用的总耗时差距是 4–8 倍，因为 sHR 表两个后端都要算，把差距摊薄了。
+2. **FGR 的耗时几乎全花在 50 次 bootstrap 上。**它随 n 近似按 n^1.7^ 增长，5 个 fork worker 一起跑：n = 35096 时墙钟 211 s，CPU 时间 929 s。CSC 的 CIF 部分在 n = 35096 时也只多 2 s 左右。
+3. **竞争风险下，`show_surdiff = FALSE` 省下的时间几乎等于 FGR 的 bootstrap。**用 CSC 时关掉 `show_surdiff` 只省 0.2–2 s。n 很大时，`show_surdiff = FALSE` 本身也要 23 s，瓶颈是 `tidycmprsk::crr` 拟合 sHR 表（约按 n^1.9^ 增长），`cif_args` 管不到这一步。
+4. **两个后端的结果基本一致。**sHR 表和 `sur_unadj` 完全相同。调整后 CIF 点估计相差 ≤ 1.0 个百分点，ΔCIF 相差 ≤ 1.1 个百分点，所有对比的显著性结论相同。CSC 的 CI 宽度落在 FGR 换随机种子后的波动范围内。
+5. **FGR 的 CI 和 P 值受随机种子影响。**n_boot = 50 时，同一数据换 5 个种子，CI 宽度变化可达 ±25%；Race = Other/Unknown 的 P 值在 0.019–0.050 之间波动，恰好跨过 0.05。CSC 的结果是确定的。
+
+## 测试设置
+
+- **环境：**WSL Ubuntu-22.04，R 4.4.3，24 逻辑核；adjustedCurves 0.11.4.9000，riskRegression 2023.12.21，tidycmprsk 1.1.0。已核对 WSL 安装版 RegR 与源码 HEAD 一致。
+- **数据：**`RegR::seer_thyroid_mtc_2026`（n = 4387；`event` 0/1/2 = 3207/597/583）。n ≤ 4387 用无放回抽样；n = 8774、17548、35096 用有放回重抽样放大（表中标 \*），重复行会带来结，只用于看耗时的增长趋势。
+- **计时调用：**`get_eff(d, cat_var = "Sex", adj_var = c("Age", "Race", "M"), surv = FALSE, time = 120, ...)`，`methods` 用默认的 `c("unadj", "direct")`。
+- **配置：**① `show_surdiff = FALSE`（此时 `cif_args` 不起作用）；② `show_surdiff = TRUE` + `cif_args = list(model = "FGR")`（即默认）；③ 同上但用 `"CSC"`。另测了 Cox（`surv = TRUE`）下 `show_surdiff` 开和关作为对照。
+- **重复：**n ≤ 4387 每格 5 次，更大的 n 每格 3 次；每个 n 内部配置顺序随机打乱，正式计时前先预热一次。报告取墙钟时间中位数。
+- **并行：**单个 `cat_var` 时外层串行。FGR 的 `adjustedcif(bootstrap = TRUE, n_boot = 50, n_cores = 5)` 在 Linux 上走 fork 后端。
+
+## 耗时结果
+
+```{r}
+#| label: fig-timing
+#| echo: false
+#| fig-cap: "单次 get_eff() 调用的墙钟耗时中位数（秒），双对数坐标。虚线右侧为重抽样放大的样本。"
+#| fig-width: 7.5
+#| fig-height: 4.2
+#| renderings: [light, dark]
+library(ggplot2)
+lab <- c(crr_FGR = "crr · FGR", crr_CSC = "crr · CSC",
+         crr_surdiff_FALSE = "crr · show_surdiff = FALSE",
+         cox_surdiff_TRUE = "Cox · show_surdiff = TRUE",
+         cox_surdiff_FALSE = "Cox · show_surdiff = FALSE")
+col <- c("#b4532a", "#1f6f5c", "#6b7a8f", "#9a8a3a", "#b9c0bb")
+med$cfg <- factor(med$cfg, levels = names(lab), labels = lab)
+p <- ggplot(med, aes(n, elapsed, colour = cfg)) +
+  geom_vline(xintercept = 4387, linetype = 3, colour = "grey55") +
+  geom_line(linewidth = 0.9) + geom_point(size = 1.8) +
+  scale_x_log10(breaks = unique(med$n), labels = function(x) ifelse(x >= 1000, paste0(round(x / 1000, 1), "k"), x)) +
+  scale_y_log10(breaks = c(0.1, 1, 10, 100), labels = function(x) paste(x, "s")) +
+  scale_colour_manual(values = col, name = NULL) +
+  labs(x = "样本量 n（对数）", y = "墙钟耗时（对数）") +
+  guides(colour = guide_legend(nrow = 2))
+th <- function(fg, bg, grid) theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom", panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(colour = grid),
+        text = element_text(colour = fg), axis.text = element_text(colour = fg),
+        plot.background = element_rect(fill = bg, colour = NA))
+p + th("#1d2421", "white", "grey90")
+p + th("#dee2e6", "#222222", "#3a3f44")
+```
+
+```{r}
+#| label: tbl-timing
+#| echo: false
+#| tbl-cap: "墙钟耗时中位数（秒）。CIF 增量 = 该后端总耗时 − show_surdiff = FALSE，即生成 sur_unadj + sur_direct 两张表多花的时间。"
+ic <- w$crr_CSC - w$crr_surdiff_FALSE
+ig <- w$crr_FGR - w$crr_surdiff_FALSE
+knitr::kable(data.frame(
+  n = n_lab,
+  `surdiff=FALSE` = f2(w$crr_surdiff_FALSE),
+  `CSC 总` = f2(w$crr_CSC), `FGR 总` = f2(w$crr_FGR),
+  `FGR/CSC 总` = sprintf("%.1f×", w$crr_FGR / w$crr_CSC),
+  `CSC CIF 增量` = f2(ic), `FGR CIF 增量` = f2(ig),
+  `FGR/CSC 增量` = sprintf("%.0f×", ig / ic),
+  check.names = FALSE), align = "rrrrrrrr")
+```
+
+n 从 4387 增到 35096（8 倍）时，拟合出的幂律指数：FGR 总耗时约 n^1.74^，FGR 的 CIF 增量约 n^1.73^，`show_surdiff = FALSE`（即 crr 的 sHR 表）约 n^1.90^，CSC 的 CIF 增量约 n^0.63^。大样本下，CSC 调用的总耗时基本就是 crr 拟合 sHR 表的耗时。
+
+CPU 时间说明了 FGR 贵在哪里：n = 35096 时，FGR 墙钟 211 s、CPU 929 s（约 4.4 个核满载）；CSC 墙钟 25 s、CPU 63 s。在共享服务器或 Windows PSOCK 环境下，FGR 的实际代价会比这里的墙钟时间更明显。
+
+## show_surdiff 开和关
+
+```{r}
+#| label: tbl-surdiff
+#| echo: false
+#| tbl-cap: "打开 show_surdiff 比关闭时多花的墙钟时间（秒），以及总耗时是关闭时的多少倍。"
+knitr::kable(data.frame(
+  n = n_lab,
+  `crr·FGR 增量` = paste0("+", f2(w$crr_FGR - w$crr_surdiff_FALSE)),
+  `倍数 ` = sprintf("%.1f×", w$crr_FGR / w$crr_surdiff_FALSE),
+  `crr·CSC 增量` = paste0("+", f2(w$crr_CSC - w$crr_surdiff_FALSE)),
+  `倍数  ` = sprintf("%.1f×", w$crr_CSC / w$crr_surdiff_FALSE),
+  `Cox 增量` = paste0("+", f2(w$cox_surdiff_TRUE - w$cox_surdiff_FALSE)),
+  `倍数   ` = sprintf("%.1f×", w$cox_surdiff_TRUE / w$cox_surdiff_FALSE),
+  check.names = FALSE), align = "rrrrrrr")
+```
+
+- **竞争风险 + FGR（默认）：**打开 `show_surdiff` 后总耗时是关闭时的 9–13 倍，这是最值得优化的地方。
+- **竞争风险 + CSC：**打开后在 n ≤ 2000 时约为关闭时的 3 倍，但绝对值不到 0.5 s；n 越大越接近 1 倍。
+- **Cox：**打开后每次多 0.14–0.7 s，基本可以忽略。
+
+## FGR 与 CSC 的结果差异
+
+固定条件：完整数据 n = 4387，`cat_var = c("Sex", "Race", "Che", "M")`，`adj_var = c("Age", "Sur")`，分别在 60 个月和 120 个月比较 `sur_direct`。
+
+- `haz_unadj`、`haz_direct` 两张表在 FGR 与 CSC 之间 `identical()` 为 `TRUE`，`sur_unadj`（Aalen–Johansen）也完全相同。`cif_args` 只影响 `sur_direct`。
+- ΔCIF 的方向约定：`estimate` = 参照组 CIF − 该组 CIF，所以 Male、M1 等风险更高的组显示为负值。
+
+::: {.nowrap .column-page}
+
+| 月 | 变量 | 水平 | AJ | FGR CIF (95% CI) | CSC CIF (95% CI) | 点差 | CI 宽 FGR / CSC |
+|--:|:--|:--|--:|--:|--:|--:|--:|
+| 60 | Sex | Female（参照） | 0.0671 | 0.0732 (0.0631, 0.0849) | 0.0732 (0.0628, 0.0836) | 0.0000 | 0.022 / 0.021 |
+| 60 | Sex | Male | 0.1420 | 0.1356 (0.1269, 0.1534) | 0.1357 (0.1219, 0.1496) | +0.0001 | 0.027 / 0.028 |
+| 60 | Race | White（参照） | 0.0993 | 0.1037 (0.0941, 0.1115) | 0.1042 (0.0941, 0.1142) | +0.0005 | 0.018 / 0.020 |
+| 60 | Race | Black | 0.1129 | 0.1082 (0.0835, 0.1312) | 0.1114 (0.0841, 0.1387) | +0.0032 | 0.048 / 0.055 |
+| 60 | Race | Other/Unknown | 0.0721 | 0.0750 (0.0524, 0.0963) | 0.0723 (0.0480, 0.0966) | −0.0027 | 0.044 / 0.049 |
+| 60 | Che | No/Unknown（参照） | 0.0746 | 0.0828 (0.0753, 0.0916) | 0.0819 (0.0721, 0.0918) | −0.0009 | 0.016 / 0.020 |
+| 60 | Che | Yes | 0.4981 | 0.2919 (0.2409, 0.3410) | 0.2888 (0.2324, 0.3452) | −0.0030 | 0.100 / 0.113 |
+| 60 | M | M0（参照） | 0.0496 | 0.0598 (0.0516, 0.0673) | 0.0576 (0.0498, 0.0653) | −0.0022 | 0.016 / 0.016 |
+| 60 | M | M1 | 0.5539 | 0.4345 (0.3916, 0.4773) | 0.4433 (0.3885, 0.4981) | **+0.0088** | 0.086 / 0.110 |
+| 60 | M | Unknown | 0.1640 | 0.1190 (0.0742, 0.1766) | 0.1087 (0.0627, 0.1546) | **−0.0103** | 0.102 / 0.092 |
+| 120 | Sex | Female（参照） | 0.1029 | 0.1142 (0.1039, 0.1328) | 0.1153 (0.1009, 0.1298) | +0.0011 | 0.029 / 0.029 |
+| 120 | Sex | Male | 0.2154 | 0.2047 (0.1868, 0.2247) | 0.2044 (0.1854, 0.2235) | −0.0003 | 0.038 / 0.038 |
+| 120 | Race | White（参照） | 0.1536 | 0.1577 (0.1434, 0.1709) | 0.1583 (0.1450, 0.1717) | +0.0006 | 0.028 / 0.027 |
+| 120 | Race | Black | 0.1515 | 0.1641 (0.1304, 0.2034) | 0.1681 (0.1297, 0.2065) | +0.0040 | 0.073 / 0.077 |
+| 120 | Race | Other/Unknown | 0.1023 | 0.1160 (0.0935, 0.1473) | 0.1125 (0.0767, 0.1482) | −0.0035 | 0.054 / 0.072 |
+| 120 | Che | No/Unknown（参照） | 0.1211 | 0.1322 (0.1228, 0.1465) | 0.1332 (0.1201, 0.1463) | +0.0010 | 0.024 / 0.026 |
+| 120 | Che | Yes | 0.6444 | 0.4252 (0.3740, 0.5018) | 0.4197 (0.3417, 0.4977) | −0.0055 | 0.128 / 0.156 |
+| 120 | M | M0（参照） | 0.0974 | 0.0997 (0.0926, 0.1083) | 0.0999 (0.0875, 0.1124) | +0.0003 | 0.016 / 0.025 |
+| 120 | M | M1 | 0.6383 | 0.6137 (0.5409, 0.6616) | 0.6236 (0.5615, 0.6856) | **+0.0099** | 0.121 / 0.124 |
+| 120 | M | Unknown | 0.2519 | 0.1936 (0.1216, 0.2639) | 0.1852 (0.1116, 0.2589) | **−0.0084** | 0.142 / 0.147 |
+
+: 调整后 CIF。AJ 为未调整的 Aalen–Johansen 估计，作参考；点差 = CSC − FGR，≥ 0.8 个百分点的加粗。FGR 为 `set.seed(1)` 下的一次结果。 {#tbl-agree}
+
+| 月 | 对比（相对参照组） | FGR ΔCIF (95% CI) | FGR P | CSC ΔCIF (95% CI) | CSC P |
+|--:|:--|--:|--:|--:|--:|
+| 60 | Sex: Male | −0.0624 (−0.0812, −0.0436) | 7.6e-11 | −0.0625 (−0.0798, −0.0452) | 1.5e-12 |
+| 60 | Race: Black | −0.0045 (−0.0343, 0.0253) | 0.77 | −0.0072 (−0.0364, 0.0219) | 0.63 |
+| 60 | Race: Other/Unknown | 0.0287 (0.0027, 0.0546) | 0.030 | 0.0318 (0.0055, 0.0581) | 0.018 |
+| 60 | Che: Yes | −0.2091 (−0.2648, −0.1534) | 1.9e-13 | −0.2069 (−0.2642, −0.1497) | 1.4e-12 |
+| 60 | M: M1 | −0.3747 (−0.4250, −0.3244) | 3.3e-48 | −0.3857 (−0.4411, −0.3304) | 1.6e-42 |
+| 60 | M: Unknown | −0.0592 (−0.1174, −0.0011) | 0.046 | −0.0511 (−0.0977, −0.0045) | 0.032 |
+| 120 | Sex: Male | −0.0905 (−0.1166, −0.0644) | 1.1e-11 | −0.0891 (−0.1130, −0.0652) | 2.8e-13 |
+| 120 | Race: Black | −0.0064 (−0.0475, 0.0347) | 0.76 | −0.0097 (−0.0504, 0.0309) | 0.64 |
+| 120 | Race: Other/Unknown | 0.0417 (0.0053, 0.0781) | 0.025 | 0.0459 (0.0078, 0.0840) | 0.018 |
+| 120 | Che: Yes | −0.2930 (−0.3728, −0.2131) | 6.4e-13 | −0.2865 (−0.3656, −0.2074) | 1.2e-12 |
+| 120 | M: M1 | −0.5140 (−0.5774, −0.4506) | 8.1e-57 | −0.5236 (−0.5869, −0.4604) | 3.6e-59 |
+| 120 | M: Unknown | −0.0939 (−0.1768, −0.0111) | 0.026 | −0.0853 (−0.1600, −0.0106) | 0.025 |
+
+: ΔCIF（参照组 CIF − 该组 CIF）与 P 值。 {#tbl-agree-diff}
+
+:::
+
+### FGR 随机种子造成的波动
+
+在 120 个月、同一数据上用 5 个种子（101–105）重跑 FGR：点估计完全不变（点估计不依赖 bootstrap），但 CI 和 P 值都会变。
+
+| 变量 | 水平 | FGR CIF 的 CI 宽度 | CSC CI 宽度 | FGR ΔCIF CI 下限 | FGR ΔCIF CI 上限 | FGR P | CSC P |
+|:--|:--|--:|--:|--:|--:|--:|--:|
+| Sex | Male | 0.032 … 0.043 | 0.038 | −0.118 … −0.112 | −0.069 … −0.063 | 4e-16 … 8e-11 | 2.8e-13 |
+| Race | Black | 0.065 … 0.078 | 0.077 | −0.051 … −0.044 | 0.032 … 0.038 | 0.740 … 0.778 | 0.638 |
+| Race | Other/Unknown | 0.057 … 0.079 | 0.072 | −0.000 … 0.007 | 0.077 … 0.084 | **0.019 … 0.050** | 0.018 |
+| Che | Yes | 0.131 … 0.158 | 0.156 | −0.378 … −0.361 | −0.225 … −0.208 | 3e-17 … 1.5e-11 | 1.2e-12 |
+| M | M0（参照） | 0.017 … 0.027 | 0.025 | — | — | — | — |
+| M | M1 | 0.102 … 0.127 | 0.124 | −0.586 … −0.568 | −0.460 … −0.442 | 2e-77 … 4e-44 | 3.6e-59 |
+| M | Unknown | 0.130 … 0.174 | 0.147 | −0.186 … −0.166 | −0.022 … −0.002 | 0.011 … 0.046 | 0.025 |
+
+: FGR 在 5 个种子下的取值范围，与 CSC 的单次（确定性）结果对照。 {#tbl-seed}
+
+### 样本量变化时的一致性（Sex，120 个月）
+
+| n | Female FGR / CSC | Male FGR / CSC | FGR ΔCIF (95% CI) · P | CSC ΔCIF (95% CI) · P |
+|--:|--:|--:|--:|--:|
+| 500 | 0.1228 / 0.1247 | 0.1852 / 0.1861 | −0.0624 (−0.1277, 0.0028) · 0.061 | −0.0614 (−0.1295, 0.0067) · 0.077 |
+| 1000 | 0.1515 / 0.1534 | 0.2011 / 0.1999 | −0.0495 (−0.1003, 0.0012) · 0.056 | −0.0465 (−0.0985, 0.0055) · 0.080 |
+| 2000 | 0.1265 / 0.1286 | 0.1869 / 0.1846 | −0.0604 (−0.0938, −0.0270) · 3.9e-4 | −0.0560 (−0.0895, −0.0225) · 1.1e-3 |
+| 4387 | 0.1256 / 0.1281 | 0.1887 / 0.1859 | −0.0632 (−0.0901, −0.0362) · 4.4e-6 | −0.0579 (−0.0810, −0.0347) · 1.0e-6 |
+| 8774\* | 0.1327 / 0.1355 | 0.2055 / 0.2015 | −0.0729 (−0.0907, −0.0550) · 1.2e-15 | −0.0660 (−0.0833, −0.0487) · 6.9e-14 |
+| 17548\* | 0.1291 / 0.1322 | 0.1860 / 0.1824 | −0.0569 (−0.0678, −0.0461) · 7.5e-25 | −0.0502 (−0.0619, −0.0385) · 4.8e-17 |
+| 35096\* | 0.1292 / 0.1317 | 0.1976 / 0.1950 | −0.0683 (−0.0765, −0.0602) · 1.8e-60 | −0.0633 (−0.0717, −0.0549) · 1.2e-49 |
+
+: 计时实验第 1 次重复的结果（adj = Age, Race, M）。 {#tbl-sexn}
+
+两个后端的 ΔCIF 始终同号、显著性判断相同。FGR 的 |ΔCIF| 系统性地大 0.3–0.7 个百分点，原因是两者的工作模型不同（比例子分布风险 vs 各原因比例风险），不是随机误差。n = 500 和 1000 时两个后端都不显著（P ≈ 0.06–0.08）。
+
+## 建议
+
+- **n ≥ 5000、多个 `cat_var`，或有 `sub_var` / `split_var`（每个亚组都要重做一次 bootstrap）时，用 `cif_args = list(model = "CSC")`。**点估计差异在 1 个百分点以内，结果可复现，不受随机种子影响。
+- 要与既往结果对齐，或想让 CIF 曲线与 sHR 表出自同一个 Fine-Gray 模型时，保留默认的 FGR。此时固定 `set.seed()`，并留意 P 接近 0.05 的对比（n_boot = 50 的 bootstrap P 值精度有限）。
+- 只需要 sHR 表时用 `show_surdiff = FALSE`，这是最快的配置；但 n 很大时 crr 本身仍是瓶颈（n = 35096 约 23 s）。
+- 帮助页里 "CSC roughly 15x faster" 的说法与实测大致相符（仅 CIF 部分：n = 4387 时约 10 倍，n 越大倍数越高），可以补充说明这个倍数随 n 变化。
+
+## 局限
+
+- 只测了 WSL（Linux fork 后端）。Windows R 上 bootstrap 走 PSOCK，每次都要启动进程，FGR 的额外开销预计更大，本次没有测量。
+- 计时只用了一个二分类 `cat_var`、无 `sub_var` 的场景。多个 `cat_var` 时外层会并行（上限 4 个 worker × 内层 5 核），耗时不能简单按变量数线性相乘。
+- n > 4387 的数据是重抽样放大的，只用于看耗时的增长趋势，不应拿来解释效应量。
+
+## 复现脚本
+
+两个脚本都在 WSL 的 Rscript 下运行，工作目录里生成 `bench_timing.csv`、`bench_results.rds` 和 `agree_results.rds`。本页的耗时图表直接读取 [`bench/bench_timing.csv`](https://github.com/HUI950319/Rnotes/blob/main/regr/bench/bench_timing.csv)。
+
+```{r}
+#| label: code-bench
+#| file: bench/bench.R
+#| eval: false
+#| code-fold: true
+#| code-summary: "bench.R：耗时基准"
+```
+
+```{r}
+#| label: code-agree
+#| file: bench/agree.R
+#| eval: false
+#| code-fold: true
+#| code-summary: "agree.R：FGR 与 CSC 结果一致性"
+```
