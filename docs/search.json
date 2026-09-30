@@ -34,7 +34,7 @@
     "href": "index.html#笔记目录",
     "title": "R 包开发笔记",
     "section": "笔记目录",
-    "text": "笔记目录\n\n\n\n包\n页面\n日期\n\n\n\n\nRegR\n竞争风险 CIF 的 FGR 与 CSC：get_eff、get_cat、get_facet 的耗时和结果差异\n2026-09-29\n\n\nToyData\n14 个示例数据对象：临床队列、模型解释与单细胞数据\n2026-09-30",
+    "text": "笔记目录\n\n\n\n包\n页面\n日期\n\n\n\n\nRegR\n竞争风险 CIF 的 FGR 与 CSC：get_eff、get_cat、get_facet 的耗时和结果差异\n2026-09-29\n\n\nToyData\n14 个示例数据对象：临床队列、模型解释与单细胞数据\n2026-09-30\n\n\nMLR\nSHAP：get_shp 与 14 个绘图函数，34 个参数对照示例\n2026-09-30",
     "crumbs": [
       "关于这份笔记"
     ]
@@ -44,7 +44,7 @@
     "href": "index.html#数据说明",
     "title": "R 包开发笔记",
     "section": "数据说明",
-    "text": "数据说明\n本站公开。涉及 SEER 等登记数据的笔记只展示汇总统计量（样本量、事件数、 估计值与置信区间），不包含也不提供任何个体水平数据。",
+    "text": "数据说明\n本站公开。涉及 SEER 等登记数据的笔记展示汇总统计量、模型解释图和方法示例， 不提供患者级原始数据表或数据文件下载。",
     "crumbs": [
       "关于这份笔记"
     ]
@@ -263,10 +263,230 @@
     "href": "mlr/index.html",
     "title": "MLR 概览",
     "section": "",
-    "text": "MLR 负责机器学习模型的解释：特征重要性、SHAP、部分依赖（PDP）与变量交互（VIVI），并直接复用 RegR 与 UtilsR 的结果表和绘图主题。\n主要函数： get_exp()、get_shp()、get_imp()、get_vpd()、plt_shp_*()\n参考文档：https://hui950319.github.io/MLR/\n\n\n\n\n\n\n注记\n\n\n\n这个分区的笔记还在整理中。",
+    "text": "MLR 负责机器学习模型的解释：特征重要性、SHAP、部分依赖（PDP）与变量交互（VIVI），并直接复用 RegR 与 UtilsR 的结果表和绘图主题。\n主要函数： get_exp()、get_shp()、get_imp()、get_vpd()、plt_shp_*()\n参考文档：https://hui950319.github.io/MLR/\n\n\n\n\n\n\n注记\n\n\n\n新增 SHAP：get_shp 与 14 个绘图函数：详细说明任务、采样、计算后端与返回对象，并用 ToyData::toy_shp 展示 34 个图形示例及关键参数对照。",
     "crumbs": [
       "MLR · 机器学习解释",
       "<span class='chapter-number'>4</span>  <span class='chapter-title'>MLR 概览</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html",
+    "href": "mlr/shap-guide.html",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "",
+    "text": "示例准备与读图规则\n这一页分为两部分：先介绍 get_shp() 如何训练树模型、计算 SHAP 并组织结果，再用已经计算好的 ToyData::toy_shp 展示全部 14 个 plt_shp_*() 函数。图形选项放在各节的标签页中，可切换比较，并点击图片放大。\n版本与执行范围： 接口按 MLR 0.1.13 的实际源码核对。下面的 34 张图均用现有 SHAP 对象实际绘制；get_shp() 的代码仅作接口说明，本页没有重新训练模型或计算 SHAP。\ntoy_shp 是从 SEER 胰腺导管腺癌（PDAC）、TNM I 期示例分析中抽取的生存随机森林解释对象，含 400 个观测、14 个变量。它与本站 ToyData 目录中的 598 人 M1 PTC 队列是两个不同的数据对象，详细来源见 ToyData 数据介绍。\n变量包括年龄、性别、种族、婚姻、收入、城乡、原发部位、诊断年份、分级、肿瘤大小、扩展、手术、放疗和化疗。Che 的水平是 No/Unknown 与 Yes；前者含治疗信息未知，不能当作完全明确的未治疗组。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#data",
+    "href": "mlr/shap-guide.html#data",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "",
+    "text": "成分\n维度 / 内容\n用途\n\n\n\n\nS\n400 × 14\n每个观测的特征总 SHAP\n\n\nX\n400 × 14\n解释样本的原始特征值；用于横轴与着色\n\n\nS_inter\n400 × 14 × 14\n主效应与两两交互分解\n\n\nbaseline\n0\n该对象存储的解释基线\n\n\n\n\nlibrary(MLR)\nlibrary(ToyData)\nlibrary(ggplot2)\n\n# 胰腺癌示例的 Ext 使用通用名称，避免套用甲状腺专用标签。\n# .rename_shp() 是 MLR 导出的名称同步工具；同时更新 S、X 和 S_inter。\nshp &lt;- MLR::.rename_shp(ToyData::toy_shp,\n                        name_map = c(Ext = \"Extension\"))\n\n# 插图和环形图使用较短标签；只改名称，不改数值。\nshort_names &lt;- c(\n  Age = \"age\", Sex = \"sex\", Race = \"race\", Marital_4 = \"marital\",\n  Income_3 = \"income\", County_2 = \"county\", Primary_Site = \"site\",\n  Yea_3 = \"year\", Grade_3 = \"grade\", Tum_3 = \"size\", Extension = \"extent\",\n  Sur = \"surgery\", Rad = \"rt\", Che = \"chemo\"\n)\nshp_labels &lt;- MLR::.rename_shp(shp, name_map = short_names)\n\n# 仅为演示分组图固定为 3 簇，使用默认的 SHAP 列标准化。\nclu &lt;- get_shp_clust(shp, k = 3, seed = 246, silhouette = FALSE)\n\n\n总贡献、主效应、交互与重要性\n对观测 \\(i\\) 与变量 \\(j\\)，记总 SHAP 为 \\(\\phi_{ij}\\)，交互矩阵为 \\(\\Phi_{ijk}\\)：\n\\[\n\\begin{aligned}\n\\phi_{ij}&=\\sum_k\\Phi_{ijk},\\\\\n\\text{主效应}_{ij}&=\\Phi_{ijj},\\\\\n\\text{完整变量对贡献}_{i,jk}&=2\\Phi_{ijk}\\;(j\\ne k).\n\\end{aligned}\n\\]\n矩阵非对角项对称；一对变量的贡献分在两个对称位置，所以本页的配对交互图使用两倍非对角项。这与 SHAP TreeExplainer 的交互分解定义一致。当前对象已核验 \\(\\max|\\sum_k\\Phi_{ijk}-\\phi_{ij}|&lt;10^{-12}\\)。\n全局重要性为 \\(I_j=n^{-1}\\sum_i|\\phi_{ij}|\\)。它衡量平均贡献幅度，取绝对值后不保留方向；百分比是所选变量集合内的重要性份额，不能解释成死亡风险占比或解释方差。\n\n\n\n\n\n\n注记\n\n\n\nSHAP 解释的是已拟合模型的输出。生存森林的风险尺度不是死亡概率或 HR，治疗变量的 SHAP 分布也不直接等于因果治疗效果。toy_shp 的基线存储为 0；热图和力图中的 f(x) 按 baseline + rowSums(S) 构造，不能据此把它认作已经校准的绝对风险或原模型的平均预测。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#get-shp",
+    "href": "mlr/shap-guide.html#get-shp",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "get_shp()：接口与分析流程",
+    "text": "get_shp()：接口与分析流程\nget_shp() 把任务选择、训练样本处理、树模型训练、SHAP 计算和常用图形组装放在一个入口。vars 必须是列名字符向量，例如 c(\"Age\", \"Che\", \"Tum_3\")。以下签名仅展示当前接口：\nget_shp(\n  data, vars, surv = TRUE,\n  interactions = TRUE, int_var = NULL, ...,\n  Num.sample = 2000, exp.sample = 400,\n  sample_args = list(\n    Down.sample = TRUE, Outcome.Ratio = NULL,\n    Num.sample = 2000, exp.sample = 400\n  ),\n  model = c(\"ranger\", \"xgboost\", \"lightgbm\"),\n  boosting_encoding = c(\"onehot\", \"target\"),\n  engine = c(\"python\", \"treeshap\"),\n  device = c(\"auto\", \"cpu\", \"gpu\"),\n  render_plots = TRUE\n)\n\n任务由 surv 的类型决定\n\n\n\n\n\n\n\n\n\nsurv 的写法\n实际任务\n数据要求\n\n\n\n\nsurv = TRUE\n生存分析\n当前实现固定读取 time 与 DSS；预测变量列由 vars 指定\n\n\nsurv = FALSE\n仍然是生存分析\n当前分派条件为 is.logical(surv)，不是逻辑值本身\n\n\nsurv = \"outcome\"\n二分类\n指定结局列；应有明确的 0/1 或两水平因子编码\n\n\n\n\n二分类分支把因子结局转换为 as.numeric(outcome) - 1，所以第二个因子水平对应正类。分析前应明确这个水平的临床含义；此入口不是一般的多分类接口。生存分析建议写 surv = TRUE，二分类则显式写结局列名。\n\n\nmodel 与变量编码\n\n\n\n\n\n\n\n\n\n\n模型\n生存任务\n二分类任务\n编码与模型边界\n\n\n\n\n\"ranger\"（默认）\n支持\n支持\n分类变量保持因子；默认 200 棵树；生存解释使用森林风险输出\n\n\n\"xgboost\"\n支持\n支持\n生存任务使用 onehot；二分类可用 onehot 或 target\n\n\n\"lightgbm\"\n不支持\n支持\n二分类可用 onehot 或 target\n\n\n\n\nonehot 将分类特征展开成编码列；target 是分类任务中的交叉拟合、平滑目标编码。Boosting 模型产生的编码列 SHAP 会按原始变量归并，交互块也按原始变量求和，因此下游绘图仍面对原始特征层级。\n\n\n训练样本与解释样本是两件事\n\n\n\n\n\n\n\n\n\n参数\n当前默认 / 行为\n选择时要注意\n\n\n\n\nDown.sample\nTRUE\n先处理结局比例，再限制训练样本量\n\n\nOutcome.Ratio\nNULL 保留任务默认：生存 9、二分类 3\n指负类 / 正类的目标比例；不是每次都强制达到此比例\n\n\nNum.sample\n2000\n默认路径中的训练样本上限，不是树的数量\n\n\nexp.sample\n400\n从处理后的数据中抽取解释样本；整数时不超过可用行数\n\n\nsample_args\n命名 list，允许局部覆盖\n只允许上述四个字段，未知名称、重复字段或与显式参数重复指定会报错\n\n\n\n\n当前采样 helper 仅在负类 / 正类比例 大于 9 时触发比例下采样，再按任务的 Outcome.Ratio 取负类。因此二分类默认比例 3 并不代表比例为 4–9 时也会自动平衡到 3。生存任务中的正类按 DSS 的事件编码判断。\n另一个容易忽略的细节是：Down.sample = FALSE 会提前返回训练数据，同时跳过 Num.sample 上限。这时不能把 Num.sample = 2000 当作仍然有效的限额。\nexp.sample 的整数控制解释行数；生存分支还支持按 sampling::strata() 约定给出分层抽样 list。当前二分类分支按数值样本量处理，不能照搬生存分支的分层 list。若需稳定复现，抽样前设置 R 随机种子。\n配置可以集中写成 sample_args = list(Num.sample = 1000, exp.sample = 200)；也可以只用显式的 Num.sample 与 exp.sample。同一个设置选一种位置即可。... 不应被当成任意模型超参数的通用转发口。\n\n\nengine 与 device\n\n\n\n\n\n\n\n\n\n选项\n作用\n环境与含义\n\n\n\n\nengine = \"python\"（默认）\nPython SHAP 树解释器\n通过 reticulate；需先选择可用的 Python SHAP 环境\n\n\nengine = \"treeshap\"\nR 端树解释器\n可在 R 端完成计算；device 不控制这个后端\n\n\ndevice = \"auto\"\n自动选择可用的 Python 计算路径\nGPU 是否可用取决于环境与已安装扩展\n\n\ndevice = \"cpu\" / \"gpu\"\n指定 Python SHAP 的计算设备\n这不等于把 R 端模型训练也转移到 GPU\n\n\n\n\n若使用项目的 Python 环境，应在 reticulate 初始化前选定 MLR-shap。本页绘图读取已存储的 SHAP，因此不需要启动这个环境。\n比较两个计算引擎时还要控制模型本身：当前 ranger 生存路径在 Python 引擎下设 max.depth = 30，R treeshap 路径没有相同的默认深度限制。直接比较两次默认 get_shp() 的数值，可能同时比较了模型训练差异与解释器差异。\n\n\ninteractions、int_var 与 render_plots\ninteractions = TRUE 请求交互矩阵，便于展示主效应、变量对贡献、交互排名与网络；关闭后，依赖 S_inter 的图形无法生成。交互存储量随解释样本数与变量数按 \\(n\\times p\\times p\\) 增长，变量较多时可先缩小解释样本或关闭交互。\nint_var 主要指定预生成交互图中需要查看的变量对，例如 c(\"Age\", \"Che\")，并不意味着只计算这两个变量的交互。后续可以继续对同一个完整对象选择其他变量。\nrender_plots = FALSE 保留 SHAP 计算，但把下面六个预生成图字段全部置为 NULL。需要自己选图、自己调参数时，这个开关可以减少不必要的作图。\n\n\n返回对象如何使用\n\n\n\n\n\n\n\n\n\n字段\n内容\n条件\n\n\n\n\nshp\nshapviz 对象，含 S、X、baseline，以及可选 S_inter\n核心绘图输入\n\n\nplt.sum\n总体蜂群 / 百分比组合图\nrender_plots = TRUE\n\n\nplt.viv\n总体交互可视化\n还需 S_inter\n\n\nplt.tot\n各变量总 SHAP 依赖图\nrender_plots = TRUE\n\n\nplt.mai\n各变量主效应图\n还需 S_inter\n\n\nplt.int1\nint_var 两个方向的总贡献 / 配对交互图\n还需 S_inter 与 int_var\n\n\nplt.int2\n两个锚点各自的交互排名与自动配对插图\n自动选择各自最强搭档，不保证就是 int_var 的另一个变量\n\n\ncat_vars\n原始 vars 中因子或字符列的名称\n用于变量分类\n\n\ncon_vars\n原始 vars 中数值列的名称\n用于变量分类\n\n\npar_lis\n原始 data 与 vars\n参数记录；保存完整结果时也会保存原始数据\n\n\n\n\n返回值中没有单独的已拟合 learner 字段。大部分绘图入口既可接收完整结果 res，也可接收 res[[\"shp\"]]；plt_shp_stack() 的首个参数是聚类结果，plt_shp_circ() 还可接收命名的多组 SHAP 对象列表。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plot-index",
+    "href": "mlr/shap-guide.html#plot-index",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "绘图函数速查",
+    "text": "绘图函数速查\n\n\n\n\n函数\n主要用途\n重点比较\n\n\n\n\nplt_shp_sum()\n总体蜂群与组合图\nmode、显示数量、横轴与插图位置\n\n\nplt_shp_imp()\n全局重要性与百分比\n原始 / 归一化、条形 / 百分比\n\n\nplt_shp_TM()\n总贡献与主效应\nT / M / TM、共享纵轴\n\n\nplt_shp_TM_com()\n分类变量的分布组合\n分类变量、标签\n\n\nplt_shp_TI()\n变量对的交互依赖\n配对选择、共享纵轴\n\n\nplt_shp_int()\n以一个变量为锚点的交互排名\n锚点、搭档、排名数量\n\n\nplt_shp_viv()\n全局交互矩阵与网络\n矩阵 / 网络、边阈值\n\n\nplt_shp_cor()\n交互矩阵与总交互柱形\n布局、排序、分级色阶\n\n\nplt_shp_pairs()\n配对矩阵\n变量选择、点密度\n\n\nplt_shp_heatmap()\n观测 × 特征热图\n观测排序、分组与聚合\n\n\nplt_shp_map()\nSHAP 空间的二维投影\nPCA / UMAP、着色与轮廓\n\n\nplt_shp_stack()\n各簇的贡献堆叠\n簇内排序、聚合与列数\n\n\nplt_shp_circ()\n环形蜂群与组间尺度\n全局 / 组内尺度\n\n\nplt_shp_force()\n单个观测的力图与瀑布图\n力图 / 瀑布图、展示数量",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-sum",
+    "href": "mlr/shap-guide.html#plt-shp-sum",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_sum()： 总体蜂群与组合图",
+    "text": "plt_shp_sum()： 总体蜂群与组合图\n蜂群图同时展示变量的重要性顺序、每个观测的贡献方向和特征值着色。下列标签页比较纯蜂群、横轴缩放，以及两种插图组合。\n\nmode = \"sum\"：纯蜂群；\"sum_per\"：加重要性百分比环图；\"sum_tot\"：加 tot_var 的总 SHAP 分布。\ndisplay.ncol = 8 在纯蜂群示例中保留前 8 项；当前组合模式的内部调用没有转发这个参数，因此示例保留全部变量。\nshow_numbers = TRUE 的纯蜂群百分比以展示的 8 项为分母；全变量百分比组合以全部 14 项为分母，数值会不同。\nscale_x = list(xlim = ..., xbre = ...) 设置观察范围与刻度；xlim 使用坐标缩放，不重新计算 SHAP 或重要性。\nper_position / tot_position 为 c(x, y, width, height)，使用组合画布的相对坐标；组合示例通过扩展横轴，在右边给插图留空间。\n\n\n蜂群图缩放横轴蜂群与百分比蜂群与分组依赖\n\n\n前 8 项的分母与全 14 项图不同；图例移至右侧，避免挡住散点。\nplt_shp_sum(shp, mode = \"sum\", display.ncol = 8,\n            show_numbers = TRUE) +\n  ggplot2::theme(legend.position = \"right\")\n\n\n\nplt_shp_sum：蜂群图。前 8 项的分母与全 14 项图不同；图例移至右侧，避免挡住散点。\n\n\n\n\n以绝对 SHAP 的第 95 百分位设置对称观察窗。窗外点仍参与重要性计算。\nlim &lt;- as.numeric(quantile(abs(shp[[\"S\"]]), 0.95))\nplt_shp_sum(shp, mode = \"sum\", display.ncol = 8,\n            scale_x = list(xlim = c(-lim, lim), xbre = c(-lim, 0, lim)),\n            colors = c(\"#2166AC\", \"#F7F7F7\", \"#B2182B\")) +\n  ggplot2::theme(legend.position = \"right\")\n\n\n\nplt_shp_sum：缩放横轴。以绝对 SHAP 的第 95 百分位设置对称观察窗。窗外点仍参与重要性计算。\n\n\n\n\n给右侧环形插图预留横轴空间；标签副本与原对象具有相同数值。\nplt_shp_sum(shp_labels, mode = \"sum_per\",\n            scale_x = list(xlim = c(-90, 110)),\n            per_position = c(0.59, 0.17, 0.38, 0.63))\n\n\n\nplt_shp_sum：蜂群与百分比。给右侧环形插图预留横轴空间；标签副本与原对象具有相同数值。\n\n\n\n\n右侧查看 chemo（原 Che）的总贡献分布；横轴分组含 No/Unknown。\nplt_shp_sum(shp_labels, mode = \"sum_tot\", tot_var = \"chemo\",\n            scale_x = list(xlim = c(-90, 110)),\n            tot_position = c(0.59, 0.14, 0.37, 0.42))\n\n\n\nplt_shp_sum：蜂群与分组依赖。右侧查看 chemo（原 Che）的总贡献分布；横轴分组含 No/Unknown。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-imp",
+    "href": "mlr/shap-guide.html#plt-shp-imp",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_imp()： 全局重要性与百分比",
+    "text": "plt_shp_imp()： 全局重要性与百分比\n这组图把 \\(I_j=\\mathrm{mean}(|\\phi_j|)\\) 汇总为排名。它适合回答“模型主要使用哪些信息”，不提供贡献正负方向。\n\nmode 选择 \"bar\"、\"per\" 或 \"bar_per\"。\nbar_display = \"l\" 画棒棒糖，\"b\" 画柱形；bar_rescale = TRUE 将条形数值重新缩放到 0–1。\n当前条形图的默认轴标题会写为 Normalized scaled value；在 bar_rescale = FALSE 时应按原始平均绝对 SHAP 读数。\nper_position 调组合插图位置；per_args 中的 empty_bar_ratio 与 text_height 调环形留白和标签偏移，不改变重要性。\n\n\n原始重要性归一化柱形组合图百分比图\n\n\n条形数值是原始平均绝对 SHAP，保留该解释对象的单位。\nplt_shp_imp(shp_labels, mode = \"bar\", bar_display = \"l\")\n\n\n\nplt_shp_imp：原始重要性。条形数值是原始平均绝对 SHAP，保留该解释对象的单位。\n\n\n\n\n改用柱形并归一化到 0–1，突出相对排名，单位随之改变。\nplt_shp_imp(shp_labels, mode = \"bar\", bar_display = \"b\",\n            bar_rescale = TRUE)\n\n\n\nplt_shp_imp：归一化柱形。改用柱形并归一化到 0–1，突出相对排名，单位随之改变。\n\n\n\n\n条形与百分比组合；per_position 控制插图大小及位置。\nplt_shp_imp(shp_labels, mode = \"bar_per\",\n            per_position = c(0.40, 0.10, 0.48, 0.70))\n\n\n\nplt_shp_imp：组合图。条形与百分比组合；per_position 控制插图大小及位置。\n\n\n\n\n增加环形留白，并调整标签偏移；重要性份额保持不变。\nplt_shp_imp(shp_labels, mode = \"per\",\n            per_args = list(empty_bar_ratio = 0.18, text_height = 0.025))\n\n\n\nplt_shp_imp：百分比图。增加环形留白，并调整标签偏移；重要性份额保持不变。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-tm",
+    "href": "mlr/shap-guide.html#plt-shp-tm",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_TM()： 总贡献与主效应",
+    "text": "plt_shp_TM()： 总贡献与主效应\n同一个特征的总 SHAP 可以包含大量交互。display = \"TM\" 把总贡献与交互矩阵对角线的主效应并排，便于判断两者分布是否相似。\n\nx_var 可为一个列名、多个列名，或 \"fct\" / \"num\"；本页分别展示 Age 与 Che。\ndisplay = \"T\" / \"M\" / \"TM\" 选择总贡献、主效应或两者；主效应必须有 S_inter。\naxis_arg = list(share_y = \"var\", hide_y = TRUE) 给同一变量共用纵轴范围，并隐藏重复纵轴；\"all\" 则在所有面板间共享范围。\nstrip_arg 控制条带开关、文字与颜色；ylim 可显式限定纵轴，但不应通过裁剪制造分布差异。\n\n\n连续变量分类变量\n\n\n总贡献与主效应共用纵轴，避免面板自动缩放掩盖幅度差异。\nplt_shp_TM(shp, x_var = \"Age\", display = \"TM\",\n           axis_arg = list(share_y = \"var\", hide_y = TRUE))\n\n\n\nplt_shp_TM：连续变量。总贡献与主效应共用纵轴，避免面板自动缩放掩盖幅度差异。\n\n\n\n\n分类变量也可比较总贡献与主效应；条带颜色区分两个面板。\nplt_shp_TM(shp, x_var = \"Che\", display = \"TM\",\n           axis_arg = list(share_y = \"var\", hide_y = TRUE),\n           strip_arg = list(strip_fill = c(\"#BCD9EA\", \"#D4E9DD\")))\n\n\n\nplt_shp_TM：分类变量。分类变量也可比较总贡献与主效应；条带颜色区分两个面板。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-tm-com",
+    "href": "mlr/shap-guide.html#plt-shp-tm-com",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_TM_com()： 分类变量的分布组合",
+    "text": "plt_shp_TM_com()： 分类变量的分布组合\n针对一个分类变量，把总贡献与主效应的抖动点、小提琴、箱线与中心值放在两张组合图中。图中均值标签是描述统计，不能直接读作治疗效果。\n\nx_var 在这里应选择分类列，例如 \"Che\"；默认的 \"surgery\" 不在 toy_shp 中，所以需要显式指定。\nadd_name 自定义展示名称；color 调分组颜色；fmt_tag 控制面板标签。\n当前函数没有 save 参数；可对返回图使用 ggplot2::ggsave()。\n\n箱线、小提琴、散点与均值提供互补的分布描述。\nplt_shp_TM_com(shp, x_var = \"Che\",\n               add_name = c(Che = \"Chemotherapy\"), fmt_tag = TRUE)\n\n\n\nplt_shp_TM_com：分布组合。箱线、小提琴、散点与均值提供互补的分布描述。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-ti",
+    "href": "mlr/shap-guide.html#plt-shp-ti",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_TI()： 变量对的交互依赖",
+    "text": "plt_shp_TI()： 变量对的交互依赖\n横轴是锚点变量，颜色是搭档变量。display = \"TI\" 的上部显示完整变量对贡献 \\(2\\Phi_{jk}\\)，下部显示锚点的总 SHAP；也可只展示其中一层。\n\ntwo_var = c(\"Age\", \"Che\") 指定一对变量；display = \"T\" / \"I\" / \"TI\" 控制展示层。\nc(\"Che\", \"Age\", \"Tum_3\") 是同一锚点 Che 分别与 Age、Tum_3 配对，并不自动穷举三个变量的所有组合。\naxis_arg$share_y = \"all\" 让多个面板使用相同尺度；hide_x = TRUE 隐藏上下重复横轴，hide_y = TRUE 隐藏重复纵轴。\ncolor 可用调色板名或颜色向量；连续搭档与分类搭档分别使用连续色阶与离散颜色。\n\n\n总贡献与交互同一锚点多配对\n\n\n上方是两倍配对交互，下方是 Age 的总贡献；同一纵轴范围。\nplt_shp_TI(shp, two_var = c(\"Age\", \"Che\"), display = \"TI\",\n           axis_arg = list(share_y = \"all\", hide_x = TRUE),\n           color = \"RdYlBu\")\n\n\n\nplt_shp_TI：总贡献与交互。上方是两倍配对交互，下方是 Age 的总贡献；同一纵轴范围。\n\n\n\n\nChe 与 Age、Tum_3 两个搭档的配对贡献采用共同纵轴。\nplt_shp_TI(shp, two_var = c(\"Che\", \"Age\", \"Tum_3\"), display = \"I\",\n           axis_arg = list(share_y = \"all\", hide_y = TRUE),\n           color = \"RdYlBu\")\n\n\n\nplt_shp_TI：同一锚点多配对。Che 与 Age、Tum_3 两个搭档的配对贡献采用共同纵轴。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-int",
+    "href": "mlr/shap-guide.html#plt-shp-int",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_int()： 以一个变量为锚点的交互排名",
+    "text": "plt_shp_int()： 以一个变量为锚点的交互排名\n先把锚点与各搭档的绝对交互值在样本间求和、去掉对角线，再归一化并排名。它关注交互幅度，排名本身不保留交互方向。\n\nint_var = \"Che\" 固定锚点；mode 支持 \"bar_per\"、\"bar\"、\"per\" 与 \"bar_shp\"。\nfmt_args = list(dis_ncol = 6) 显示前 6 个搭档；del_var 可排除指定搭档。归一化在筛选前进行，因此修改显示数量不等于对保留项重新定标。环形百分比随后基于这些归一化值、在展示搭档内重新求份额，不是原始绝对交互总和的比例。\n\"bar_shp\" 默认选择最强搭档；显式 oth_var = \"Age\" 可以查看另一个指定配对。int_position 与 legend_position 调插图和图例位置。\n使用 add_name 时，示例同时包含锚点 Che 和搭档 Age 的映射，保证变量选择与重命名后的维度一致。\nfmt_args$cha_mult 会改变排名数值；int_args 中的平移或倍乘改变配对散点显示，不能把这些设置都当作纯布局调整。\n\n\n交互排名与百分比交互柱形交互百分比指定配对与插图\n\n\n归一化交互排名与所选搭档的百分比视图。\nplt_shp_int(shp, int_var = \"Che\", mode = \"bar_per\",\n            fmt_args = list(dis_ncol = 6))\n\n\n\nplt_shp_int：交互排名与百分比。归一化交互排名与所选搭档的百分比视图。\n\n\n\n\n前 6 个搭档的归一化交互排名，柱形显示。\nplt_shp_int(shp, int_var = \"Che\", mode = \"bar\", display = \"b\",\n            fmt_args = list(dis_ncol = 6))\n\n\n\nplt_shp_int：交互柱形。前 6 个搭档的归一化交互排名，柱形显示。\n\n\n\n\n所展示搭档的归一化交互值份额，不是原始交互总和或总 SHAP 重要性份额。\nplt_shp_int(shp, int_var = \"Che\", mode = \"per\",\n            fmt_args = list(dis_ncol = 6))\n\n\n\nplt_shp_int：交互百分比。所展示搭档间的交互份额，不是总 SHAP 重要性份额。\n\n\n\n\n显式选择 Age，而不是自动使用最强搭档；散点保留贡献正负方向。\nplt_shp_int(shp, int_var = \"Che\", mode = \"bar_shp\", oth_var = \"Age\",\n  add_name = c(Che = \"Chemotherapy\", Age = \"Age\", Yea_3 = \"Diagnosis year\", Tum_3 = \"Tumor size\",\n               Grade_3 = \"Grade\", Income_3 = \"Income\"),\n            fmt_args = list(dis_ncol = 6),\n            bar_int_palette = list(\"Reds\", \"RdYlBu\"),\n            int_position = c(0.51, 0.15, 0.46, 0.57),\n            strip_label = \"Chemotherapy interactions\")\n\n\n\nplt_shp_int：指定配对与插图。显式选择 Age，而不是自动使用最强搭档；散点保留贡献正负方向。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-viv",
+    "href": "mlr/shap-guide.html#plt-shp-viv",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_viv()： 全局交互矩阵与网络",
+    "text": "plt_shp_viv()： 全局交互矩阵与网络\n热图对角线放变量总重要性，非对角线放绝对交互汇总；它们分别归一化。网络把变量画为节点，以边展示交互关系。\n\nmode = \"heatmap\" / \"network\" 切换图形；display.ncol = 8 聚焦前 8 项。\nheatmap_arg = list(text = TRUE, text_size = 2.5) 控制单元格数字；color 统一配色方案。\nnetwork_arg$intThreshold = 0.20 在归一化尺度上筛边；不是 P 值阈值。removeNode = FALSE 保留没有达到边阈值的节点。\nnetwork_arg 还可设 layout、cluster、edgeWidths；布局改变位置，不改变原始交互值。\n默认 fixed_size = TRUE 固定面板物理尺寸；导出画布应至少容纳 attr(p, \"plot_size\") 的宽、高。\n\n\n交互矩阵交互网络\n\n\n对角线与非对角线采用两种归一化量，应分别读图例。\nplt_shp_viv(shp_labels, display.ncol = 8, mode = \"heatmap\",\n            color = \"blue_red\", heatmap_arg = list(text = TRUE))\n\n\n\nplt_shp_viv：交互矩阵。对角线与非对角线采用两种归一化量，应分别读图例。\n\n\n\n\n边阈值是 0.20 的归一化强度；没有达到边阈值的节点仍保留。\nplt_shp_viv(shp_labels, display.ncol = 8, mode = \"network\",\n            color = \"blue_red\",\n            network_arg = list(intThreshold = 0.20, removeNode = FALSE, nudge_x = 0.10))\n\n\n\nplt_shp_viv：交互网络。边阈值是 0.20 的归一化强度；没有达到边阈值的节点仍保留。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-cor",
+    "href": "mlr/shap-guide.html#plt-shp-cor",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_cor()： 交互矩阵与总交互柱形",
+    "text": "plt_shp_cor()： 交互矩阵与总交互柱形\n名称中虽然有 cor，这里画的是 SHAP 交互汇总矩阵，不是 Pearson 或 Spearman 相关矩阵。旁边的柱形表示该变量与全部其他变量的绝对交互总和。\n\nbar_layout = \"square\" 在三角矩阵下叠加柱形；\"side_upper\" 把柱形放到三角矩阵右侧；\"rotate\" 旋转三角矩阵并省略柱形。另有 \"side\"、\"stacked\" 与 \"none\"。\norder_by = \"importance\" / \"interaction\" / \"none\" 控制变量顺序，也决定 display.ncol 从哪个排名取前几项。\ncolor_bins = 4 使用分级色阶；0–1 是归一化显示值，不是相关系数。\n侧边模式的对角线显示单独归一化的重要性；柱形仍汇总全部搭档，包括没有显示在前 8 项矩阵中的变量。\nfixed_size 的物理尺寸规则与上一节相同；本页导出时给画布额外留白，避免字体和色条被裁掉。\n\n\n三角矩阵与柱形侧边柱形旋转矩阵与分级色阶\n\n\n三角矩阵叠加总交互柱形，柱形数值保留原始汇总量。\nplt_shp_cor(shp, display.ncol = 8, bar_layout = \"square\")\n\n\n\nplt_shp_cor：三角矩阵与柱形。三角矩阵叠加总交互柱形，柱形数值保留原始汇总量。\n\n\n\n\n改为按交互强度排序；矩阵仅画前 8 项，柱形仍汇总全部搭档。\nplt_shp_cor(shp, display.ncol = 8, bar_layout = \"side_upper\",\n            order_by = \"interaction\", color = \"blue_red\")\n\n\n\nplt_shp_cor：侧边柱形。改为按交互强度排序；矩阵仅画前 8 项，柱形仍汇总全部搭档。\n\n\n\n\n旋转三角矩阵，并将色阶分为 4 档。\nplt_shp_cor(shp, display.ncol = 8, bar_layout = \"rotate\",\n            color = \"purple_green\", color_bins = 4)\n\n\n\nplt_shp_cor：旋转矩阵与分级色阶。旋转三角矩阵，并将色阶分为 4 档。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-pairs",
+    "href": "mlr/shap-guide.html#plt-shp-pairs",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_pairs()： 配对矩阵",
+    "text": "plt_shp_pairs()： 配对矩阵\n一张图同时放主效应和变量对关系：对角线为特征值与主 SHAP；下三角为两个特征值构成的散点、用完整配对贡献 \\(2\\Phi_{jk}\\) 着色；上三角为该配对贡献的平均绝对值。\n\nvars 明确选择顺序，display.ncol 限制面板数。示例使用 Age、Sur、Che 与 Tum_3，避免 14 × 14 面板过密。\npoint.size、alpha 调点密度；text、digits 控制上三角数值。\n颜色使用稳健的分位范围处理极端值；色阶饱和不表示极端点被删除，也不能据此推断显著性。\n\n用 4 个变量控制面板密度；颜色表示有符号贡献，上三角为幅度汇总。\nplt_shp_pairs(shp, vars = c(\"Age\", \"Sur\", \"Che\", \"Tum_3\"),\n              display.ncol = 4, point.size = 0.65, alpha = 0.65,\n              text = TRUE, digits = 2)\n\n\n\nplt_shp_pairs：配对矩阵。用 4 个变量控制面板密度；颜色表示有符号贡献，上三角为幅度汇总。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-heatmap",
+    "href": "mlr/shap-guide.html#plt-shp-heatmap",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_heatmap()： 观测 × 特征热图",
+    "text": "plt_shp_heatmap()： 观测 × 特征热图\n每一列是一个观测；主热图是各特征的有符号 SHAP，上部是对象定义的模型输出，右侧是全局重要性。可以按解释相似度排序，也可以在预先得到的簇内按模型输出排序。\n\nsample_order = \"cluster\" 使用 SHAP 距离的层次聚类顺序；\"prediction\" 按 baseline + rowSums(S) 从低到高排列。\nclust = clu 加聚类条带，并把排序限制在各簇内；两个例图同时展示排序和分组方式的改变。\ndisplay.ncol = 8 包含聚合行：此处保留 7 个单变量，另外 7 个按观测求和为 7 other features，不会简单丢掉贡献。\ncolors 依次指定负值、零值、正值的颜色。\n\n\n相似解释排序簇内预测排序\n\n\n按 SHAP 相似性排序；保留 7 个变量，另外 7 个合并成一行。\nplt_shp_heatmap(shp, display.ncol = 8, sample_order = \"cluster\")\n\n\n\nplt_shp_heatmap：相似解释排序。按 SHAP 相似性排序；保留 7 个变量，另外 7 个合并成一行。\n\n\n\n\n展示固定 3 簇，并在簇内按解释输出排列。\nplt_shp_heatmap(shp, clust = clu, display.ncol = 8,\n                sample_order = \"prediction\")\n\n\n\nplt_shp_heatmap：簇内预测排序。展示固定 3 簇，并在簇内按解释输出排列。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-map",
+    "href": "mlr/shap-guide.html#plt-shp-map",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_map()： SHAP 空间的二维投影",
+    "text": "plt_shp_map()： SHAP 空间的二维投影\n把每个观测的 SHAP 向量投影到二维，观察模型解释模式是否成团。PCA 和 UMAP 的坐标没有相同单位，图中的距离也不是患者的临床距离。\n\nembed = \"pca\" / \"umap\" / \"tsne\"，或直接提供两列坐标；embed_args 放相应算法参数。\ncolor_by = \"prediction\" 按对象定义的模型输出着色；color_by = \"Che\" 按 Che 的 SHAP 值着色，不是按 X 中的治疗水平着色。\nclust = clu 使用同一聚类结果的输入矩阵；outline = \"ellipse\" / \"hull\" / \"none\" 调轮廓，label 控制簇标签。\nUMAP 示例固定 seed = 246，比较 n_neighbors = 20、min_dist = 0.15 的嵌入；算法与环境版本也可能影响坐标。\n本页固定的 3 簇仅用于教学展示，没有通过选 K 流程证明最优簇数，也不意味着发现了临床亚型。\n\n\nPCA 与模型输出UMAP 与单变量 SHAP\n\n\n按解释输出着色，椭圆显示固定簇的范围。\nplt_shp_map(shp, clust = clu, embed = \"pca\",\n            color_by = \"prediction\", outline = \"ellipse\",\n            point_args = list(size = 1.5, alpha = 0.7))\n\n\n\nplt_shp_map：PCA 与模型输出。按解释输出着色，椭圆显示固定簇的范围。\n\n\n\n\n按 Che 的 SHAP 值着色，并使用凸包；颜色并不是治疗水平。\nplt_shp_map(shp, clust = clu, embed = \"umap\", color_by = \"Che\",\n            embed_args = list(n_neighbors = 20, min_dist = 0.15),\n            outline = \"hull\", seed = 246)\n\n\n\nplt_shp_map：UMAP 与单变量 SHAP。按 Che 的 SHAP 值着色，并使用凸包；颜色并不是治疗水平。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-stack",
+    "href": "mlr/shap-guide.html#plt-shp-stack",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_stack()： 各簇的贡献堆叠",
+    "text": "plt_shp_stack()： 各簇的贡献堆叠\n每个簇单独作图，按观测把正、负 SHAP 堆叠起来，便于观察解释组成与模型输出方向。不同特征的正、负贡献可以相互抵消。\n\n首个参数是 clust，例如 plt_shp_stack(clu, ...)；如果只传分组向量，还需通过 shp 提供解释对象。\nsample_order = \"prediction\" 在每簇内按对象定义的模型输出排序；ncol = 3 把本页的 3 簇并列。\ndisplay.ncol = 6 包含聚合项：保留 5 个特征，另 9 个按观测相加。这样保留总体贡献的可加性。\n\n3 簇并列；5 个单变量加 9 个变量的汇总项。\nplt_shp_stack(clu, display.ncol = 6,\n              sample_order = \"prediction\", ncol = 3)\n\n\n\nplt_shp_stack：分组堆叠贡献。3 簇并列；5 个单变量加 9 个变量的汇总项。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-circ",
+    "href": "mlr/shap-guide.html#plt-shp-circ",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_circ()： 环形蜂群与组间尺度",
+    "text": "plt_shp_circ()： 环形蜂群与组间尺度\n外圈的点沿半径显示有符号 SHAP、按特征值着色；内圈条形显示各组的平均绝对重要性。单组图用于概览，多组图用于对照解释分布。\n\ndisplay.ncol 或 vars 选择变量；多组会使用共同变量并按合并重要性排序。\nshp_scale = \"global\" 在各组间共用径向尺度，可以比较贡献幅度；\"group\" 每组独立定标，只适合比较组内形状，不能用半径直接比较组间绝对幅度。\ngroup_labels 的名称必须完整匹配列表名；本例为 \"No/Unknown\" 与 \"Yes\"。\nlayout_args$group_gap = 10 调组间留白；point_args 调点大小、透明度和蜂群宽度。\n治疗组的预测解释差异也可能来自其他特征分布与模型关系；此图不构成因果疗效比较。\n\n按治疗水平切分现有对象，直接切分已经存储的矩阵，不重新计算 SHAP：\nche_groups &lt;- lapply(\n  split(seq_len(nrow(shp[[\"S\"]])), shp[[\"X\"]][[\"Che\"]]),\n  function(i) shapviz::shapviz(\n    shp[[\"S\"]][i, , drop = FALSE],\n    X = shp[[\"X\"]][i, , drop = FALSE],\n    baseline = shp[[\"baseline\"]],\n    S_inter = shp[[\"S_inter\"]][i, , , drop = FALSE]\n  )\n)\nche_groups_labels &lt;- lapply(che_groups, MLR::.rename_shp,\n                           name_map = short_names)\n\n单组环形概览两组共用尺度两组各自尺度\n\n\n单组环形概览，外圈看分布，内圈看贡献幅度。\nplt_shp_circ(shp, display.ncol = 8, shp_scale = \"global\",\n             point_args = list(size = 0.55, alpha = 0.55))\n\n\n\nplt_shp_circ：单组环形概览。单组环形概览，外圈看分布，内圈看贡献幅度。\n\n\n\n\n两组共用径向尺度，适合比较贡献幅度。\nplt_shp_circ(che_groups_labels, display.ncol = 6, shp_scale = \"global\",\n             group_labels = c(\"No/Unknown\" = \"No/Unknown\", Yes = \"Yes\"),\n             layout_args = list(group_gap = 10))\n\n\n\nplt_shp_circ：两组共用尺度。两组共用径向尺度，适合比较贡献幅度。\n\n\n\n\n两组分别定标，相同半径不再表示相同的绝对贡献。\nplt_shp_circ(che_groups_labels, display.ncol = 6, shp_scale = \"group\",\n             group_labels = c(\"No/Unknown\" = \"No/Unknown\", Yes = \"Yes\"),\n             layout_args = list(group_gap = 10))\n\n\n\nplt_shp_circ：两组各自尺度。两组分别定标，相同半径不再表示相同的绝对贡献。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#plt-shp-force",
+    "href": "mlr/shap-guide.html#plt-shp-force",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "plt_shp_force()： 单个观测的力图与瀑布图",
+    "text": "plt_shp_force()： 单个观测的力图与瀑布图\n展示一个观测如何从存储的基线得到解释输出。正向贡献推高输出，负向贡献降低输出；瀑布图用逐步加和的方式表达同一分解。\n\nrow_id = 1 固定同一个解释样本；display.ncol 限制显式特征数，剩余特征按有符号贡献求和。\nmode = \"shapviz\" / \"custom\" / \"waterfall\" 均可在 R 端绘图；本页不调用需要 Python 环境的 \"python\" 模式。\ncolors 顺序为正贡献、负贡献；show_annotation 控制数值与特征注释。\n当前对象的 baseline = 0，例如负的 f(x) 是解释尺度上的值，不代表负的死亡概率。\n此函数的 PDF 保存走自身实现；它与大多数绘图函数转发到 RegR::save_plt() 的路径不同。\n\n\n标准力图自定义力图瀑布图\n\n\n同一解释样本的标准力图。\nplt_shp_force(shp, row_id = 1, display.ncol = 6,\n              mode = \"shapviz\", show_annotation = TRUE)\n\n\n\nplt_shp_force：标准力图。同一解释样本的标准力图。\n\n\n\n\n同一分解换成自定义力图，并改变正、负贡献颜色。\nplt_shp_force(shp, row_id = 1, display.ncol = 6,\n              mode = \"custom\", colors = c(\"#B2182B\", \"#2166AC\"))\n\n\n\nplt_shp_force：自定义力图。同一分解换成自定义力图，并改变正、负贡献颜色。\n\n\n\n\n逐步累加贡献的瀑布图；剩余变量求和后展示。\nplt_shp_force(shp, row_id = 1, display.ncol = 8,\n              mode = \"waterfall\", show_annotation = TRUE)\n\n\n\nplt_shp_force：瀑布图。逐步累加贡献的瀑布图；剩余变量求和后展示。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#parameters",
+    "href": "mlr/shap-guide.html#parameters",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "参数调整与保存",
+    "text": "参数调整与保存\n\n\n\n\n\n\n\n\n\n调整目标\n参数\n对解释量的影响\n\n\n\n\n提高可读性\n点大小、透明度、颜色、条带、插图位置\n不改变 SHAP 数值\n\n\n比较幅度\naxis_arg$share_y、shp_scale\n改显示尺度；共用尺度更适合直接比较\n\n\n聚焦部分变量\ndisplay.ncol、vars、fmt_args$dis_ncol\n不同图的聚合、百分比分母与归一化方式不同\n\n\n限制观察窗\nscale_x$xlim、ylim\n窗外值可能不可见；不能当作没有对应观测\n\n\n倍乘或平移贡献\nfmt_args$cha_mult、cha_add、int_args\n改变解释数值；不宜再按原始 SHAP 的单位或可加性读图\n\n\n改观测位置\nsample_order、embed、embed_args\n改排序或投影；二维成团不证明统计显著性\n\n\n\n\n大部分函数的 save = list() 默认不写文件，指定时转交 RegR::save_plt() 保存 PDF。下面仅展示保存写法；plt_shp_TM_com() 没有这个参数，plt_shp_force() 使用自身的 PDF 保存实现。\np &lt;- plt_shp_TM(shp, x_var = \"Age\", display = \"TM\",\n                save = list(filename = \"shap-age.pdf\", width = 10, height = 4.5))\n\n# 外部导出同样可用；矩阵 / 网络图注意固定面板需要的画布尺寸。\np2 &lt;- plt_shp_cor(shp, display.ncol = 8)\nattr(p2, \"plot_size\")  # 顺序为 width、height，单位为英寸\n# ggplot2::ggsave(\"shap-interactions.png\", p2, width = 9, height = 7, dpi = 300)\n本页未对 SHAP 做倍乘或平移。所有绘图示例已通过实际导出验证，并核对输入对象的 SHAP、原始特征和交互值保持一致。环形留白相关图可能提示少量占位行被坐标范围移除；蜂群与旧版相关热图依赖也可能给出主题或弃用提示，图形仍能完成。这里的验证范围是已有解释对象的绘图，没有运行模型训练、比较计算后端或检验临床效应。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/shap-guide.html#references",
+    "href": "mlr/shap-guide.html#references",
+    "title": "SHAP：get_shp 与 14 个绘图函数",
+    "section": "参考与源码",
+    "text": "参考与源码\n\nMLR 参考站点\nget_shp 的当前源码\nSHAP TreeExplainer：主效应、交互与可加性\nToyData 数据对象介绍",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>SHAP：get_shp 与 14 个绘图函数</span>"
     ]
   },
   {
@@ -277,7 +497,7 @@
     "text": "功能总览\n通用数据与绘图工具：数据检视、因子整理、格式化、配色、主题和图形加工。\n本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。点击图片可放大查看，也可下载图源继续编辑。\n下载 draw.io 图源 下载三页 PDF\n图谱快照：2026-09-13。对应包版本：0.6.8。具体参数和返回值以当前安装版本的帮助页为准。\n查看原尺寸 PNG",
     "crumbs": [
       "UtilsR · 通用工具",
-      "<span class='chapter-number'>5</span>  <span class='chapter-title'>UtilsR 功能模块图</span>"
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>UtilsR 功能模块图</span>"
     ]
   },
   {
@@ -288,7 +508,7 @@
     "text": "UtilsR：功能总览",
     "crumbs": [
       "UtilsR · 通用工具",
-      "<span class='chapter-number'>5</span>  <span class='chapter-title'>UtilsR 功能模块图</span>"
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>UtilsR 功能模块图</span>"
     ]
   },
   {
@@ -299,7 +519,7 @@
     "text": "完整函数索引\n\n\n\nUtilsR：完整函数索引\n\n\n查看原尺寸 PNG",
     "crumbs": [
       "UtilsR · 通用工具",
-      "<span class='chapter-number'>5</span>  <span class='chapter-title'>UtilsR 功能模块图</span>"
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>UtilsR 功能模块图</span>"
     ]
   },
   {
@@ -310,7 +530,7 @@
     "text": "加工链路与产出物\n\n\n\nUtilsR：加工链路与产出物\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
     "crumbs": [
       "UtilsR · 通用工具",
-      "<span class='chapter-number'>5</span>  <span class='chapter-title'>UtilsR 功能模块图</span>"
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>UtilsR 功能模块图</span>"
     ]
   },
   {
@@ -321,7 +541,7 @@
     "text": "UtilsR 是其余几个包共用的底层工具包：绘图主题、因子与表格格式化、数据探索和系统诊断。\n主要函数： theme_my()、fct_to_combine() 等\n参考文档：https://hui950319.github.io/UtilsR/　源码：https://github.com/HUI950319/UtilsR\n\n\n\n\n\n\n注记\n\n\n\n这个分区的笔记还在整理中。",
     "crumbs": [
       "UtilsR · 通用工具",
-      "<span class='chapter-number'>6</span>  <span class='chapter-title'>UtilsR 概览</span>"
+      "<span class='chapter-number'>7</span>  <span class='chapter-title'>UtilsR 概览</span>"
     ]
   },
   {
@@ -332,7 +552,7 @@
     "text": "功能模块总览\nSEER 数据处理：按甲状腺 / 胰腺与 2025 / 2026 schema 组织 ETL、分期和分析变量。\n本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。点击图片可放大查看，也可下载图源继续编辑。\n下载 draw.io 图源 下载三页 PDF\n图谱快照：2026-09-30。对应包版本：0.1.0。具体参数和返回值以当前安装版本的帮助页为准。\n查看原尺寸 PNG",
     "crumbs": [
       "seerR · SEER 数据处理",
-      "<span class='chapter-number'>7</span>  <span class='chapter-title'>seerR 功能模块图</span>"
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>seerR 功能模块图</span>"
     ]
   },
   {
@@ -343,7 +563,7 @@
     "text": "seerR：功能模块总览",
     "crumbs": [
       "seerR · SEER 数据处理",
-      "<span class='chapter-number'>7</span>  <span class='chapter-title'>seerR 功能模块图</span>"
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>seerR 功能模块图</span>"
     ]
   },
   {
@@ -354,7 +574,7 @@
     "text": "函数与数据索引\n\n\n\nseerR：函数与数据索引\n\n\n查看原尺寸 PNG",
     "crumbs": [
       "seerR · SEER 数据处理",
-      "<span class='chapter-number'>7</span>  <span class='chapter-title'>seerR 功能模块图</span>"
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>seerR 功能模块图</span>"
     ]
   },
   {
@@ -365,7 +585,7 @@
     "text": "分析流程与对象流\n\n\n\nseerR：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
     "crumbs": [
       "seerR · SEER 数据处理",
-      "<span class='chapter-number'>7</span>  <span class='chapter-title'>seerR 功能模块图</span>"
+      "<span class='chapter-number'>8</span>  <span class='chapter-title'>seerR 功能模块图</span>"
     ]
   },
   {
@@ -376,7 +596,7 @@
     "text": "seerR 把 SEER 肿瘤登记导出文件整理成可分析的队列：变量重编码、纳排流程和生存结局构建。\n主要函数： SEER ETL 流程与队列构建函数\n参考文档：暂未公开。\n\n\n\n\n\n\n注记\n\n\n\n这个分区的笔记还在整理中。",
     "crumbs": [
       "seerR · SEER 数据处理",
-      "<span class='chapter-number'>8</span>  <span class='chapter-title'>seerR 概览</span>"
+      "<span class='chapter-number'>9</span>  <span class='chapter-title'>seerR 概览</span>"
     ]
   },
   {
@@ -387,7 +607,7 @@
     "text": "功能模块总览\n基础实验绘图：WB / qPCR、CCK-8、真实散点、定量矩阵，以及主题与配色。\n本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。点击图片可放大查看，也可下载图源继续编辑。\n下载 draw.io 图源 下载三页 PDF\n图谱快照：2026-09-30。对应包版本：0.1.0。具体参数和返回值以当前安装版本的帮助页为准。\n查看原尺寸 PNG",
     "crumbs": [
       "LabR · 基础实验作图",
-      "<span class='chapter-number'>9</span>  <span class='chapter-title'>LabR 功能模块图</span>"
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>LabR 功能模块图</span>"
     ]
   },
   {
@@ -398,7 +618,7 @@
     "text": "LabR：功能模块总览",
     "crumbs": [
       "LabR · 基础实验作图",
-      "<span class='chapter-number'>9</span>  <span class='chapter-title'>LabR 功能模块图</span>"
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>LabR 功能模块图</span>"
     ]
   },
   {
@@ -409,7 +629,7 @@
     "text": "完整导出项索引\n\n\n\nLabR：完整导出项索引\n\n\n查看原尺寸 PNG",
     "crumbs": [
       "LabR · 基础实验作图",
-      "<span class='chapter-number'>9</span>  <span class='chapter-title'>LabR 功能模块图</span>"
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>LabR 功能模块图</span>"
     ]
   },
   {
@@ -420,7 +640,7 @@
     "text": "分析流程与对象流\n\n\n\nLabR：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
     "crumbs": [
       "LabR · 基础实验作图",
-      "<span class='chapter-number'>9</span>  <span class='chapter-title'>LabR 功能模块图</span>"
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>LabR 功能模块图</span>"
     ]
   },
   {
@@ -431,7 +651,7 @@
     "text": "LabR 为基础实验数据出版级作图：CCK-8 增殖曲线、Western blot 灰度、qPCR 相对表达等。\n主要函数： plt_bar()、plt_cck8()\n参考文档：https://hui950319.github.io/LabR/\n\n\n\n\n\n\n注记\n\n\n\n这个分区的笔记还在整理中。",
     "crumbs": [
       "LabR · 基础实验作图",
-      "<span class='chapter-number'>10</span>  <span class='chapter-title'>LabR 概览</span>"
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>LabR 概览</span>"
     ]
   },
   {
@@ -442,7 +662,7 @@
     "text": "功能模块总览\n单细胞多任务 DNN：质量控制、细胞注释、反卷积、通路、扰动与轨迹分析。\n本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。点击图片可放大查看，也可下载图源继续编辑。\n下载 draw.io 图源 下载三页 PDF\n图谱快照：2026-09-30。对应包版本：0.3.1。具体参数和返回值以当前安装版本的帮助页为准。\n查看原尺寸 PNG",
     "crumbs": [
       "scMMR · 单细胞多任务模型",
-      "<span class='chapter-number'>11</span>  <span class='chapter-title'>scMMR 功能模块图</span>"
+      "<span class='chapter-number'>12</span>  <span class='chapter-title'>scMMR 功能模块图</span>"
     ]
   },
   {
@@ -453,7 +673,7 @@
     "text": "scMMR：功能模块总览",
     "crumbs": [
       "scMMR · 单细胞多任务模型",
-      "<span class='chapter-number'>11</span>  <span class='chapter-title'>scMMR 功能模块图</span>"
+      "<span class='chapter-number'>12</span>  <span class='chapter-title'>scMMR 功能模块图</span>"
     ]
   },
   {
@@ -464,7 +684,7 @@
     "text": "函数与数据索引\n\n\n\nscMMR：函数与数据索引\n\n\n查看原尺寸 PNG",
     "crumbs": [
       "scMMR · 单细胞多任务模型",
-      "<span class='chapter-number'>11</span>  <span class='chapter-title'>scMMR 功能模块图</span>"
+      "<span class='chapter-number'>12</span>  <span class='chapter-title'>scMMR 功能模块图</span>"
     ]
   },
   {
@@ -475,7 +695,7 @@
     "text": "分析流程与对象流\n\n\n\nscMMR：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
     "crumbs": [
       "scMMR · 单细胞多任务模型",
-      "<span class='chapter-number'>11</span>  <span class='chapter-title'>scMMR 功能模块图</span>"
+      "<span class='chapter-number'>12</span>  <span class='chapter-title'>scMMR 功能模块图</span>"
     ]
   },
   {
@@ -486,7 +706,7 @@
     "text": "scMMR 是基于 reticulate + PyTorch 的单细胞多任务深度学习模型，包含细胞注释、模块评分和通路分析。\n主要函数： DNN_*()、ComputeModuleScore()、RunPathwayAnalysis()、PlotPathway*()\n参考文档：https://hui950319.github.io/scMMR/　源码：https://github.com/HUI950319/scMMR\n\n\n\n\n\n\n注记\n\n\n\n这个分区的笔记还在整理中。",
     "crumbs": [
       "scMMR · 单细胞多任务模型",
-      "<span class='chapter-number'>12</span>  <span class='chapter-title'>scMMR 概览</span>"
+      "<span class='chapter-number'>13</span>  <span class='chapter-title'>scMMR 概览</span>"
     ]
   },
   {
@@ -497,7 +717,7 @@
     "text": "功能模块总览\n示例数据与结果对象：1 个目录函数、14 个数据对象，涵盖临床、生存、机器学习与单细胞示例。\n本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。点击图片可放大查看，也可下载图源继续编辑。\n下载 draw.io 图源 下载三页 PDF\n图谱快照：2026-09-30。对应包版本：0.1.0。具体参数和返回值以当前安装版本的帮助页为准。\n查看原尺寸 PNG",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>13</span>  <span class='chapter-title'>ToyData 功能模块图</span>"
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 功能模块图</span>"
     ]
   },
   {
@@ -508,7 +728,7 @@
     "text": "ToyData：功能模块总览",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>13</span>  <span class='chapter-title'>ToyData 功能模块图</span>"
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 功能模块图</span>"
     ]
   },
   {
@@ -519,7 +739,7 @@
     "text": "函数与数据索引\n\n\n\nToyData：函数与数据索引\n\n\n查看原尺寸 PNG",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>13</span>  <span class='chapter-title'>ToyData 功能模块图</span>"
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 功能模块图</span>"
     ]
   },
   {
@@ -530,7 +750,7 @@
     "text": "分析流程与对象流\n\n\n\nToyData：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>13</span>  <span class='chapter-title'>ToyData 功能模块图</span>"
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 功能模块图</span>"
     ]
   },
   {
@@ -541,7 +761,7 @@
     "text": "数据对象一览\nToyData 保存各包文档和教程共用的示例数据。目前共有 14 个数据对象，覆盖甲状腺癌、卵巢癌、胰腺癌模型解释和甲状旁腺单细胞分析。它们包括患者数据表、模型解释结果、机器学习任务和 Seurat 对象。\n下表按 2026-09-30 本地 ToyData 0.1.0 的实际对象整理。行数、列数及对象类型已读取核对；后续新增或更新数据时，这份目录也需要相应更新。各包的测试仍使用各自附带的数据，不依赖 ToyData。\n14 个对象不代表 14 个独立队列。例如 oc0、oc1、oc2 对应同一批 304 例患者的不同数据组织方式；toy_imp 和 toy_shp 是模型解释结果；tsk_oc 是封装好的生存任务。",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 概览</span>"
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>ToyData 概览</span>"
     ]
   },
   {
@@ -552,7 +772,7 @@
     "text": "对象\n类型与规模\n内容\n适合的展示\n\n\n\n\ntoy_ptc_m1_cnd\ntibble；598 × 95\nM1 乳头状甲状腺癌（PTC）清洁队列，含 CND 分组、年龄、治疗和生存结局\n基线表、DSS、竞争风险、年龄交互及后续分析示例\n\n\nseer_thyroid_mtc_2026\ntibble；4,549 × 94\nSEER 甲状腺髓样癌（MTC）队列，含 AJCC 第 8 版 MTC 分期及衍生变量\n回归、生存分析、分期与治疗变量展示\n\n\noc_tidy\ntibble；410 × 43\n卵巢癌工作簿首个临床整理表，含人口学、实验室、分期、治疗及 PFS/OS 字段\n临床变量探索、缺失情况、队列筛选\n\n\noc\ntibble；375 × 34\n来自同一工作簿 Sheet2 的分析队列，剔除结局或时间缺失及随访时间非正的记录\n临床回归、生存曲线、基线表\n\n\noc1\ntibble；304 × 39\nArticle 1 卵巢癌临床队列，含铂类反应分组及可用的 PFS/OS 时间\n铂敏感性分组、生存分析\n\n\noc2\ntibble；304 × 3\n与 oc1 的 ID 对齐的 BMI 表：ID、BMI_2、BMI_3\n多时点 BMI 数据合并\n\n\noc0\ntibble；304 × 41\noc1 按 ID 左连接 oc2，原 BMI 改名为 BMI_1\n临床变量与三个时点 BMI 的联合展示\n\n\noc_BMI\ndata.table / data.frame；301 × 38\n已处理的 BMI 轨迹分析队列，含插补后的临床变量、轨迹类别、类别概率及 PFS/OS\nBMI 轨迹分组、生存及分组比较\n\n\ntsk_oc\nmlr3proba::TaskSurv；310 例，24 个特征\n从 oc_tidy 构建的右删失 PFS 任务，目标为 time 和 PFS\nmlr3 生存学习器及任务接口示例\n\n\ntoy_imp\ndata.frame；45 × 5\n胰腺导管腺癌（PDAC）特征重要性结果，含三种重要性方法\nMLR 特征重要性图、变量网络图\n\n\ntoy_shp\nshapviz；SHAP 矩阵 400 × 14\nSEER TNM-I 期 PDAC 随机生存森林的 SHAP、特征值及交互结果\nSHAP 总结图、重要性、依赖与交互图\n\n\nToy_gene_importance\ndata.frame；800 × 5\nscMMR DNN 的 16 类细胞基因重要性，每类最多 50 个基因\n排名图、基因集 Jaccard 热图、环形棒棒糖图\n\n\nref_umap\ndata.frame；170,852 × 3\n甲状旁腺参考单细胞数据的 UMAP 坐标与 16 类细胞注释\n参考 UMAP、查询细胞投影展示\n\n\ntoy_test\nSeurat；36,601 个基因 × 3,115 个细胞\n甲状旁腺单细胞测试对象，含 RNA、RAS assay 和 group、celltype 元数据\nscMMR 预测、通路及单细胞可视化",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 概览</span>"
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>ToyData 概览</span>"
     ]
   },
   {
@@ -563,7 +783,7 @@
     "text": "598 例 M1 PTC：后续分析的共享示例\ntoy_ptc_m1_cnd 保存了两个研究分析目录共用的清洁临床队列：CND/1.CND_DSS_M1_PTC 与 CND/3.CND_Age_DSS_M1_PTC。它从 seerR::seer_thyroid_2026 按原研究流程筛选，并在保存前完成原年龄分析中的标签整理。\n\n队列范围与分组\n\n诊断范围：2004–2023 年，组织学亚型为 cl.PTC、fv.PTC、tc.PTC 或 ds.PTC。\n纳入条件：年龄 18–90 岁、符合原流程的显微镜确诊与分级条件、城乡信息已知、远处转移 M1、全甲状腺切除、随访时间大于 0、DSS 状态已知。\n淋巴结分组：保留原 N_4 中的 N0 与 N_noExamined，依次标记为 CND 与 No CND。CND 是该因子的第一水平。\n保存内容：598 行、95 个临床及衍生变量；保留原行序、因子顺序和缺失值，没有额外进行完整病例筛选或插补。对象不含患者标识列、拟合模型、.cate 或 .dr_score。\n\n\n\n\n汇总项目\n数值\n\n\n\n\nCND\n233 例\n\n\nNo CND\n365 例\n\n\n存活或删失（event = 0）\n328 例\n\n\n甲状腺癌死亡（event = 1）\n175 例\n\n\n其他原因死亡（event = 2）\n95 例\n\n\n全因死亡（OS = 1）\n270 例\n\n\n实际年龄范围\n20–90 岁\n\n\n随访时间范围\n1–239 个月\n\n\n连续肿瘤大小 Tum 缺失\n67 例\n\n\n\n这里的 CND 分组是研究依据登记淋巴结变量作出的操作性定义。解释组间结果时，需要结合原研究的暴露定义，不能仅凭显示标签认定它直接记录了临床手术细节。\n\n\n已完成的标签整理\n收入 Income_3、城乡 County_2、年龄分组、分级 Grade、肿瘤大小分组 Tum_3、化疗 Che 和结局显示字段均已按原分析流程处理，Income_3、County_2、Tum_3、Rad、Che 也已完成因子水平整理。\n\n\n\n\n\n\n\n\n字段\n保存后的标签或含义\n\n\n\n\nIncome_3\nLow、Middle、High\n\n\nCounty_2\nUrban、Rural\n\n\nage_55\nBelow 55 表示 &lt;55 岁；Above 55 表示 ≥55 岁\n\n\nage_45.55\n[18,45)、[45,55)、[55,90+]\n\n\nGrade\nWell differentiated、Moderately differentiated、Poorly differentiated、Unknown\n\n\nTum_3\n(0,20]、(20,40]、(40,90+]、Unknown；大小单位为毫米\n\n\nChe\n实际保存的因子水平为 No、Yes\n\n\nstatus_tb\nAlive、Thyroid cancer、Other causes\n\n\n\n\n\n\n\n\n\n\n注记age_cut3 的边界以原分组规则为准\n\n\n\nage_cut3 保留原显示标签 [18,50)、[50,60)、[60,70)、[70,90+]，但底层分组实际为 ≤50、(50,60]、(60,70]、&gt;70 岁。在 50、60、70 岁边界上，应使用实际分组规则，不要从标签中的括号推断归属。\n\n\n\n\n生存结局与后续用途\ntime 的单位为月。DSS 是甲状腺癌死亡的 0/1 指示变量，OS 是全因死亡的 0/1 指示变量；竞争风险展示使用 event 的 0/1/2 编码或相应状态因子。time.RFS、RFS 是原数据保留的其他字段，不是本队列主要的 DSS 结局。\n这份数据可以复用于基线表、DSS 生存曲线、Cox 回归、竞争风险和年龄交互展示。进行不同模型分析时，仍需要按所用变量检查缺失情况；“清洁数据”并不表示所有变量均完整。对象的 flt 属性保留了九步纳入筛选的汇总记录，可用于展示筛选流程。",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 概览</span>"
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>ToyData 概览</span>"
     ]
   },
   {
@@ -574,7 +794,7 @@
     "text": "卵巢癌对象之间的关系\noc_tidy 来自 OC_tidy.xlsx 的首个工作表 410整理，oc 来自另一工作表 Sheet2；后者不能简单理解为前者直接删去 35 行。tsk_oc 则由 oc_tidy 筛选并整理而来：保留三个铂类反应组且 PFS 时间可用的患者，去除缺失超过 30% 的特征，并去除 Drug_res、nodes_exa、nodes_pos。\nArticle 1 的临床与 BMI 数据按下列方式组织：\noc1：304 例临床与生存资料，原 BMI → BMI_1\noc2：相同 ID 的 BMI_2、BMI_3\n  └─ 按 ID 左连接 → oc0：304 × 41\n\noc_BMI：已处理的 301 例 BMI 轨迹分析队列\n         含 class、prob1–prob3，以及 PFS/OS\noc1 中 Drug_res 的 0、1、2 分别表示铂敏感、部分敏感、耐药。oc_BMI 包含已插补的临床变量和已生成的轨迹分组，因此展示原始缺失情况应从相应临床表开始。",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 概览</span>"
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>ToyData 概览</span>"
     ]
   },
   {
@@ -585,7 +805,7 @@
     "text": "模型解释与单细胞对象\ntoy_imp 的三种重要性方法是 mean.SHAP、impurity、permutation。yhat 是方法内部缩放后的重要性，yhat_raw 保留原始值，order 表示该方法内的排名。这个对象适合直接演示重要性绘图，无需重新拟合模型。\ntoy_shp 来自 TNM-I 期 PDAC 随机生存森林，包含 400 × 14 的 SHAP 矩阵、400 × 14 × 14 的交互数组、特征值和基线值。它与 toy_imp 来自不同的 PDAC 分析设置，不能视为同一模型的两种输出。SHAP 与特征重要性描述模型的预测行为，数值不等同于因果效应。\nToy_gene_importance 的重要性是各细胞类别内的平均绝对 integrated gradients（IG），可用于比较基因排名或不同类别的基因集重叠。ref_umap 只保存坐标和注释；需要表达数据、assay 或细胞元数据时，使用 toy_test。",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 概览</span>"
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>ToyData 概览</span>"
     ]
   },
   {
@@ -596,7 +816,7 @@
     "text": "在本地加载与查看\n以下示例用于已经安装 ToyData 的 R 环境。代码展示对象接口，本站不运行这些代码生成患者明细，也不提供数据文件下载。\nlibrary(ToyData)\n\n# 查看已安装版本的数据目录和单个对象的帮助\ndata(package = \"ToyData\")\nhelp(\"toy_ptc_m1_cnd\", package = \"ToyData\")\n\n# 加载 M1 PTC 队列，仅查看规模和汇总计数\ndata(\"toy_ptc_m1_cnd\", package = \"ToyData\")\ndim(toy_ptc_m1_cnd)                         # 598 × 95\ntable(toy_ptc_m1_cnd[[\"N_4\"]])             # CND 233；No CND 365\ntable(toy_ptc_m1_cnd[[\"event\"]])           # 0:328；1:175；2:95\nsummary(toy_ptc_m1_cnd[[\"time\"]])          # 随访月份\nattr(toy_ptc_m1_cnd, \"flt\")                 # 筛选流程汇总\n\n# 数据表、SHAP 对象和任务对象有不同的查看接口\ndata(\"oc0\", package = \"ToyData\")\ndim(oc0)                                   # 304 × 41\n\ndata(\"toy_shp\", package = \"ToyData\")\ndim(toy_shp[[\"S\"]])                       # 400 × 14\n\n# 使用生存任务对象前，需要安装并加载 mlr3proba\nlibrary(mlr3proba)\ndata(\"tsk_oc\", package = \"ToyData\")\ntsk_oc[[\"nrow\"]]                          # 310\nlength(tsk_oc[[\"feature_names\"]])         # 24\n临床数据表用于重新构建分析，结果对象用于复现可视化，任务对象用于衔接学习器；选择对象时，先确认它的结局、筛选条件和数据类型。具体字段说明与准备过程以 ToyData 的帮助页及 data-raw/ 脚本为准。",
     "crumbs": [
       "ToyData · 示例数据",
-      "<span class='chapter-number'>14</span>  <span class='chapter-title'>ToyData 概览</span>"
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>ToyData 概览</span>"
     ]
   },
   {
@@ -607,7 +827,7 @@
     "text": "功能模块总览\n因果推断与效应异质性：倾向评分加权 / 匹配、因果森林、亚组规则、效应修饰筛选和敏感性分析。\n本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。点击图片可放大查看，也可下载图源继续编辑。\n下载 draw.io 图源 下载三页 PDF\n图谱快照：2026-09-30。对应包版本：0.0.0.9000。具体参数和返回值以当前安装版本的帮助页为准。\n查看原尺寸 PNG",
     "crumbs": [
       "causalR · 因果推断与效应异质性",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>causalR 功能模块图</span>"
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>causalR 功能模块图</span>"
     ]
   },
   {
@@ -618,7 +838,7 @@
     "text": "causalR：功能模块总览",
     "crumbs": [
       "causalR · 因果推断与效应异质性",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>causalR 功能模块图</span>"
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>causalR 功能模块图</span>"
     ]
   },
   {
@@ -629,7 +849,7 @@
     "text": "完整导出项索引\n\n\n\ncausalR：完整导出项索引\n\n\n查看原尺寸 PNG",
     "crumbs": [
       "causalR · 因果推断与效应异质性",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>causalR 功能模块图</span>"
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>causalR 功能模块图</span>"
     ]
   },
   {
@@ -640,7 +860,7 @@
     "text": "分析流程与对象流\n\n\n\ncausalR：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
     "crumbs": [
       "causalR · 因果推断与效应异质性",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>causalR 功能模块图</span>"
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>causalR 功能模块图</span>"
     ]
   }
 ]
