@@ -4437,5 +4437,104 @@
       "RegR · 临床回归与可视化",
       "<span class='chapter-number'>9</span>  <span class='chapter-title'>RPA：建树、终末节点与生存和二分类输出</span>"
     ]
+  },
+  {
+    "objectID": "regr/ps-guide.html",
+    "href": "regr/ps-guide.html",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "",
+    "text": "数据准备与复现\n先定义要比较的人群和估计目标，再选择匹配或加权。这个页面围绕平衡诊断组织四个接口：底层结果保留匹配/加权对象及分析数据，get_ps() 则便于分别选择 Love plot 与基线表。参数标签页使用同一演示队列。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
+  },
+  {
+    "objectID": "regr/ps-guide.html#数据准备与复现",
+    "href": "regr/ps-guide.html#数据准备与复现",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "",
+    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
+  },
+  {
+    "objectID": "regr/ps-guide.html#共用计算与返回对象",
+    "href": "regr/ps-guide.html#共用计算与返回对象",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "共用计算与返回对象",
+    "text": "共用计算与返回对象\nsurgery 的首水平 No 是参照，Yes 是暴露组。所有默认接口以 ATT 为第一选择，不应看到 IPTW 名称就默认是 ATE。匹配后保留的是可匹配子样本；加权仍需检查权重和有效样本量。原始数据包含治疗信息未知及未测混杂，本页不将这些比较解释为手术因果效果。\ncovariates &lt;- c(\"Age\", \"Tum\", \"Sex\", \"stage\")\npsm &lt;- run_quiet({get_psm(d, cat_var = \"surgery\", mat_var = covariates,\n                         estimand = \"ATT\", caliper = 0.1, onehot = TRUE)})\niptw &lt;- run_quiet({get_iptw(d, cat_var = \"surgery\", mat_var = covariates,\n                           estimand = \"ATT\", onehot = TRUE)})\niptw_ate &lt;- run_quiet({get_iptw(d, cat_var = \"surgery\", mat_var = covariates,\n                               estimand = \"ATE\", onehot = TRUE)})\ncombined &lt;- run_quiet({get_psm_iptw(d, cat_var = \"surgery\", mat_var = covariates,\n                                  estimand = \"ATT\")})\nmixed &lt;- run_quiet({get_ps(d, cat_var = \"surgery\", mat_var = covariates,\n                         plt_method = \"iptw\", plt_onehot = FALSE,\n                         tbl_method = \"psm_iptw\", tbl_onehot = TRUE,\n                         estimand = \"ATT\")})",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
+  },
+  {
+    "objectID": "regr/ps-guide.html#接口与返回合同",
+    "href": "regr/ps-guide.html#接口与返回合同",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "接口与返回合同",
+    "text": "接口与返回合同\n\n\n\n\n\n\n\n\n接口\n默认规格\n返回的关键组件\n\n\n\n\nget_psm\nnearest、ATT、ratio=1、caliper=0.1\nobj、dat_raw、dat、plt、tbl_smd、tbl_p、tbl_merge\n\n\nget_iptw\nglm、ATT、stabilize=FALSE\nobj、dat、plt、tbl_smd、tbl_merge\n\n\nget_psm_iptw\n两种方法共用 estimand\nobj_psm/obj_iptw、dat_psm/dat_iptw、plt、tbl_smd、tbl_merge\n\n\nget_ps\n图与表可分别选方法和 onehot\n仅 plt、tbl_merge\n\n\n\nmethod、estimand 的组合仍受 MatchIt/WeightIt 支持范围约束。psm_args 的默认字段为 method/ratio/caliper；iptw_args 为 method/stabilize。onehot 影响设计矩阵及诊断中的分类水平；它不是新的调整变量选择策略。下游结局分析需要底层的分析数据和权重，不能把 get_ps() 的图表当成已经拟合的结局模型。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
+  },
+  {
+    "objectID": "regr/ps-guide.html#love-plot匹配加权与联合比较",
+    "href": "regr/ps-guide.html#love-plot匹配加权与联合比较",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "Love plot：匹配、加权与联合比较",
+    "text": "Love plot：匹配、加权与联合比较\n横轴为绝对标准化差异。联合图按 estimand 选择共用标准化分母，二分类和连续变量也按标准化差异绘制。0.1 参考线只是常用诊断阈值；平衡性改善不能证明无未测混杂。这个实际示例中，PSM 后 Age/Tum、IPTW 后 Age/Tum/Sex 仍有超过 0.1 的差异，因此不能报告“已达到平衡”。\n\nPSMIPTW ATT三种样本IPTW ATE按变量展示\n\n\nATT 最近邻匹配前后平衡；卡钳限制可能使部分暴露组无法匹配。\npsm[[\"plt\"]]\n\n\n\nATT 最近邻匹配前后平衡；卡钳限制可能使部分暴露组无法匹配。\n\n\n\n\nATT 权重后的平衡诊断；与匹配结果对应的人群权重不同。\niptw[[\"plt\"]]\n\n\n\nATT 权重后的平衡诊断；与匹配结果对应的人群权重不同。\n\n\n\n\n原始、匹配、加权三组 SMD 使用同一标准化规则比较。\ncombined[[\"plt\"]]\n\n\n\n原始、匹配、加权三组 SMD 使用同一标准化规则比较。\n\n\n\n\n改为 ATE 后重新计算权重和平衡；不能只把 ATT 图的标题改成 ATE。\niptw_ate[[\"plt\"]]\n\n\n\n改为 ATE 后重新计算权重和平衡；不能只把 ATT 图的标题改成 ATE。\n\n\n\n\nget_ps() 选择 IPTW 图且 plt_onehot=FALSE；表格可以另选方法和分类水平展示。\nmixed[[\"plt\"]]\n\n\n\nget_ps() 选择 IPTW 图且 plt_onehot=FALSE；表格可以另选方法和分类水平展示。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
+  },
+  {
+    "objectID": "regr/ps-guide.html#权重与有效样本量",
+    "href": "regr/ps-guide.html#权重与有效样本量",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "权重与有效样本量",
+    "text": "权重与有效样本量\n极端权重提示支持区域不足或倾向模型问题。ESS=(sum w)2/sum(w2) 衡量权重集中程度，应按组报告。不能仅凭加权行数仍为 800 就认为精度保持不变。本次无手术组仅 33 人，ATT 加权 ESS 约 23.2，最大权重约 50.6；这些结果提示设计仍需评估。\n\n权重分布分组 ESS\n\n\nATT 权重分布；对数横轴帮助识别较大权重。\nwd &lt;- data.frame(weight = iptw[[\"obj\"]][[\"weights\"]])\nggplot(wd, aes(x = weight)) + geom_histogram(bins = 30, fill = \"#2C5E8A\") +\n  scale_x_log10() + labs(x = \"ATT weight (log10 axis)\", y = \"Count\") + theme_minimal()\n\n\n\nATT 权重分布；对数横轴帮助识别较大权重。\n\n\n\n\n同一权重对象的组别人数、权重和、ESS 与最大权重；都是汇总统计。\nw &lt;- iptw[[\"obj\"]][[\"weights\"]]\ndo.call(rbind, lapply(levels(d[[\"surgery\"]]), function(g) {\n  z &lt;- w[d[[\"surgery\"]] == g]\n  data.frame(group = g, n = length(z), sum_weights = sum(z),\n             ESS = sum(z)^2 / sum(z^2), max_weight = max(z))\n}))\n\n\n\n\n\n\ngroup\n\n\nn\n\n\nsum_weights\n\n\nESS\n\n\nmax_weight\n\n\n\n\n\n\nNo\n\n\n33\n\n\n719.4146\n\n\n23.21097\n\n\n50.55228\n\n\n\n\nYes\n\n\n767\n\n\n767.0000\n\n\n767.00000\n\n\n1.00000",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
+  },
+  {
+    "objectID": "regr/ps-guide.html#调整前后基线表",
+    "href": "regr/ps-guide.html#调整前后基线表",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "调整前后基线表",
+    "text": "调整前后基线表\n图和表要说明来自哪种设计。get_ps() 允许选择不同输出规格，混合输出应在图题、表头明确标注；本页最后一个例子就是 IPTW 图与联合表。\n\nPSM 基线表\n\n\n匹配前后的实际基线表，匹配后人数来自保留的子队列。\npsm[[\"tbl_merge\"]]\n\n\n\n\n\n\nVariable\n\n\n\nBefore PSM\n\n\n\n\nAfter PSM\n\n\n\n\n\nNo N = 331\n\n\nYes N = 7671\n\n\np-value2\n\n\nNo N = 321\n\n\nYes N = 321\n\n\np-value2\n\n\n\n\n\n\nAge (year)\n\n\n57.88 ± 19.32\n\n\n54.42 ± 16.90\n\n\n0.141\n\n\n57.03 ± 18.99\n\n\n52.31 ± 15.15\n\n\n0.145\n\n\n\n\nTumor size (mm)\n\n\n34.76 ± 18.83\n\n\n23.32 ± 17.54\n\n\n&lt;0.001\n\n\n33.53 ± 17.74\n\n\n30.28 ± 22.13\n\n\n0.386\n\n\n\n\nSex\n\n\n\n\n\n\n\n\n0.313\n\n\n\n\n\n\n\n\n\n0.999\n\n\n\n\n    Female\n\n\n16 (48.5%)\n\n\n440 (57.4%)\n\n\n\n\n\n15 (46.9%)\n\n\n15 (46.9%)\n\n\n\n\n\n\n\n    Male\n\n\n17 (51.5%)\n\n\n327 (42.6%)\n\n\n\n\n\n17 (53.1%)\n\n\n17 (53.1%)\n\n\n\n\n\n\n\nstage\n\n\n\n\n\n\n\n\n&lt;0.001\n\n\n\n\n\n\n\n\n\n0.999\n\n\n\n\n    Early\n\n\n14 (42.4%)\n\n\n587 (76.5%)\n\n\n\n\n\n14 (43.8%)\n\n\n14 (43.8%)\n\n\n\n\n\n\n\n    Other\n\n\n19 (57.6%)\n\n\n180 (23.5%)\n\n\n\n\n\n18 (56.3%)\n\n\n18 (56.3%)\n\n\n\n\n\n\n\n\n\n1 Mean ± SD; n (%)\n\n\n\n\n2 Wilcoxon rank sum test; Pearson’s Chi-squared test\n\n\n\n\n\n\n\n:::\n\n联合基线表\nget_ps() 的联合基线表，独立于它选择的 IPTW Love plot。\nmixed[[\"tbl_merge\"]]\n\n\n\n\n\n\nCharacteristic\n\n\n\nOriginal\n\n\n\n\nPSM\n\n\n\n\nIPTW\n\n\n\n\n\nNo N = 331\n\n\nYes N = 7671\n\n\np-value2\n\n\nNo N = 321\n\n\nYes N = 321\n\n\np-value2\n\n\nNo N = 7191\n\n\nYes N = 7671\n\n\np-value3\n\n\n\n\n\n\nAge (year)\n\n\n58 (19)\n\n\n54 (17)\n\n\n0.141\n\n\n57 (19)\n\n\n52 (15)\n\n\n0.145\n\n\n57 (18)\n\n\n54 (17)\n\n\n0.332\n\n\n\n\nTumor size (mm)\n\n\n35 (19)\n\n\n23 (18)\n\n\n&lt;0.001\n\n\n34 (18)\n\n\n30 (22)\n\n\n0.386\n\n\n28 (14)\n\n\n23 (18)\n\n\n0.008\n\n\n\n\nSex\n\n\n\n\n\n\n\n\n0.313\n\n\n\n\n\n\n\n\n\n0.999\n\n\n\n\n\n\n\n\n0.611\n\n\n\n\n    Female\n\n\n16 (48%)\n\n\n440 (57%)\n\n\n\n\n\n15 (47%)\n\n\n15 (47%)\n\n\n\n\n\n375 (52%)\n\n\n440 (57%)\n\n\n\n\n\n\n\n    Male\n\n\n17 (52%)\n\n\n327 (43%)\n\n\n\n\n\n17 (53%)\n\n\n17 (53%)\n\n\n\n\n\n345 (48%)\n\n\n327 (43%)\n\n\n\n\n\n\n\nstage\n\n\n\n\n\n\n\n\n&lt;0.001\n\n\n\n\n\n\n\n\n\n0.999\n\n\n\n\n\n\n\n\n0.579\n\n\n\n\n    Early\n\n\n14 (42%)\n\n\n587 (77%)\n\n\n\n\n\n14 (44%)\n\n\n14 (44%)\n\n\n\n\n\n523 (73%)\n\n\n587 (77%)\n\n\n\n\n\n\n\n    Other\n\n\n19 (58%)\n\n\n180 (23%)\n\n\n\n\n\n18 (56%)\n\n\n18 (56%)\n\n\n\n\n\n197 (27%)\n\n\n180 (23%)\n\n\n\n\n\n\n\n\n\n1 Mean (SD); n (%)\n\n\n\n\n2 Wilcoxon rank sum test; Pearson’s Chi-squared test\n\n\n\n\n3 Design-based KruskalWallis test; Pearson’s X^2: Rao & Scott adjustment\n\n\n\n\n\n\n\n:::\n:::\n\n使用边界、保存与复现记录\n这四个接口建立和诊断倾向评分设计，不自动完成效应估计。结局模型应使用对应匹配/加权数据并处理适当的不确定性；匹配子样本的 ATT 与全体暴露组 ATT 可能因丢弃样本而不同。stabilize 不等于权重截断，本页未做截断，也未以平衡诊断选择最有利的效果结果。诊断数据必须与结局模型使用的队列、因子编码和 estimand 一致。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。\n\n\n相关页面与源码\n\n效应估计与森林图\nRegR 函数参考\nget-psm-iptw.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
+  },
+  {
+    "objectID": "regr/ps-guide.html#使用边界保存与复现记录",
+    "href": "regr/ps-guide.html#使用边界保存与复现记录",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "使用边界、保存与复现记录",
+    "text": "使用边界、保存与复现记录\n这四个接口建立和诊断倾向评分设计，不自动完成效应估计。结局模型应使用对应匹配/加权数据并处理适当的不确定性；匹配子样本的 ATT 与全体暴露组 ATT 可能因丢弃样本而不同。stabilize 不等于权重截断，本页未做截断，也未以平衡诊断选择最有利的效果结果。诊断数据必须与结局模型使用的队列、因子编码和 estimand 一致。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
+  },
+  {
+    "objectID": "regr/ps-guide.html#相关页面与源码",
+    "href": "regr/ps-guide.html#相关页面与源码",
+    "title": "倾向评分：PSM、IPTW 与平衡诊断",
+    "section": "相关页面与源码",
+    "text": "相关页面与源码\n\n效应估计与森林图\nRegR 函数参考\nget-psm-iptw.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
+    ]
   }
 ]
