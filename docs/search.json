@@ -4536,5 +4536,115 @@
       "RegR · 临床回归与可视化",
       "<span class='chapter-number'>10</span>  <span class='chapter-title'>倾向评分：PSM、IPTW 与平衡诊断</span>"
     ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html",
+    "href": "regr/variable-selection-guide.html",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "",
+    "text": "数据准备与复现\n不同筛选策略回答的问题不同。先比较各方法选出的变量，再读 LASSO 的交叉验证曲线和系数路径；相关性与 VIF 是另一个诊断步骤。本页把这些结果并排展示，并保留未入选与未确认变量的含义。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#数据准备与复现",
+    "href": "regr/variable-selection-guide.html#数据准备与复现",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "",
+    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#共用计算与返回对象",
+    "href": "regr/variable-selection-guide.html#共用计算与返回对象",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "共用计算与返回对象",
+    "text": "共用计算与返回对象\nget_var_sel() 根据 time 与结局水平数分派：time=NULL 是 Logistic；有 time 的二水平结局是 Cox、三水平结局是竞争风险。默认 methods=NULL 时，Cox/Logistic 跑四类策略，竞争风险只跑 p/step 并记录 skipped。显式给竞争风险请求 lasso/boruta 会报错。这里采用 Cox DSS；5 折 CV、20 次 Boruta、100 棵树是演示预算。独立 get_lasso() 固定 10 折，不能从上面的 lasso_args 推断它也改成了 5 折。\ncandidate &lt;- c(\"Age\", \"Tum\", \"Sex\", \"stage\")\nset.seed(20261001)\nselected &lt;- run_quiet({get_var_sel(d, vars = candidate,\n  methods = c(\"p\", \"step\", \"lasso\", \"boruta\"),\n  step_args = list(direction = c(\"forward\", \"backward\"), criterion = \"AIC\"),\n  lasso_args = list(lambda_rule = c(\"1se\", \"min\"), nfolds = 5L),\n  boruta_args = list(max_runs = 20L, num_trees = 100L))})\n\n# get_lasso() 用 data.matrix()；此处显式编码二分类预测变量。\ndn &lt;- d\ndn[[\"sex_male\"]] &lt;- as.integer(dn[[\"Sex\"]] == \"Male\")\ndn[[\"stage_other\"]] &lt;- as.integer(dn[[\"stage\"]] == \"Other\")\nnumeric_vars &lt;- c(\"Age\", \"Tum\", \"sex_male\", \"stage_other\")\nset.seed(20261001)\nlasso &lt;- run_quiet({get_lasso(dn, vars = numeric_vars)})\nset.seed(20261001)\nboruta &lt;- run_quiet({get_boruta(d, vars = candidate,\n  max_runs = 20L, num_trees = 100L)})",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#策略热图与可导出的摘要",
+    "href": "regr/variable-selection-guide.html#策略热图与可导出的摘要",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "策略热图与可导出的摘要",
+    "text": "策略热图与可导出的摘要\nsummary 保留策略名称、模型式、变量数和 list 列 vars；vars 是按策略命名的变量集合。热图仅展示至少被一种策略选中的变量，因此看不到某变量不等于该变量没有被评估。\n\n方法比较选择摘要\n\n\n同一候选集合的实际入选矩阵；红色表示该策略入选。\nselected[[\"plot\"]] + theme(text = element_text(size = 13))\n\n\n\n同一候选集合的实际入选矩阵；红色表示该策略入选。\n\n\n\n\n将 list 列展开成字符，便于核对和导出。\nselection_table &lt;- as.data.frame(selected[[\"summary\"]])\nselection_table[[\"vars\"]] &lt;- vapply(selection_table[[\"vars\"]], paste, collapse = \", \", FUN.VALUE = character(1))\nselection_table\n\n\n\n\n\n\nstrategy.metric\n\n\nmodel\n\n\nnum_var\n\n\nvars\n\n\n\n\n\n\nunivariate:SL (4)\n\n\nsurvival::Surv(time, DSS) ~ Age + Tum + Sex + stage\n\n\n4\n\n\nAge, Tum, Sex, stage\n\n\n\n\nforward:AIC (4)\n\n\nsurvival::Surv(time, DSS) ~ 0 + stage + Tum + Age + Sex\n\n\n4\n\n\nstage, Tum, Age, Sex\n\n\n\n\nbackward:AIC (4)\n\n\nsurvival::Surv(time, DSS) ~ 0 + Age + Tum + Sex + stage\n\n\n4\n\n\nAge, Tum, Sex, stage\n\n\n\n\nlasso:vars_1se (2)\n\n\nsurvival::Surv(time, DSS) ~ Tum + stage\n\n\n2\n\n\nTum, stage\n\n\n\n\nlasso:vars_min (4)\n\n\nsurvival::Surv(time, DSS) ~ Age + Tum + Sex + stage\n\n\n4\n\n\nAge, Tum, Sex, stage\n\n\n\n\nBoruta:Confirmed_vars (2)\n\n\nsurvival::Surv(time, DSS) ~ stage + Tum\n\n\n2\n\n\nstage, Tum",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#交叉验证曲线误差带和横轴",
+    "href": "regr/variable-selection-guide.html#交叉验证曲线误差带和横轴",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "交叉验证曲线：误差带和横轴",
+    "text": "交叉验证曲线：误差带和横轴\nlambda.min 对应 CV 平均误差最低点，lambda.1se 在误差容许范围内选择更强惩罚。误差带是交叉验证误差的变动，不是效应量置信区间。横轴转换不会重新拟合模型。\n\n误差带误差棒与高亮log(lambda) 横轴\n\n\n同一个 cv.fit，用带状误差和两条 lambda 线。\nplot_cv_glmnet(lasso[[\"cv.fit\"]], error_type = \"ribbon\")\n\n\n\n同一个 cv.fit，用带状误差和两条 lambda 线。\n\n\n\n\n误差棒并高亮 lambda.min 到 lambda.1se 的区域。\nplot_cv_glmnet(lasso[[\"cv.fit\"]], error_type = \"errorbar\", highlight_optimal = TRUE)\n\n\n\n误差棒并高亮 lambda.min 到 lambda.1se 的区域。\n\n\n\n\n改成 log(lambda)，惩罚方向需结合横轴读图。\nplot_cv_glmnet(lasso[[\"cv.fit\"]], xvar = \"log_lambda\", error_type = \"both\")\n\n\n\n改成 log(lambda)，惩罚方向需结合横轴读图。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#系数路径与变量编码",
+    "href": "regr/variable-selection-guide.html#系数路径与变量编码",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "系数路径与变量编码",
+    "text": "系数路径与变量编码\nget_lasso() 直接将所选列交给 data.matrix()；多水平因子的整数编码不是哑变量设计。需要预先建立正确的数值设计矩阵，或使用 get_var_sel() 的 model.matrix 适配器。这里的二分类列显式转为 0/1；Age 与 Tum 分别保持年和 mm。\n\n全部路径指定变量高亮L1 范数横轴\n\n\n路径的纵轴是回归系数；Cox 路径不是 HR。\nplot_coef_path(lasso, n_labels = 4)\n\n\n\n路径的纵轴是回归系数；Cox 路径不是 HR。\n\n\n\n\n仅改变显示，Age 和 Tum 的变量选择结果不会因此改变。\nplot_coef_path(lasso, highlight_vars = c(\"Age\", \"Tum\"), add_legend = TRUE, n_labels = 4)\n\n\n\n仅改变显示，Age 和 Tum 的变量选择结果不会因此改变。\n\n\n\n\n以 L1 范数读取系数逐渐进入模型的过程。\nplot_coef_path(lasso, xvar = \"norm\", color_by_sign = TRUE, n_labels = 4)\n\n\n\n以 L1 范数读取系数逐渐进入模型的过程。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#borutaconfirmedtentative-与预算",
+    "href": "regr/variable-selection-guide.html#borutaconfirmedtentative-与预算",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "Boruta：Confirmed、Tentative 与预算",
+    "text": "Boruta：Confirmed、Tentative 与预算\nBoruta 用影子变量作为随机基准；vars_confirmed 只保留 Confirmed，不自动包含 Tentative。有限迭代后仍待定的变量应如实报告，不宜把它们默默改成确认。\n\n重要性分布决策表\n\n\n原生 Boruta 图保留确认、拒绝、待定及影子变量。\nplot(boruta[[\"fit\"]], las = 2, cex.axis = 0.8)\n\n\n\n原生 Boruta 图保留确认、拒绝、待定及影子变量。\n\n\n\n\n每个候选变量的最终决策与重要性汇总。\nbstat &lt;- Boruta::attStats(boruta[[\"fit\"]])\nbstat[[\"variable\"]] &lt;- rownames(bstat)\nbstat[, c(\"variable\", \"meanImp\", \"medianImp\", \"decision\")]\n\n\n\n\n\n\nvariable\n\n\nmeanImp\n\n\nmedianImp\n\n\ndecision\n\n\n\n\n\n\nstage\n\n\n10.2602487\n\n\n10.5714220\n\n\nConfirmed\n\n\n\n\nSex\n\n\n2.2066310\n\n\n2.2315044\n\n\nTentative\n\n\n\n\nTum\n\n\n6.3166202\n\n\n6.4664739\n\n\nConfirmed\n\n\n\n\nAge\n\n\n0.2100589\n\n\n0.6217613\n\n\nRejected",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#相关性与-vif-参数对照",
+    "href": "regr/variable-selection-guide.html#相关性与-vif-参数对照",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "相关性与 VIF 参数对照",
+    "text": "相关性与 VIF 参数对照\nPlt_CorVIF() 仅接受数值列。method 控制相关热图；VIF 始终来自 Pearson 相关矩阵的逆矩阵对角线。vif_threshold 只画参考阈值，不自动剔除变量。高度共线或完全共线时不能仅凭颜色作决定。\n\nPearson 与阈值 5Spearman 与配色读取诊断数据\n\n\n相关热图与 VIF，使用同一完整案例样本。\nPlt_CorVIF(dn, vars = numeric_vars, vif_threshold = 5,\n  layout_args = list(cell = 0.65, vif_width = 0.4, gap = 0.06),\n  title = c(\"Correlation\", \"VIF\"),\n  theme_use = theme_minimal(base_size = 10) +\n    theme(axis.text.x = element_text(angle = 45, hjust = 1)))\n\n\n\n相关热图与 VIF，使用同一完整案例样本。\n\n\n\n\n热图换为 Spearman，VIF 的计算定义保持不变。\nPlt_CorVIF(dn, vars = numeric_vars, method = \"spearman\",\n  show_star = FALSE, color = \"teal_pink\", vif_threshold = 5,\n  layout_args = list(cell = 0.65, vif_width = 0.4, gap = 0.06),\n  title = c(\"Correlation\", \"VIF\"),\n  theme_use = theme_minimal(base_size = 10) +\n    theme(axis.text.x = element_text(angle = 45, hjust = 1)))\n\n\n\n热图换为 Spearman，VIF 的计算定义保持不变。\n\n\n\n\nreturn_data=TRUE 返回 corr、pval、vif，不再返回图对象。\ndiag &lt;- Plt_CorVIF(dn, vars = numeric_vars, return_data = TRUE)\ndata.frame(variable = names(diag[[\"vif\"]]), VIF = unname(diag[[\"vif\"]]))\n\n\n\n\n\n\nvariable\n\n\nVIF\n\n\n\n\n\n\nAge\n\n\n1.018598\n\n\n\n\nTum\n\n\n1.797425\n\n\n\n\nsex_male\n\n\n1.033075\n\n\n\n\nstage_other\n\n\n1.781468",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#使用边界保存与复现记录",
+    "href": "regr/variable-selection-guide.html#使用边界保存与复现记录",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "使用边界、保存与复现记录",
+    "text": "使用边界、保存与复现记录\nP 值筛选、逐步回归和 LASSO 的选择会受样本、编码与随机折分影响；筛选后的普通回归区间没有自动考虑选择过程。Boruta 的重要性不表示因果效应。混杂调整变量应由研究问题和因果结构决定，不能交给单变量 P 值自动删除。预测建模时，筛选、编码和惩罚选择都需要在训练折内部完成；本页没有外部验证。相关/VIF 的显著性星号也不是变量保留规则。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
+  },
+  {
+    "objectID": "regr/variable-selection-guide.html#相关页面与源码",
+    "href": "regr/variable-selection-guide.html#相关页面与源码",
+    "title": "变量筛选：策略比较、LASSO 路径与共线性",
+    "section": "相关页面与源码",
+    "text": "相关页面与源码\n\n森林图与回归效应\nMLR 特征筛选\nRegR 函数参考\nvar-get.R\nutils-extra-lasso.R\nplt-corvif.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>11</span>  <span class='chapter-title'>变量筛选：策略比较、LASSO 路径与共线性</span>"
+    ]
   }
 ]
