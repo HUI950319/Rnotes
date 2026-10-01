@@ -1,0 +1,319 @@
+---
+title: "变量分布与 PDP：解释器、分组和预测时间"
+description: "get_exp、get_vpd 和 get_vpd_pnl 的完整工作流；比较生存与二分类的变量组合、预测时间和模型后端。"
+date: 2026-10-01
+lightbox: true
+toc-depth: 2
+---
+
+`get_exp()` 构建预测解释器，`get_vpd()` 将变量分布（VD）与部分依赖（PD）放在一起。本页用实际图形解释两块面板的差别，并对照主要任务和分组路径。
+
+**版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出本页 **12 张参数对照图**。Cox、Logistic 和生存随机森林均实际训练，图形来自公开入口；使用已有临床示例和模拟二分类数据，未执行外部临床验证。
+
+
+## 示例准备与读图规则 {#data}
+
+生存示例使用 `ToyData::toy_ptc_m1_cnd` 的 598 人 M1 PTC 队列，175 个疾病特异死亡事件，time 单位为月，与 [ToyData 介绍](../toydata/index.qmd)一致。模型使用 Age、Sex、Tum_3；Unknown 是原有因子水平。二分类示例为固定种子的 300 行模拟数据，正类明确为 Yes，避免把删失生存记录直接当成完整二分类结局。
+
+| 面板 | 如何得到预测 | 解释范围 |
+|:--|:--|:--|
+| VD | 每个观测保留其实际特征，展示变量值与模型预测 | 有混杂特征与其他变量差异 |
+| PD | 扫描关注变量并对参考样本预测平均 | 已拟合模型的平均响应；不是回归系数 |
+| 生存 y 轴 | S(t) | 当前预测时间的生存概率 |
+| 二分类 y 轴 | P(Outcome = Yes) | 正类预测概率 |
+
+横轴上的密集区域反映观测分布。超出数据支持的变量组合需要结合样本密度判断；曲线也不能直接解释为干预效果。
+
+```r
+library(MLR)
+library(ToyData)
+library(ggplot2)
+
+d <- as.data.frame(ToyData::toy_ptc_m1_cnd[,
+  c("time", "DSS", "Age", "Sex", "Tum_3", "Race")])
+d <- droplevels(d[complete.cases(d), ])
+vars <- c("Age", "Sex", "Tum_3")
+e60 <- get_exp(d, vars = vars, surv = 60)
+e120 <- get_exp(d, vars = vars, surv = 120)
+
+set.seed(246)
+n <- 300L
+dc <- data.frame(Age = runif(n, 20, 85),
+  Sex = factor(sample(c("Female", "Male"), n, TRUE)),
+  Marker = rnorm(n), Group = factor(sample(c("A", "B"), n, TRUE)))
+prob <- plogis(-0.4 + (dc[["Age"]] - 50) / 20 +
+  0.5 * (dc[["Sex"]] == "Male") + 0.8 * dc[["Marker"]] +
+  0.7 * dc[["Marker"]] * (dc[["Group"]] == "B"))
+dc[["Outcome"]] <- factor(ifelse(runif(n) < prob, "Yes", "No"),
+  levels = c("No", "Yes"))
+cvars <- c("Age", "Sex", "Marker", "Group")
+ec <- get_exp(dc, vars = cvars, surv = "Outcome")
+
+set.seed(246)
+erf <- get_exp(d, vars = vars, surv = 60, model = "ranger")
+```
+
+
+## 接口、返回对象与分析流程 {#interface}
+
+| `surv` | 实际任务 | 预测时间 |
+|:--|:--|:--|
+| TRUE / FALSE | 生存 | 默认 120；FALSE 仍走生存路径 |
+| 数值，如 60 | 生存 | 使用该数值，单位跟随 time |
+| 字符结局名 | 二分类 | 没有随访时间维度 |
+
+`model = default` 对生存是 Cox，对二分类是 Logistic；另外支持 ranger 和 xgboost。`get_exp()` 返回统一的 12 字段 list：核心解释器在 `EXP`，追加预测的原始数据在 `dat`，类型名称在 `cat_vars` / `con_vars`，原始设置在 `par_lis`。`per`、`imp_res`、`imp_plot` 等随任务填充；默认生存简化路径中的预生成重要性/PDP 字段可为 NULL。
+
+`get_vpd()` 接受完整解释结果或构建参数 list，返回组合图。`exp_var = c(group, focus)` 的第一项必须为分类变量。这是分组的一维 PDP。当前生存分组路径会按组重建解释器；分类路径使用 DALEX 的分组剖面。因此不能把组间曲线直接当成同一模型的二维联合响应。真正二维生存 PDP 的接口和图谱见后续专题。
+
+```r
+get_exp(data, vars, surv = 120,
+        model = c("default", "ranger", "xgboost"))
+get_vpd(EXP.obj, exp_var, tidy_plot = TRUE, cores = NULL)
+get_vpd_pnl(EXP.obj, exp_var, N = 300, cores = NULL)
+```
+
+
+## 生存任务：四种变量组合
+
+`exp_var` 为一个变量时直接展示该变量；两个变量时第一项必须为分类分组，第二项为关注变量。纵轴是选定时间点的预测生存概率 S(t)，不是 HR。
+
+::: {.panel-tabset}
+
+
+### 单连续变量 {.unnumbered}
+
+
+生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。
+
+
+```r
+get_vpd(e60, exp_var = "Age", cores = 1)
+```
+
+
+![生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。](images/vpd-guide/sur-cont.png){fig-alt="生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。"}
+
+
+### 单分类变量 {.unnumbered}
+
+
+比较性别两水平的预测分布与平均部分依赖。
+
+
+```r
+get_vpd(e60, exp_var = "Sex", cores = 1)
+```
+
+
+![比较性别两水平的预测分布与平均部分依赖。](images/vpd-guide/sur-cat.png){fig-alt="比较性别两水平的预测分布与平均部分依赖。"}
+
+
+### 分类 × 分类 {.unnumbered}
+
+
+按 Sex 分组查看 Tum_3；这是分组一维剖面。
+
+
+```r
+get_vpd(e60, exp_var = c("Sex", "Tum_3"), cores = 1)
+```
+
+
+![按 Sex 分组查看 Tum_3；这是分组一维剖面。](images/vpd-guide/sur-catcat.png){fig-alt="按 Sex 分组查看 Tum_3；这是分组一维剖面。"}
+
+
+### 分类 × 连续 {.unnumbered}
+
+
+按 Sex 分组查看 Age；当前生存路径在各组内重建模型。
+
+
+```r
+get_vpd(e60, exp_var = c("Sex", "Age"), cores = 1)
+```
+
+
+![按 Sex 分组查看 Age；当前生存路径在各组内重建模型。](images/vpd-guide/sur-group.png){fig-alt="按 Sex 分组查看 Age；当前生存路径在各组内重建模型。"}
+
+
+:::
+
+
+## 预测时间与布局
+
+数值 `surv` 是预测时间，单位跟随数据的 time。`tidy_plot` 只整理组合图坐标，`cores` 控制生存剖面的计算线程。
+
+::: {.panel-tabset}
+
+
+### 120 月 {.unnumbered}
+
+
+把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。
+
+
+```r
+get_vpd(e120, exp_var = "Age", cores = 1)
+```
+
+
+![把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。](images/vpd-guide/sur-120.png){fig-alt="把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。"}
+
+
+### 关闭轴整理 {.unnumbered}
+
+
+关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。
+
+
+```r
+get_vpd(e60, exp_var = "Age", tidy_plot = FALSE, cores = 1)
+```
+
+
+![关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。](images/vpd-guide/sur-untidy.png){fig-alt="关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。"}
+
+
+:::
+
+
+## 二分类任务：四种变量组合
+
+`surv = Outcome` 指定二分类目标；结局水平设为 No / Yes。分类概率没有随访时间维度。
+
+::: {.panel-tabset}
+
+
+### 单连续变量 {.unnumbered}
+
+
+二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。
+
+
+```r
+get_vpd(ec, exp_var = "Age")
+```
+
+
+![二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。](images/vpd-guide/log-cont.png){fig-alt="二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。"}
+
+
+### 单分类变量 {.unnumbered}
+
+
+比较模拟样本的 Sex 与预测阳性概率。
+
+
+```r
+get_vpd(ec, exp_var = "Sex")
+```
+
+
+![比较模拟样本的 Sex 与预测阳性概率。](images/vpd-guide/log-cat.png){fig-alt="比较模拟样本的 Sex 与预测阳性概率。"}
+
+
+### 分类 × 分类 {.unnumbered}
+
+
+按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。
+
+
+```r
+get_vpd(ec, exp_var = c("Sex", "Group"))
+```
+
+
+![按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。](images/vpd-guide/log-catcat.png){fig-alt="按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。"}
+
+
+### 分类 × 连续 {.unnumbered}
+
+
+按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。
+
+
+```r
+get_vpd(ec, exp_var = c("Sex", "Age"))
+```
+
+
+![按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。](images/vpd-guide/log-group.png){fig-alt="按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。"}
+
+
+:::
+
+
+## 模型后端与对象输入
+
+`model = default` 对应 Cox / Logistic；`ranger` 对应随机森林；`xgboost` 对应相应任务的 boosting 模型。改变模型须重新计算解释对象。
+
+::: {.panel-tabset}
+
+
+### 生存随机森林 {.unnumbered}
+
+
+随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。
+
+
+```r
+get_vpd(erf, exp_var = "Age", cores = 1)
+```
+
+
+![随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。](images/vpd-guide/sur-rf.png){fig-alt="随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。"}
+
+
+### 参数列表自动构建 {.unnumbered}
+
+
+传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。
+
+
+```r
+get_vpd(list(data = dc, vars = cvars, surv = "Outcome"), exp_var = "Marker")
+```
+
+
+![传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。](images/vpd-guide/list-input.png){fig-alt="传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。"}
+
+
+:::
+
+
+## 参数调整、保存与使用边界 {#parameters}
+
+| 需求 | 参数 | 是否需要重算 |
+|:--|:--|:--|
+| 修改预测时间 | get_exp 的数值 surv | 重建解释器，再作图 |
+| 改模型 | model | 重新训练 |
+| 选择变量/分组 | exp_var | 重算相应剖面，分组生存还会重建组内模型 |
+| 整理组合图 | tidy_plot | 改呈现 |
+| 控制计算线程 | cores | 生存有效；分类忽略 |
+| 检查曲线非线性 | get_vpd_pnl 的 N | 重新抽样/计算曲线 |
+
+`get_vpd_pnl()` 对拟合模型的 PDP 曲线调用 `RegR::get_pnl_curve()`，其 P 值描述所生成曲线的形状。它不是原始患者结局模型的非线性检验，也不包含完整模型开发过程的不确定性。
+
+```r
+get_vpd_pnl(e60, exp_var = "Age", N = 100, cores = 1)
+get_vpd_pnl(e60, exp_var = c("Sex", "Age"), N = 100, cores = 1)
+
+p <- get_vpd(e60, exp_var = "Age", cores = 1)
+ggplot2::ggsave("age-pdp-60-months.pdf", p, width = 9, height = 7)
+```
+
+多数 VD/PD 图由内部平滑层显示趋势；原始剖面、统计尺度和共享轴应结合条带与本文说明阅读。get_exp 控制台打印的训练分数是表观性能，需要另外的重采样或外部数据评估。
+
+## 相关页面与源码 {#references}
+
+- [SHAP 解释](shap-guide.qmd)
+- [特征重要性图谱](imp-guide.qmd)
+- [ToyData 数据来源](../toydata/index.qmd)
+- [MLR 参考手册](https://hui950319.github.io/MLR/)
+- [get_exp 源码](https://github.com/HUI950319/MLR/blob/master/R/vpd-exp.R)
+- [get_vpd 源码](https://github.com/HUI950319/MLR/blob/master/R/vpd-get.R)
+- [survex 官方文档](https://modeloriented.github.io/survex/)
+
+本页图片来自上面的实际公共调用。使用固定示例、固定随机种子和注明的小规模设置，图形用于学习接口及解释预测结果。
+12 张图覆盖两类任务各四种变量组合、60/120 月、tidy_plot 和 ranger 后端。生存剖面限制为单线程以控制资源；小规模曲线形状计算可能提示某些重采样无事件，不能把相关提示当成临床效应证据。
