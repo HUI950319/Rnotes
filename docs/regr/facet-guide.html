@@ -1,0 +1,2017 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.25">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="get_facet 的模型、分层与缓存详解；以 598 人 M1 PTC 队列比较 KM、调整生存、CIF、嵌套分面、内嵌表和迷你森林图。">
+
+<title>分面生存曲线：get_facet 的 22 个可视化示例 – R 包开发笔记</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../regr/interaction-guide.html" rel="next">
+<link href="../regr/forest-guide.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-4571e413af9019dfdcc70175faf53a1f.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b474d6efad454b713d1e816a9cc473a2.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="../site_libs/quarto-contrib/glightbox/glightbox.min.js"></script>
+<link href="../site_libs/quarto-contrib/glightbox/glightbox.min.css" rel="stylesheet">
+<link href="../site_libs/quarto-contrib/glightbox/lightbox.css" rel="stylesheet">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-sidebar docked quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/function-modules.html">RegR · 临床回归与可视化</a></li><li class="breadcrumb-item"><a href="../regr/facet-guide.html"><span class="chapter-title">分面生存曲线：get_facet 的 22 个可视化示例</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation docked overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header sidebar-header-stacked">
+      <a href="../index.html" class="sidebar-logo-link">
+      </a>
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">R 包开发笔记</a>
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/HUI950319/Rnotes" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="切换深色模式"><i class="bi"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container">
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">关于这份笔记</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">RegR · 临床回归与可视化</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RegR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/forest-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">效应估计与森林图：get_eff 和 4 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/facet-guide.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">分面生存曲线：get_facet 的 22 个可视化示例</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">交互分析：get_inter、绝对风险与表格导出</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/get-eff-cif-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false">
+ <span class="menu-text">MLR · 机器学习解释</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR 概览</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/shap-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP：get_shp 与 14 个绘图函数</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
+ <span class="menu-text">UtilsR · 通用工具</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">seerR · SEER 数据处理</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../seerr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../seerr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
+ <span class="menu-text">LabR · 基础实验作图</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../labr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">LabR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../labr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">LabR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">scMMR · 单细胞多任务模型</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../scmmr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">scMMR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../scmmr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">scMMR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">ToyData · 示例数据</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../toydata/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ToyData 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../toydata/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ToyData 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">causalR · 因果推断与效应异质性</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">causalR 功能模块图</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+
+  <ul class="collapse">
+  <li><a href="#data" id="toc-data" class="nav-link active" data-scroll-target="#data">示例准备与读图规则</a></li>
+  <li><a href="#interface" id="toc-interface" class="nav-link" data-scroll-target="#interface">接口、模型与返回对象</a></li>
+  <li><a href="#single" id="toc-single" class="nav-link" data-scroll-target="#single">单个分层：KM、调整曲线与两种方法</a></li>
+  <li><a href="#layout" id="toc-layout" class="nav-link" data-scroll-target="#layout">亚组模型与分面布局</a></li>
+  <li><a href="#groups-cif" id="toc-groups-cif" class="nav-link" data-scroll-target="#groups-cif">联合分组与竞争风险</a></li>
+  <li><a href="#curve-style" id="toc-curve-style" class="nav-link" data-scroll-target="#curve-style">曲线显示：区间、阶梯、图例和观察窗</a></li>
+  <li><a href="#table" id="toc-table" class="nav-link" data-scroll-target="#table">内嵌表、P 值和迷你森林图</a></li>
+  <li><a href="#save" id="toc-save" class="nav-link" data-scroll-target="#save">缓存重绘、保存与参数速查</a></li>
+  <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">相关页面与源码</a></li>
+  </ul>
+<div class="toc-actions"><ul class="collapse"><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/facet-guide.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/function-modules.html">RegR · 临床回归与可视化</a></li><li class="breadcrumb-item"><a href="../regr/facet-guide.html"><span class="chapter-title">分面生存曲线：get_facet 的 22 个可视化示例</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-title">分面生存曲线：get_facet 的 22 个可视化示例</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+
+    <div>
+    <div class="quarto-title-meta-heading">发布于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">2026年10月1日</p>
+    </div>
+  </div>
+
+
+  </div>
+
+
+
+</header>
+
+
+<p><code>get_facet()</code> 把生存 / 竞争风险曲线、分面条带和每个面板的效应表组织在一张图中。本页沿用 <a href="../mlr/shap-guide.html">SHAP 可视化页</a> 的展示方式：<strong>实际图形配可运行代码，相关参数放在标签页中比较，点击图片可以放大</strong>。</p>
+<p><strong>版本与执行范围：</strong> 接口按本机 RegR <strong>0.1.3</strong>（源码快照 <code>0add2bb</code>）核对，使用 WSL R <strong>4.4.3</strong> 和 ToyData <strong>0.1.0</strong> 拟合并导出 <strong>22 张图</strong>。执行了 <code>unadj</code>、<code>direct</code>、两种方法组合，以及 CIF 的 <code>CSC</code> 标准化；IPTW / PSM 和 FGR 标准化仅说明接口。本页显示保存的汇总图形，未提供患者级数据下载。复现时需使用含本页布局、条带映射与缓存功能的 RegR 版本。</p>
+<section id="data" class="level2">
+<h2 class="anchored" data-anchor-id="data">示例准备与读图规则</h2>
+<p>继续使用 <a href="../regr/forest-guide.html">森林图页</a> 的 <code>ToyData::toy_ptc_m1_cnd</code>：<strong>598 人 M1 乳头状甲状腺癌（PTC）队列</strong>，CND 233 人、No CND 365 人。甲状腺癌死亡 175 人、其他原因死亡 95 人，存活 / 删失 328 人；随访单位为月，范围 1–239。CND 是原研究依据登记字段定义的操作性分组，来源和字段说明见 <a href="../toydata/index.html">ToyData 数据介绍</a>。</p>
+<p>本页固定 No CND 为参考组，选择 60 月计算表中的概率与差值，主要图形显示 0–120 月。<code>Age</code>、<code>Sex</code>、<code>Race</code>、<code>Tum_3</code> 为候选调整项；函数自动移除暴露和当前分层变量。年龄标签沿用 <code>Below 55</code>（&lt;55 岁）与 <code>Above 55</code>（≥55 岁）。本页使用的分析列无缺失。</p>
+<!-- facet-run: setup -->
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ToyData)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>d <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(ToyData<span class="sc">::</span>toy_ptc_m1_cnd)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>d[[<span class="st">"N_4"</span>]] <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">relevel</span>(d[[<span class="st">"N_4"</span>]], <span class="at">ref =</span> <span class="st">"No CND"</span>)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>d[[<span class="st">"status"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(d[[<span class="st">"event"</span>]], <span class="at">levels =</span> <span class="dv">0</span><span class="sc">:</span><span class="dv">2</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>adj <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Race"</span>, <span class="st">"Tum_3"</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co"># 共用显示设置；局部覆盖用 modifyList() 保留其他设置。</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>plot_base <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">color =</span> <span class="fu">c</span>(<span class="st">"#2166AC"</span>, <span class="st">"#D6604D"</span>),</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">xlim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">120</span>), <span class="at">xbre =</span> <span class="fu">seq</span>(<span class="dv">0</span>, <span class="dv">120</span>, <span class="dv">24</span>),</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">ylim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">1</span>), <span class="at">ybre =</span> <span class="fu">seq</span>(<span class="dv">0</span>, <span class="dv">1</span>, <span class="fl">0.2</span>),</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">conf_int =</span> <span class="cn">TRUE</span>, <span class="at">base_size =</span> <span class="dv">11</span>, <span class="at">unadj_steps =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">leg_position =</span> <span class="st">"top"</span>, <span class="at">flip =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">strip_merge =</span> <span class="cn">TRUE</span>, <span class="at">strip_map =</span> <span class="cn">NULL</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>table_base <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">base_size_table =</span> <span class="dv">9</span>, <span class="at">core_table =</span> <span class="fu">c</span>(<span class="fl">0.8</span>, <span class="fl">0.6</span>), <span class="at">fmt.fst.h =</span> <span class="dv">0</span>,</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">tb.vars =</span> <span class="fu">c</span>(<span class="st">"eve1"</span>, <span class="st">"HR"</span>), <span class="at">tb.vars_name =</span> <span class="fu">c</span>(<span class="at">N_4 =</span> <span class="st">"CND group"</span>),</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">insert_table =</span> <span class="cn">TRUE</span>, <span class="at">add_p_value =</span> <span class="st">"none"</span>, <span class="at">fmt.p_value.h =</span> <span class="dv">0</span>,</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>  <span class="at">text_size =</span> <span class="dv">11</span>, <span class="at">show_SP.time =</span> <span class="cn">FALSE</span></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="曲线比值和差值的含义" class="level3">
+<h3 class="anchored" data-anchor-id="曲线比值和差值的含义">曲线、比值和差值的含义</h3>
+<div class="table-responsive">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">图中内容</th>
+<th style="text-align: left;">本页的实际含义</th>
+<th style="text-align: left;">阅读方向</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>surv = TRUE</code> 的纵轴</td>
+<td style="text-align: left;">将其他原因死亡作为删失的疾病特异生存 <span class="math inline">\(S(t)\)</span></td>
+<td style="text-align: left;">越高表示该尺度的生存概率越高</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>surv = FALSE</code> 的纵轴</td>
+<td style="text-align: left;">纳入其他原因死亡作为竞争事件的甲状腺癌累积发生概率 <span class="math inline">\(CIF(t)\)</span></td>
+<td style="text-align: left;">越高表示目标事件概率越高</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">表中 <code>HR</code></td>
+<td style="text-align: left;">Cox 的 HR；竞争风险模式为 Fine–Gray 的 sHR</td>
+<td style="text-align: left;">CND 相对 No CND，参考值 1</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">表中 <code>SP</code></td>
+<td style="text-align: left;">所选 <code>timepoint</code> 的各组 <span class="math inline">\(S(t)\)</span> 或 <span class="math inline">\(CIF(t)\)</span></td>
+<td style="text-align: left;">原始比例 0–1；不是百分数或 HR</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">表中 <code>SD</code></td>
+<td style="text-align: left;">参考组概率减当前组概率</td>
+<td style="text-align: left;">本页为 <strong>No CND − CND</strong>，参考值 0</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>eve1</code> / <code>eve12</code></td>
+<td style="text-align: left;">目标事件 / 总人数；目标事件 / 其他事件 / 总人数</td>
+<td style="text-align: left;">基线分析组的事件计数，<strong>不是随时间变化的风险人数表</strong></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>这里 <code>SD</code> 的方向与 <a href="../regr/forest-guide.html">森林图页</a> 显式指定的 CND − No CND 相反；<code>get_facet()</code> 没有 <code>group_1</code> / <code>group_2</code> 公共参数，方向跟随因子参考水平。改表头不会反转差值。存在竞争事件时，这里的 DSS 生存曲线不能直接当作 <span class="math inline">\(1-CIF_{\mathrm{DSS}}\)</span>，概率定义见 <a href="https://cran.r-project.org/web/packages/survival/vignettes/compete.pdf">survival 官方竞争风险教程</a>。</p>
+<p>这些示例展示观察性队列的拟合与绘图行为。调整曲线的组间差异和亚组中的 P 值不能单独证明 CND 的因果作用；“一组显著、另一组不显著”也不能替代交互检验。</p>
+</section>
+</section>
+<section id="interface" class="level2">
+<h2 class="anchored" data-anchor-id="interface">接口、模型与返回对象</h2>
+<section id="分析设置与显示设置" class="level3">
+<h3 class="anchored" data-anchor-id="分析设置与显示设置">分析设置与显示设置</h3>
+<p>以下是当前接口的主要参数，完整默认值可直接查看 <code>formals(RegR::get_facet)</code> 或 <code>?RegR::get_facet</code>。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_facet</span>(</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  data,</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="fu">c</span>(<span class="st">"Tum_3"</span>, <span class="st">"age_55"</span>), <span class="at">cat_var =</span> <span class="st">"Sur_3"</span>, <span class="at">adj_var =</span> <span class="st">"Sex"</span>,</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">cat_var_combine =</span> <span class="cn">NULL</span>,</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">method =</span> <span class="st">"unadj"</span>, <span class="at">conf_level =</span> <span class="fl">0.95</span>,</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> <span class="fu">c</span>(<span class="st">"FGR"</span>, <span class="st">"CSC"</span>)), <span class="at">parallel =</span> <span class="cn">NULL</span>,</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">120</span>, <span class="at">show_surdiff =</span> <span class="cn">TRUE</span>, <span class="at">max_t =</span> <span class="cn">NULL</span>,</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">forest_plot =</span> <span class="cn">FALSE</span>, <span class="at">subgroup_model =</span> <span class="fu">c</span>(<span class="st">"interaction"</span>, <span class="st">"separate"</span>),</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(),</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">list</span>(...), <span class="at">table_params =</span> <span class="fu">list</span>(...)</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="table-responsive">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">参数</th>
+<th style="text-align: left;">作用与边界</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>data</code></td>
+<td style="text-align: left;">原始数据框运行分析；已有 <code>facet_res</code> / 结果 list 仅重绘</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>cat_var</code></td>
+<td style="text-align: left;">一个暴露列名；二列形式 <code>c(E, M)</code> 把 E 作为暴露、M 作为第一分面 / 效应修饰变量</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>split_var</code></td>
+<td style="text-align: left;">一个或多个分类分层变量，顺序影响交互模型和默认布局</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>adj_var</code></td>
+<td style="text-align: left;">调整项；暴露与所有分层变量自动移除</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>cat_var_combine</code></td>
+<td style="text-align: left;">将两列以上组合为 <code>Groups</code> 分类暴露，覆盖 <code>cat_var</code>；与二列 <code>cat_var</code> 不能同时使用</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>surv = TRUE</code></td>
+<td style="text-align: left;">数据需有 <code>time</code> 和 0/1 的 <code>DSS</code>；绘制生存概率</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>surv = FALSE</code></td>
+<td style="text-align: left;">数据需有 <code>time</code>、<code>status</code>、<code>event</code>；本页 0 = 删失，1 = 甲状腺癌死亡，2 = 其他原因死亡</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>conf_level</code></td>
+<td style="text-align: left;">默认 0.95；改变模型区间及相关检验计算，需要重新分析</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>timepoint</code></td>
+<td style="text-align: left;">表中 <code>SP</code> / <code>SD</code> 的时间点，单位与 <code>time</code> 一致；不是曲线的截止时间</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>max_t</code></td>
+<td style="text-align: left;">曲线的共同显示终点；在已保存支持范围内补出该时刻，不向支持范围外外推</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>show_surdiff = FALSE</code></td>
+<td style="text-align: left;">跳过表的概率 / 差值计算，保留曲线和 HR；<code>SP</code>、<code>SD</code>、<code>p_SD</code> 留为 NA</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>forest_plot</code></td>
+<td style="text-align: left;">拟合时构造内嵌森林图；需要 <code>show_surdiff = TRUE</code></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>parallel</code></td>
+<td style="text-align: left;">外层分层 worker 数；本页用 1 控制开销，内部模型仍可能并行</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>plot_params</code> / <code>table_params</code></td>
+<td style="text-align: left;">命名 list；控制曲线、分面、表与文字，不重新定义参考组</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>save</code></td>
+<td style="text-align: left;">默认 <code>list()</code> 不保存；命名配置交给 <code>RegR::save_plt()</code> 保存 PDF</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>帮助页还列出字符型 <code>surv</code> 转交 Logistic 结局路径的接口。本页验证的是生存 / CIF 绘图，没有执行该路径。</p>
+</section>
+<section id="method-与-cif-后端" class="level3">
+<h3 class="anchored" data-anchor-id="method-与-cif-后端">method 与 CIF 后端</h3>
+<div class="table-responsive">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;"><code>method</code></th>
+<th style="text-align: left;">曲线与模型</th>
+<th style="text-align: left;">本页执行情况</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>"unadj"</code></td>
+<td style="text-align: left;">生存模式 KM；竞争风险模式 Aalen–Johansen；表中比值为未调整回归结果</td>
+<td style="text-align: left;">实际展示</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>"direct"</code></td>
+<td style="text-align: left;">在各分层数据内拟合结局模型，标准化得到组别曲线；比值表另行组织</td>
+<td style="text-align: left;">实际展示</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>"both"</code></td>
+<td style="text-align: left;"><code>c("unadj", "direct")</code> 的兼容写法，增加 methods 分面</td>
+<td style="text-align: left;">实际展示</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>c("unadj", "direct")</code></td>
+<td style="text-align: left;">两个不同方法组成的向量；顺序决定方法条带顺序</td>
+<td style="text-align: left;">与 <code>"both"</code> 同义</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>"iptw"</code> / <code>"psm"</code></td>
+<td style="text-align: left;">倾向评分加权 / 匹配路径</td>
+<td style="text-align: left;">未执行；先完成平衡、重叠与有效样本诊断</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>方法向量必须恰好包含两个不同方法。<code>subgroup_model = "interaction"</code> 只支持 <code>unadj</code> / <code>direct</code> 及其组合；加权、匹配或多分类暴露需要使用 <code>"separate"</code>。</p>
+<p><code>cif_args = list(model = "FGR")</code> 与 <code>list(model = "CSC")</code> 只影响 <strong>CIF + direct 的标准化概率路径</strong>。FGR 默认采用 Fine–Gray 模型与 50 次 bootstrap；CSC 采用各原因 Cox 模型与解析方差。即使选 CSC，内嵌比值表仍显示 Fine–Gray sHR，不能把它改读为原因特异 HR。模型假设与实测耗时见 <a href="../regr/get-eff-cif-benchmark.html">FGR 与 CSC 基准页</a>。</p>
+</section>
+<section id="subgroup_model-与分层顺序" class="level3">
+<h3 class="anchored" data-anchor-id="subgroup_model-与分层顺序">subgroup_model 与分层顺序</h3>
+<div class="table-responsive">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">设置</th>
+<th style="text-align: left;">表中 HR / sHR 的来源</th>
+<th style="text-align: left;">曲线与概率</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>"interaction"</code>（默认）</td>
+<td style="text-align: left;"><code>cat_var * split_var[1]</code> 模型中的简单效应；<code>split_var[-1]</code> 先将数据分层，每层各拟合一个交互模型</td>
+<td style="text-align: left;">保留各分面内原来的计算</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>"separate"</code></td>
+<td style="text-align: left;">在每个完整分层单元内独立拟合暴露模型</td>
+<td style="text-align: left;">保留各分面内原来的计算</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>交互模式要求二分类暴露和至少一个分类分层变量，每个分层变量至少有两个观测水平。因此 <code>split_var = c("Sex", "age_55")</code> 是<strong>先在每个年龄组内分析 CND × Sex</strong>；交换这两个名字会改变效应修饰变量，不能把它当作单纯转置图形。仅改变布局时使用 <code>plot_params$flip</code>。</p>
+</section>
+<section id="返回对象与缓存" class="level3">
+<h3 class="anchored" data-anchor-id="返回对象与缓存">返回对象与缓存</h3>
+<p><code>get_facet()</code> 自动绘制图形，并不可见地返回具有 <code>facet_res</code> 类的 list。下面第一幅图会创建 <code>f_unadj</code>，随后可查看：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(f_unadj)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># "sur.data" "insert.data" "plt"</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>f_unadj[[<span class="st">"sur.data"</span>]]                  <span class="co"># 长格式曲线数据，含 yhat</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>f_unadj[[<span class="st">"insert.data"</span>]][[<span class="st">"table_tb"</span>]] <span class="co"># 每个面板的内嵌表 list</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(f_unadj[[<span class="st">"insert.data"</span>]], <span class="st">"p_inter"</span>)</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(f_unadj, <span class="st">"analysis"</span>)              <span class="co"># 分析设置与布局元数据</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>f_unadj[[<span class="st">"plt"</span>]]                       <span class="co"># 完整 ggplot</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>在当前版本中，单独打印 <code>f_unadj</code> 显示分析与面板摘要；要再次显示图形，使用 <code>f_unadj[["plt"]]</code>。<code>.final_method</code> 记录曲线实际采用的方法，应确认 direct 没有回退到其他方法。</p>
+</section>
+</section>
+<section id="single" class="level2">
+<h2 class="anchored" data-anchor-id="single">单个分层：KM、调整曲线与两种方法</h2>
+<p>Sex 的两个水平放在两列，曲线颜色表示 No CND / CND，<strong>条带颜色表示分层水平，不表示组别风险</strong>。共用的表设置隐藏独立 P 值文字，仅展示事件人数和 HR。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">未调整 KM</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">协变量调整</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-3" role="tab" aria-controls="tabset-1-3" aria-selected="false" href="">两种方法同图</a></li></ul>
+<div class="tab-content">
+<div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>f_unadj <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> adj,</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">method =</span> <span class="st">"unadj"</span>, <span class="at">subgroup_model =</span> <span class="st">"interaction"</span>,</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base, <span class="at">table_params =</span> table_base</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-km-basic" class="quarto-float quarto-figure quarto-figure-center anchored" alt="女性与男性两个面板，各有 No CND 和 CND 两条 KM 曲线及事件人数、HR 表。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-km-basic-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/km-basic.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="图&nbsp;3.1: 按 Sex 分面的未调整 KM，阴影为 95% CI，表中 CND 相对 No CND 的 HR。"><img src="images/facet-guide/km-basic.png" class="img-fluid figure-img" alt="女性与男性两个面板，各有 No CND 和 CND 两条 KM 曲线及事件人数、HR 表。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-km-basic-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.1: 按 Sex 分面的未调整 KM，阴影为 95% CI，表中 CND 相对 No CND 的 HR。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>f_direct <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> adj,</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">method =</span> <span class="st">"direct"</span>, <span class="at">subgroup_model =</span> <span class="st">"interaction"</span>,</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base, <span class="at">table_params =</span> table_base</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-sur-direct" class="quarto-float quarto-figure quarto-figure-center anchored" alt="两个 Sex 面板中的协变量标准化生存曲线，带 95% CI 与调整 HR。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-sur-direct-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/sur-direct.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="图&nbsp;3.2: 各 Sex 层内对 Age、Race、Tum_3 调整后的标准化生存曲线；表中 HR 来自 CND × Sex 模型。"><img src="images/facet-guide/sur-direct.png" class="img-fluid figure-img" alt="两个 Sex 面板中的协变量标准化生存曲线，带 95% CI 与调整 HR。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-sur-direct-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.2: 各 Sex 层内对 Age、Race、Tum_3 调整后的标准化生存曲线；表中 HR 来自 CND × Sex 模型。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-1-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-3-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>f_both <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> adj,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">method =</span> <span class="st">"both"</span>, <span class="at">subgroup_model =</span> <span class="st">"interaction"</span>,</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base, <span class="at">table_params =</span> table_base</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-sur-both" class="quarto-float quarto-figure quarto-figure-center anchored" alt="2 行 2 列，按未调整与调整方法以及女性与男性比较 CND 生存曲线。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-sur-both-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/sur-both.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="图&nbsp;3.3: 方法放在行、Sex 放在列；上行为未调整 KM，下行为调整生存曲线。"><img src="images/facet-guide/sur-both.png" class="img-fluid figure-img" alt="2 行 2 列，按未调整与调整方法以及女性与男性比较 CND 生存曲线。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-sur-both-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.3: 方法放在行、Sex 放在列；上行为未调整 KM，下行为调整生存曲线。
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+<p>未调整曲线默认使用阶梯，调整曲线使用线段。<code>unadj_steps = FALSE</code> 只改变几何画法，未调整估计仍是 KM / Aalen–Johansen，并不会变成平滑模型。</p>
+</section>
+<section id="layout" class="level2">
+<h2 class="anchored" data-anchor-id="layout">亚组模型与分面布局</h2>
+<section id="独立拟合与行列转置" class="level3">
+<h3 class="anchored" data-anchor-id="独立拟合与行列转置">独立拟合与行列转置</h3>
+<p><code>f_direct</code> 默认使用交互模型的简单效应。第一张图重新拟合每个 Sex 层内的 Cox 模型；第二张图只转置已计算的 <code>f_both</code>。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">各层独立模型</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">flip 转置</a></li></ul>
+<div class="tab-content">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>f_separate <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> adj,</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">method =</span> <span class="st">"direct"</span>, <span class="at">subgroup_model =</span> <span class="st">"separate"</span>,</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base, <span class="at">table_params =</span> table_base</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-sur-separate" class="quarto-float quarto-figure quarto-figure-center anchored" alt="每个 Sex 水平内分别拟合调整模型，内嵌表显示独立模型的 HR。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-sur-separate-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/sur-separate.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="图&nbsp;3.4: 独立分层模型改变表中的 HR 来源，调整曲线的计算方式保持一致。"><img src="images/facet-guide/sur-separate.png" class="img-fluid figure-img" alt="每个 Sex 水平内分别拟合调整模型，内嵌表显示独立模型的 HR。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-sur-separate-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.4: 独立分层模型改变表中的 HR 来源，调整曲线的计算方式保持一致。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>f_flipped <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  f_both,</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(<span class="at">flip =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-sur-flip" class="quarto-float quarto-figure quarto-figure-center anchored" alt="转置为女性和男性两行、未调整与调整两列，数值与原始四面板结果相同。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-sur-flip-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/sur-flip.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="图&nbsp;3.5: Sex 改放在行，方法改放在列；曲线与表来自原缓存，没有重新拟合。"><img src="images/facet-guide/sur-flip.png" class="img-fluid figure-img" alt="转置为女性和男性两行、未调整与调整两列，数值与原始四面板结果相同。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-sur-flip-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.5: Sex 改放在行，方法改放在列；曲线与表来自原缓存，没有重新拟合。
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="两个分层变量与嵌套条带" class="level3">
+<h3 class="anchored" data-anchor-id="两个分层变量与嵌套条带">两个分层变量与嵌套条带</h3>
+<p>下面使用 <code>split_var = c("Sex", "age_55")</code>，共有 2 个 Sex 水平 × 2 个年龄水平 × 2 种方法 = <strong>8 个面板</strong>。先在年龄层内拟合 CND × Sex，随后根据 <code>flip</code> 安排位置。分层后样本更少，这组布局示例仅调整连续年龄 <code>Age</code>，避免在稀疏单元内加入较多分类调整项。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">默认布局</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">布尔转置</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-3" role="tab" aria-controls="tabset-3-3" aria-selected="false" href="">指定每侧变量</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-4" role="tab" aria-controls="tabset-3-4" aria-selected="false" href="">逐格重复条带</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-5-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-5" role="tab" aria-controls="tabset-3-5" aria-selected="false" href="">映射显示标签</a></li></ul>
+<div class="tab-content">
+<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>f_multi <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"age_55"</span>), <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> <span class="st">"Age"</span>,</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">method =</span> <span class="st">"both"</span>, <span class="at">subgroup_model =</span> <span class="st">"interaction"</span>,</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base, <span class="at">table_params =</span> table_base</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-multi-default" class="quarto-float quarto-figure quarto-figure-center anchored" alt="2 列 4 行，Sex 为列，方法及两个年龄组嵌套为行。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-multi-default-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/multi-default.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="图&nbsp;3.6: 默认把 Sex 放在列，方法与年龄条带嵌套在行，8 个面板。"><img src="images/facet-guide/multi-default.png" class="img-fluid figure-img" alt="2 列 4 行，Sex 为列，方法及两个年龄组嵌套为行。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-multi-default-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.6: 默认把 Sex 放在列，方法与年龄条带嵌套在行，8 个面板。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>f_multi_flip <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  f_multi,</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(<span class="at">flip =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-multi-flip" class="quarto-float quarto-figure quarto-figure-center anchored" alt="4 列 2 行，Sex 为行，方法各覆盖两个年龄组的列。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-multi-flip-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/multi-flip.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="图&nbsp;3.7: 方法与年龄改到列方向；合并的外层方法条带横跨各年龄面板。"><img src="images/facet-guide/multi-flip.png" class="img-fluid figure-img" alt="4 列 2 行，Sex 为行，方法各覆盖两个年龄组的列。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-multi-flip-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.7: 方法与年龄改到列方向；合并的外层方法条带横跨各年龄面板。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-3-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>f_multi_list <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  f_multi,</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">flip =</span> <span class="fu">list</span>(<span class="at">rows =</span> <span class="fu">c</span>(<span class="st">"age_55"</span>, <span class="st">"Sex"</span>), <span class="at">cols =</span> <span class="st">"methods"</span>)</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  )),</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-multi-list" class="quarto-float quarto-figure quarto-figure-center anchored" alt="方法为两列，两个年龄层中分别嵌套女性和男性，共四行。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-multi-list-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/multi-list.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="图&nbsp;3.8: 方法单独占两列，年龄 → Sex 按外到内顺序堆叠在行。"><img src="images/facet-guide/multi-list.png" class="img-fluid figure-img" alt="方法为两列，两个年龄层中分别嵌套女性和男性，共四行。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-multi-list-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.8: 方法单独占两列，年龄 → Sex 按外到内顺序堆叠在行。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-4-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>f_multi_unmerged <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  f_multi,</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(<span class="at">flip =</span> <span class="cn">TRUE</span>, <span class="at">strip_merge =</span> <span class="cn">FALSE</span>)),</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-multi-unmerged" class="quarto-float quarto-figure quarto-figure-center anchored" alt="4 列 2 行，每个年龄列分别重复方法条带。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-multi-unmerged-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/multi-unmerged.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="图&nbsp;3.9: 关闭 strip_merge 后，每个面板重复方法条带，布局和结果数值保持不变。"><img src="images/facet-guide/multi-unmerged.png" class="img-fluid figure-img" alt="4 列 2 行，每个年龄列分别重复方法条带。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-multi-unmerged-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.9: 关闭 strip_merge 后，每个面板重复方法条带，布局和结果数值保持不变。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-5" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-5-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>f_multi_labels <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  f_multi,</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">flip =</span> <span class="fu">list</span>(<span class="at">cols =</span> <span class="st">"methods"</span>),</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">strip_map =</span> <span class="fu">c</span>(</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>      <span class="st">"Unadjusted survival curves"</span> <span class="ot">=</span> <span class="st">"KM"</span>, <span class="st">"Adjusted survival curves"</span> <span class="ot">=</span> <span class="st">"Adjusted"</span>,</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>      <span class="st">"Female"</span> <span class="ot">=</span> <span class="st">"Women"</span>, <span class="st">"Male"</span> <span class="ot">=</span> <span class="st">"Men"</span>, <span class="st">"Below 55"</span> <span class="ot">=</span> <span class="st">"Age &lt;55"</span>,</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>      <span class="st">"Above 55"</span> <span class="ot">=</span> <span class="st">"Age &gt;=55"</span></span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  )),</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-multi-labels" class="quarto-float quarto-figure quarto-figure-center anchored" alt="方法列命名 KM 与 Adjusted，Sex 和年龄条带使用短标签。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-multi-labels-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/multi-labels.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="图&nbsp;3.10: 条带文字改为短标签；未改变因子水平顺序、配色或模型。"><img src="images/facet-guide/multi-labels.png" class="img-fluid figure-img" alt="方法列命名 KM 与 Adjusted，Sex 和年龄条带使用短标签。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-multi-labels-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.10: 条带文字改为短标签；未改变因子水平顺序、配色或模型。
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+<p><code>flip</code> 的 list 中，<code>rows</code> / <code>cols</code> 按<strong>外层 → 内层</strong>填写，可用原变量名或内部 <code>strata</code> / <code>strata1</code> 等名字。只指定一侧时，另一侧自动接收剩余层；同时指定两侧时，必须覆盖全部层，不能重名或漏层。<code>strip_merge</code> 仅在同一方向包含多个条带层时才有明显效果。</p>
+<p>二列 <code>cat_var</code> 可把暴露与修饰变量写在一起：以下调用与上面的 <code>cat_var = "N_4", split_var = c("Sex", "age_55")</code> 具有相同的变量组织方式，不表示联合暴露。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_facet</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"N_4"</span>, <span class="st">"Sex"</span>), <span class="at">split_var =</span> <span class="st">"age_55"</span>,</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>          <span class="at">adj_var =</span> <span class="st">"Age"</span>, <span class="at">method =</span> <span class="st">"both"</span>, <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>,</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>          <span class="at">subgroup_model =</span> <span class="st">"interaction"</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>          <span class="at">plot_params =</span> plot_base, <span class="at">table_params =</span> table_base)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+</section>
+<section id="groups-cif" class="level2">
+<h2 class="anchored" data-anchor-id="groups-cif">联合分组与竞争风险</h2>
+<section id="将多个变量组合为一个暴露" class="level3">
+<h3 class="anchored" data-anchor-id="将多个变量组合为一个暴露">将多个变量组合为一个暴露</h3>
+<p><code>cat_var_combine = c("N_4", "Sex")</code> 将两列组合为四个实际观测到的水平，曲线表示这些联合类别；年龄用于分面。它与二列 <code>cat_var</code> 的含义不同：后者仍然只对 CND 暴露画两条曲线。联合类别的比值是相对组合因子首水平的比较，不能直接当作交互检验。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>f_combined <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="st">"age_55"</span>, <span class="at">cat_var_combine =</span> <span class="fu">c</span>(<span class="st">"N_4"</span>, <span class="st">"Sex"</span>),</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Race"</span>, <span class="st">"Tum_3"</span>), <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">method =</span> <span class="st">"unadj"</span>,</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">subgroup_model =</span> <span class="st">"separate"</span>, <span class="at">show_surdiff =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="fu">c</span>(<span class="st">"#2166AC"</span>, <span class="st">"#67A9CF"</span>, <span class="st">"#D6604D"</span>, <span class="st">"#F4A582"</span>)</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>  )),</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(<span class="at">tb.vars_name =</span> <span class="fu">c</span>(<span class="at">Groups =</span> <span class="st">"Joint group"</span>)))</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-combine-groups" class="quarto-float quarto-figure quarto-figure-center anchored" alt="两个年龄面板，每个面板四条联合分组的 KM 曲线，内嵌组合组别、事件计数和 HR 表。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-combine-groups-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/combine-groups.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="图&nbsp;3.11: 年龄分面中的四个 CND × Sex 联合类别，使用 separate 模式。"><img src="images/facet-guide/combine-groups.png" class="img-fluid figure-img" alt="两个年龄面板，每个面板四条联合分组的 KM 曲线，内嵌组合组别、事件计数和 HR 表。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-combine-groups-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.11: 年龄分面中的四个 CND × Sex 联合类别，使用 separate 模式。
+</figcaption>
+</figure>
+</div>
+</section>
+<section id="未调整-cif-与-csc-标准化" class="level3">
+<h3 class="anchored" data-anchor-id="未调整-cif-与-csc-标准化">未调整 CIF 与 CSC 标准化</h3>
+<p>下面的曲线从 0 上升，纵轴是目标事件累积发生概率。包括<strong>缓存重绘 CIF 时也显式传入 <code>surv = FALSE</code></strong>，并通过 <code>tb.vars_name</code> 明确把比值列标题写为 sHR。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">Aalen–Johansen</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">CSC 标准化</a></li></ul>
+<div class="tab-content">
+<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>f_cif <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> adj,</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">method =</span> <span class="st">"unadj"</span>, <span class="at">subgroup_model =</span> <span class="st">"interaction"</span>,</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base,</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">fmt.fst.h =</span> <span class="sc">-</span><span class="fl">0.05</span>, <span class="at">tb.vars_name =</span> <span class="fu">c</span>(<span class="at">N_4 =</span> <span class="st">"CND group"</span>, <span class="at">HR =</span> <span class="st">"sHR (95% CI)"</span>)</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-cif-unadj" class="quarto-float quarto-figure quarto-figure-center anchored" alt="女性与男性两个面板的甲状腺癌累积发生概率，从 0 上升，并有事件计数及 sHR 表。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cif-unadj-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/cif-unadj.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="图&nbsp;3.12: 纳入其他原因死亡的未调整 CIF；表中 sHR 来自 Fine–Gray 模型。"><img src="images/facet-guide/cif-unadj.png" class="img-fluid figure-img" alt="女性与男性两个面板的甲状腺癌累积发生概率，从 0 上升，并有事件计数及 sHR 表。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cif-unadj-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.12: 纳入其他原因死亡的未调整 CIF；表中 sHR 来自 Fine–Gray 模型。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>f_csc <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> adj,</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">method =</span> <span class="st">"direct"</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> <span class="st">"CSC"</span>),</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">subgroup_model =</span> <span class="st">"interaction"</span>, <span class="at">timepoint =</span> <span class="dv">60</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base,</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">fmt.fst.h =</span> <span class="sc">-</span><span class="fl">0.05</span>, <span class="at">tb.vars_name =</span> <span class="fu">c</span>(<span class="at">N_4 =</span> <span class="st">"CND group"</span>, <span class="at">HR =</span> <span class="st">"sHR (95% CI)"</span>)</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-cif-csc" class="quarto-float quarto-figure quarto-figure-center anchored" alt="两个 Sex 面板的 CSC 标准化 CIF 及区间，表中展示调整后的 Fine–Gray sHR。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cif-csc-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/cif-csc.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="图&nbsp;3.13: 各原因 Cox 模型标准化得到的 CIF 与解析 95% CI；表中比值仍为 Fine–Gray sHR。"><img src="images/facet-guide/cif-csc.png" class="img-fluid figure-img" alt="两个 Sex 面板的 CSC 标准化 CIF 及区间，表中展示调整后的 Fine–Gray sHR。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cif-csc-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.13: 各原因 Cox 模型标准化得到的 CIF 与解析 95% CI；表中比值仍为 Fine–Gray sHR。
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+<p>选择后端会改变拟合的工作模型，不是只换画图方式。HR / sHR 和曲线差值来自不同的估计步骤；不能从曲线间距反推出 HR，也不能把 sHR 解读成 60 月风险比。</p>
+</section>
+</section>
+<section id="curve-style" class="level2">
+<h2 class="anchored" data-anchor-id="curve-style">曲线显示：区间、阶梯、图例和观察窗</h2>
+<p>下面四张图直接重绘 <code>f_unadj</code>，复用原曲线与内嵌表。显示选项不改变模型结果。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">隐藏置信区间</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">改用线段</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-3" role="tab" aria-controls="tabset-5-3" aria-selected="false" href="">图例放入面板</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-4" role="tab" aria-controls="tabset-5-4" aria-selected="false" href="">窗口与配色</a></li></ul>
+<div class="tab-content">
+<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>f_no_ci <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  f_unadj,</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(<span class="at">conf_int =</span> <span class="cn">FALSE</span>)),</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-curve-no-ci" class="quarto-float quarto-figure quarto-figure-center anchored" alt="无区间阴影的阶梯 KM 曲线，表格仍展示 HR 的 95% CI。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curve-no-ci-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/curve-no-ci.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="图&nbsp;3.14: conf_int = FALSE 隐藏曲线阴影；内嵌 HR 的区间仍保留。"><img src="images/facet-guide/curve-no-ci.png" class="img-fluid figure-img" alt="无区间阴影的阶梯 KM 曲线，表格仍展示 HR 的 95% CI。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curve-no-ci-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.14: conf_int = FALSE 隐藏曲线阴影；内嵌 HR 的区间仍保留。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>f_lines <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  f_unadj,</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(<span class="at">unadj_steps =</span> <span class="cn">FALSE</span>)),</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-curve-lines" class="quarto-float quarto-figure quarto-figure-center anchored" alt="KM 估计点以线段连接，数据与 HR 表保持相同。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curve-lines-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/curve-lines.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="图&nbsp;3.15: 线段连接同一组 KM 估计点，仅用于显示选项对照；统计含义仍按阶梯解释。"><img src="images/facet-guide/curve-lines.png" class="img-fluid figure-img" alt="KM 估计点以线段连接，数据与 HR 表保持相同。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curve-lines-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.15: 线段连接同一组 KM 估计点，仅用于显示选项对照；统计含义仍按阶梯解释。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-5-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-3-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>f_legend <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  f_unadj,</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(<span class="at">leg_position =</span> <span class="st">"left"</span>)),</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-curve-legend" class="quarto-float quarto-figure quarto-figure-center anchored" alt="共享组别图例放在女性面板左上角，男性面板不重复显示图例。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curve-legend-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/curve-legend.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="图&nbsp;3.16: 共享图例移到第一个面板的左上角。"><img src="images/facet-guide/curve-legend.png" class="img-fluid figure-img" alt="共享组别图例放在女性面板左上角，男性面板不重复显示图例。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curve-legend-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.16: 共享图例移到第一个面板的左上角。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-5-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-4-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>f_zoom <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  f_unadj, <span class="at">max_t =</span> <span class="dv">90</span>,</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">color =</span> <span class="fu">c</span>(<span class="st">"#1B9E77"</span>, <span class="st">"#D95F02"</span>),</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">xlim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">90</span>), <span class="at">xbre =</span> <span class="fu">seq</span>(<span class="dv">0</span>, <span class="dv">90</span>, <span class="dv">18</span>),</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">ylim =</span> <span class="fu">c</span>(<span class="fl">0.3</span>, <span class="dv">1</span>), <span class="at">ybre =</span> <span class="fu">seq</span>(<span class="fl">0.3</span>, <span class="dv">1</span>, <span class="fl">0.1</span>)</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>  )),</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(<span class="at">fmt.fst.h =</span> <span class="fl">0.04</span>))</span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-curve-zoom-colors" class="quarto-float quarto-figure quarto-figure-center anchored" alt="绿橙两条 KM 曲线，横轴 0 到 90 月，纵轴 0.3 到 1，表格背景随曲线颜色改变。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-curve-zoom-colors-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/curve-zoom-colors.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="图&nbsp;3.17: 显示 0–90 月并调整纵轴窗口；表格底色随曲线配色同步。"><img src="images/facet-guide/curve-zoom-colors.png" class="img-fluid figure-img" alt="绿橙两条 KM 曲线，横轴 0 到 90 月，纵轴 0.3 到 1，表格背景随曲线颜色改变。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-curve-zoom-colors-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.17: 显示 0–90 月并调整纵轴窗口；表格底色随曲线配色同步。
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+<p><code>leg_position</code> 还支持 0–1 的面板内坐标，例如 <code>c(0.02, 0.98)</code>。<code>max_t</code> 控制曲线终点，<code>xlim</code> / <code>ylim</code> 控制显示范围；本页同时给出 <code>xbre</code> / <code>ybre</code>。截短坐标不会改变 60 月的内嵌表时间点，也不会按窗口重新截断 Cox 模型的随访。</p>
+</section>
+<section id="table" class="level2">
+<h2 class="anchored" data-anchor-id="table">内嵌表、P 值和迷你森林图</h2>
+<section id="选择与命名表格列" class="level3">
+<h3 class="anchored" data-anchor-id="选择与命名表格列">选择与命名表格列</h3>
+<p><code>tb.vars</code> 用内部字段名选择列，组别列自动保留；列顺序依照表的既定顺序。<code>tb.vars_name</code> 用 <strong>旧字段名 = 新显示名称</strong> 的命名向量改标题。这里显式命名 <code>SP = "S(60 months)"</code>，避免把时间点误读成默认 120 月。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">各组生存概率</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">比值与概率差同表</a></li></ul>
+<div class="tab-content">
+<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>f_prob_table <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  f_unadj,</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base,</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">tb.vars =</span> <span class="fu">c</span>(<span class="st">"eve1"</span>, <span class="st">"SP"</span>),</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">tb.vars_name =</span> <span class="fu">c</span>(<span class="at">N_4 =</span> <span class="st">"CND group"</span>, <span class="at">SP =</span> <span class="st">"S(60 months)"</span>),</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">base_size_table =</span> <span class="dv">8</span></span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-table-prob" class="quarto-float quarto-figure quarto-figure-center anchored" alt="KM 曲线下方显示各组事件计数及 60 月生存概率和区间。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-table-prob-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/table-prob.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="图&nbsp;3.18: 选择事件计数与 60 月各组生存概率，SP 使用原始比例和 95% CI。"><img src="images/facet-guide/table-prob.png" class="img-fluid figure-img" alt="KM 曲线下方显示各组事件计数及 60 月生存概率和区间。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-table-prob-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.18: 选择事件计数与 60 月各组生存概率，SP 使用原始比例和 95% CI。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>f_full_table <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>  f_unadj,</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base,</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">tb.vars =</span> <span class="fu">c</span>(<span class="st">"HR"</span>, <span class="st">"SP"</span>, <span class="st">"SD"</span>),</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">tb.vars_name =</span> <span class="fu">c</span>(<span class="at">N_4 =</span> <span class="st">"CND group"</span>, <span class="at">HR =</span> <span class="st">"HR (95% CI)"</span>,</span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>                    <span class="at">SP =</span> <span class="st">"S(60 months)"</span>, <span class="at">SD =</span> <span class="st">"No CND - CND"</span>),</span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">base_size_table =</span> <span class="dv">7</span>, <span class="at">core_table =</span> <span class="fu">c</span>(<span class="fl">0.55</span>, <span class="fl">0.5</span>)</span>
+<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-table-full" class="quarto-float quarto-figure quarto-figure-center anchored" alt="每个面板内展示 HR、60 月生存概率，以及参考组减 CND 的概率差和区间。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-table-full-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/table-full.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="图&nbsp;3.19: HR、各组 S(60) 与 No CND − CND 的生存差共用一张表；宽表可点击放大。"><img src="images/facet-guide/table-full.png" class="img-fluid figure-img" alt="每个面板内展示 HR、60 月生存概率，以及参考组减 CND 的概率差和区间。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-table-full-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.19: HR、各组 S(60) 与 No CND − CND 的生存差共用一张表；宽表可点击放大。
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+<p><code>base_size_table</code> 控制表格字体，<code>core_table</code> 控制单元格内边距，<code>fmt.fst.h</code> 是表格相对默认位置的竖向偏移。生存图默认靠下，CIF 默认靠上。<code>show_SP.time = TRUE</code> 当前使用固定的 10-year 前缀；本页保持 FALSE 并用 <code>tb.vars_name</code> 明确实际时间点。</p>
+</section>
+<section id="用独立文字展示-p-值" class="level3">
+<h3 class="anchored" data-anchor-id="用独立文字展示-p-值">用独立文字展示 P 值</h3>
+<p><code>p_HR</code> 检验面板内 CND 的 HR，<code>p_SD</code> 检验选定时间点的概率差，<strong>都不是全局交互 P 值</strong>。<code>HR1</code> / <code>SD1</code> 仅显示简短 <code>p value</code>；<code>HR</code> / <code>SD</code> 加上组别比较名称，<code>all</code> 同时显示两个命名比较。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-7-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-1" role="tab" aria-controls="tabset-7-1" aria-selected="true" href="">HR 的 P 值</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-2" role="tab" aria-controls="tabset-7-2" aria-selected="false" href="">60 月差值的 P 值</a></li></ul>
+<div class="tab-content">
+<div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>f_p_haz <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  f_unadj,</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base,</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">add_p_value =</span> <span class="st">"HR1"</span>, <span class="at">fmt.p_value.h =</span> <span class="fl">0.08</span></span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-pvalue-haz" class="quarto-float quarto-figure quarto-figure-center anchored" alt="两个 Sex 面板各显示 CND HR 的 P 值文字，与下方 HR 表对应。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-pvalue-haz-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/pvalue-haz.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="图&nbsp;3.20: 显示面板内 CND HR 的简短 P 值，文字位置通过 fmt.p_value.h 调整。"><img src="images/facet-guide/pvalue-haz.png" class="img-fluid figure-img" alt="两个 Sex 面板各显示 CND HR 的 P 值文字，与下方 HR 表对应。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-pvalue-haz-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.20: 显示面板内 CND HR 的简短 P 值，文字位置通过 fmt.p_value.h 调整。
+</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>f_p_diff <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>  f_unadj,</span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base,</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(</span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">tb.vars =</span> <span class="fu">c</span>(<span class="st">"eve1"</span>, <span class="st">"SP"</span>),</span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">tb.vars_name =</span> <span class="fu">c</span>(<span class="at">N_4 =</span> <span class="st">"CND group"</span>, <span class="at">SP =</span> <span class="st">"S(60 months)"</span>),</span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">add_p_value =</span> <span class="st">"SD1"</span>, <span class="at">fmt.p_value.h =</span> <span class="fl">0.08</span>, <span class="at">base_size_table =</span> <span class="dv">8</span></span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-pvalue-diff" class="quarto-float quarto-figure quarto-figure-center anchored" alt="显示 60 月 No CND 减 CND 的生存概率差 P 值，下方是各组生存概率表。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-pvalue-diff-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/pvalue-diff.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="图&nbsp;3.21: 文字检验 60 月生存概率差，不是 log-rank 或交互检验。"><img src="images/facet-guide/pvalue-diff.png" class="img-fluid figure-img" alt="显示 60 月 No CND 减 CND 的生存概率差 P 值，下方是各组生存概率表。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-pvalue-diff-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.21: 文字检验 60 月生存概率差，不是 log-rank 或交互检验。
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+<p>全局 Sex 交互 P 值可在 <code>attr(f_both[["insert.data"]], "p_inter")</code> 中查阅；它与上述面板内 P 值具有不同的检验目标。多分层时，该属性按外层分层单元和方法组织。</p>
+</section>
+<section id="森林图模式的当前输出" class="level3">
+<h3 class="anchored" data-anchor-id="森林图模式的当前输出">森林图模式的当前输出</h3>
+<p>必须从原始数据创建 <code>forest_plot = TRUE</code> 的结果，再把 <code>table_params$insert_table</code> 设为 FALSE。仅在普通缓存上切换 <code>forest_plot = TRUE</code> 不会补算森林图。当前模板实际插入的是 <strong>HR 与各组生存概率的组合表，并附有零刻度；没有呈现可读的效应区间图形</strong>。其列头固定写为 10-year DSS，故本例改为实际计算 120 月，不能把 60 月结果放在这个固定标题下。需要完整森林图时，使用 <a href="../regr/forest-guide.html">森林图页</a> 的专用绘图函数。</p>
+<p>已有森林图缓存的 <code>insert_table = FALSE</code> 会显示这个组件；仅想要纯曲线时，用没有森林图组件的缓存，并同时设置 <code>add_p_value = "none"</code>。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>f_forest <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> adj,</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">method =</span> <span class="st">"unadj"</span>, <span class="at">subgroup_model =</span> <span class="st">"interaction"</span>,</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">timepoint =</span> <span class="dv">120</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">forest_plot =</span> <span class="cn">TRUE</span>, <span class="at">show_surdiff =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base,</span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">modifyList</span>(table_base, <span class="fu">list</span>(</span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">insert_table =</span> <span class="cn">FALSE</span>, <span class="at">fmt.fst.h =</span> <span class="fl">0.08</span></span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="fig-mini-forest" class="quarto-float quarto-figure quarto-figure-center anchored" alt="每个 Sex 面板的 KM 曲线中嵌入 HR 与 10 年 DSS 生存概率的组合表，列间有零刻度，没有可读的森林区间。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mini-forest-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="images/facet-guide/mini-forest.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="图&nbsp;3.22: 森林图模式的实际输出：HR 与 120 月生存概率的组合表，模板保留零刻度。"><img src="images/facet-guide/mini-forest.png" class="img-fluid figure-img" alt="每个 Sex 面板的 KM 曲线中嵌入 HR 与 10 年 DSS 生存概率的组合表，列间有零刻度，没有可读的森林区间。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mini-forest-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;3.22: 森林图模式的实际输出：HR 与 120 月生存概率的组合表，模板保留零刻度。
+</figcaption>
+</figure>
+</div>
+</section>
+</section>
+<section id="save" class="level2">
+<h2 class="anchored" data-anchor-id="save">缓存重绘、保存与参数速查</h2>
+<section id="哪些更改需要重新分析" class="level3">
+<h3 class="anchored" data-anchor-id="哪些更改需要重新分析">哪些更改需要重新分析</h3>
+<div class="table-responsive">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 30%">
+<col style="width: 40%">
+<col style="width: 30%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">更改内容</th>
+<th style="text-align: center;">可以直接重绘缓存</th>
+<th style="text-align: left;">原因</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">颜色、区间是否显示、字体、图例、flip、条带映射</td>
+<td style="text-align: center;">是</td>
+<td style="text-align: left;">修改呈现方式</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">表的列、列名、字体、位置，P 值文字显示方式</td>
+<td style="text-align: center;">是</td>
+<td style="text-align: left;">只能展示缓存已有结果</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>max_t</code></td>
+<td style="text-align: center;">在原支持范围内</td>
+<td style="text-align: left;">旧缓存若截到更短时间，不能补回更长随访</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">数据、暴露、分层、调整项、方法、CIF 后端、CI 水平</td>
+<td style="text-align: center;">否</td>
+<td style="text-align: left;">list 输入复用原曲线与表，不重新拟合</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>timepoint</code>、<code>show_surdiff</code></td>
+<td style="text-align: center;">否</td>
+<td style="text-align: left;">缓存的时间点与 NA 列不会因重绘而改变</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>subgroup_model</code></td>
+<td style="text-align: center;">否</td>
+<td style="text-align: left;">切换模型策略必须传原始数据</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">新增森林图组件</td>
+<td style="text-align: center;">否</td>
+<td style="text-align: left;">森林图在拟合阶段构建</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>检查实际曲线方法和交互 P 值：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="fu">unique</span>(f_both[[<span class="st">"sur.data"</span>]][<span class="fu">c</span>(<span class="st">"methods"</span>, <span class="st">".final_method"</span>)])</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(f_both[[<span class="st">"insert.data"</span>]], <span class="st">"p_inter"</span>)</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a><span class="co"># CIF 缓存重绘时保持 surv = FALSE。</span></span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a><span class="fu">get_facet</span>(f_cif, <span class="at">surv =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">modifyList</span>(plot_base, <span class="fu">list</span>(<span class="at">conf_int =</span> <span class="cn">FALSE</span>)),</span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> table_base)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="保存-pdf-与-png" class="level3">
+<h3 class="anchored" data-anchor-id="保存-pdf-与-png">保存 PDF 与 PNG</h3>
+<p><code>save = list()</code> / <code>NULL</code> 不写文件。PDF 配置交给 <code>RegR::save_plt()</code>；只写 filename 会补入当前分面网格推荐的英寸尺寸，可显式指定 width / height。控制台也会给出可复制的保存调用。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_facet</span>(f_both,</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> plot_base, <span class="at">table_params =</span> table_base,</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="st">"CND-by-Sex-survival.pdf"</span>, <span class="at">width =</span> <span class="dv">11</span>, <span class="at">height =</span> <span class="dv">8</span>)</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a><span class="co"># 使用返回的 ggplot 导出 PNG；不要把整个结果 list 交给 ggsave。</span></span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"CND-by-Sex-survival.png"</span>, f_both[[<span class="st">"plt"</span>]],</span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>               <span class="at">width =</span> <span class="dv">11</span>, <span class="at">height =</span> <span class="dv">8</span>, <span class="at">units =</span> <span class="st">"in"</span>, <span class="at">dpi =</span> <span class="dv">300</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="plot_params-table_params-速查" class="level3">
+<h3 class="anchored" data-anchor-id="plot_params-table_params-速查">plot_params / table_params 速查</h3>
+<div class="table-responsive">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">设置</th>
+<th style="text-align: left;">允许的写法与作用</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>color</code></td>
+<td style="text-align: left;">颜色向量或支持的调色板名；没有单独指定表颜色时，表格底色随曲线同步</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>hcl_colors</code></td>
+<td style="text-align: left;">分面条带的 HCL 调色板名向量，与曲线颜色是两套设置</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>xlim, xbre, ylim, ybre</code></td>
+<td style="text-align: left;">数值范围与刻度向量；本页按月和原始比例显示</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>conf_int</code></td>
+<td style="text-align: left;">TRUE / FALSE，显示 / 隐藏曲线区间</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>unadj_steps</code></td>
+<td style="text-align: left;">TRUE / FALSE，未调整曲线的阶梯 / 线段画法</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>leg_position</code></td>
+<td style="text-align: left;"><code>"top"</code>、<code>"left"</code> 或两个 0–1 数值</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>flip</code></td>
+<td style="text-align: left;">TRUE / FALSE；或 <code>list(rows = ..., cols = ...)</code> 指定分面方向</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>strip_merge, strip_map</code></td>
+<td style="text-align: left;">是否合并外层条带；旧标签到新标签的命名字符向量</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>base_size</code></td>
+<td style="text-align: left;">主图字体大小，与表格字体分别设置</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>tb.vars, tb.vars_name</code></td>
+<td style="text-align: left;">内嵌表字段选择与标题映射</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>base_size_table, core_table</code></td>
+<td style="text-align: left;">表格字体与内边距</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>fmt.fst.h</code></td>
+<td style="text-align: left;">内嵌表 / 森林图的竖向偏移</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>insert_table</code></td>
+<td style="text-align: left;">TRUE 显示表；FALSE 在已有森林图组件时显示森林图，否则仅保留曲线</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>add_p_value</code></td>
+<td style="text-align: left;"><code>"none"</code>、<code>"HR"</code>、<code>"HR1"</code>、<code>"SD"</code>、<code>"SD1"</code>、<code>"all"</code></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>fmt.p_value.h, text_size</code></td>
+<td style="text-align: left;">P 值文字位置与字号</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>show_SP.time</code></td>
+<td style="text-align: left;">当前 TRUE 加固定 10-year 前缀；其他时间点宜用自定义列名</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>所有图片均由上述公共调用实际导出；缓存重绘核对曲线与内嵌表保持一致，并检查 <code>.final_method</code>。旧绘图接口可能产生弃用提示，预防性暴露的交互计算也可能提示部分加法交互指标不可估计；本页没有把这些未展示指标当作已验证结论。</p>
+</section>
+</section>
+<section id="references" class="level2">
+<h2 class="anchored" data-anchor-id="references">相关页面与源码</h2>
+<ul>
+<li><a href="../regr/forest-guide.html">效应估计与森林图：get_eff 和 4 个绘图函数</a></li>
+<li><a href="../regr/get-eff-cif-benchmark.html">竞争风险 CIF 的 FGR 与 CSC：get_eff、get_cat、get_facet 基准</a></li>
+<li><a href="../mlr/shap-guide.html">SHAP：get_shp 与 14 个绘图函数</a></li>
+<li><a href="../toydata/index.html">ToyData 数据介绍</a></li>
+<li><a href="https://github.com/HUI950319/RegR">RegR 源码仓库</a> 与 <a href="https://hui950319.github.io/RegR/reference/index.html">函数参考站点</a></li>
+<li><a href="https://cran.r-project.org/web/packages/survival/vignettes/compete.pdf">survival：Multi-state models and competing risks</a></li>
+</ul>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/hui950319\.github\.io\/Rnotes\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config);
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined;
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              }
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            }
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../regr/forest-guide.html" class="pagination-link" aria-label="效应估计与森林图：get_eff 和 4 个绘图函数">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">效应估计与森林图：get_eff 和 4 个绘图函数</span></span>
+      </a>
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../regr/interaction-guide.html" class="pagination-link" aria-label="交互分析：get_inter、绝对风险与表格导出">
+        <span class="nav-page-text"><span class="chapter-title">交互分析：get_inter、绝对风险与表格导出</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/facet-guide.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script>var lightboxQuarto = GLightbox({"closeEffect":"zoom","descPosition":"bottom","loop":false,"openEffect":"zoom","selector":".lightbox"});
+(function() {
+  let previousOnload = window.onload;
+  window.onload = () => {
+    if (previousOnload) {
+      previousOnload();
+    }
+    lightboxQuarto.on('slide_before_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      const href = trigger.getAttribute('href');
+      if (href !== null) {
+        const imgEl = window.document.querySelector(`a[href="${href}"] img`);
+        if (imgEl !== null) {
+          const srcAttr = imgEl.getAttribute("src");
+          if (srcAttr && srcAttr.startsWith("data:")) {
+            slideConfig.href = srcAttr;
+          }
+        }
+      }
+    });
+
+    lightboxQuarto.on('slide_after_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      if (window.Quarto?.typesetMath) {
+        window.Quarto.typesetMath(slideNode);
+      }
+    });
+
+  };
+
+})();
+          </script>
+
+
+
+
+</body></html>
