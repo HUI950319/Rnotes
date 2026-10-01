@@ -1,0 +1,401 @@
+---
+title: "队列筛选与流程图：get_flt 与 plt_flo"
+description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据比较 plt_flo 的 12 个实际参数示例，包括计数格式、分组、阶段、布局和 PDF 保存。"
+date: 2026-10-01
+lightbox: true
+toc-depth: 2
+---
+
+`get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
+
+**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际执行三步筛选、绘制 **12 张流程图**并验证 PDF 保存。网页展示保存的汇总结果；先运行下面的共用准备代码，再运行所选标签页代码即可复现。
+
+## 示例数据与共用准备 {#data}
+
+使用 RegR 自带的 `seer_thyroid_mtc_2026`：**4,387 人、92 列甲状腺髓样癌（MTC）示例数据**。它已经过预筛选并带有 15 步历史；本页在副本上清除该属性，从现有 4,387 人重新演示三步筛选。图中的起始人数因此对应这份预筛选数据。
+
+<!-- flow-run: setup -->
+```r
+library(RegR)
+library(ggplot2)
+
+data("seer_thyroid_mtc_2026", package = "RegR")
+start <- as.data.frame(seer_thyroid_mtc_2026)
+
+# 仅为本页示例重新记录历史；真实分析应保留完整的原始筛选链。
+attr(start, "flt") <- NULL
+cohort <- get_flt(
+  start,
+  Age >= 18,
+  Race %in% c("White", "Black"),
+  !is.na(Tum) & Tum > 0
+)
+
+# get_flt 的条件表示“保留谁”；流程图上的标签表示“移除谁”。
+reasons <- c(
+  Age = "Age < 18 years",
+  Race = "Race other than White or Black",
+  Tum = "Tumor size missing or <= 0"
+)
+
+# 集中保存共用调用参数，标签页中用 modifyList() 局部覆盖。
+flow_args <- list(
+  data = cohort, inclu_row = 0,
+  cohort = list(label = "Medullary thyroid carcinoma cohort"),
+  analysis_label = "Patients eligible for analysis",
+  name_map = reasons,
+  exc_args = list(text_fs = 9),
+  box_args = list(text_fs = 12, equal_width = TRUE)
+)
+```
+
+页面中的 `flow_args` 交给 `do.call()` 展开为函数参数；`modifyList()` 合并局部设置，例如增加 `exc_args$pct` 时会保留已设定的 `text_fs = 9`。若直接调用 `plt_flo()`，命名 list 参数也支持局部覆盖，未指定的字段使用函数默认值。
+
+## get_flt()：筛选、历史与返回对象 {#get-flt}
+
+```r
+get_flt(data, ...)
+attr(cohort, "flt")
+```
+
+`...` 接收**不带参数名的筛选表达式**。每个表达式单独执行，产生一行记录；一条合并表达式则只有一行记录。以上示例依次保留成年人、White / Black 族裔、肿瘤大小非缺失且大于 0 的患者，实际人数为：
+
+::: {.table-responsive}
+
+| 步骤 | 保留条件 | 筛选前 `all_pat` | 保留 `res_pat` | 本步移除 `del_pat` | 累计移除 `del_pat_sum` |
+|:--|:--|--:|--:|--:|--:|
+| 1 | `Age >= 18` | 4,387 | 4,249 | 138 | 138 |
+| 2 | `Race %in% c("White", "Black")` | 4,249 | 3,948 | 301 | 439 |
+| 3 | `!is.na(Tum) & Tum > 0` | 3,948 | 3,606 | 342 | 781 |
+
+:::
+
+每一步均满足 `all_pat - res_pat = del_pat`，本例累计移除 **781 人**，最终保留 **3,606 人**。改变筛选顺序可能改变每一步的移除人数，因为每步只对上一步剩余的数据执行；不能把各条件在原始数据上分别统计的人数直接相加。
+
+::: {.table-responsive}
+
+| 返回值 / 历史字段 | 含义 |
+|:--|:--|
+| 返回值 | 带 `flt` 属性的筛选后数据框，单数据框路径为不可见返回；应赋值给对象 |
+| `order` | 筛选顺序；已有历史时继续累计 |
+| `var` | 表达式涉及的第一个数据列，用于名称映射 |
+| `filter` | 实际筛选表达式的文本 |
+| `label` | 内置字典提供的标签；不应代替对实际条件的核对 |
+| `all_pat, res_pat` | 本步筛选前后人数 |
+| `del_pat, del_pat_sum` | 本步及累计移除人数 |
+
+:::
+
+`get_flt()` 会打印历史，但打印出的 tibble 不是函数的返回对象。输入命名的数据框列表时，会返回逐个筛选后的列表；`plt_flo()` 接收其中一个数据框，不能直接把整个列表作为流程图数据。
+
+## plt_flo()：共用设置与重要参数 {#plt-flo}
+
+完整签名及默认值可查看 `formals(RegR::plt_flo)` 或 `?RegR::plt_flo`。以下设置最常影响流程图：
+
+::: {.table-responsive}
+
+| 参数 | 当前默认 / 行为 | 本页重点 |
+|:--|:--|:--|
+| `inclu_row` | `3`；前若干条历史归为未满足纳入条件 | `0` 把全部历史归入排除条件；`1` 将第一步与后两步分开 |
+| `cohort` | `list(sel_his = "differentiated thyroid carcinoma", year_var = "Yea", label = NULL)` | 本例是 MTC，显式指定 `label`；自定义标签会覆盖组织学与年份标题，人数仍自动追加 |
+| `analysis_label` | `NULL` 使用默认分析框标题 | 自定义文字；人数仍来自最终筛选数据 |
+| `name_map` | `NULL` | 按历史中的 `var` 映射移除原因；不改变筛选条件或人数 |
+| `count_style` | `"prefix"` | 四种人数位置 / 对齐方式，见下一节 |
+| `exc_args` | 排除框的命名 list | 汇总、百分比、字号、缩进、留白与箭头 |
+| `box_args` | `list(text_fs = 10, corner_radius = 0.08, equal_width = FALSE)` | 主框及分组等框的字号 / 圆角；等宽只作用于起始框和分析框 |
+| `split_var / split_label / split_N` | 均为 `NULL` | 自动分组或手动提供标签与人数 |
+| `split2` | `list(label = NULL, N = NULL, merge = NULL)` | 一一对应的第二级分组与汇合框 |
+| `content_labels` | `NULL` | 分组之后的研究内容框 |
+| `gap_args` | `list(group = NULL, content = 0.3)` | 分组 / 内容框间的横向间距，单位英寸 |
+| `phase_labels, phase_style` | 无阶段标签；`"bracket"` | 纳排、分组、研究内容三个结构阶段；可切换为 `"box"` |
+| `fixed_size` | `TRUE` | 保持推荐物理尺寸；`FALSE` 适配绘图区；正数指定宽度，单位英寸 |
+| `return_data` | `FALSE` 返回 ggplot | `TRUE` 保留原数据用于管道 |
+| `save` | `list()` 无保存副作用 | 命名 list 转交 `save_plt()`；只指定文件名时使用流程图推荐尺寸 |
+
+:::
+
+### 纳入与排除分开显示 {#inclusion}
+
+`inclu_row` 只改变历史如何归类显示，不会重新筛选数据。本例 `inclu_row = 1` 将 138 人归为未满足年龄纳入条件，把后两步共 643 人归为满足排除条件，总移除人数仍为 781。
+
+::: {.panel-tabset}
+
+### 全部作为排除条件 {.unnumbered}
+
+<!-- flow-run: basic -->
+```r
+do.call(plt_flo, flow_args)
+```
+
+![全部三步归入排除条件，最终保留 3,606 人。](images/flow-guide/basic.png){fig-alt="起始 4387 人，三步移除 138、301、342 人，最终 3606 人。"}
+
+### 纳入与排除分开 {.unnumbered}
+
+同时演示 `header_style = "n_suffix"` 的汇总格式和起始样本百分比。`bullet` 仅用于明细行；`summary_fs_bump` 的两项分别增加总汇总与分块汇总的字号。
+
+<!-- flow-run: inclusion -->
+```r
+do.call(plt_flo, modifyList(flow_args, list(
+  inclu_row = 1, count_style = "prefix_aligned",
+  exc_args = list(
+    header_style = "n_suffix", pct = TRUE, bullet = "- ",
+    detail_indent = 3, count_gap = 3, sub_header_gap = 0.6,
+    summary_fs_bump = c(2, 1)
+  )
+)))
+```
+
+![纳入与排除分块：138 人未满足纳入条件，643 人满足排除条件。](images/flow-guide/inclusion.png){fig-alt="移除合计 781 人，占起始样本 17.8%；按纳入与排除原因分块。"}
+
+:::
+
+## 计数位置、对齐与百分比 {#counts}
+
+四个标签页固定同一份筛选历史与 `pct = TRUE`，只改变 `count_style`。**百分比始终以起始 4,387 人为分母**，不是每一步筛选前的人数。138、301、342 人对应 3.1%、6.9%、7.8%，总计 17.8%；分别四舍五入后，明细百分比之和不一定等于显示的总百分比。
+
+`prefix_aligned` 对齐人数后的原因列；`suffix_aligned` 对齐原因后的人数列。`exc_args$count_gap` 是这两列间的近似空格宽度，只在 `_aligned` 模式中生效；它不是英寸或像素。
+
+::: {.panel-tabset}
+
+### prefix：人数在前 {.unnumbered}
+
+<!-- flow-run: count-prefix -->
+```r
+do.call(plt_flo, modifyList(flow_args, list(
+  count_style = "prefix", exc_args = list(pct = TRUE)
+)))
+```
+
+![prefix：人数和百分比在原因之前。](images/flow-guide/count-prefix.png){fig-alt="人数在前，百分比使用起始样本为分母。"}
+
+### prefix_aligned：对齐原因 {.unnumbered}
+
+<!-- flow-run: count-prefix-aligned -->
+```r
+do.call(plt_flo, modifyList(flow_args, list(
+  count_style = "prefix_aligned",
+  exc_args = list(pct = TRUE, count_gap = 3)
+)))
+```
+
+![prefix_aligned：人数在前，原因列对齐。](images/flow-guide/count-prefix-aligned.png){fig-alt="人数及百分比在前，原因从统一位置开始。"}
+
+### suffix：人数在后 {.unnumbered}
+
+<!-- flow-run: count-suffix -->
+```r
+do.call(plt_flo, modifyList(flow_args, list(
+  count_style = "suffix", exc_args = list(pct = TRUE)
+)))
+```
+
+![suffix：原因在前，括号内显示人数和百分比。](images/flow-guide/count-suffix.png){fig-alt="原因之后附人数和起始样本百分比。"}
+
+### suffix_aligned：对齐人数 {.unnumbered}
+
+<!-- flow-run: count-suffix-aligned -->
+```r
+do.call(plt_flo, modifyList(flow_args, list(
+  count_style = "suffix_aligned",
+  exc_args = list(pct = TRUE, count_gap = 3)
+)))
+```
+
+![suffix_aligned：原因在前，括号内的人数列对齐。](images/flow-guide/count-suffix-aligned.png){fig-alt="原因之后的 n 和百分比从统一位置开始。"}
+
+:::
+
+## 自动分组、手动计数与第二级分组 {#groups}
+
+最终数据中 Female **2,114 人**、Male **1,492 人**。`split_var` 从数据自动生成标签与人数；若不提供 `split_var`，必须同时提供 `split_label` 和 `split_N`。提供自动分组列后，也可以只覆盖标签或人数。
+
+手动人数必须为非负、有限的整数，长度与标签一致；函数检查结构，不替用户验证这些数字是否与分析数据一致。本页所有手动人数均从同一份 `cohort` 计算。
+
+::: {.panel-tabset}
+
+### 按列自动计数 {.unnumbered}
+
+<!-- flow-run: split-auto -->
+```r
+do.call(plt_flo, modifyList(flow_args, list(split_var = "Sex")))
+```
+
+![split_var：按 Sex 自动生成两个分组框。](images/flow-guide/split-auto.png){fig-alt="女性 2114 人，男性 1492 人，合计 3606 人。"}
+
+### 手动指定标签与人数 {.unnumbered}
+
+<!-- flow-run: split-manual -->
+```r
+groups <- c("Female", "Male")
+group_n <- vapply(groups, function(sex) {
+  sum(cohort[["Sex"]] == sex, na.rm = TRUE)
+}, integer(1))
+
+do.call(plt_flo, modifyList(flow_args, list(
+  split_label = c("Female patients", "Male patients"),
+  split_N = group_n,
+  gap_args = list(group = 0.5)
+)))
+```
+
+![split_label 与 split_N：用实际计数和自定义标签绘制分组。](images/flow-guide/split-manual.png){fig-alt="两个分组的标签改变，人数仍为女性 2114、男性 1492。"}
+
+### 第二级分组与汇合 {.unnumbered}
+
+第二行演示各性别中记录的随访时间满 60 个月的样本：Female **1,408 人**、Male **886 人**，合计 **2,294 人**。这只是二级分组的计数与排版示例，并未拟合生存模型。
+
+`split2$label` 与第一行一一对应；`N = NULL` 沿用第一行人数，本例则显式给出重新计算的人数。`merge` 设置汇合框文字；研究内容框接在汇合框之后。
+
+<!-- flow-run: split-second -->
+```r
+groups <- c("Female", "Male")
+group_n <- vapply(groups, function(sex) {
+  sum(cohort[["Sex"]] == sex, na.rm = TRUE)
+}, integer(1))
+followup_n <- vapply(groups, function(sex) {
+  sum(cohort[["Sex"]] == sex & cohort[["time"]] >= 60, na.rm = TRUE)
+}, integer(1))
+
+do.call(plt_flo, modifyList(flow_args, list(
+  split_label = c("Female patients", "Male patients"), split_N = group_n,
+  split2 = list(
+    label = c("Female: follow-up >= 60 months", "Male: follow-up >= 60 months"),
+    N = followup_n,
+    merge = sprintf("Follow-up subset (N = %s)",
+                    format(sum(followup_n), big.mark = ",", trim = TRUE))
+  ),
+  content_labels = c("Clinical characteristics", "Survival endpoints"),
+  gap_args = list(group = 0.5, content = 0.5),
+  phase_labels = c("Patient selection", "Follow-up groups", "Study contents"),
+  phase_style = "box"
+)))
+```
+
+![第二级分组：随访满 60 个月的两组样本汇合，再连接研究内容。](images/flow-guide/split-second.png){fig-alt="第二级女性 1408 人、男性 886 人，汇合为 2294 人，连接临床特征和生存结局内容框。"}
+
+:::
+
+## 研究内容与阶段标记 {#phases}
+
+`content_labels` 在分组之后增加研究内容框；没有分组时不会单独生成这些内容框。省略 `split2$merge` 时，分组通过中央汇合连接线接到研究内容。`phase_labels` 按**纳排、分组、研究内容**的结构顺序给出，最多使用三个阶段。
+
+两个标签页只切换 `phase_style`，其他设置相同。长阶段标签可用 `\n` 换行；阶段框需要容纳旋转后的文字，较长的标签会增加整图的推荐尺寸。
+
+::: {.panel-tabset}
+
+### 方括号阶段标记 {.unnumbered}
+
+<!-- flow-run: phase-bracket -->
+```r
+do.call(plt_flo, modifyList(flow_args, list(
+  split_var = "Sex",
+  content_labels = c("Clinical characteristics", "Survival analysis"),
+  phase_labels = c("Patient selection", "Sex subgroups", "Study contents"),
+  phase_style = "bracket", count_style = "suffix_aligned",
+  exc_args = list(pct = TRUE)
+)))
+```
+
+![phase_style = bracket：左侧方括号标识三个阶段。](images/flow-guide/phase-bracket.png){fig-alt="纳排、性别分组、研究内容使用左侧方括号和旋转标签。"}
+
+### 阶段框 {.unnumbered}
+
+<!-- flow-run: phase-box -->
+```r
+do.call(plt_flo, modifyList(flow_args, list(
+  split_var = "Sex",
+  content_labels = c("Clinical characteristics", "Survival analysis"),
+  phase_labels = c("Patient selection", "Sex subgroups", "Study contents"),
+  phase_style = "box", count_style = "suffix_aligned",
+  exc_args = list(pct = TRUE)
+)))
+```
+
+![phase_style = box：用左侧阶段框展示同一流程。](images/flow-guide/phase-box.png){fig-alt="与方括号示例相同的计数、分组和研究内容，左侧改为阶段框。"}
+
+:::
+
+## 字号、框形、间距与 PDF 保存 {#layout-save}
+
+::: {.table-responsive}
+
+| 设置 | 单位 / 作用 |
+|:--|:--|
+| `exc_args$text_fs` | pt；排除明细字号，不控制主框字号 |
+| `exc_args$summary_fs_bump` | pt；在排除明细字号基础上增加汇总字号，默认 `c(2, 1)` |
+| `exc_args$bold_summary` | 默认 `TRUE`；只将汇总行加粗 |
+| `exc_args$detail_indent` | 近似空格宽度；控制明细相对汇总行的缩进 |
+| `exc_args$sub_header_gap` | 明细行高的倍数；增加纳入 / 排除分块标题前的间距 |
+| `exc_args$right_gap` | 英寸；排除文字与框右边缘的内留白，默认 `0.14` |
+| `exc_args$arrow_length` | 英寸；主轴到排除框的水平箭头长度，默认 `0.7` |
+| `box_args$text_fs` | pt；主框、分组、汇合、研究内容与阶段标签字号 |
+| `box_args$corner_radius` | 英寸；默认 `0.08`，`0` 为方角 |
+| `box_args$equal_width` | 仅统一顶部队列框与分析框宽度；不把所有框统一为一个宽度 |
+| `gap_args$group, gap_args$content` | 英寸；相邻分组框和研究内容框的横向间距 |
+
+:::
+
+下面在前一节的综合流程上增加箭头长度和排除框留白，并改用方角。只指定 PDF 文件名时，`plt_flo()` 会把该图的推荐宽高交给 `save_plt()`，无需套用通用的设备尺寸。
+
+<!-- flow-run: layout-save -->
+```r
+# 可把 pdf_file 改为自己的输出路径。
+pdf_file <- file.path(tempdir(), "cohort-flow.pdf")
+p <- do.call(plt_flo, modifyList(flow_args, list(
+  split_var = "Sex",
+  content_labels = c("Clinical characteristics", "Survival analysis"),
+  phase_labels = c("Patient selection", "Sex subgroups", "Study contents"),
+  phase_style = "bracket", count_style = "suffix_aligned",
+  exc_args = list(pct = TRUE, text_fs = 10, right_gap = 0.22, arrow_length = 0.9),
+  box_args = list(corner_radius = 0),
+  gap_args = list(group = 0.8, content = 0.5),
+  fixed_size = TRUE,
+  save = list(filename = pdf_file)
+)))
+attr(p, "flo_size")  # 推荐宽高，单位英寸
+pdf_file             # 查看已保存的 PDF 路径
+p
+```
+
+![方角、等宽主框、排除框留白与箭头长度的综合示例。](images/flow-guide/layout-save.png){fig-alt="方角主框与分组框，排除框使用更长箭头和更大右侧留白，按推荐尺寸保存 PDF。"}
+
+[下载此例生成的 PDF](images/flow-guide/cohort-flow.pdf)。
+
+`fixed_size = TRUE` 保持布局的物理宽度；设备过窄会裁剪，放大设备主要增加空白。`FALSE` 可让图适配较小绘图区，文字仍使用设定的 pt 字号。正数可指定绘制宽度，单位英寸；图形通过固定纵横比例保持框形，不会任意拉伸高度。
+
+保存 PNG 时也可读取推荐尺寸：
+
+<!-- flow-run: save-png -->
+```r
+size <- attr(p, "flo_size")
+ggsave(file.path(tempdir(), "cohort-flow.png"), p,
+       width = size[["width"]], height = size[["height"]],
+       units = "in", dpi = 300, bg = "white")
+```
+
+## 管道返回与复现检查 {#return-checks}
+
+如果后续步骤还需要筛选后的数据，可使用 `return_data = TRUE`。保存功能仍然可以使用；默认的 `FALSE` 则返回 ggplot 对象供排版或保存。
+
+<!-- flow-run: return-data -->
+```r
+same_data <- do.call(plt_flo, modifyList(flow_args, list(return_data = TRUE)))
+stopifnot(identical(same_data, cohort))
+
+h <- attr(cohort, "flt")
+stopifnot(
+  all(h[["all_pat"]] - h[["res_pat"]] == h[["del_pat"]]),
+  all(cumsum(h[["del_pat"]]) == h[["del_pat_sum"]]),
+  sum(h[["del_pat"]]) == nrow(start) - nrow(cohort)
+)
+```
+
+复现时先确认安装版本支持页面使用的命名 list 字段。常见核对点包括：
+
+- **历史是否连续：** 已有历史会继续追加，真实分析不要中途清除 `flt`。
+- **标签是否准确：** `name_map` 按 `var` 映射；同一变量出现多次时会同步替换那些历史行的标签，不能把不同阈值都写成同一个移除原因。
+- **人数是否可追溯：** 手动分组人数要从相应数据计算；更改显示参数不会重新筛选或验证分析队列。
+- **内容与阶段是否有对应结构：** 研究内容依附于分组；阶段标签应对应实际存在的结构。
+- **图是否被裁剪：** 使用推荐尺寸保存，或在小绘图区采用 `fixed_size = FALSE`；不要仅靠改变文字大小修正设备尺寸。
+
+本站只提供上述汇总表、图形和调用代码，不提供患者级数据下载。
