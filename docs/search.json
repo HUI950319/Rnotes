@@ -5251,5 +5251,104 @@
       "RegR · 临床回归与可视化",
       "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
     ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html",
+    "href": "regr/conditional-survival-guide.html",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "",
+    "text": "数据准备与复现\n条件生存将“从诊断起的生存”换成“已经存活到某时点之后的生存”。需要同时指定已存活时间 s 和接下来时长 u；固定终点与固定额外时长是不同问题。本页用函数输出的数据核对曲线和比值。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html#数据准备与复现",
+    "href": "regr/conditional-survival-guide.html#数据准备与复现",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "",
+    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html#共用计算与返回对象",
+    "href": "regr/conditional-survival-guide.html#共用计算与返回对象",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "共用计算与返回对象",
+    "text": "共用计算与返回对象\n定义 CS(u|s)=S(s+u)/S(s)。get_cs() 的横轴是绝对时间 t=s+u；get_cs_time() 的横轴是 landmark s。本页时间单位为月，分母必须大于 0，且 s、s+u 均应在有支持的随访范围内。当前图例修正仅作用于返回的绘图数据，未修改包源码。\nlandmarks &lt;- c(12, 24, 36, 60)\nkm &lt;- survfit(Surv(time, DSS) ~ 1, data = d)\n# 当前 get_cs_time() 的两组图例标签互换，label 的 s/u 顺序也相反。\n# 依据其返回数据 x=s、y=u、xy=s+u 修正显示，保留所有 cs 数值。\nlabel_cs_time &lt;- function(p, horizon, extra) {\n  relabel &lt;- function(z) {\n    if (!is.data.frame(z) || !all(c(\"x\", \"y\", \"cs\", \"group\") %in% names(z))) return(z)\n    levels(z[[\"group\"]]) &lt;- c(paste0(\"To \", horizon, \" months\"),\n                              paste0(\"Additional \", extra, \" months\"))\n    z[[\"label\"]] &lt;- sprintf(\"CS(%d|%d): %.3f\", z[[\"y\"]], z[[\"x\"]], z[[\"cs\"]])\n    z\n  }\n  p[[\"data\"]] &lt;- relabel(p[[\"data\"]])\n  for (i in seq_along(p[[\"layers\"]])) p[[\"layers\"]][[i]][[\"data\"]] &lt;- relabel(p[[\"layers\"]][[i]][[\"data\"]])\n  p + labs(x = \"Landmark: months since diagnosis\") +\n    scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2))\n}",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html#接口与默认显示边界",
+    "href": "regr/conditional-survival-guide.html#接口与默认显示边界",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "接口与默认显示边界",
+    "text": "接口与默认显示边界\n\n\n\n\n\n\n\n\n接口\n计算问题\n关键参数\n\n\n\n\nget_cs\n多个 s 起点，到 max_time 的整条条件曲线\ntimes、max_time、color、save\n\n\nget_cs_time\n各 s 上的固定终点与固定额外时长两组值\ntimes、max_time、extra_alive、add_label、save\n\n\n\n两者均固定使用 time 和 DSS==1 的 KM。get_cs 原生显示为 loess 平滑，默认 y 范围 0.75–1；get_cs_time 默认 0.70–1。因此本页扩大 y 轴，并另画直接 KM 比值的阶梯曲线，避免低生存概率被隐藏。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html#不同-landmark-的整条条件曲线",
+    "href": "regr/conditional-survival-guide.html#不同-landmark-的整条条件曲线",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "不同 landmark 的整条条件曲线",
+    "text": "不同 landmark 的整条条件曲线\n每个起点的 CS 为 1，随绝对随访时间增长而下降。换起点会改变条件人群；曲线更高不表示随访本身产生保护效应。平滑线只用于展示，精确值来自 KM 比值。\n\n平滑显示直接 KM 比值更密的起点\n\n\ns=0/24/60 月，到 120 月的条件曲线；横轴保持诊断后的绝对时间。\np &lt;- get_cs(d, times = c(0, 24, 60), max_time = 120)\np + labs(x = \"Time since diagnosis (months)\") +\n  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2))\n\n\n\ns=0/24/60 月，到 120 月的条件曲线；横轴保持诊断后的绝对时间。\n\n\n\n\n使用同一函数的实际计算数据画阶梯，不额外平滑。\np &lt;- run_quiet({get_cs(d, times = c(0, 24, 60), max_time = 120)})\nggplot(p[[\"data\"]], aes(x = xy, y = cs, color = x_lab)) +\n  geom_step(linewidth = 0.9) +\n  labs(x = \"Time since diagnosis (months)\", y = \"Conditional DSS survival\", color = \"Landmark\") +\n  coord_cartesian(ylim = c(0, 1)) + theme_minimal(base_size = 13)\n\n\n\n使用同一函数的实际计算数据画阶梯，不额外平滑。\n\n\n\n\n改为 12/24/36/60 月起点并改变配色；终点保持 120 月。\np &lt;- get_cs(d, times = landmarks, max_time = 120,\n  color = c(\"#2C5E8A\", \"#B85B43\", \"#3E8D75\", \"#8263A0\", \"grey60\"))\np + labs(x = \"Time since diagnosis (months)\") +\n  scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.2))\n\n\n\n改为 12/24/36/60 月起点并改变配色；终点保持 120 月。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html#固定终点与额外-1224-月",
+    "href": "regr/conditional-survival-guide.html#固定终点与额外-1224-月",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "固定终点与额外 12/24 月",
+    "text": "固定终点与额外 12/24 月\n到 120 月的条件概率是 S(120)/S(s)，剩余时长随着 s 缩短；额外 12 月是 S(s+12)/S(s)，总终点随 s 移动。当前 get_cs_time 的标签互换，因此下面显式按计算数据修正组名；不据原图例推断这两条线。\n\n额外 12 月、带标签隐藏数值标签改为额外 24 月\n\n\n同时画到 120 月和再存活 12 月，标签按 CS(u|s) 顺序修正。\np &lt;- get_cs_time(d, times = landmarks, max_time = 120,\n  extra_alive = 12, add_label = TRUE)\nlabel_cs_time(p, horizon = 120, extra = 12)\n\n\n\n同时画到 120 月和再存活 12 月，标签按 CS(u|s) 顺序修正。\n\n\n\n\n相同计算隐藏文字，适合比较两种条件问题。\np &lt;- get_cs_time(d, times = landmarks, max_time = 120,\n  extra_alive = 12, add_label = FALSE)\nlabel_cs_time(p, horizon = 120, extra = 12)\n\n\n\n相同计算隐藏文字，适合比较两种条件问题。\n\n\n\n\n额外时长改为 24 月，重新计算比值，不能只改图例。\np &lt;- get_cs_time(d, times = landmarks, max_time = 120,\n  extra_alive = 24, add_label = FALSE)\nlabel_cs_time(p, horizon = 120, extra = 24)\n\n\n\n额外时长改为 24 月，重新计算比值，不能只改图例。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html#比值与在险人数直接核对",
+    "href": "regr/conditional-survival-guide.html#比值与在险人数直接核对",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "比值与在险人数直接核对",
+    "text": "比值与在险人数直接核对\n使用生存对象重新读取 S(s)、S(s+u) 以及 n.risk。比值表只是点估计，没有把函数未提供的置信区间补成看似精确的区间。n.risk 是 landmark 前的在险数，与原始样本量不同。\n\n12 月比值表读取绘图数据\n\n\n从同一 KM 对象核对额外 12 月 CS 及 landmark 在险数。\na &lt;- summary(km, times = landmarks)\nb &lt;- summary(km, times = landmarks + 12)\ndata.frame(s = landmarks, u = 12, n_risk = a[[\"n.risk\"]],\n  S_s = a[[\"surv\"]], S_s_plus_u = b[[\"surv\"]],\n  CS = b[[\"surv\"]] / a[[\"surv\"]])\n\n\n\n\n\n\ns\n\n\nu\n\n\nn_risk\n\n\nS_s\n\n\nS_s_plus_u\n\n\nCS\n\n\n\n\n\n\n12\n\n\n12\n\n\n746\n\n\n0.9831418\n\n\n0.9748684\n\n\n0.9915847\n\n\n\n\n24\n\n\n12\n\n\n666\n\n\n0.9748684\n\n\n0.9551732\n\n\n0.9797970\n\n\n\n\n36\n\n\n12\n\n\n608\n\n\n0.9551732\n\n\n0.9405493\n\n\n0.9846898\n\n\n\n\n60\n\n\n12\n\n\n525\n\n\n0.9335785\n\n\n0.9241360\n\n\n0.9898857\n\n\n\n\n\n\n\n\n修正后的 get_cs_time 数据保留 s、u、总时间与实际 CS。\np &lt;- label_cs_time(get_cs_time(d, times = landmarks, max_time = 120,\n  extra_alive = 12, add_label = FALSE), horizon = 120, extra = 12)\np[[\"data\"]][, c(\"x\", \"y\", \"xy\", \"group\", \"cs\")]\n\n\n\n\n\n\nx\n\n\ny\n\n\nxy\n\n\ngroup\n\n\ncs\n\n\n\n\n\n\n12\n\n\n108\n\n\n120\n\n\nTo 120 months\n\n\n0.8748268\n\n\n\n\n24\n\n\n96\n\n\n120\n\n\nTo 120 months\n\n\n0.8822512\n\n\n\n\n36\n\n\n84\n\n\n120\n\n\nTo 120 months\n\n\n0.9004428\n\n\n\n\n60\n\n\n60\n\n\n120\n\n\nTo 120 months\n\n\n0.9212710\n\n\n\n\n12\n\n\n12\n\n\n24\n\n\nAdditional 12 months\n\n\n0.9915847\n\n\n\n\n24\n\n\n12\n\n\n36\n\n\nAdditional 12 months\n\n\n0.9797970\n\n\n\n\n36\n\n\n12\n\n\n48\n\n\nAdditional 12 months\n\n\n0.9846898\n\n\n\n\n60\n\n\n12\n\n\n72\n\n\nAdditional 12 months\n\n\n0.9898857",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html#使用边界保存与复现记录",
+    "href": "regr/conditional-survival-guide.html#使用边界保存与复现记录",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "使用边界、保存与复现记录",
+    "text": "使用边界、保存与复现记录\n其他原因死亡被 DSS 编码为删失时，以上是该原因特异编码下的 KM 净生存描述，不是有竞争事件时的真实累计死亡概率或 CIF。本页函数没有给条件比值的置信区间，也没有调整协变量、处理时间依赖治疗或进行 landmark 回归。远期分母接近 0、在险数少或超出随访范围时，比值和显示可能不稳定；应限制在有支持的范围，不能用绘图平滑延伸证据。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
+  },
+  {
+    "objectID": "regr/conditional-survival-guide.html#相关页面与源码",
+    "href": "regr/conditional-survival-guide.html#相关页面与源码",
+    "title": "条件生存：已存活多久、再存活多久与固定终点",
+    "section": "相关页面与源码",
+    "text": "相关页面与源码\n\nKM/CIF 组合图\n列线图与条件概率轴边界\nRegR 函数参考\nutils-extra-condsurv.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>17</span>  <span class='chapter-title'>条件生存：已存活多久、再存活多久与固定终点</span>"
+    ]
   }
 ]
