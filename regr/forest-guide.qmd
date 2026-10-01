@@ -1,6 +1,6 @@
 ---
 title: "效应估计与森林图：get_eff 和 4 个绘图函数"
-description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的 24 个参数示例。"
+description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的参数示例，并补充 set_eff 的数值与区间对照。"
 date: 2026-10-01
 lightbox: true
 toc-depth: 2
@@ -8,7 +8,7 @@ toc-depth: 2
 
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
 
-**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际拟合模型并绘制 **24 张图**。页面显示已保存的结果；代码可在装有 RegR、ToyData 及相关依赖的 R 环境中复现。
+**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际拟合模型并绘制 **24 张原有图**；本次另运行并增加 set_eff 的三张图与一张数值表。页面显示已保存的结果；代码可在装有 RegR、ToyData 及相关依赖的 R 环境中复现。
 
 本页的 `plt_eff2()` 命名模型分块使用本机新增提交 `00d3015`。2026-10-01 核对时，RegR 远端尚未包含该扩展；复现这一项需要含有该功能的版本。
 
@@ -26,7 +26,7 @@ toc-depth: 2
 | 主要暴露与亚组 | `N_4`；`Sex` 与 `age_55` |
 | 年龄分组 | `Below 55` 为 <55 岁，`Above 55` 为 ≥55 岁，沿用数据标签 |
 | 调整变量 | `Age`、`Sex`、`Race`、`Tum_3`；当前亚组变量由函数从该层的调整项中处理 |
-| 概率时间点 | 60 月；本页统一使用 95% CI |
+| 概率时间点 | 60 月；原有图使用 95% CI，set_eff 小节另示 90% 显示区间 |
 | 缺失值 | 本页使用的分析列无缺失；其他原始列仍可能有缺失，未对整份数据插补 |
 
 :::
@@ -779,6 +779,150 @@ plt_eff_sur(eff_multi_prob, summary_vars = c("label", "eve1"),
 ![plt_eff_sur：四组肿瘤大小；598 人 M1 PTC 队列](images/forest-guide/sur-multigroup.png){#fig-sur-multigroup fig-alt="plt_eff_sur：四组肿瘤大小；598 人 M1 PTC 队列"}
 
 :::
+
+<!-- forest-extension: start -->
+
+## set_eff()：改写结果与调整区间 {#set-eff}
+
+本节于 2026-10-01 按当前源码补充，并在 WSL R 4.4.3 运行。复用前文 598 人队列与 eff_crude；原有 24 张参数图之外，再增加三张对照图和数值表。
+
+set_eff **会改变结果表的数值**，适用于注明来源的外部估计或敏感性展示，不重新拟合模型。默认 inplace=TRUE 会写回传入变量；以下均显式设为 FALSE，保留原对象。多个比值表时必须指定 which；sur_* 概率差表不支持。
+
+| 输入 | 实际行为 |
+|:--|:--|
+| CND="1.20 (0.90, 1.60)" | 将字符串视为 95% 比值区间，重写点估计、上下限、P 值、星号与 effect 文本 |
+| CND=1.20 / estimate=list(CND=1.20) | 保留由原 95% 区间推算的 log-SE，移动点估计和区间，重新计算 P 值 |
+| CND="conf_0.90" | 点估计不变，改变该行显示置信水平；原模型 p.value_0.95 保留 |
+| effect=list(N_4=c(CND="conf_0.90")) | 按“标题块→行标签”定位；重复标签时比直接按 label 更明确 |
+| header / 数字名称 | header 限定标签所在块；数字名称为行号，包含标题行，数据变化后需重新核对 |
+
+**P 值边界：** 由区间反推使用 log 正态近似，受输入小数精度影响。非 95% 展示时 p_value/星号遵循当前显示区间，不能直接当作原来的模型 P 值；原 95% 值见 p.value_0.95。数字 0.90 是新比值，字符串 conf_0.90 才是置信水平。区间换级记录在 conf_level_rows 属性中；重排行后不应继续沿用该属性。
+
+以下改用 plt_eff2(label_list=list(effect=...)) 明确写出显示区间水平；set_eff 不会自动把所有绘图模板中的 95% 表头改成该行的实际水平。
+
+```r
+eff_crude <- run_quiet(get_eff(d, cat_var = "N_4", surv = TRUE,
+  methods = "unadj", show_surdiff = FALSE))
+eff90 <- set_eff(eff_crude, CND = "conf_0.90", which = "haz_unadj", inplace = FALSE)
+# 只用于说明替换接口的虚拟敏感性结果，不是重新拟合的临床估计。
+eff_scenario <- set_eff(eff_crude, CND = "1.20 (0.90, 1.60)",
+  which = "haz_unadj", inplace = FALSE)
+```
+
+::: {.panel-tabset}
+
+### 原始估计 {.unnumbered}
+
+598 人原始 Cox HR 和 95% CI；由模型拟合所得。
+
+```r
+p <- plt_eff2(eff_crude, which = "haz_unadj",
+  label_list = list(label = "CND group", eve1 = "DSS/N", effect = "HR (95% CI)"),
+  title = "Original model", base_size = 12, graphwidth = 0.3, xlab = "Cox HR (95% CI)",
+  axis_args = list(xlim = c(0.25, 2), xticks = c(0.25, 0.5, 1, 2),
+    ticks_digits = 2, x_trans = "log"), fixed_size = FALSE)
+print(p)
+```
+
+![598 人原始 Cox HR 和 95% CI；由模型拟合所得。](images/forest-guide/set-eff-original.png){fig-alt="598 人原始 Cox HR 和 95% CI；由模型拟合所得。"}
+
+### 90% 显示区间 {.unnumbered}
+
+点估计未改变；仅该行换成 90% 区间，不能与前文的 95% CI 混称。
+
+```r
+p <- plt_eff2(eff90, which = "haz_unadj",
+  label_list = list(label = "CND group", eve1 = "DSS/N", effect = "HR (90% CI)"),
+  title = "Display with 90% CI", base_size = 12, graphwidth = 0.3, xlab = "Cox HR (90% CI)",
+  axis_args = list(xlim = c(0.25, 2), xticks = c(0.25, 0.5, 1, 2),
+    ticks_digits = 2, x_trans = "log"), fixed_size = FALSE)
+print(p)
+```
+
+![点估计未改变；仅该行换成 90% 区间，不能与前文的 95% CI 混称。](images/forest-guide/set-eff-level.png){fig-alt="点估计未改变；仅该行换成 90% 区间，不能与前文的 95% CI 混称。"}
+
+### 虚拟替换结果 {.unnumbered}
+
+人为输入 1.20 (0.90, 1.60)，只说明替换行为，不能当作本队列临床估计。
+
+```r
+p <- plt_eff2(eff_scenario, which = "haz_unadj",
+  label_list = list(label = "CND group", eve1 = "DSS/N", effect = "HR (95% CI)"),
+  title = "Illustrative replacement", base_size = 12, graphwidth = 0.3, xlab = "Cox HR (95% CI)",
+  axis_args = list(xlim = c(0.25, 2), xticks = c(0.25, 0.5, 1, 2),
+    ticks_digits = 2, x_trans = "log"), fixed_size = FALSE)
+print(p)
+```
+
+![人为输入 1.20 (0.90, 1.60)，只说明替换行为，不能当作本队列临床估计。](images/forest-guide/set-eff-scenario.png){fig-alt="人为输入 1.20 (0.90, 1.60)，只说明替换行为，不能当作本队列临床估计。"}
+
+:::
+
+## 数值同步核对
+
+下表只保留 CND 那一行。患者数、标签与拟合对象没有随字符串修改而重新估计；需要新的分析结果时，应回到 get_eff 重新拟合。
+
+实际返回值核对：点估计、区间、显示 P 值和原 95% P 值。
+
+```r
+objects <- list(Original = eff_crude, CI90 = eff90, Scenario = eff_scenario)
+do.call(rbind, lapply(names(objects), function(nm) {
+  z <- objects[[nm]][["haz_unadj"]]
+  z <- z[z[["label"]] == "CND", , drop = FALSE]
+  data.frame(display = nm, z[, c("estimate", "conf.low", "conf.high",
+    "p_value", "p.value_0.95", "effect")], row.names = NULL)
+}))
+```
+
+::: {.table-responsive}
+
+<div id="wmaagdgvnn" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
+
+  <table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false" style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; display: table; border-collapse: collapse; line-height: normal; margin-left: auto; margin-right: auto; color: #333333; font-size: 16px; font-weight: normal; font-style: normal; background-color: #FFFFFF; width: auto; border-top-style: solid; border-top-width: 2px; border-top-color: #A8A8A8; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #A8A8A8; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3;" bgcolor="#FFFFFF">
+  <thead style="border-style: none;">
+    <tr class="gt_col_headings" style="border-style: none; border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3;">
+      <th class="gt_col_heading gt_columns_bottom_border gt_left" rowspan="1" colspan="1" scope="col" id="display" style="border-style: none; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 6px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; text-align: left;" bgcolor="#FFFFFF" valign="bottom" align="left">display</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="estimate" style="border-style: none; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 6px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" bgcolor="#FFFFFF" valign="bottom" align="right">estimate</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="conf.low" style="border-style: none; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 6px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" bgcolor="#FFFFFF" valign="bottom" align="right">conf.low</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="conf.high" style="border-style: none; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 6px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" bgcolor="#FFFFFF" valign="bottom" align="right">conf.high</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="p_value" style="border-style: none; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 6px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" bgcolor="#FFFFFF" valign="bottom" align="right">p_value</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="p.value_0.95" style="border-style: none; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 6px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" bgcolor="#FFFFFF" valign="bottom" align="right">p.value_0.95</th>
+      <th class="gt_col_heading gt_columns_bottom_border gt_right" rowspan="1" colspan="1" scope="col" id="effect" style="border-style: none; color: #333333; background-color: #FFFFFF; font-size: 100%; font-weight: normal; text-transform: inherit; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: bottom; padding-top: 5px; padding-bottom: 6px; padding-left: 5px; padding-right: 5px; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" bgcolor="#FFFFFF" valign="bottom" align="right">effect</th>
+    </tr>
+  </thead>
+  <tbody class="gt_table_body" style="border-style: none; border-top-style: solid; border-top-width: 2px; border-top-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #D3D3D3;">
+    <tr style="border-style: none;"><td headers="display" class="gt_row gt_left" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: left;" valign="middle" align="left">Original</td>
+<td headers="estimate" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.7296147</td>
+<td headers="conf.low" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.5338983</td>
+<td headers="conf.high" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.9970768</td>
+<td headers="p_value" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.04789079</td>
+<td headers="p.value_0.95" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.04789079</td>
+<td headers="effect" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.73 (0.53, 1.00)*</td></tr>
+    <tr style="border-style: none;"><td headers="display" class="gt_row gt_left" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: left;" valign="middle" align="left">CI90</td>
+<td headers="estimate" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.7296147</td>
+<td headers="conf.low" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.5613905</td>
+<td headers="conf.high" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.9482483</td>
+<td headers="p_value" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.01840673</td>
+<td headers="p.value_0.95" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.04789079</td>
+<td headers="effect" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.73 (0.56, 0.95)*</td></tr>
+    <tr style="border-style: none;"><td headers="display" class="gt_row gt_left" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: left;" valign="middle" align="left">Scenario</td>
+<td headers="estimate" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">1.2000000</td>
+<td headers="conf.low" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.9000000</td>
+<td headers="conf.high" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">1.6000000</td>
+<td headers="p_value" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.21418199</td>
+<td headers="p.value_0.95" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">0.21418199</td>
+<td headers="effect" class="gt_row gt_right" style="border-style: none; padding-top: 8px; padding-bottom: 8px; padding-left: 5px; padding-right: 5px; margin: 10px; border-top-style: solid; border-top-width: 1px; border-top-color: #D3D3D3; border-left-style: none; border-left-width: 1px; border-left-color: #D3D3D3; border-right-style: none; border-right-width: 1px; border-right-color: #D3D3D3; vertical-align: middle; overflow-x: hidden; text-align: right; font-variant-numeric: tabular-nums;" valign="middle" align="right">1.20 (0.90, 1.60)</td></tr>
+  </tbody>
+
+</table>
+</div>
+
+
+:::
+
+本次补充的源码依据：[eff-set.R](https://github.com/HUI950319/RegR/blob/2e56cc6e06d548786b0a43d3449e463a0b36b252/R/eff-set.R)。
+
+<!-- forest-extension: end -->
 
 ## 尺寸、保存与复用 {#save}
 
