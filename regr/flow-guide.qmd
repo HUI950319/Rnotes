@@ -1,14 +1,14 @@
 ---
-title: "队列筛选与流程图：get_flt 与 plt_flo"
-description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据比较 plt_flo 的 12 个实际参数示例，包括计数格式、分组、阶段、布局和 PDF 保存。"
+title: "队列筛选与流程图：get_flt、plt_flo 与 plt_flo2"
+description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，包括队列、配色、换行、布局和 PDF 保存。"
 date: 2026-10-01
 lightbox: true
 toc-depth: 2
 ---
 
-`get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
+`get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图，`plt_flo2()` 用阶段说明和队列人数绘制彩色研究流程。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
 
-**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际执行三步筛选、绘制 **12 张流程图**并验证 PDF 保存。网页展示保存的汇总结果；先运行下面的共用准备代码，再运行所选标签页代码即可复现。
+**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际执行筛选、绘制 **12 张 `plt_flo` 图和 8 张 `plt_flo2` 图**并验证 PDF 保存。网页展示保存的汇总结果；先运行下面的共用准备代码，再运行所选标签页代码即可复现。
 
 ## 示例数据与共用准备 {#data}
 
@@ -397,5 +397,217 @@ stopifnot(
 - **人数是否可追溯：** 手动分组人数要从相应数据计算；更改显示参数不会重新筛选或验证分析队列。
 - **内容与阶段是否有对应结构：** 研究内容依附于分组；阶段标签应对应实际存在的结构。
 - **图是否被裁剪：** 使用推荐尺寸保存，或在小绘图区采用 `fixed_size = FALSE`；不要仅靠改变文字大小修正设备尺寸。
+
+## plt_flo2()：彩色研究流程 {#plt-flo2}
+
+`plt_flo2()` 的左侧是彩色阶段框，右侧是自动编号的说明框；还可以在顶部增加队列筛选，在左边增加旋转的阶段标签。输入是**阶段文字和队列人数**，`get_flt()` 的历史需要转换成 `cohorts` 后再传入。
+
+| 函数 | 输入 | 主要展示内容 |
+|:--|:--|:--|
+| `plt_flo()` | 带 `flt` 历史的数据 | 连续筛选、排除明细、分组与汇合 |
+| `plt_flo2()` | `stages` 与可选的 `cohorts` | 队列选择与数据准备、建模、验证、解释等研究阶段 |
+
+下面的建模阶段是**研究流程文字示例**；本页实际执行的是队列筛选和绘图，并未拟合、验证模型或计算 SHAP。
+
+### 共用阶段与队列人数 {#flo2-setup}
+
+先运行 [共用准备代码](#data)，再运行以下代码。`stages` 必须有名称：名称是阶段标题，值是该阶段的一条或多条说明；两者的顺序决定图中的顺序。
+
+<!-- flow2-run: setup -->
+```r
+stages <- list(
+  "Data preparation" = c(
+    "Check variables, missingness and outcome definition",
+    "Separate development and validation data before preprocessing",
+    "Estimate transformations using development data only"
+  ),
+  "Model selection" = c(
+    "Compare candidate algorithms with cross-validation",
+    "Choose tuning parameters within the development data"
+  ),
+  "Model development" = "Fit the selected model with the chosen parameters",
+  "Model validation" = c(
+    "Evaluate discrimination and calibration on held-out data",
+    "Report performance and uncertainty"
+  ),
+  "Model explanation" = "Summarize feature contributions with SHAP"
+)
+
+# 从前面三步连续筛选的历史提取互不重复的移除人数。
+h <- attr(cohort, "flt")
+excluded <- setNames(h[["del_pat"]], unname(reasons[h[["var"]]]))
+cohort_spec <- list(
+  label = "Medullary thyroid carcinoma cohort",
+  N = nrow(start),
+  exclude = excluded,
+  final_label = "Patients eligible for analysis"
+)
+stopifnot(cohort_spec[["N"]] - sum(excluded) == nrow(cohort))
+
+# 标签页用这份参数组合添加单队列与两个阶段标签。
+workflow_args <- list(
+  stages = stages,
+  cohorts = cohort_spec,
+  phase_labels = c("Patient selection", "Study workflow")
+)
+```
+
+本例起始 **4,387 人**，三项移除人数分别为 **138、301、342**，最终 **3,606 人**。`cohorts$exclude` 会从 `N` 中减去各项人数，必须使用连续筛选的新增移除人数，避免把同一患者在多个条件下重复计数。
+
+### 阶段、单队列与双队列 {#flo2-cohorts}
+
+::: {.panel-tabset}
+
+#### 仅研究阶段 {.unnumbered}
+
+`cohorts = NULL` 是默认值，适合只展示研究步骤。左侧标题自动换行，右侧说明按条目编号，默认统一说明框高度。
+
+<!-- flow2-run: flo2-basic -->
+```r
+plt_flo2(stages = stages)
+```
+
+![仅包含研究阶段的默认彩色流程图。](images/flow-guide/flo2-basic.png){fig-alt="五个彩色阶段框用块状箭头连接，右侧对应编号说明，说明框默认等高。"}
+
+#### 单队列与阶段标签 {.unnumbered}
+
+单队列可直接传入一份 specification，无需再包一层 list。`phase_labels` 按**顶部队列区、下方研究步骤区**对应两个标签；它不会逐个标记五个建模步骤。
+
+<!-- flow2-run: flo2-cohort -->
+```r
+do.call(plt_flo2, workflow_args)
+```
+
+![单队列筛选与研究步骤组合，左侧显示两个阶段标签。](images/flow-guide/flo2-cohort.png){fig-alt="顶部队列从4387人排除三项合计781人后纳入3606人，下方绘制五个研究步骤。"}
+
+#### 双队列并列 {.unnumbered}
+
+传入外层 list 后，各队列从左到右独立绘制。本例分别在原始女性、男性子集中重新执行相同筛选；两个队列均是同一示例数据的性别子集，不能据此称为独立外部验证队列。
+
+<!-- flow2-run: flo2-cohorts -->
+```r
+sex_cohorts <- lapply(c("Female", "Male"), function(sex) {
+  d <- start[start[["Sex"]] == sex & !is.na(start[["Sex"]]), ]
+  attr(d, "flt") <- NULL
+  kept <- get_flt(d, Age >= 18, Race %in% c("White", "Black"),
+                  !is.na(Tum) & Tum > 0)
+  history <- attr(kept, "flt")
+  removed <- setNames(history[["del_pat"]],
+                      unname(reasons[history[["var"]]]))
+  stopifnot(nrow(d) - sum(removed) == nrow(kept))
+  list(label = paste(sex, "MTC patients"), N = nrow(d), exclude = removed,
+       final_label = paste(sex, "patients included"))
+})
+plt_flo2(stages = stages, cohorts = sex_cohorts,
+         phase_labels = c("Patient selection", "Study workflow"))
+```
+
+![两个性别子队列并列筛选后连接到共同研究步骤。](images/flow-guide/flo2-cohorts.png){fig-alt="女性与男性子队列各自显示起始人数、三项排除人数和最终人数，女性2114人、男性1492人。"}
+
+:::
+
+### 配色、换行与框高 {#flo2-boxes}
+
+::: {.panel-tabset}
+
+#### 配色与方角 {.unnumbered}
+
+`palette` 同时控制阶段框、块状箭头、横线和说明框边框；颜色不足时循环使用。队列默认取调色板首尾颜色，也可通过每个 specification 的 `color` 单独指定。`corner_radius = 0` 把阶段框和说明框改成方角；队列与阶段标签框始终为方角。
+
+<!-- flow2-run: flo2-palette -->
+```r
+do.call(plt_flo2, modifyList(workflow_args, list(
+  palette = c("#264653", "#287271", "#8E3B46"),
+  cohorts = list(color = "#65518A"),
+  box_args = list(corner_radius = 0)
+)))
+```
+
+![循环使用三种阶段颜色，队列独立指定紫色，说明框改为方角。](images/flow-guide/flo2-palette.png){fig-alt="五个研究阶段循环使用三色调色板，顶部队列使用紫色，阶段与说明框均为方角。"}
+
+#### 控制文本换行 {.unnumbered}
+
+`stage_width` 指定标题内宽；`desc_width` 与 `exc_width` 是说明、排除文字的换行上限，单位都是英寸。后两者并不强制框宽：实际框仍按最长的换行文本贴合。排除行的宽度包含末尾的 `n=...`，续行自动悬挂缩进。
+
+<!-- flow2-run: flo2-wrap -->
+```r
+do.call(plt_flo2, modifyList(workflow_args, list(
+  box_args = list(stage_width = 1.5, desc_width = 3.2, exc_width = 2.2)
+)))
+```
+
+![缩小文本宽度后，阶段说明与排除原因自动换行。](images/flow-guide/flo2-wrap.png){fig-alt="标题使用1.5英寸内宽，说明按3.2英寸上限换行，排除原因按2.2英寸上限换行并保留缩进。"}
+
+#### 说明框随内容收紧 {.unnumbered}
+
+与 [默认等高示例](#flo2-cohorts) 比较：`equal_height = FALSE` 让每个说明框贴合自身内容，单条说明的框更矮，多条说明的框更高。阶段框仍保持统一高度，垂直箭头随行高变化。
+
+<!-- flow2-run: flo2-height -->
+```r
+plt_flo2(stages = stages, box_args = list(equal_height = FALSE))
+```
+
+![取消说明框等高后，不同阶段按自身文字量调整框高。](images/flow-guide/flo2-height.png){fig-alt="数据准备阶段的三项说明框较高，模型开发与解释的单项说明框较矮。"}
+
+:::
+
+### 字号、间距与保存 {#flo2-save}
+
+::: {.panel-tabset}
+
+#### 加大字号与间距，保存 PDF {.unnumbered}
+
+字号用 **pt**，宽度和间距用**英寸**。增大 `text_fs` 时，应同步增大 `gap_args$line`，它不会自动随字号调整。
+
+<!-- flow2-run: flo2-spacing-save -->
+```r
+pdf_file2 <- file.path(tempdir(), "flo2-workflow.pdf")
+p_flo2 <- do.call(plt_flo2, modifyList(workflow_args, list(
+  box_args = list(text_fs = 12, stage_fs = 14, desc_width = 4.8),
+  gap_args = list(connector = 1, row = 0.35, line = 0.20,
+                  item = 0.32, exclude = 0.8, section = 0.8),
+  fixed_size = TRUE,
+  save = list(filename = pdf_file2)
+)))
+attr(p_flo2, "flo_size")  # 推荐宽高，单位英寸
+pdf_file2
+p_flo2
+```
+
+![加大字号、行间距、条目间距与区块间距，并按推荐尺寸保存。](images/flow-guide/flo2-spacing-save.png){fig-alt="研究流程使用12pt正文字号和14pt阶段标题，扩大连线、行、条目与队列区间距。"}
+
+[下载此例生成的 PDF](images/flow-guide/flo2-workflow.pdf)。只指定文件名时，保存功能自动采用 `flo_size` 的推荐尺寸；`save = list()` 或 `NULL` 不保存文件。
+
+#### 小设备整体缩放 {.unnumbered}
+
+默认 `fixed_size = TRUE` 的对象带有 `flo2_plot` 打印方法：小设备会把**图形、文字和线宽一起缩小**，完整显示布局。下面把单队列示例保存到 4 × 4 英寸 PNG；点击图片可放大查看。
+
+<!-- flow2-run: flo2-small-device -->
+```r
+p_small <- do.call(plt_flo2, workflow_args)
+ggsave(file.path(tempdir(), "flo2-small-device.png"), p_small,
+       width = 4, height = 4, units = "in", dpi = 300, bg = "white")
+p_small
+```
+
+![同一研究流程在4乘4英寸设备上整体缩小，保持完整布局。](images/flow-guide/flo2-small-device.png){fig-alt="默认固定尺寸研究流程在4乘4英寸设备上整体缩放，文字、框和箭头保持相对比例。"}
+
+`fixed_size = FALSE` 返回普通 ggplot，布局随设备变化，但文字保留 pt 字号，可能超出框。正数可指定固定面板宽度，单位英寸；常规保存建议使用默认值和 `flo_size`，需要更小的输出时直接指定保存设备的宽高。
+
+:::
+
+| 参数 | 默认值与作用 |
+|:--|:--|
+| `gap_args$connector` | `0.8` 英寸；阶段框到说明框前竖线的横向连线长度 |
+| `gap_args$row` | `0.2` 英寸；相邻阶段行的最小垂直间距 |
+| `gap_args$line` | `0.145` 英寸；同一说明条目内的换行间距，不影响队列和阶段标签的行距 |
+| `gap_args$item` | `0.22` 英寸；当前条目末行到下一条目首行的间距 |
+| `gap_args$exclude` | `0.5` 英寸；队列主轴到排除框的最小箭头长度 |
+| `gap_args$section` | `0.6` 英寸；队列区到研究步骤区的垂直间距 |
+| `box_args$text_fs / stage_fs` | `10 / 12` pt；说明、队列和阶段标签 / 彩色阶段标题的字号 |
+| `box_args$stage_width` | `NULL`；按最宽单词自动换行；数值指定标题内宽 |
+| `box_args$desc_width / exc_width` | `5.5 / 3.5` 英寸；说明 / 排除文字的换行上限 |
+| `box_args$corner_radius` | `0.1` 英寸；阶段框与说明框圆角半径 |
+| `box_args$equal_height` | `TRUE`；说明框统一为最高说明框的高度 |
 
 本站只提供上述汇总表、图形和调用代码，不提供患者级数据下载。
