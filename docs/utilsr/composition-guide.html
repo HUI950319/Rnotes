@@ -1,0 +1,1829 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.25">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、两种 raster 后端、面板尺寸和真实 PDF 比较；28 个实际参数示例。">
+
+<title>图形组合与导出：展平、grob、插图和栅格化 – R 包开发笔记</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../seerr/function-modules.html" rel="next">
+<link href="../utilsr/factor-guide.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-4571e413af9019dfdcc70175faf53a1f.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b474d6efad454b713d1e816a9cc473a2.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="../site_libs/quarto-contrib/glightbox/glightbox.min.js"></script>
+<link href="../site_libs/quarto-contrib/glightbox/glightbox.min.css" rel="stylesheet">
+<link href="../site_libs/quarto-contrib/glightbox/lightbox.css" rel="stylesheet">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+
+
+</head>
+
+<body class="nav-sidebar docked quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../utilsr/function-modules.html">UtilsR · 通用工具</a></li><li class="breadcrumb-item"><a href="../utilsr/composition-guide.html"><span class="chapter-title">图形组合与导出：展平、grob、插图和栅格化</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation docked overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header sidebar-header-stacked">
+      <a href="../index.html" class="sidebar-logo-link">
+      </a>
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">R 包开发笔记</a>
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/HUI950319/Rnotes" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="切换深色模式"><i class="bi"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container">
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">关于这份笔记</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false">
+ <span class="menu-text">RegR · 临床回归与可视化</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RegR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/flow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">队列筛选与流程图：get_flt、plt_flo 与 plt_flo2</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/forest-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">效应估计与森林图：get_eff 和 4 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/cat-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">KM/CIF 组合图：get_cat 与 3 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/facet-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分面生存曲线：get_facet 的 22 个可视化示例</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">交互分析：get_inter、绝对风险与表格导出</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/rcs-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RCS 组合图：get_rcs_all 的 7 种模式</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/cut-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">切点分析：get_cut、get_cut_ci 与 get_cut_plot</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/get-eff-cif-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false">
+ <span class="menu-text">MLR · 机器学习解释</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR 概览</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/shap-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP：get_shp 与 14 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/imp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征重要性：get_imp 与 9 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/vpd-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量分布与 PDP：解释器、分组和预测时间</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量交互：H 统计量、paired-VIMP 与 VIV 图谱</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/shap-clust-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP 聚类：选 K、解释分组与固定中心分配</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/pdp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">生存 PDP 图谱：时间、分箱与二维交互面</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/model-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型筛选：学习器 × 缺失处理的重采样比较</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/hyper-tuning-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">超参数调优：搜索预算、配置图与嵌套验证</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/feature-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征筛选：搜索路径、候选规模与选择稳定性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型评估：时间 ROC、概率误差与分类阈值</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/calibration-dca-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">校准与 DCA：概率方向、重采样范围与阈值</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true">
+ <span class="menu-text">UtilsR · 通用工具</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 概览</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/categorical-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分类变量：plt_cat 的 11 种图形与重要参数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/continuous-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">连续变量：分布、统计比较与多面板布局</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/format-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ggplot 格式化：主题、坐标、图例、条带与面板标签</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/palette-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">配色系统：检索、颜色映射与离散和连续色阶</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/missing-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">数据检视与缺失：摘要、缺失模式和 KNN 插补</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/scatter-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">组合散点图：边际分布、双分组与配对差值</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/flow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分类分布与流向：堆积柱、Alluvial 和 Sankey</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/sets-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">集合比较：Venn、UpSet、成员分组与 Jaccard 热图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/comparison-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">双侧比较图：Butterfly、分布镜像与 Dumbbell</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/rank-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">排名与共享特征：Rank、方法一致性和圆形棒棒糖</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/factor-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">因子与统计文本：排序、合并、分箱和区间格式化</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/composition-guide.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">图形组合与导出：展平、grob、插图和栅格化</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">seerR · SEER 数据处理</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../seerr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../seerr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
+ <span class="menu-text">LabR · 基础实验作图</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../labr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">LabR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../labr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">LabR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">scMMR · 单细胞多任务模型</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../scmmr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">scMMR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../scmmr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">scMMR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">ToyData · 示例数据</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../toydata/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ToyData 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../toydata/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ToyData 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">causalR · 因果推断与效应异质性</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">causalR 功能模块图</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+
+  <ul class="collapse">
+  <li><a href="#data" id="toc-data" class="nav-link active" data-scroll-target="#data">数据准备与输入约定</a></li>
+  <li><a href="#parameters" id="toc-parameters" class="nav-link" data-scroll-target="#parameters">函数选择与重要参数</a></li>
+  <li><a href="#嵌套图的展平与选择" id="toc-嵌套图的展平与选择" class="nav-link" data-scroll-target="#嵌套图的展平与选择">嵌套图的展平与选择</a></li>
+  <li><a href="#grob-类型与完整转换" id="toc-grob-类型与完整转换" class="nav-link" data-scroll-target="#grob-类型与完整转换">grob 类型与完整转换</a></li>
+  <li><a href="#边缘组件与空间" id="toc-边缘组件与空间" class="nav-link" data-scroll-target="#边缘组件与空间">边缘组件与空间</a></li>
+  <li><a href="#插图位置与裁剪" id="toc-插图位置与裁剪" class="nav-link" data-scroll-target="#插图位置与裁剪">插图位置与裁剪</a></li>
+  <li><a href="#栅格化后端和分辨率" id="toc-栅格化后端和分辨率" class="nav-link" data-scroll-target="#栅格化后端和分辨率">栅格化后端和分辨率</a></li>
+  <li><a href="#固定面板尺寸与导出" id="toc-固定面板尺寸与导出" class="nav-link" data-scroll-target="#固定面板尺寸与导出">固定面板尺寸与导出</a></li>
+  <li><a href="#真实文件与当前边界" id="toc-真实文件与当前边界" class="nav-link" data-scroll-target="#真实文件与当前边界">真实文件与当前边界</a></li>
+  <li><a href="#output" id="toc-output" class="nav-link" data-scroll-target="#output">返回对象、保存与使用边界</a></li>
+  <li><a href="#interfaces" id="toc-interfaces" class="nav-link" data-scroll-target="#interfaces">当前完整接口</a></li>
+  <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">验证范围与参考</a></li>
+  </ul>
+<div class="toc-actions"><ul class="collapse"><li><a href="https://github.com/HUI950319/Rnotes/blob/main/utilsr/composition-guide.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../utilsr/function-modules.html">UtilsR · 通用工具</a></li><li class="breadcrumb-item"><a href="../utilsr/composition-guide.html"><span class="chapter-title">图形组合与导出：展平、grob、插图和栅格化</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-title">图形组合与导出：展平、grob、插图和栅格化</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+
+    <div>
+    <div class="quarto-title-meta-heading">发布于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">2026年10月1日</p>
+    </div>
+  </div>
+
+
+  </div>
+
+
+
+</header>
+
+
+<p>嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、两种 raster 后端、面板尺寸和真实 PDF 比较。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。</p>
+<p><strong>版本与执行范围：</strong> 本页按 UtilsR <strong>0.6.8</strong> 的公共接口核对；28 个示例已在 WSL R 4.4.3 中实际执行，其中 22 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。</p>
+<section id="data" class="level2">
+<h2 class="anchored" data-anchor-id="data">数据准备与输入约定</h2>
+<p>dat 为 3,000 行固定种子的模拟数据，small 为其中 120 行；p1–p4 用同一输入生成四种图，标题带 A–D 以便核对展平和重排。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(UtilsR)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(patchwork)</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1012</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>dat <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">3000</span>), <span class="at">group =</span> <span class="fu">factor</span>(<span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"C"</span>), <span class="dv">3000</span>, <span class="cn">TRUE</span>)))</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>dat[[<span class="st">"y"</span>]] <span class="ot">&lt;-</span> <span class="fl">0.55</span> <span class="sc">*</span> dat[[<span class="st">"x"</span>]] <span class="sc">+</span> <span class="fu">rnorm</span>(<span class="fu">nrow</span>(dat), <span class="dv">0</span>, <span class="fl">0.8</span>)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>small <span class="ot">&lt;-</span> dat[<span class="dv">1</span><span class="sc">:</span><span class="dv">120</span>, ]</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>cols <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#0072B2"</span>, <span class="at">B =</span> <span class="st">"#E69F00"</span>, <span class="at">C =</span> <span class="st">"#009E73"</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>p1 <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(small, <span class="fu">aes</span>(x, y, <span class="at">color =</span> group)) <span class="sc">+</span> <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="fl">1.8</span>, <span class="at">alpha =</span> <span class="fl">0.65</span>) <span class="sc">+</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> cols) <span class="sc">+</span> <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"A: scatter"</span>) <span class="sc">+</span> <span class="fu">theme_my</span>(<span class="at">base_size =</span> <span class="dv">11</span>)</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>p2 <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(small, <span class="fu">aes</span>(group, y, <span class="at">fill =</span> group)) <span class="sc">+</span> <span class="fu">geom_boxplot</span>(<span class="at">width =</span> <span class="fl">0.5</span>) <span class="sc">+</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> cols) <span class="sc">+</span> <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"B: boxplot"</span>) <span class="sc">+</span> <span class="fu">theme_my</span>(<span class="at">base_size =</span> <span class="dv">11</span>)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>p3 <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(small, <span class="fu">aes</span>(x)) <span class="sc">+</span> <span class="fu">geom_histogram</span>(<span class="at">bins =</span> <span class="dv">15</span>, <span class="at">fill =</span> <span class="st">"#56B4E9"</span>, <span class="at">color =</span> <span class="st">"white"</span>) <span class="sc">+</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"C: histogram"</span>) <span class="sc">+</span> <span class="fu">theme_my</span>(<span class="at">base_size =</span> <span class="dv">11</span>)</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>p4 <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(small, <span class="fu">aes</span>(y, <span class="at">fill =</span> group)) <span class="sc">+</span> <span class="fu">geom_density</span>(<span class="at">alpha =</span> <span class="fl">0.35</span>) <span class="sc">+</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> cols) <span class="sc">+</span> <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"D: density"</span>) <span class="sc">+</span> <span class="fu">theme_my</span>(<span class="at">base_size =</span> <span class="dv">11</span>)</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>nested <span class="ot">&lt;-</span> ((p1 <span class="sc">|</span> p2) <span class="sc">/</span> (p3 <span class="sc">|</span> p4)) <span class="sc">+</span> <span class="fu">plot_annotation</span>(<span class="at">title =</span> <span class="st">"Outer annotation"</span>, <span class="at">tag_levels =</span> <span class="st">"A"</span>)</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>side_x <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(small, <span class="fu">aes</span>(x)) <span class="sc">+</span> <span class="fu">geom_density</span>(<span class="at">fill =</span> <span class="st">"#56B4E9"</span>, <span class="at">alpha =</span> <span class="fl">0.6</span>) <span class="sc">+</span> <span class="fu">theme_void</span>()</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>side_y <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(small, <span class="fu">aes</span>(y)) <span class="sc">+</span> <span class="fu">geom_density</span>(<span class="at">fill =</span> <span class="st">"#E69F00"</span>, <span class="at">alpha =</span> <span class="fl">0.6</span>) <span class="sc">+</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span> <span class="fu">theme_void</span>()</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>inset <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(small, <span class="fu">aes</span>(group, y, <span class="at">fill =</span> group)) <span class="sc">+</span> <span class="fu">geom_boxplot</span>(<span class="at">width =</span> <span class="fl">0.5</span>) <span class="sc">+</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> cols, <span class="at">guide =</span> <span class="st">"none"</span>) <span class="sc">+</span> <span class="fu">theme_my</span>(<span class="at">base_size =</span> <span class="dv">7</span>) <span class="sc">+</span></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">plot.background =</span> <span class="fu">element_rect</span>(<span class="at">fill =</span> <span class="st">"white"</span>, <span class="at">color =</span> <span class="st">"grey60"</span>),</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>        <span class="at">plot.margin =</span> <span class="fu">margin</span>(<span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">3</span>)) <span class="sc">+</span> <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="cn">NULL</span>)</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>dense <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(dat, <span class="fu">aes</span>(x, y, <span class="at">color =</span> group)) <span class="sc">+</span> <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="fl">0.8</span>, <span class="at">alpha =</span> <span class="fl">0.3</span>) <span class="sc">+</span></span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> cols) <span class="sc">+</span> <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"3,000 simulated observations"</span>) <span class="sc">+</span></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotate</span>(<span class="st">"text"</span>, <span class="at">x =</span> <span class="sc">-</span><span class="fl">2.1</span>, <span class="at">y =</span> <span class="fl">2.4</span>, <span class="at">label =</span> <span class="st">"Text layer"</span>, <span class="at">size =</span> <span class="dv">3</span>) <span class="sc">+</span> <span class="fu">theme_my</span>(<span class="at">base_size =</span> <span class="dv">11</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</section>
+<section id="parameters" class="level2">
+<h2 class="anchored" data-anchor-id="parameters">函数选择与重要参数</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">目标</th>
+<th style="text-align: left;">重要参数</th>
+<th style="text-align: left;">作用与适用条件</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">展平嵌套</td>
+<td style="text-align: left;"><code>flatten_patchwork(plots,...)</code></td>
+<td style="text-align: left;">递归取 patchwork 子图，再调用 wrap_plots；外层标题、原设计和相对尺寸需重新设定</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">选择和重排</td>
+<td style="text-align: left;"><code>select_inds=NULL/nrow_inds_order=NULL</code></td>
+<td style="text-align: left;">先展平，再选索引；nrow_inds_order=2 对四图得到 1,3,2,4</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">重新排版</td>
+<td style="text-align: left;">… 中 <code>nrow/ncol/widths/heights/guides</code></td>
+<td style="text-align: left;">直接交给 wrap_plots；不把已有 list 当作已支持的展平输入</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">grob 转换</td>
+<td style="text-align: left;"><code>grob_as(plot,...)</code></td>
+<td style="text-align: left;">ggplot→gtable、gList→grobTree、现有 gtable 保持；patchwork 完整转换用 patchworkGrob</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">边缘附加</td>
+<td style="text-align: left;"><code>grob_add(position,space=NULL,clip="on")</code></td>
+<td style="text-align: left;">top/bottom/left/right/none；space 用 grid::unit 明确高度或宽度，本页使用单面板</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">插图边界</td>
+<td style="text-align: left;"><code>left/bottom/right/top</code></td>
+<td style="text-align: left;">默认 0–1 的相对坐标，支持 grid unit；顺序必须组成正的宽和高</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">插图基准</td>
+<td style="text-align: left;"><code>align_to="panel"/"plot"/"full"</code></td>
+<td style="text-align: left;">panel 对齐面板区域；plot 使用背景区域；full 使用整个 gtable，本例后两者可重合</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">插图叠放</td>
+<td style="text-align: left;"><code>on_top=TRUE/clip=TRUE</code></td>
+<td style="text-align: left;">on_top 控制 z 顺序，clip 控制区域裁剪；关闭上层不保证不被面板背景遮挡</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">包装成 ggplot</td>
+<td style="text-align: left;"><code>grob_to_gg(grob)</code></td>
+<td style="text-align: left;">用 annotation_custom 绘制完整 grob；适合保存与组合，不能再直接修改内部原图尺度</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">栅格化后端</td>
+<td style="text-align: left;"><code>fmt_raster(method="ggrastr"/"ragg")</code></td>
+<td style="text-align: left;">ggrastr 标记支持的 geom 层；ragg 把检测到的面板转成位图再保留部分文字组件</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">解析度</td>
+<td style="text-align: left;"><code>dpi=300</code></td>
+<td style="text-align: left;">影响位图清晰度和文件大小；网页 PNG 只检查外观，PDF 才展示混合矢量输出</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">ragg 面板尺寸</td>
+<td style="text-align: left;"><code>width/height=NULL</code>、<code>units="in"/"cm"/"mm"</code></td>
+<td style="text-align: left;">固定的是面板，非整张图；可以为 1 或面板数长度，优先显式设值避免设备推算</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">ragg 返回尺寸</td>
+<td style="text-align: left;"><code>attr(result,"size")</code></td>
+<td style="text-align: left;">包含整张图 width/height/units，可用于导出，防止固定面板被小画布裁剪</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">设备和背景</td>
+<td style="text-align: left;"><code>dev="ragg"/bg="transparent"</code></td>
+<td style="text-align: left;">dev 用于 ggrastr；bg 用于 ragg 面板，外部 ggsave 背景另行设置</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="嵌套图的展平与选择" class="level2">
+<h2 class="anchored" data-anchor-id="嵌套图的展平与选择">嵌套图的展平与选择</h2>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">原始嵌套组合</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">展平成一行</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-3" role="tab" aria-controls="tabset-1-3" aria-selected="false" href="">选第 1 和第 3 图</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-4" role="tab" aria-controls="tabset-1-4" aria-selected="false" href="">交错重排</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-5-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-5" role="tab" aria-controls="tabset-1-5" aria-selected="false" href="">重新给布局和总标题</a></li></ul>
+<div class="tab-content">
+<div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
+<p>两行各有一个左右组合；标题与自动 tag 在最外层。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>nested</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/nested.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="两行各有一个左右组合；标题与自动 tag 在最外层。"><img src="images/composition-guide/nested.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；原始嵌套组合；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>两行各有一个左右组合；标题与自动 tag 在最外层。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
+<p>四张图递归展平，再统一排一行；外层 Outer annotation 和自动 tag 不会保留。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">flatten_patchwork</span>(nested, <span class="at">nrow =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/flat-row.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="四张图递归展平，再统一排一行；外层 Outer annotation 和自动 tag 不会保留。"><img src="images/composition-guide/flat-row.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；展平成一行；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>四张图递归展平，再统一排一行；外层 Outer annotation 和自动 tag 不会保留。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-1-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-3-tab">
+<p>索引在展平后，选择 scatter 和 histogram；不是按嵌套顶层两行选取。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">flatten_patchwork</span>(nested, <span class="at">select_inds =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">3</span>), <span class="at">ncol =</span> <span class="dv">2</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/select.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="索引在展平后，选择 scatter 和 histogram；不是按嵌套顶层两行选取。"><img src="images/composition-guide/select.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；选第 1 和第 3 图；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>索引在展平后，选择 scatter 和 histogram；不是按嵌套顶层两行选取。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-1-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-4-tab">
+<p>顺序为 A,C,B,D；本例标题自带字母，便于核对实际位置。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">flatten_patchwork</span>(nested, <span class="at">nrow_inds_order =</span> <span class="dv">2</span>, <span class="at">ncol =</span> <span class="dv">2</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/reorder.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="顺序为 A,C,B,D；本例标题自带字母，便于核对实际位置。"><img src="images/composition-guide/reorder.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；交错重排；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>顺序为 A,C,B,D；本例标题自带字母，便于核对实际位置。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-1-5" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-5-tab">
+<p>重新定义列宽、行高与外层标题；收集的相同图例仍需核对内容是否完全一致。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">flatten_patchwork</span>(nested, <span class="at">ncol =</span> <span class="dv">2</span>, <span class="at">widths =</span> <span class="fu">c</span>(<span class="fl">1.5</span>, <span class="dv">1</span>), <span class="at">heights =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="fl">0.8</span>),</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>                  <span class="at">guides =</span> <span class="st">"collect"</span>) <span class="sc">+</span> <span class="fu">plot_annotation</span>(<span class="at">title =</span> <span class="st">"Rebuilt layout"</span>) <span class="sc">&amp;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"bottom"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/new-layout.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="重新定义列宽、行高与外层标题；收集的相同图例仍需核对内容是否完全一致。"><img src="images/composition-guide/new-layout.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；重新给布局和总标题；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>重新定义列宽、行高与外层标题；收集的相同图例仍需核对内容是否完全一致。</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="grob-类型与完整转换" class="level2">
+<h2 class="anchored" data-anchor-id="grob-类型与完整转换">grob 类型与完整转换</h2>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">转换类型</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">核对完整组合的面板</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-3" role="tab" aria-controls="tabset-2-3" aria-selected="false" href="">当前直接转换结果</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-4" role="tab" aria-controls="tabset-2-4" aria-selected="false" href="">完整组合包装保存</a></li></ul>
+<div class="tab-content">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<p>gtable 可直接 grid.draw；gList 变成 grobTree，不能把所有输出都当作 ggplot。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>objects <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">single =</span> <span class="fu">grob_as</span>(p1), <span class="at">existing_gtable =</span> <span class="fu">grob_as</span>(<span class="fu">ggplotGrob</span>(p1)),</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>                <span class="at">grob_list =</span> <span class="fu">grob_as</span>(grid<span class="sc">::</span><span class="fu">gList</span>(grid<span class="sc">::</span><span class="fu">textGrob</span>(<span class="st">"A"</span>), grid<span class="sc">::</span><span class="fu">rectGrob</span>())),</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>                <span class="at">patchwork_full =</span> patchwork<span class="sc">::</span><span class="fu">patchworkGrob</span>(nested))</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="fu">data.frame</span>(<span class="at">input =</span> <span class="fu">names</span>(objects), <span class="at">output_class =</span> <span class="fu">vapply</span>(objects, <span class="cf">function</span>(z) <span class="fu">paste</span>(<span class="fu">class</span>(z), <span class="at">collapse =</span> <span class="st">"/"</span>), <span class="fu">character</span>(<span class="dv">1</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;"></th>
+<th style="text-align: left;">input</th>
+<th style="text-align: left;">output_class</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">single</td>
+<td style="text-align: left;">single</td>
+<td style="text-align: left;">gtable/gTree/grob/gDesc</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">existing_gtable</td>
+<td style="text-align: left;">existing_gtable</td>
+<td style="text-align: left;">gtable/gTree/grob/gDesc</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">grob_list</td>
+<td style="text-align: left;">grob_list</td>
+<td style="text-align: left;">gTree/grob/gDesc</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">patchwork_full</td>
+<td style="text-align: left;">patchwork_full</td>
+<td style="text-align: left;">gtable/gTree/grob/gDesc</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<p>这里统计最外层 gtable 的 panel 条目；完整嵌套的内部 gtable 还包含子图，所以 3 不等于只有三张图。下一组图片直接核对转换结果。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>g1 <span class="ot">&lt;-</span> <span class="fu">grob_as</span>(nested)</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>g2 <span class="ot">&lt;-</span> patchwork<span class="sc">::</span><span class="fu">patchworkGrob</span>(nested)</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="fu">data.frame</span>(<span class="at">converter =</span> <span class="fu">c</span>(<span class="st">"UtilsR::grob_as"</span>, <span class="st">"patchwork::patchworkGrob"</span>),</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>           <span class="at">panel_entries =</span> <span class="fu">c</span>(<span class="fu">sum</span>(<span class="fu">grepl</span>(<span class="st">"panel"</span>, g1<span class="sc">$</span>layout<span class="sc">$</span>name)),</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>                             <span class="fu">sum</span>(<span class="fu">grepl</span>(<span class="st">"panel"</span>, g2<span class="sc">$</span>layout<span class="sc">$</span>name))))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">converter</th>
+<th style="text-align: right;">panel_entries</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">UtilsR::grob_as</td>
+<td style="text-align: right;">1</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">patchwork::patchworkGrob</td>
+<td style="text-align: right;">3</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="tabset-2-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-3-tab">
+<p>当前 grob_as 的 patchwork 分支使用 ggplotGrob，只转换最后一张 D: density；四张子图需要下面的完整转换。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(<span class="fu">grob_as</span>(nested))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/direct-wrapper.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="当前 grob_as 的 patchwork 分支使用 ggplotGrob，只转换最后一张 D: density；四张子图需要下面的完整转换。"><img src="images/composition-guide/direct-wrapper.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；当前直接转换结果；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>当前 grob_as 的 patchwork 分支使用 ggplotGrob，只转换最后一张 D: density；四张子图需要下面的完整转换。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-2-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-4-tab">
+<p>先完整转换，再包装；外层标签和四张子图都进入最终 grob。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(patchwork<span class="sc">::</span><span class="fu">patchworkGrob</span>(nested))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/full-wrapper.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="先完整转换，再包装；外层标签和四张子图都进入最终 grob。"><img src="images/composition-guide/full-wrapper.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；完整组合包装保存；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>先完整转换，再包装；外层标签和四张子图都进入最终 grob。</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="边缘组件与空间" class="level2">
+<h2 class="anchored" data-anchor-id="边缘组件与空间">边缘组件与空间</h2>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">上侧密度组件</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">右侧组件</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-3" role="tab" aria-controls="tabset-3-3" aria-selected="false" href="">连续追加两侧</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-4" role="tab" aria-controls="tabset-3-4" aria-selected="false" href="">关闭附加</a></li></ul>
+<div class="tab-content">
+<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
+<p>space 明确给组件高度；这里只复用变量 x 的密度图，并未自动同步坐标限和轴宽。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>gt <span class="ot">&lt;-</span> <span class="fu">grob_add</span>(p1, side_x, <span class="at">position =</span> <span class="st">"top"</span>, <span class="at">space =</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="fl">1.8</span>, <span class="st">"cm"</span>))</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(gt)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/add-top.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="space 明确给组件高度；这里只复用变量 x 的密度图，并未自动同步坐标限和轴宽。"><img src="images/composition-guide/add-top.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；上侧密度组件；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>space 明确给组件高度；这里只复用变量 x 的密度图，并未自动同步坐标限和轴宽。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
+<p>右侧 space 是宽度；grob_add 添加布局单元，不会自动检查边际数据或坐标对齐。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>gt <span class="ot">&lt;-</span> <span class="fu">grob_add</span>(p1, side_y, <span class="at">position =</span> <span class="st">"right"</span>, <span class="at">space =</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="fl">2.2</span>, <span class="st">"cm"</span>), <span class="at">clip =</span> <span class="st">"off"</span>)</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(gt)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/add-right.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="右侧 space 是宽度；grob_add 添加布局单元，不会自动检查边际数据或坐标对齐。"><img src="images/composition-guide/add-right.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；右侧组件；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>右侧 space 是宽度；grob_add 添加布局单元，不会自动检查边际数据或坐标对齐。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-3-tab">
+<p>第二次继续操作 gtable，把顶侧和右侧都保留；本页使用单面板避免多面板平均位置的歧义。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>gt <span class="ot">&lt;-</span> <span class="fu">grob_add</span>(p1, side_x, <span class="st">"top"</span>, <span class="at">space =</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="fl">1.4</span>, <span class="st">"cm"</span>))</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>gt <span class="ot">&lt;-</span> <span class="fu">grob_add</span>(gt, side_y, <span class="st">"right"</span>, <span class="at">space =</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="dv">2</span>, <span class="st">"cm"</span>))</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(gt)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/add-both.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="第二次继续操作 gtable，把顶侧和右侧都保留；本页使用单面板避免多面板平均位置的歧义。"><img src="images/composition-guide/add-both.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；连续追加两侧；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>第二次继续操作 gtable，把顶侧和右侧都保留；本页使用单面板避免多面板平均位置的歧义。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-4-tab">
+<p>none 返回主图的 gtable；作为配置开关时不用另写附加组件分支。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(<span class="fu">grob_add</span>(p1, side_x, <span class="at">position =</span> <span class="st">"none"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/add-none.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="none 返回主图的 gtable；作为配置开关时不用另写附加组件分支。"><img src="images/composition-guide/add-none.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；关闭附加；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>none 返回主图的 gtable；作为配置开关时不用另写附加组件分支。</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="插图位置与裁剪" class="level2">
+<h2 class="anchored" data-anchor-id="插图位置与裁剪">插图位置与裁剪</h2>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">按面板相对坐标</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">按整个画布定位</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-3" role="tab" aria-controls="tabset-4-3" aria-selected="false" href="">混用相对和固定距离</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-4" role="tab" aria-controls="tabset-4-4" aria-selected="false" href="">grob 再参与排版</a></li></ul>
+<div class="tab-content">
+<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
+<p>四个边界相对于主面板；插图位于右下角，背景显式为白色以便阅读。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>gt <span class="ot">&lt;-</span> <span class="fu">grob_insert</span>(p1, inset, <span class="at">left =</span> <span class="fl">0.62</span>, <span class="at">bottom =</span> <span class="fl">0.03</span>, <span class="at">right =</span> <span class="fl">0.99</span>, <span class="at">top =</span> <span class="fl">0.42</span>)</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(gt)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/inset-panel.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="四个边界相对于主面板；插图位于右下角，背景显式为白色以便阅读。"><img src="images/composition-guide/inset-panel.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；按面板相对坐标；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>四个边界相对于主面板；插图位于右下角，背景显式为白色以便阅读。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
+<p>full 把轴、标题、图例所占空间纳入定位；与相同数字的 panel 布局不同。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>gt <span class="ot">&lt;-</span> <span class="fu">grob_insert</span>(p1, inset, <span class="at">left =</span> <span class="fl">0.64</span>, <span class="at">bottom =</span> <span class="fl">0.04</span>, <span class="at">right =</span> <span class="fl">0.98</span>, <span class="at">top =</span> <span class="fl">0.4</span>,</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>                  <span class="at">align_to =</span> <span class="st">"full"</span>, <span class="at">on_top =</span> <span class="cn">TRUE</span>, <span class="at">clip =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(gt)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/inset-full.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="full 把轴、标题、图例所占空间纳入定位；与相同数字的 panel 布局不同。"><img src="images/composition-guide/inset-full.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；按整个画布定位；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>full 把轴、标题、图例所占空间纳入定位；与相同数字的 panel 布局不同。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-4-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-3-tab">
+<p>插图固定宽 3 cm、高 2.3 cm，贴面板右侧；最终画布缩放会改变其相对面积。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>gt <span class="ot">&lt;-</span> <span class="fu">grob_insert</span>(p1, inset, <span class="at">left =</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="dv">1</span>, <span class="st">"npc"</span>) <span class="sc">-</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="dv">3</span>, <span class="st">"cm"</span>),</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>                  <span class="at">bottom =</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="fl">0.3</span>, <span class="st">"cm"</span>), <span class="at">right =</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="dv">1</span>, <span class="st">"npc"</span>),</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>                  <span class="at">top =</span> grid<span class="sc">::</span><span class="fu">unit</span>(<span class="fl">2.6</span>, <span class="st">"cm"</span>), <span class="at">align_to =</span> <span class="st">"panel"</span>)</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a><span class="fu">grob_to_gg</span>(gt)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/inset-unit.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="插图固定宽 3 cm、高 2.3 cm，贴面板右侧；最终画布缩放会改变其相对面积。"><img src="images/composition-guide/inset-unit.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；混用相对和固定距离；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>插图固定宽 3 cm、高 2.3 cm，贴面板右侧；最终画布缩放会改变其相对面积。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-4-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-4-tab">
+<p>包装后可加入 patchwork，但 wrapped 内部轴文字和原始 geom 已是 grob，不能用新的 scale 改回原图。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>wrapped <span class="ot">&lt;-</span> <span class="fu">grob_to_gg</span>(<span class="fu">grob_insert</span>(p1, inset, <span class="at">left =</span> <span class="fl">0.62</span>, <span class="at">bottom =</span> <span class="fl">0.03</span>, <span class="at">right =</span> <span class="fl">0.99</span>, <span class="at">top =</span> <span class="fl">0.42</span>))</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>wrapped <span class="sc">|</span> p3</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/wrapper-combine.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="包装后可加入 patchwork，但 wrapped 内部轴文字和原始 geom 已是 grob，不能用新的 scale 改回原图。"><img src="images/composition-guide/wrapper-combine.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；grob 再参与排版；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>包装后可加入 patchwork，但 wrapped 内部轴文字和原始 geom 已是 grob，不能用新的 scale 改回原图。</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="栅格化后端和分辨率" class="level2">
+<h2 class="anchored" data-anchor-id="栅格化后端和分辨率">栅格化后端和分辨率</h2>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">原始散点</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">ggrastr 150 dpi</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-3" role="tab" aria-controls="tabset-5-3" aria-selected="false" href="">ggrastr 300 dpi</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-4" role="tab" aria-controls="tabset-5-4" aria-selected="false" href="">列表与原布局</a></li></ul>
+<div class="tab-content">
+<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
+<p>3,000 个点作为同一输入，用来比较栅格化外观和实际 PDF 字节；几何与统计含义保持一致。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>dense</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/dense-vector.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="3,000 个点作为同一输入，用来比较栅格化外观和实际 PDF 字节；几何与统计含义保持一致。"><img src="images/composition-guide/dense-vector.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；原始散点；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>3,000 个点作为同一输入，用来比较栅格化外观和实际 PDF 字节；几何与统计含义保持一致。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
+<p>标记 ggrastr 支持的层，输出时才栅格化；文字、图例、轴及未匹配层保留原绘制路径。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_raster</span>(dense, <span class="at">method =</span> <span class="st">"ggrastr"</span>, <span class="at">dpi =</span> <span class="dv">150</span>, <span class="at">dev =</span> <span class="st">"ragg"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/raster-150.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="标记 ggrastr 支持的层，输出时才栅格化；文字、图例、轴及未匹配层保留原绘制路径。"><img src="images/composition-guide/raster-150.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；ggrastr 150 dpi；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>标记 ggrastr 支持的层，输出时才栅格化；文字、图例、轴及未匹配层保留原绘制路径。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-5-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-3-tab">
+<p>同一物理尺寸下提高位图解析度；网页预览差异可能不明显，最终 PDF 放大时更易判断。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_raster</span>(dense, <span class="at">method =</span> <span class="st">"ggrastr"</span>, <span class="at">dpi =</span> <span class="dv">300</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/raster-300.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="同一物理尺寸下提高位图解析度；网页预览差异可能不明显，最终 PDF 放大时更易判断。"><img src="images/composition-guide/raster-300.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；ggrastr 300 dpi；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>同一物理尺寸下提高位图解析度；网页预览差异可能不明显，最终 PDF 放大时更易判断。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-5-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-4-tab">
+<p>ggrastr 后端返回与输入一致的 list；再显式 wrap_plots。本例列表支持不应类推到 ragg。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>plots <span class="ot">&lt;-</span> <span class="fu">fmt_raster</span>(<span class="fu">list</span>(p1, dense), <span class="at">method =</span> <span class="st">"ggrastr"</span>, <span class="at">dpi =</span> <span class="dv">150</span>)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>patchwork<span class="sc">::</span><span class="fu">wrap_plots</span>(plots, <span class="at">ncol =</span> <span class="dv">2</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/raster-list.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="ggrastr 后端返回与输入一致的 list；再显式 wrap_plots。本例列表支持不应类推到 ragg。"><img src="images/composition-guide/raster-list.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；列表与原布局；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>ggrastr 后端返回与输入一致的 list；再显式 wrap_plots。本例列表支持不应类推到 ragg。</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="固定面板尺寸与导出" class="level2">
+<h2 class="anchored" data-anchor-id="固定面板尺寸与导出">固定面板尺寸与导出</h2>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">ragg 固定英寸面板</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">厘米和面板背景</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-3" role="tab" aria-controls="tabset-6-3" aria-selected="false" href="">完整多图先转 gtable</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-4" role="tab" aria-controls="tabset-6-4" aria-selected="false" href="">按返回总尺寸保存</a></li></ul>
+<div class="tab-content">
+<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
+<p>固定的是面板 4×3 英寸，图例和轴另占空间；返回包装的 patchwork，而不是原始散点 ggplot。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">fmt_raster</span>(dense, <span class="at">method =</span> <span class="st">"ragg"</span>, <span class="at">dpi =</span> <span class="dv">150</span>, <span class="at">width =</span> <span class="dv">4</span>, <span class="at">height =</span> <span class="dv">3</span>, <span class="at">units =</span> <span class="st">"in"</span>)</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>p</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/ragg-inch.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="固定的是面板 4×3 英寸，图例和轴另占空间；返回包装的 patchwork，而不是原始散点 ggplot。"><img src="images/composition-guide/ragg-inch.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；ragg 固定英寸面板；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>固定的是面板 4×3 英寸，图例和轴另占空间；返回包装的 patchwork，而不是原始散点 ggplot。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
+<p>先把原面板背景设透明，再指定位图底色；厘米单位、面板底色和整张页面背景分别控制。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> dense <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">panel.background =</span> <span class="fu">element_rect</span>(<span class="at">fill =</span> <span class="st">"transparent"</span>, <span class="at">color =</span> <span class="cn">NA</span>))</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_raster</span>(p, <span class="at">method =</span> <span class="st">"ragg"</span>, <span class="at">dpi =</span> <span class="dv">300</span>, <span class="at">width =</span> <span class="dv">11</span>, <span class="at">height =</span> <span class="dv">8</span>,</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>           <span class="at">units =</span> <span class="st">"cm"</span>, <span class="at">bg =</span> <span class="st">"#F2F6FA"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/ragg-cm.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="先把原面板背景设透明，再指定位图底色；厘米单位、面板底色和整张页面背景分别控制。"><img src="images/composition-guide/ragg-cm.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；厘米和面板背景；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>先把原面板背景设透明，再指定位图底色；厘米单位、面板底色和整张页面背景分别控制。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-6-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-3-tab">
+<p>两个实际面板可给两个尺寸；先完整转 gtable，避免 grob_as 的 patchwork 转换遗漏子图。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>gt <span class="ot">&lt;-</span> patchwork<span class="sc">::</span><span class="fu">patchworkGrob</span>(p1 <span class="sc">|</span> p3)</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">fmt_raster</span>(gt, <span class="at">method =</span> <span class="st">"ragg"</span>, <span class="at">dpi =</span> <span class="dv">150</span>,</span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>                <span class="at">width =</span> <span class="fu">c</span>(<span class="fl">3.2</span>, <span class="fl">2.5</span>), <span class="at">height =</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">3</span>), <span class="at">units =</span> <span class="st">"in"</span>)</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>p</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/composition-guide/ragg-multiple.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="两个实际面板可给两个尺寸；先完整转 gtable，避免 grob_as 的 patchwork 转换遗漏子图。"><img src="images/composition-guide/ragg-multiple.png" class="img-fluid figure-img" alt="图形组合与导出：展平、grob、插图和栅格化；完整多图先转 gtable；固定模拟数据的实际参数对照结果。"></a></p>
+<figcaption>两个实际面板可给两个尺寸；先完整转 gtable，避免 grob_as 的 patchwork 转换遗漏子图。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-6-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-4-tab">
+<p>按整张图的 size 属性导出实际 PDF，图宽高会大于面板宽高；避免把两个尺寸合同混为一谈。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">fmt_raster</span>(dense, <span class="at">method =</span> <span class="st">"ragg"</span>, <span class="at">dpi =</span> <span class="dv">150</span>, <span class="at">width =</span> <span class="dv">4</span>, <span class="at">height =</span> <span class="dv">3</span>)</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>sz <span class="ot">&lt;-</span> <span class="fu">attr</span>(p, <span class="st">"size"</span>)</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>pdf_path <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"utilsr-fixed-panel.pdf"</span>)</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a><span class="fu">ggsave</span>(pdf_path, p, <span class="at">width =</span> sz[[<span class="st">"width"</span>]], <span class="at">height =</span> sz[[<span class="st">"height"</span>]], <span class="at">units =</span> sz[[<span class="st">"units"</span>]], <span class="at">bg =</span> <span class="st">"white"</span>)</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a><span class="fu">data.frame</span>(<span class="at">plot_width =</span> sz[[<span class="st">"width"</span>]], <span class="at">plot_height =</span> sz[[<span class="st">"height"</span>]], <span class="at">units =</span> sz[[<span class="st">"units"</span>]],</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>           <span class="at">pdf_exists =</span> <span class="fu">file.exists</span>(pdf_path), <span class="at">bytes =</span> <span class="fu">file.info</span>(pdf_path)[[<span class="st">"size"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: right;">plot_width</th>
+<th style="text-align: right;">plot_height</th>
+<th style="text-align: left;">units</th>
+<th style="text-align: left;">pdf_exists</th>
+<th style="text-align: right;">bytes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">5.3698</td>
+<td style="text-align: right;">3.93</td>
+<td style="text-align: left;">in</td>
+<td style="text-align: left;">TRUE</td>
+<td style="text-align: right;">206841</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+</section>
+<section id="真实文件与当前边界" class="level2">
+<h2 class="anchored" data-anchor-id="真实文件与当前边界">真实文件与当前边界</h2>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-7-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-1" role="tab" aria-controls="tabset-7-1" aria-selected="true" href="">实际 PDF 字节对照</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-2" role="tab" aria-controls="tabset-7-2" aria-selected="false" href="">当前 ggrastr 层匹配接口</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-3" role="tab" aria-controls="tabset-7-3" aria-selected="false" href="">两种列表边界</a></li></ul>
+<div class="tab-content">
+<div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
+<p>同一画布实际生成矢量和三档 dpi 的 PDF；本例体积随 dpi 改变，不能承诺所有图都更小。75 dpi 用于展示代价，需按最终用途选择清晰度。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>vector_pdf <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"utilsr-vector.pdf"</span>)</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ggsave</span>(vector_pdf, dense, <span class="at">width =</span> <span class="dv">7</span>, <span class="at">height =</span> <span class="dv">5</span>, <span class="at">device =</span> <span class="st">"pdf"</span>)</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>dpis <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">75</span>, <span class="dv">150</span>, <span class="dv">300</span>)</span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>raster_pdfs <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="fu">paste0</span>(<span class="st">"utilsr-raster-"</span>, dpis, <span class="st">".pdf"</span>))</span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="fu">seq_along</span>(dpis)) {</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggsave</span>(raster_pdfs[i], <span class="fu">fmt_raster</span>(dense, <span class="at">dpi =</span> dpis[i]), <span class="at">width =</span> <span class="dv">7</span>, <span class="at">height =</span> <span class="dv">5</span>, <span class="at">device =</span> <span class="st">"pdf"</span>)</span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>paths <span class="ot">&lt;-</span> <span class="fu">c</span>(vector_pdf, raster_pdfs)</span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a><span class="fu">data.frame</span>(<span class="at">output =</span> <span class="fu">c</span>(<span class="st">"Vector points"</span>, <span class="fu">paste</span>(<span class="st">"Raster points:"</span>, dpis, <span class="st">"dpi"</span>)),</span>
+<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>           <span class="at">bytes =</span> <span class="fu">file.info</span>(paths)[[<span class="st">"size"</span>]], <span class="at">files_exist =</span> <span class="fu">file.exists</span>(paths))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">output</th>
+<th style="text-align: right;">bytes</th>
+<th style="text-align: left;">files_exist</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Vector points</td>
+<td style="text-align: right;">180828</td>
+<td style="text-align: left;">TRUE</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Raster points: 75 dpi</td>
+<td style="text-align: right;">82469</td>
+<td style="text-align: left;">TRUE</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Raster points: 150 dpi</td>
+<td style="text-align: right;">250316</td>
+<td style="text-align: left;">TRUE</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Raster points: 300 dpi</td>
+<td style="text-align: right;">779367</td>
+<td style="text-align: left;">TRUE</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
+<p>UtilsR 的 ggrastr 后端未传 layers，自身没有该参数；本表按当前依赖方法签名核对默认匹配范围。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">args</span>(utils<span class="sc">::</span><span class="fu">getFromNamespace</span>(<span class="st">"rasterise.ggplot"</span>, <span class="st">"ggrastr"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<pre class="text"><code>function (input, ..., layers = c("Point", "Tile"), dpi = NULL,
+    dev = "cairo", scale = 1)
+NULL</code></pre>
+</div>
+<div id="tabset-7-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-3-tab">
+<p>当前 flatten_patchwork 的递归入口和 ragg 后端不能直接处理普通 list；使用 wrap_plots 或逐图调用，再按需要组合。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>messages <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tryCatch</span>(<span class="fu">flatten_patchwork</span>(<span class="fu">list</span>(p1, p2)), <span class="at">error =</span> conditionMessage),</span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tryCatch</span>(<span class="fu">fmt_raster</span>(<span class="fu">list</span>(p1, p2), <span class="at">method =</span> <span class="st">"ragg"</span>, <span class="at">width =</span> <span class="dv">3</span>, <span class="at">height =</span> <span class="dv">3</span>), <span class="at">error =</span> conditionMessage))</span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="fu">paste</span>(<span class="fu">seq_along</span>(messages), messages, <span class="at">sep =</span> <span class="st">". "</span>, <span class="at">collapse =</span> <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<pre class="text"><code>1. Only know how to add &lt;ggplot&gt; and/or &lt;grob&gt; objects
+2. Cannot convert input to a gtable.</code></pre>
+</div>
+</div>
+</div>
+</section>
+<section id="output" class="level2">
+<h2 class="anchored" data-anchor-id="output">返回对象、保存与使用边界</h2>
+<p>flatten_patchwork 返回 patchwork；grob_as 返回 grob/gtable；grob_add 与 grob_insert 返回 gtable，可用 grid.draw，或 grob_to_gg 包装后保存。grob_to_gg 不恢复原始 ggplot 数据层结构。</p>
+<p>当前 grob_as(patchwork) 复用 ggplotGrob，实测会遗漏组合子图；先用 patchwork::patchworkGrob 完整转换，再交给 UtilsR 的 grob 工具或 ragg 后端。grob_add 的对齐位置取面板布局行列的均值，多面板时不能保证对每个面板分别对齐，本页边缘组件只用单面板。</p>
+<p>ggrastr 后端继承当前依赖的默认 layers 匹配，未向所有 geom 无差别栅格化；可查看本页实际方法签名。ragg 后端以面板子 grob 名称、class、viewport 等启发式保留文字，并非任意注释都保证矢量。两者都应在最终 PDF 的所需放大倍率检查可读性。</p>
+<p>本页 PNG 只用于显示结果，真实临时 PDF 用于核对生成、尺寸和字节。默认调用不保存；实际保存均写入 tempdir，没有在用户工作目录留下临时文件。只改变组合和绘制过程，未新增模型或改变统计估计。</p>
+</section>
+<section id="interfaces" class="level2">
+<h2 class="anchored" data-anchor-id="interfaces">当前完整接口</h2>
+<p>点击展开查看本次实际执行版本的参数及默认值。</p>
+<details>
+<summary>
+公共函数签名
+</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>flatten_patchwork <span class="ot">&lt;-</span></span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (plots, ..., <span class="at">select_inds =</span> <span class="cn">NULL</span>, <span class="at">nrow_inds_order =</span> <span class="cn">NULL</span>)</span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a>grob_as <span class="ot">&lt;-</span></span>
+<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (plot, ...)</span>
+<span id="cb32-7"><a href="#cb32-7" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb32-8"><a href="#cb32-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-9"><a href="#cb32-9" aria-hidden="true" tabindex="-1"></a>grob_add <span class="ot">&lt;-</span></span>
+<span id="cb32-10"><a href="#cb32-10" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (plot, grob, <span class="at">position =</span> <span class="fu">c</span>(<span class="st">"top"</span>, <span class="st">"bottom"</span>, <span class="st">"left"</span>, <span class="st">"right"</span>, <span class="st">"none"</span>), <span class="at">space =</span> <span class="cn">NULL</span>,</span>
+<span id="cb32-11"><a href="#cb32-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">clip =</span> <span class="st">"on"</span>)</span>
+<span id="cb32-12"><a href="#cb32-12" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb32-13"><a href="#cb32-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-14"><a href="#cb32-14" aria-hidden="true" tabindex="-1"></a>grob_insert <span class="ot">&lt;-</span></span>
+<span id="cb32-15"><a href="#cb32-15" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (plot, inset, <span class="at">left =</span> <span class="fl">0.6</span>, <span class="at">bottom =</span> <span class="fl">0.6</span>, <span class="at">right =</span> <span class="dv">1</span>, <span class="at">top =</span> <span class="dv">1</span>, <span class="at">align_to =</span> <span class="fu">c</span>(<span class="st">"panel"</span>,</span>
+<span id="cb32-16"><a href="#cb32-16" aria-hidden="true" tabindex="-1"></a>    <span class="st">"plot"</span>, <span class="st">"full"</span>), <span class="at">on_top =</span> <span class="cn">TRUE</span>, <span class="at">clip =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb32-17"><a href="#cb32-17" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb32-18"><a href="#cb32-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-19"><a href="#cb32-19" aria-hidden="true" tabindex="-1"></a>grob_to_gg <span class="ot">&lt;-</span></span>
+<span id="cb32-20"><a href="#cb32-20" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (grob, ...)</span>
+<span id="cb32-21"><a href="#cb32-21" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb32-22"><a href="#cb32-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-23"><a href="#cb32-23" aria-hidden="true" tabindex="-1"></a>fmt_raster <span class="ot">&lt;-</span></span>
+<span id="cb32-24"><a href="#cb32-24" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (plot, <span class="at">method =</span> <span class="fu">c</span>(<span class="st">"ggrastr"</span>, <span class="st">"ragg"</span>), <span class="at">dpi =</span> <span class="dv">300</span>, <span class="at">width =</span> <span class="cn">NULL</span>, <span class="at">height =</span> <span class="cn">NULL</span>, <span class="at">units =</span> <span class="fu">c</span>(<span class="st">"in"</span>,</span>
+<span id="cb32-25"><a href="#cb32-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"cm"</span>, <span class="st">"mm"</span>), <span class="at">dev =</span> <span class="st">"ragg"</span>, <span class="at">bg =</span> <span class="st">"transparent"</span>)</span>
+<span id="cb32-26"><a href="#cb32-26" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</section>
+<section id="references" class="level2">
+<h2 class="anchored" data-anchor-id="references">验证范围与参考</h2>
+<p>全部代码在 WSL R 中实际运行，展示图完成构建或设备绘制与 PNG 导出；另外核对展平顺序、索引选择、grob 返回类型、两后端输入边界及真实临时 PDF 的尺寸和字节。未修改 UtilsR 源码。</p>
+<p>本次绘制出现的提示记录如下；对应示例仍通过实际构建和导出检查。</p>
+<details>
+<summary>
+绘图提示
+</summary>
+<ul>
+<li><code>Cannot convert object of class 'list' into a grob.</code></li>
+</ul>
+</details>
+<ul>
+<li><a href="https://hui950319.github.io/UtilsR/reference/index.html">UtilsR 函数参考</a></li>
+<li><a href="https://github.com/HUI950319/UtilsR/tree/main/R">UtilsR 源码</a></li>
+<li><a href="../utilsr/index.html">专题目录</a></li>
+</ul>
+<details>
+<summary>
+执行环境
+</summary>
+<pre class="text"><code>R version 4.4.3 (2025-02-28)
+Platform: x86_64-pc-linux-gnu
+Running under: Ubuntu 22.04.2 LTS
+
+Matrix products: default
+BLAS:   /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3
+LAPACK: /usr/lib/x86_64-linux-gnu/openblas-pthread/libopenblasp-r0.3.20.so;  LAPACK version 3.10.0
+
+locale:
+ [1] LC_CTYPE=C.UTF-8       LC_NUMERIC=C           LC_TIME=C.UTF-8        LC_COLLATE=C.UTF-8
+ [5] LC_MONETARY=C.UTF-8    LC_MESSAGES=C.UTF-8    LC_PAPER=C.UTF-8       LC_NAME=C
+ [9] LC_ADDRESS=C           LC_TELEPHONE=C         LC_MEASUREMENT=C.UTF-8 LC_IDENTIFICATION=C
+
+time zone: Asia/Shanghai
+tzcode source: system (glibc)
+
+attached base packages:
+[1] stats     graphics  grDevices utils     datasets  methods   base
+
+other attached packages:
+[1] patchwork_1.3.2 ggplot2_4.0.3   UtilsR_0.6.8
+
+loaded via a namespace (and not attached):
+ [1] gtable_0.3.6       jsonlite_2.0.0     dplyr_1.2.0        compiler_4.4.3     tidyselect_1.2.1
+ [6] Rcpp_1.1.1         ggbeeswarm_0.7.3   dichromat_2.0-0.1  systemfonts_1.1.0  scales_1.4.0
+[11] textshaping_0.4.0  R6_2.6.1           labeling_0.4.3     generics_0.1.4     knitr_1.51
+[16] httr2_1.2.2        ggrepel_0.9.8      tibble_3.3.1       ellmer_0.4.0       pillar_1.11.1
+[21] RColorBrewer_1.1-3 rlang_1.3.0        xfun_0.57          S7_0.2.2           otel_0.2.0
+[26] cli_3.6.6          withr_3.0.3        magrittr_2.0.4     digest_0.6.39      grid_4.4.3
+[31] rappdirs_0.3.4     beeswarm_0.4.0     lifecycle_1.0.5    vipor_0.4.7        ggrastr_1.0.2
+[36] coro_1.1.0         vctrs_0.7.3        evaluate_1.0.5     ggprism_1.0.7      glue_1.8.1
+[41] farver_2.1.2       ragg_1.5.2         tools_4.4.3        pkgconfig_2.0.3    mcptools_0.2.1</code></pre>
+</details>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/hui950319\.github\.io\/Rnotes\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config);
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined;
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              }
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            }
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../utilsr/factor-guide.html" class="pagination-link" aria-label="因子与统计文本：排序、合并、分箱和区间格式化">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">因子与统计文本：排序、合并、分箱和区间格式化</span></span>
+      </a>
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../seerr/function-modules.html" class="pagination-link" aria-label="seerR 功能模块图">
+        <span class="nav-page-text"><span class="chapter-title">seerR 功能模块图</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/utilsr/composition-guide.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script>var lightboxQuarto = GLightbox({"closeEffect":"zoom","descPosition":"bottom","loop":false,"openEffect":"zoom","selector":".lightbox"});
+(function() {
+  let previousOnload = window.onload;
+  window.onload = () => {
+    if (previousOnload) {
+      previousOnload();
+    }
+    lightboxQuarto.on('slide_before_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      const href = trigger.getAttribute('href');
+      if (href !== null) {
+        const imgEl = window.document.querySelector(`a[href="${href}"] img`);
+        if (imgEl !== null) {
+          const srcAttr = imgEl.getAttribute("src");
+          if (srcAttr && srcAttr.startsWith("data:")) {
+            slideConfig.href = srcAttr;
+          }
+        }
+      }
+    });
+
+    lightboxQuarto.on('slide_after_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      if (window.Quarto?.typesetMath) {
+        window.Quarto.typesetMath(slideNode);
+      }
+    });
+
+  };
+
+})();
+          </script>
+
+
+
+
+</body></html>
