@@ -4888,5 +4888,115 @@
       "RegR · 临床回归与可视化",
       "<span class='chapter-number'>13</span>  <span class='chapter-title'>单多因素分析：手工模型、自动筛选与绝对效应</span>"
     ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html",
+    "href": "regr/eff-cat-guide.html",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "",
+    "text": "数据准备与复现\nget_eff_cat() 把同一个分类暴露在不同模型下的估计排成行，便于检查调整集合、结局定义和分层怎样改变结果。它与逐个预测变量的 get_eff()/get_um() 表格组织方式不同。页面提供同一数据的模型表、森林图和绝对效应。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#数据准备与复现",
+    "href": "regr/eff-cat-guide.html#数据准备与复现",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "",
+    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#共用计算与返回对象",
+    "href": "regr/eff-cat-guide.html#共用计算与返回对象",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "共用计算与返回对象",
+    "text": "共用计算与返回对象\nSex 的首水平 Female 是参照。adj_var 是命名调整变量 list；未调整结果自动保留。surv 的 TRUE/FALSE/字符分别是 Cox、Fine–Gray 和 Logistic；此处 event 使用原队列 0=删失、1=目标死亡、2=其他死亡。Logistic 仅描述记录期间的二分类结局，不处理随访删失。\n# 可选：关闭计算完成后的自动绘图，下面显式绘图。\noptions(RegR.eff_cat.plot = FALSE)\nadjustments &lt;- list(Age = \"Age\", Full = c(\"Age\", \"Tum\", \"stage\"))\nmulti &lt;- run_quiet({get_eff_cat(d, cat_var = \"Sex\", adj_var = adjustments,\n  surv = list(`DSS Cox` = TRUE, `DSS Fine-Gray` = FALSE, `DSS Logistic` = \"DSS\"))})\nabsolute &lt;- run_quiet({get_eff_cat(d, cat_var = \"Sex\", adj_var = adjustments,\n  abs_args = list(enabled = TRUE, time = 60))})\nby_panel &lt;- run_quiet({get_eff_cat(d, cat_var = \"Sex\", sub_var = \"stage\",\n  adj_var = c(\"Age\", \"Tum\"), add_overall = TRUE)})\nby_rows &lt;- run_quiet({get_eff_cat(d, cat_var = \"Sex\", split_var = \"stage\",\n  adj_var = c(\"Age\", \"Tum\"), add_overall = TRUE)})\ncombined &lt;- run_quiet({get_eff_cat(d, cat_var_combine = c(\"Sex\", \"stage\"),\n  adj_var = c(\"Age\", \"Tum\"))})",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#返回表模型排成行",
+    "href": "regr/eff-cat-guide.html#返回表模型排成行",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "返回表：模型排成行",
+    "text": "返回表：模型排成行\n标量 surv 返回 haz_models；多结局返回 haz_cox_DSS、haz_crr_event、haz_log_DSS 等。每个非参考暴露水平形成对照块，块内不同调整模型是行。表含 estimate/conf.low/conf.high/p_value，以及 model_label、adjustment、level、reference、status。需要看这些元数据，不能只比较格式化字符串。\n\nCox 结果表多结局面板\n\n\n同一 Female 参照、Male 比较，在未调整、Age、Full 模型中的结果。\nas.data.frame(multi[[\"haz_cox_DSS\"]])[, intersect(c(\"model_label\", \"adjustment\", \"level\", \"reference\", \"estimate\", \"conf.low\", \"conf.high\", \"p_value\", \"status\"), names(multi[[\"haz_cox_DSS\"]]))]\n\n\n\n\n\n\nmodel_label\n\n\nadjustment\n\n\nlevel\n\n\nreference\n\n\nestimate\n\n\nconf.low\n\n\nconf.high\n\n\np_value\n\n\nstatus\n\n\n\n\n\n\nNA\n\n\nNA\n\n\nMale\n\n\nFemale\n\n\nNA\n\n\nNA\n\n\nNA\n\n\nNA\n\n\nheader\n\n\n\n\nUnadjusted\n\n\nNone\n\n\nMale\n\n\nFemale\n\n\n2.357022\n\n\n1.531063\n\n\n3.628558\n\n\n9.817454e-05\n\n\nestimated\n\n\n\n\nAge\n\n\nAge\n\n\nMale\n\n\nFemale\n\n\n2.306445\n\n\n1.497455\n\n\n3.552486\n\n\n1.493859e-04\n\n\nestimated\n\n\n\n\nFull\n\n\nAge, Tum, stage\n\n\nMale\n\n\nFemale\n\n\n1.692258\n\n\n1.090096\n\n\n2.627049\n\n\n1.905722e-02\n\n\nestimated\n\n\n\n\n\n\n\n\nCox HR、Fine–Gray sHR、Logistic OR 并列，各面板对应不同统计对象。\nplt_eff(multi, display = \"c\", show_pinter = \"none\",\n  fixed_size = FALSE, base_size = 10)\n\n\n\nCox HR、Fine–Gray sHR、Logistic OR 并列，各面板对应不同统计对象。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#相同结果的方向列与坐标",
+    "href": "regr/eff-cat-guide.html#相同结果的方向列与坐标",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "相同结果的方向、列与坐标",
+    "text": "相同结果的方向、列与坐标\ndisplay、summary_vars 和 x_trans 用于展示，不重新拟合模型。比值效应可用 log 坐标；负数绝对差值不能使用 log 坐标。隐藏某列不会让模型改变，也不应隐藏模型失败状态。\n\n单一 Cox 面板HR 对数坐标纵向结局面板\n\n\n单独提取一个结局，保留模型行。\nplt_eff(multi[\"haz_cox_DSS\"], show_pinter = \"none\",\n  fixed_size = FALSE, base_size = 11)\n\n\n\n单独提取一个结局，保留模型行。\n\n\n\n\n同一 HR 改为 log 坐标，参考线仍为 1。\nplt_eff(multi[\"haz_cox_DSS\"], show_pinter = \"none\",\n  x_trans = \"log\", fixed_size = FALSE, base_size = 11)\n\n\n\n同一 HR 改为 log 坐标，参考线仍为 1。\n\n\n\n\n把多个结局上下排列，适合较窄的页面。\nplt_eff(multi, display = \"v\", show_pinter = \"none\",\n  fixed_size = FALSE, base_size = 10)\n\n\n\n把多个结局上下排列，适合较窄的页面。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#月绝对效应",
+    "href": "regr/eff-cat-guide.html#月绝对效应",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "60 月绝对效应",
+    "text": "60 月绝对效应\nabs_args 默认 enabled=FALSE、time=120、cif_boot=50L；本例只启用 Cox 的 60 月 S(t)，追加 sur_models，同时保留 haz_models。绝对表的 estimate 是参照减比较的差值，estimate_sur 是各水平的 S(t)。它们不是把 HR 换一个标签得到的数值。\n\nHR 与 ΔS(60)概率与差值表\n\n\n相对效应参考值为 1；绝对差值参考值为 0。\nplt_eff(absolute, display = \"c\", show_pinter = \"none\",\n  fixed_size = FALSE, base_size = 10)\n\n\n\n相对效应参考值为 1；绝对差值参考值为 0。\n\n\n\n\n读取 S(60) 与参照减比较差值的数值列，核对方向。\nas.data.frame(absolute[[\"sur_models\"]])[, intersect(c(\"model_label\", \"level\", \"reference\", \"estimate_sur\", \"conf.low_sur\", \"conf.high_sur\", \"estimate\", \"conf.low\", \"conf.high\", \"status\"), names(absolute[[\"sur_models\"]]))]\n\n\n\n\n\n\nmodel_label\n\n\nlevel\n\n\nreference\n\n\nestimate_sur\n\n\nconf.low_sur\n\n\nconf.high_sur\n\n\nestimate\n\n\nconf.low\n\n\nconf.high\n\n\nstatus\n\n\n\n\n\n\nNA\n\n\nMale\n\n\nFemale\n\n\nNA\n\n\nNA\n\n\nNA\n\n\nNA\n\n\nNA\n\n\nNA\n\n\nheader\n\n\n\n\nUnadjusted\n\n\nMale\n\n\nFemale\n\n\n0.9137864\n\n\n0.8817345\n\n\n0.9470035\n\n\n0.03470878\n\n\n-0.007917264\n\n\n0.07733483\n\n\nestimated\n\n\n\n\nAge\n\n\nMale\n\n\nFemale\n\n\n0.9022021\n\n\n0.8730716\n\n\n0.9313325\n\n\n0.05403428\n\n\n0.019608801\n\n\n0.08845976\n\n\nestimated\n\n\n\n\nFull\n\n\nMale\n\n\nFemale\n\n\n0.9181732\n\n\n0.8932701\n\n\n0.9430763\n\n\n0.03154510\n\n\n-0.001120068\n\n\n0.06421027\n\n\nestimated",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#分面与按行分层",
+    "href": "regr/eff-cat-guide.html#分面与按行分层",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "分面与按行分层",
+    "text": "分面与按行分层\nsub_var 返回各层独立面板；split_var 将层绑定为同一张表的前导列。两者不能同时用。add_overall=TRUE 增加同一完整案例队列的总体结果；总体调整变量仍按原指定，层内会去掉常数分层变量。分层效应差异不是正式交互检验。\n\n各层独立面板层作为前导列\n\n\nOverall、Early、Other 分别成面板。\nplt_eff(by_panel, display = \"v\", show_pinter = \"none\",\n  fixed_size = FALSE, base_size = 10)\n\n\n\nOverall、Early、Other 分别成面板。\n\n\n\n\n同一分层对象组织成一张按层排列的模型表。\nplt_eff(by_rows, show_pinter = \"none\",\n  fixed_size = FALSE, base_size = 10)\n\n\n\n同一分层对象组织成一张按层排列的模型表。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#联合暴露与倾向评分设计",
+    "href": "regr/eff-cat-guide.html#联合暴露与倾向评分设计",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "联合暴露与倾向评分设计",
+    "text": "联合暴露与倾向评分设计\ncat_var_combine 交叉多个列构成暴露水平，首组合为参照；组成暴露的列会从调整变量与 ps_var 中移除。这个效应对照不等同于 Sex×stage 交互项检验。倾向评分规格可通过 ps_var/ps_methods 指定 design、method、estimand 与相应参数，但要先做支持区域和平衡诊断。\n比较 Sex 与 stage 的联合水平，各对照块下列出调整模型。\nplt_eff(combined, show_pinter = \"none\",\n  fixed_size = FALSE, base_size = 10)\n\n\n\n比较 Sex 与 stage 的联合水平，各对照块下列出调整模型。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#使用边界保存与复现记录",
+    "href": "regr/eff-cat-guide.html#使用边界保存与复现记录",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "使用边界、保存与复现记录",
+    "text": "使用边界、保存与复现记录\nps_robust 默认 TRUE，权重模型应报告 estimand、权重规格、平衡和有效样本量；稳健方差不会修复未测混杂或支持区域不足。本页没有给 Sex 的观察性差异作因果解释。HR、sHR、OR 及绝对概率来自不同模型，不可直接换算或用数值大小评定“哪种模型更好”。on_error=“skip” 会丢掉失败的层并发出警告，发布前应报告缺失的层，不能把它们视为没有差异。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
+  },
+  {
+    "objectID": "regr/eff-cat-guide.html#相关页面与源码",
+    "href": "regr/eff-cat-guide.html#相关页面与源码",
+    "title": "同一暴露的效应比较：调整模型、结局与分层",
+    "section": "相关页面与源码",
+    "text": "相关页面与源码\n\n单多因素与模型清单\n倾向评分设计与诊断\n交互分析\nRegR 函数参考\neff_cat-get.R\neff-plt.R\neff-get.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
+    ]
   }
 ]
