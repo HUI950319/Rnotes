@@ -5119,5 +5119,137 @@
       "RegR · 临床回归与可视化",
       "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
     ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html",
+    "href": "regr/nomogram-guide.html",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "",
+    "text": "数据准备与复现\n列线图只是预测模型的读数形式。区分度、校准和决策曲线需要分别评价，不能用一张漂亮列线图代替。本页实际运行 Cox 与 Logistic 的 8 个接口，并演示如何处理当前函数中的固定展示标签。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#数据准备与复现",
+    "href": "regr/nomogram-guide.html#数据准备与复现",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "",
+    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#共用计算与返回对象",
+    "href": "regr/nomogram-guide.html#共用计算与返回对象",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "共用计算与返回对象",
+    "text": "共用计算与返回对象\n模型变量预先指定。Cox 接口固定 Surv(time,DSS)；Logistic 显式给 outcome=“DSS”，只描述记录的事件状态。下面保留月单位。显示层的修正不改变拟合、预测和曲线数值；没有修改 RegR 包源码。\npredictors &lt;- c(\"Age\", \"Tum\", \"Sex\", \"stage\")\n# 当前 ROC/校准 ggplot 存在固定的 1000 Bootstrap 文本。\n# 本页 R=0，不显示这个不符合本次预算的图层。\ndrop_fixed_boot_label &lt;- function(p) {\n  keep &lt;- vapply(p[[\"layers\"]], function(layer) {\n    label &lt;- layer[[\"aes_params\"]][[\"label\"]]\n    if (is.data.frame(layer[[\"data\"]])) label &lt;- c(label, layer[[\"data\"]][[\"label\"]])\n    !any(grepl(\"1000 Bootstrap\", label, fixed = TRUE))\n  }, logical(1))\n  p[[\"layers\"]] &lt;- p[[\"layers\"]][keep]\n  p\n}\nset.seed(20261001)",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#八个接口与参数预算",
+    "href": "regr/nomogram-guide.html#八个接口与参数预算",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "八个接口与参数预算",
+    "text": "八个接口与参数预算\n\n\n\n\n\n\n\n\n\n任务\nCox\nLogistic\n本页规格\n\n\n\n\n列线图\nget_nom_cox\nget_nom_log\nCox nom_times=36/60，cs_times=NULL\n\n\n区分度\nget_roc_cox\nget_roc_log\nCox AUC=NULL；Logistic R=0\n\n\n校准\nget_cal_cox\nget_cal_log\nB=20 演示；Cox IBS=NULL；Logistic R=0\n\n\n净获益曲线\nget_dca_cox\nget_dca_log\nCox 36/60 月；二分类按记录状态\n\n\n\nget_roc_cox 默认 AUC 字符串、get_cal_cox 默认 IBS 字符串都是示例占位，函数不会据此运行 1000 次自举。本页显式设为 NULL。Logistic 的 R 控制 Score 路线，B 控制 rms 校准，两个参数不是同一预算；R=0 时不做 Score 重采样。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#cox-列线图正确的终点与时间轴",
+    "href": "regr/nomogram-guide.html#cox-列线图正确的终点与时间轴",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "Cox 列线图：正确的终点与时间轴",
+    "text": "Cox 列线图：正确的终点与时间轴\n原接口的概率轴固定写 day OS，但拟合公式实际是 DSS。本例将返回 nomogram 的 funlabel 与对应列表名称一起改为 month DSS，然后重画。首图 36/60 月预测概率对应同一个 Cox 模型，未经独立验证。\n列线图的变量积分和总分来自 Cox 模型；概率轴已注明月和 DSS。\nnom &lt;- get_nom_cox(d, vars = predictors, nom_times = c(36, 60),\n  cs_times = NULL, name_map = c(Age = \"Age (years)\", Tum = \"Tumor (mm)\"))\ninfo &lt;- attr(nom, \"info\")\nold &lt;- info[[\"funlabel\"]]\nnew &lt;- sub(\"-day OS\", \"-month DSS\", old, fixed = TRUE)\nnames(nom)[match(old, names(nom))] &lt;- new\ninfo[[\"funlabel\"]] &lt;- new\nattr(nom, \"info\") &lt;- info\nplot(nom, xfrac = 0.35, cex.axis = 0.8, cex.var = 0.95)\n\n\n\n列线图的变量积分和总分来自 Cox 模型；概率轴已注明月和 DSS。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#cox-时点-auc-与校准",
+    "href": "regr/nomogram-guide.html#cox-时点-auc-与校准",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "Cox 时点 AUC 与校准",
+    "text": "Cox 时点 AUC 与校准\nget_roc_cox() 对整数时间网格求 AUC，并用 loess 展示；默认 C-index 文本是跨时点平均及其离散程度，并非 Harrell C 或标准综合 AUC 区间。首图只展示实际 AUC 数据和曲线，去掉该平均值注释。校准图则使用返回的 calibrations 重画 60 月对象，并明确 B=20。\n\n时点 AUC60 月校准\n\n\n原始时间单位为月，max_time=120；没有占位 bootstrap 注释。\np &lt;- get_roc_cox(d, vars = predictors, max_time = 120, AUC = NULL)\n# 去掉固定位置的跨时点平均 C-index 文本；点和曲线保持不变。\np[[\"layers\"]] &lt;- p[[\"layers\"]][!vapply(p[[\"layers\"]], function(z) {\n  label &lt;- z[[\"aes_params\"]][[\"label\"]]\n  if (is.data.frame(z[[\"data\"]])) label &lt;- c(label, z[[\"data\"]][[\"label\"]])\n  any(grepl(\"C-index:\", label, fixed = TRUE))\n}, logical(1))]\np + labs(x = \"Time since diagnosis (months)\", title = \"Apparent time-dependent AUC\")\n\n\n\n原始时间单位为月，max_time=120；没有占位 bootstrap 注释。\n\n\n\n\nrms 校准对象的实际重画，B=20 仅为接口示例。\nset.seed(20261001)\ncal &lt;- run_quiet({get_cal_cox(d, vars = predictors,\n  cal_times = 60, m = 120, B = 20, IBS = NULL)})\nplot(cal[[\"calibrations\"]][[\"60\"]], xlim = c(0, 1), ylim = c(0, 1),\n  xlab = \"Predicted DSS survival at 60 months\",\n  ylab = \"Observed DSS survival at 60 months\")\n\n\n\nrms 校准对象的实际重画，B=20 仅为接口示例。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#cox-决策曲线",
+    "href": "regr/nomogram-guide.html#cox-决策曲线",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "Cox 决策曲线",
+    "text": "Cox 决策曲线\n净获益依赖阈值概率对应的行动成本与获益，以及明确的终点与时间窗。DCA 的曲线高低不能自动证明临床获益；这张图仍是在同一演示人群内拟合和计算。\n同时比较两个时点的模型、全部处理和不处理策略；显示标签改为月。\np &lt;- get_dca_cox(d, vars = predictors, dca_times = c(36, 60))\np + scale_colour_manual(\n  values = c(\"#2C5E8A\", \"#B85B43\", \"grey60\", \"grey60\", \"black\"),\n  labels = c(\"36-month model\", \"60-month model\", \"All-36 months\", \"All-60 months\", \"None\"))\n\n\n\n同时比较两个时点的模型、全部处理和不处理策略；显示标签改为月。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#logistic-列线图与-roc",
+    "href": "regr/nomogram-guide.html#logistic-列线图与-roc",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "Logistic 列线图与 ROC",
+    "text": "Logistic 列线图与 ROC\n预测的是 DSS 记录状态的概率，没有指定随访时点。ROC 图计算本页的表观 AUC；R=0 时不做 bootstrap，固定 1000 Bootstrap 注释被显式删除。\n\n二分类列线图表观 ROC\n\n\n概率轴注明记录期间的 DSS 事件，不称为 60 月风险。\nnom &lt;- get_nom_log(d, vars = predictors, outcome = \"DSS\",\n  name_map = c(Age = \"Age (years)\", Tum = \"Tumor (mm)\"))\ninfo &lt;- attr(nom, \"info\")\nold &lt;- info[[\"funlabel\"]]\nnew &lt;- \"Recorded DSS event risk\"\nnames(nom)[match(old, names(nom))] &lt;- new\ninfo[[\"funlabel\"]] &lt;- new\nattr(nom, \"info\") &lt;- info\nplot(nom, xfrac = 0.35, cex.axis = 0.8, cex.var = 0.95)\n\n\n\n概率轴注明记录期间的 DSS 事件，不称为 60 月风险。\n\n\n\n\nR=0；图上的 AUC 来自本次数据，没有伪称 1000 次自举。\np &lt;- get_roc_log(d, vars = predictors, outcome = \"DSS\", R = 0)\ndrop_fixed_boot_label(p)\n\n\n\nR=0；图上的 AUC 来自本次数据，没有伪称 1000 次自举。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#logistic-校准原始曲线与频数轴",
+    "href": "regr/nomogram-guide.html#logistic-校准原始曲线与频数轴",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "Logistic 校准：原始曲线与频数轴",
+    "text": "Logistic 校准：原始曲线与频数轴\nget_cal_log() 虽运行 rms::calibrate，但当前图读取 calibrated.orig，即表观校准曲线，没有显示 calibrated.corrected。B=20 的偏倚校正计算不能因此被宣称为已经画出的校正曲线。图中的 Hosmer–Lemeshow P 值受样本量和分组影响，不能单独证明校准良好。\n\n带频数轴隐藏频数轴\n\n\n表观校准曲线、预测概率直方图及频数轴；B=20，R=0。\nset.seed(20261001)\np &lt;- get_cal_log(d, vars = predictors, outcome = \"DSS\",\n  B = 20, R = 0, show_sec_axis = TRUE)\ndrop_fixed_boot_label(p)\n\n\n\n表观校准曲线、预测概率直方图及频数轴；B=20，R=0。\n\n\n\n\n相同配置隐藏第二坐标轴；直方图仍为缩放后的频数，不是概率曲线。\nset.seed(20261001)\np &lt;- get_cal_log(d, vars = predictors, outcome = \"DSS\",\n  B = 20, R = 0, show_sec_axis = FALSE)\ndrop_fixed_boot_label(p)\n\n\n\n相同配置隐藏第二坐标轴；直方图仍为缩放后的频数，不是概率曲线。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#logistic-决策曲线",
+    "href": "regr/nomogram-guide.html#logistic-决策曲线",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "Logistic 决策曲线",
+    "text": "Logistic 决策曲线\n与 Cox DCA 不同，这里没有时间窗和删失处理。选择阈值范围时应与真实决策场景一致，而不是只寻找图中净获益最高的区间。\n同一记录结局下的模型、全部处理与不处理策略。\nget_dca_log(d, vars = predictors, outcome = \"DSS\")\n\n\n\n同一记录结局下的模型、全部处理与不处理策略。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#使用边界保存与复现记录",
+    "href": "regr/nomogram-guide.html#使用边界保存与复现记录",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "使用边界、保存与复现记录",
+    "text": "使用边界、保存与复现记录\n本页所有模型使用同一示例队列，未进行外部验证。默认 cs_times 在 Cox 列线图中使用边际 KM S(s) 作条件概率分母，而分子来自个体 Cox 预测，不能自动当作 S(t|X)/S(s|X)；因此本页明确关闭该分支。真正的条件生存另见对应页面。复制图时应同时复制代码中的 AUC=NULL、IBS=NULL、实际 B/R 及终点/单位修正，避免把占位文字当成计算结果。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
+  },
+  {
+    "objectID": "regr/nomogram-guide.html#相关页面与源码",
+    "href": "regr/nomogram-guide.html#相关页面与源码",
+    "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
+    "section": "相关页面与源码",
+    "text": "相关页面与源码\n\n评价指标与验证人群\nMLR 校准与 DCA\nRegR 函数参考\nnomogram-cox.R\nnomogram-log.R\nmsr-riskRegression.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>16</span>  <span class='chapter-title'>列线图、ROC、校准与决策曲线：Cox 和 Logistic</span>"
+    ]
   }
 ]
