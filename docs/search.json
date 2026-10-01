@@ -4998,5 +4998,126 @@
       "RegR · 临床回归与可视化",
       "<span class='chapter-number'>14</span>  <span class='chapter-title'>同一暴露的效应比较：调整模型、结局与分层</span>"
     ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html",
+    "href": "regr/model-evaluation-guide.html",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "",
+    "text": "数据准备与复现\n模型区分度、概率误差和拟合优度不是同一个指标。下面将模型拟合、评价人群、时间网格和汇总方式明确分开，展示 RegR 两条评价路线，以及一个固定留出集的实际比较。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#数据准备与复现",
+    "href": "regr/model-evaluation-guide.html#数据准备与复现",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "",
+    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#共用计算与返回对象",
+    "href": "regr/model-evaluation-guide.html#共用计算与返回对象",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "共用计算与返回对象",
+    "text": "共用计算与返回对象\n所有 R=0 的 RegR 评价都在传入的同一数据上拟合和评价，属于表观性能。R=1 也走无重采样分支。最后的 score_test 则使用只在 train 拟合的 get_fit() 模型，由 riskRegression::Score 在 test 上计算；这一步没有调用会在 test 上重拟合的 get_score(test, …)。\nmodels &lt;- list(c(\"Age\", \"Sex\"), c(\"Age\", \"Tum\", \"Sex\", \"stage\"))\nscore_cox &lt;- run_quiet({get_score(d, vars = models,\n  timepoint = c(36, 60, 120), R = 0)})\nscore_log &lt;- run_quiet({get_score(d, vars = models, surv = \"DSS\", R = 0)})\nsingle_score &lt;- run_quiet({get_score2(d, vars = c(\"Age\", \"Tum\", \"Sex\", \"stage\"),\n  timepoint = c(36, 60, 120), R = 0, .addAIC = TRUE)})\nmsr &lt;- run_quiet({get_msr(d, vars = models, R = 0, .addAIC = TRUE)})\n\n# 候选变量预先指定；留出集未用于选择变量或调参。\nset.seed(20261001)\ntrain_id &lt;- sample.int(nrow(d), floor(0.7 * nrow(d)))\ntrain &lt;- d[train_id, ]\ntest &lt;- d[-train_id, ]\nfit_train &lt;- get_fit(train, co_var = c(\"Age\", \"Tum\", \"Sex\", \"stage\"))\nscore_test &lt;- riskRegression::Score(\n  object = list(Full = fit_train), formula = Surv(time, DSS) ~ 1,\n  data = test, metrics = c(\"AUC\", \"Brier\"), times = c(36, 60, 120),\n  plots = \"ROC\", null.model = FALSE, contrasts = FALSE, split.method = \"none\")",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#函数与估计对象对应",
+    "href": "regr/model-evaluation-guide.html#函数与估计对象对应",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "函数与估计对象对应",
+    "text": "函数与估计对象对应\n\n\n\n\n\n\n\n\n接口\n主要行为\n输出\n\n\n\n\nget_fit\n给定变量集合拟合一个模型；time=NULL 是 Logistic\nCox / crr / FGR / glm 对象\n\n\nget_msr\nmlr3 路线的每个模型 C-index/Brier，可加 AIC/PVE\n汇总数据框\n\n\nget_score\nriskRegression 路线的时点 AUC/Brier\nScore 对象\n\n\nget_score_summary\n从 Score 跨时间网格汇总\n格式化数据框\n\n\nplt_score\nScore 的时间曲线或 Logistic ROC\npatchwork / ggplot\n\n\nget_score2\n每个所选变量一个模型，计算、汇总和图打包\nobj、AUC.BS.AIC、plt.AUC/BS/combined/ROC\n\n\n\nget_score 支持变量集合 list；get_score2 的 vars 是选列向量，本例分别拟合 Age、Tum、Sex、stage 四个单变量模型，不能把它的输出误认成四变量联合模型。get_msr 的逻辑 surv 值均进入生存路径，使用固定 time/DSS；get_score 的 FALSE 才是 event 的 Fine–Gray 路线。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#生存时间网格auc-与-brier",
+    "href": "regr/model-evaluation-guide.html#生存时间网格auc-与-brier",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "生存时间网格：AUC 与 Brier",
+    "text": "生存时间网格：AUC 与 Brier\n时点 AUC 衡量该时点的风险排序；Brier 是概率预测平方误差，并处理删失。plt_score() 生存图上使用 C-index 字样，但底层 AUC 列是 riskRegression 的时点 AUC，不能解释成 Harrell C。timepoint 变化会改变评价问题，也会改变跨时点平均值。\n\n表观时间曲线AUC 原始汇总Brier 原始汇总\n\n\n两个预先指定变量集合在完整演示队列上的时点 AUC/Brier。\nplt_score(score_cox)\n\n\n\n两个预先指定变量集合在完整演示队列上的时点 AUC/Brier。\n\n\n\n\n直接读 AUC$score，保留时点与该时点的不确定性列。\nas.data.frame(score_cox[[\"AUC\"]][[\"score\"]])\n\n\n\n\n\n\nmodel\n\n\ntimes\n\n\nAUC\n\n\nse\n\n\nlower\n\n\nupper\n\n\n\n\n\n\nAge_Sex\n\n\n36\n\n\n0.5954097\n\n\n0.05041925\n\n\n0.4965898\n\n\n0.6942296\n\n\n\n\nAge_Sex\n\n\n60\n\n\n0.6530904\n\n\n0.04691244\n\n\n0.5611437\n\n\n0.7450371\n\n\n\n\nAge_Sex\n\n\n120\n\n\n0.6683052\n\n\n0.03745723\n\n\n0.5948904\n\n\n0.7417201\n\n\n\n\nAge_Tum_Sex_stage\n\n\n36\n\n\n0.7278116\n\n\n0.04482300\n\n\n0.6399602\n\n\n0.8156631\n\n\n\n\nAge_Tum_Sex_stage\n\n\n60\n\n\n0.7620665\n\n\n0.03467943\n\n\n0.6940961\n\n\n0.8300369\n\n\n\n\nAge_Tum_Sex_stage\n\n\n120\n\n\n0.7899293\n\n\n0.02944627\n\n\n0.7322156\n\n\n0.8476429\n\n\n\n\n\n\n\n\n直接读 Brier$score；较小通常表示该评价人群上的概率误差较小。\nas.data.frame(score_cox[[\"Brier\"]][[\"score\"]])\n\n\n\n\n\n\nmodel\n\n\ntimes\n\n\nBrier\n\n\nse\n\n\nlower\n\n\nupper\n\n\n\n\n\n\nAge_Sex\n\n\n36\n\n\n0.04272709\n\n\n0.007004581\n\n\n0.02899836\n\n\n0.05645581\n\n\n\n\nAge_Sex\n\n\n60\n\n\n0.06054244\n\n\n0.008070902\n\n\n0.04472377\n\n\n0.07636112\n\n\n\n\nAge_Sex\n\n\n120\n\n\n0.11416822\n\n\n0.010891294\n\n\n0.09282168\n\n\n0.13551477\n\n\n\n\nAge_Tum_Sex_stage\n\n\n36\n\n\n0.04081838\n\n\n0.006511978\n\n\n0.02805514\n\n\n0.05358163\n\n\n\n\nAge_Tum_Sex_stage\n\n\n60\n\n\n0.05710074\n\n\n0.007413900\n\n\n0.04256976\n\n\n0.07163171\n\n\n\n\nAge_Tum_Sex_stage\n\n\n120\n\n\n0.10237814\n\n\n0.010152116\n\n\n0.08248036\n\n\n0.12227592",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#get_score_summary-的平均值边界",
+    "href": "regr/model-evaluation-guide.html#get_score_summary-的平均值边界",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "get_score_summary 的平均值边界",
+    "text": "get_score_summary 的平均值边界\n当前实现把选定网格上的 AUC/Brier 做等权平均，用跨时点 SD/sqrt(时点数) 构造正态区间。时点并非独立患者，且没有处理它们的相关性；此区间不能当作外部验证或标准的综合 AUC/IBS 置信区间。表中 C.index 名称沿用接口，实际含义需按来源说明。\n\n网格平均摘要mlr3 路线\n\n\n36/60/120 月等权平均，展示当前函数的实际返回。\nget_score_summary(score_cox)\n\n\n\n\n\n\nmodel\n\n\nC.index\n\n\nBrier.score\n\n\n\n\n\n\nAge_Sex\n\n\n0.639 (0.595, 0.682)\n\n\n0.0725 (0.0304, 0.1146)\n\n\n\n\nAge_Tum_Sex_stage\n\n\n0.760 (0.725, 0.795)\n\n\n0.0668 (0.0307, 0.1029)\n\n\n\n\n\n\n\n\nget_msr 的 C-index、Brier 类指标及 AIC；不能与前表的网格平均不加区分地互换。\nmsr\n\n\n\n\n\n\nvars\n\n\nsurv.cindex\n\n\nsurv.graf\n\n\nAIC\n\n\n\n\n\n\nAge_Sex\n\n\n0.636\n\n\n0.102\n\n\n1050\n\n\n\n\nAge_Tum_Sex_stage\n\n\n0.764\n\n\n0.088\n\n\n989",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#单变量比较的-get_score2-打包结果",
+    "href": "regr/model-evaluation-guide.html#单变量比较的-get_score2-打包结果",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "单变量比较的 get_score2 打包结果",
+    "text": "单变量比较的 get_score2 打包结果\n可直接使用保留的 obj 再分析，或取预制图与 AUC.BS.AIC 表。AIC 评价同一结局/同一人群下的相对拟合与复杂度，不是概率校准指标；本例未以 AIC 最优作为独立验证。\n\n预制两面板图打包汇总表\n\n\n四个单变量模型的时点 AUC 与 Brier。\nsingle_score[[\"plt.combined\"]]\n\n\n\n四个单变量模型的时点 AUC 与 Brier。\n\n\n\n\n包含当前配置下的 AUC/Brier 汇总及 AIC。\nsingle_score[[\"AUC.BS.AIC\"]]\n\n\n\n\n\n\nmodel\n\n\nC.index\n\n\nBrier.score\n\n\nAIC\n\n\n\n\n\n\nAge\n\n\n0.632 (0.603, 0.661)\n\n\n0.0735 (0.0296, 0.1174)\n\n\n1063\n\n\n\n\nTum\n\n\n0.719 (0.708, 0.731)\n\n\n0.0702 (0.0290, 0.1114)\n\n\n1012\n\n\n\n\nSex\n\n\n0.570 (0.530, 0.610)\n\n\n0.0741 (0.0301, 0.1181)\n\n\n1056\n\n\n\n\nstage\n\n\n0.693 (0.671, 0.716)\n\n\n0.0691 (0.0314, 0.1067)\n\n\n1006",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#二分类-logistic-roc",
+    "href": "regr/model-evaluation-guide.html#二分类-logistic-roc",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "二分类 Logistic ROC",
+    "text": "二分类 Logistic ROC\n二分类评价只使用 DSS 的记录状态，不处理随访时间。ROC/AUC 衡量排序，不能单独证明概率校准，也不能自动回答 60 月 DSS 风险。\n\n表观 ROC二分类指标表\n\n\n训练内 Logistic ROC；两个联合变量集合的比较。\nplt_score(score_log)\n\n\n\n训练内 Logistic ROC；两个联合变量集合的比较。\n\n\n\n\nLogistic 分支使用 Score 对应指标的区间，没有跨时间平均。\nget_score_summary(score_log)\n\n\n\n\n\n\nmodel\n\n\nC.index\n\n\nBrier.score\n\n\n\n\n\n\nAge_Sex\n\n\n0.618 (0.555, 0.682)\n\n\n0.095 (0.079, 0.111)\n\n\n\n\nAge_Tum_Sex_stage\n\n\n0.779 (0.729, 0.828)\n\n\n0.085 (0.071, 0.100)",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#固定留出集评价",
+    "href": "regr/model-evaluation-guide.html#固定留出集评价",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "固定留出集评价",
+    "text": "固定留出集评价\n560 人用于拟合，240 人用于评价。这个随机留出划分只是演示，少量事件会造成不稳定，不能替代充分的内部重采样或真正外部队列。所有训练步骤应只在训练数据内完成；若再按测试表现选择模型，测试集会失去独立评价作用。\n\n留出集曲线留出集 AUC 表\n\n\ntrain 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。\nplt_score(score_test)\n\n\n\ntrain 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。\n\n\n\n\n保留测试人群中各时点 AUC 和区间，便于与表观结果区分。\nas.data.frame(score_test[[\"AUC\"]][[\"score\"]])\n\n\n\n\n\n\nmodel\n\n\ntimes\n\n\nAUC\n\n\nse\n\n\nlower\n\n\nupper\n\n\n\n\n\n\nFull\n\n\n36\n\n\n0.7485965\n\n\n0.08043781\n\n\n0.5909413\n\n\n0.9062518\n\n\n\n\nFull\n\n\n60\n\n\n0.7180315\n\n\n0.07037987\n\n\n0.5800895\n\n\n0.8559735\n\n\n\n\nFull\n\n\n120\n\n\n0.7659545\n\n\n0.06361266\n\n\n0.6412760\n\n\n0.8906330",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#使用边界保存与复现记录",
+    "href": "regr/model-evaluation-guide.html#使用边界保存与复现记录",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "使用边界、保存与复现记录",
+    "text": "使用边界、保存与复现记录\nR&gt;=2 时 get_score/get_score2 使用 bootcv，而 get_msr 使用它自身的 bootstrap 路线；两者不是相同的验证协议。重采样次数、失败拟合、删失处理和预处理位置应明确报告。AUC 高不代表校准良好，Brier 受事件率影响，AIC/PVE 不能替代验证性能。评价多模型时应固定评价队列、终点和时点；本页未计算决策曲线，也未得出临床获益结论。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#相关页面与源码",
+    "href": "regr/model-evaluation-guide.html#相关页面与源码",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "相关页面与源码",
+    "text": "相关页面与源码\n\nMLR 模型评价\nMLR 校准与决策曲线\n单多因素分析\nRegR 函数参考\nmsr-riskRegression.R\nmsr-get.R\nutils-export.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
   }
 ]
