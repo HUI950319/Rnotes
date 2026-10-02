@@ -1,0 +1,233 @@
+---
+title: "iCF 亚组树：计算参数与五种叶子视图"
+description: "get_hte_icf 的发现与估计设置；逐图对照 effect、dr、box、bar、km，并展示重要参数、返回结构和 PDF 保存。"
+date: 2026-10-02
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-icf-gallery
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+`get_hte_icf()` 在发现集上筛变量、投票与选择规则，再在估计集上计算叶子效应。
+`plt_hte_icf()` 把同一棵规则树画成五种叶子视图。本页沿用 [MLR SHAP 页](../mlr/shap-guide.qmd)
+的参数标签页：先计算完整对象，再切换显示，点击图像可放大。
+
+## 共用数据与最小计算路径 {#sec-icf-gallery-data}
+
+连续结局的真实效应是 `-1 + 4*X1`。`X2` 同时影响治疗与结局，`X3` 是噪声变量。
+模拟真值只用于核对，不能作为真实研究中已知的个体治疗效应。
+
+```{r}
+#| label: icf-gallery-data
+set.seed(20261002)
+n <- 1800
+d <- data.frame(X1 = rbinom(n, 1, 0.5), X2 = rnorm(n), X3 = rnorm(n))
+d$z <- rbinom(n, 1, plogis(0.4 * d$X1 - 0.3 * d$X2))
+d$y <- d$X2 + d$z * (-1 + 4 * d$X1) + rnorm(n)
+fit_args <- list(cat_var = "z", adj_var = c("X1", "X2", "X3"),
+                 candidate_var = "X1", depth = 1, seed = 123,
+                 rule_args = list(n_forest = 5, num_trees = 200, n_folds = 3, screen = FALSE),
+                 grf_args = list(num.trees = 500, num.threads = 2))
+icf <- do.call(get_hte_icf, c(list(data = d, surv = "y"), fit_args))
+icf$rules
+icf$cv
+icf$vote
+stopifnot(nrow(icf$rules) > 1L)
+```
+
+这里预先限定 `candidate_var="X1"`，便于稳定展示两叶树，**不是未知规则发现能力的评估**。
+`adj_var` 仍保留混杂调整变量。完整算法与模拟见 [配套 iCF 手册](https://hui950319.github.io/causalR/notes/causalR/05-hte-icf.html)。
+
+## get_hte_icf：重要计算参数 {#sec-icf-gallery-args}
+
+| 参数 | 默认 | 作用与条件 |
+|---|---|---|
+| `cat_var`、`adj_var` | 必填 | 二分类治疗与完整调整集合；筛掉修饰变量不等于可以删掉混杂变量 |
+| `candidate_var` | `NULL` | 允许切分的原变量；默认所有调整变量 |
+| `surv`、`time` | `TRUE`、`120` | `TRUE` 读取 `time/DSS`；列名指定连续或二分类结局；时间单位与数据一致 |
+| `depth` | `1:3` | 候选正整数深度；默认还让深度 0 参加 CV，表示不划亚组 |
+| `style` | `"causalR"` | `"icf"` 改变一组算法默认值，不只是图形风格 |
+| `factor_encoding` | `"integer"` | `"onehot"` 可让分类水平单独参与切分 |
+| `split_frac` | `0.5` | 按治疗组划分发现与估计样本；`1` 复用患者，区间不再诚实 |
+| `seed` | `123` | 控制划分、森林、投票及 CV 的随机过程 |
+| `grf_args` | `list()` | 每次效应森林的设置；投票森林树数由 `rule_args$num_trees` 控制 |
+
+### rule_args：同一个 list 的局部覆盖
+
+以下默认值对应 `style="causalR"`。`style="icf"` 的差异应查帮助页，不能只切换名称后假定其他设置相同。
+
+| 子项 | 默认 | 对结果的影响 |
+|---|---|---|
+| `n_forest` | `20` | 每次发现运行的投票森林数，每森林一票 |
+| `num_trees` | `200` | 每个投票森林的树数，与 `grf_args$num.trees` 不同 |
+| `n_folds` | `5` | 发现集内部的交叉验证折数，不是最终估计集 |
+| `min_leaf` | `0.05` | 判定树时的最小亚组占比，每组还需每臂至少两人 |
+| `screen` | `TRUE` | 是否先按森林重要性筛选投票森林的变量；`FALSE` 使用全部调整变量 |
+| `gate` | `0.1` | 发现集 differential 校准检验 p 超过门槛时返回不分亚组；`1` 只交给 CV |
+| `loss`、`eval` | `"aipw"`、`"held_out"` | 候选树损失与评估患者集合 |
+| `penalty`、`prune` | `qchisq(.95,1)`、`TRUE` | 切分所需的损失改善与剪枝 |
+| `vote`、`grow` | `"partition"`、`"truncate"` | 按分区投票；用一组森林截取不同深度 |
+| `cv_loss`、`cv_zero`、`cv_rules` | `"aipw"`、`TRUE`、`"full"` | CV 损失、深度 0 是否竞争、候选规则来源 |
+| `estimate` | `"aipw"` | 估计集上的双稳健效应；`"iptw"` 为另一条权重回归路径 |
+
+```{r}
+#| eval: false
+# 只修改这一项，其他子项保持默认；不是整份默认 list 的替换。
+get_hte_icf(d, "z", c("X1", "X2", "X3"), surv = "y",
+            rule_args = list(n_forest = 10))
+```
+
+## 返回对象与绘图参数 {#sec-icf-gallery-value}
+
+| 字段 | 内容 |
+|---|---|
+| `rules` | 规则、发现/估计人数、治疗人数、效应、区间和交互检验 |
+| `cv` | 每个深度的交叉验证损失、标准误及选中状态 |
+| `vote` | 各深度胜出分区的得票比例；描述投票一致性 |
+| `importance` | 发现集变量重要性、单变量检验及筛选标记 |
+| `est` | 估计集的 `hte_res`，其中 `.rule` 为亚组标签 |
+| `tree` | 带切点、叶子信息与估计患者的 party 树 |
+| `attr(x,"analysis")` | 发现行号、校准 p、闸门状态与分析设置 |
+
+`plt_hte_icf(x, type=c("effect","dr","box","bar","km"), save=list())`
+只有三个公开参数。`x` 必须是至少有一次切分的 `hte_icf`；本页显示的所有叶子图来自**估计集**。
+
+| `type` | 可用结局 | 叶子下方的图 | 调整含义 |
+|---|---|---|---|
+| `"effect"`，默认 | 全部 | 效应与 95% 区间 | 使用 `rules` 中的估计 |
+| `"dr"` | 全部 | AIPW 得分箱图和均值 | 得分调整混杂，但不是可观测个体真效应 |
+| `"box"` | 连续 | 两臂原始结局箱图 | 未调整 |
+| `"bar"` | 连续或二分类 | 两臂均值或事件比例及区间 | 未调整 |
+| `"km"` | 生存 | 两臂 KM 曲线，虚线标记 `time` | 未调整；不是加权曲线或 CIF |
+
+## 连续结局：同一棵树切换四种图 {#sec-icf-gallery-continuous}
+
+::: {.panel-tabset}
+
+### effect：叶子效应 {.unnumbered}
+
+```{r}
+#| label: fig-icf-effect
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "effect：上方和下方均展示规则内的效应估计与区间。正负方向沿用结局的差值尺度。"
+plt_hte_icf(icf, type = "effect")
+```
+
+### dr：双稳健得分 {.unnumbered}
+
+```{r}
+#| label: fig-icf-dr
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "dr：叶子内 AIPW 得分的分布及均值。得分噪声通常大于森林 CATE，不能当成患者真实效应。"
+plt_hte_icf(icf, type = "dr")
+```
+
+### box：原始结局 {.unnumbered}
+
+```{r}
+#| label: fig-icf-box
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "box：两臂未经调整的连续结局。其差异可以与叶子标签的调整后效应不同。"
+plt_hte_icf(icf, type = "box")
+```
+
+### bar：两臂均值 {.unnumbered}
+
+```{r}
+#| label: fig-icf-bar
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "bar：两臂未经调整的结局均值及区间。图中两根柱子的差不是另一份调整后效应估计。"
+plt_hte_icf(icf, type = "bar")
+```
+
+:::
+
+## 生存结局：time 与 km 的读法 {#sec-icf-gallery-survival}
+
+```{r}
+#| label: icf-survival-fit
+ds <- d
+event <- rexp(n, rate = 0.03 * exp(0.3 * ds$X2 + ds$z * (0.8 - 2 * ds$X1)))
+censor <- rexp(n, rate = 0.009)
+ds$time <- pmin(event, censor)
+ds$DSS <- as.integer(event <= censor)
+icf_surv <- do.call(get_hte_icf, c(list(data = ds, surv = TRUE, time = 24), fit_args))
+icf_surv$rules
+stopifnot(nrow(icf_surv$rules) > 1L)
+```
+
+::: {.panel-tabset}
+
+### 生存概率差 {.unnumbered}
+
+```{r}
+#| label: fig-icf-survival-effect
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "24 个月生存概率差：正值代表治疗改善该时间点的生存。它不是 HR。"
+plt_hte_icf(icf_surv, type = "effect")
+```
+
+### 原始 KM 曲线 {.unnumbered}
+
+```{r}
+#| label: fig-icf-km
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "叶子内两臂未经调整的 KM 曲线，24 个月处有虚线。曲线分离不能代替叶子效应的因果估计。"
+plt_hte_icf(icf_surv, type = "km")
+```
+
+:::
+
+本例 `DSS` 表示模拟事件。真实疾病特异性结局中，其他死因编码为删失时，KM 不能按累积发生率解释。
+没有切分的结果仍是有效的“未发现亚组”结论，应先读 `cv`、闸门和 `rules`，再决定是否画树。
+
+## 复用效应对象与保存 {#sec-icf-gallery-save}
+
+```{r}
+#| label: fig-icf-forest
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "相同规则的森林图，使用 icf$est 的双稳健效应。它与规则树是同一份估计的不同展示。"
+plt_hte_sub(icf$est, sub_var = ".rule", fixed_size = FALSE,
+            show_pinter = TRUE, label_column_list = c(.rule = "Discovered rule"))
+```
+
+```{r}
+#| eval: false
+plt_hte_icf(icf, type = "effect",
+            save = list(filename = "icf_effect.pdf", width = 10, height = 5))
+```
+
+`save=NULL/list()` 不写文件。只给文件名时，宽高取图的 `attr(p,"plot_size")`，单位为英寸。
+需要 PDF 时由 `RegR::save_plt()` 保存；`save` 中不应手动提供 `plot`。
+叶子标签上的效应取自 `rules`，而 `dr` 面板始终展示 AIPW 得分；改变估计方法后应分别解释二者。
+
+```{r}
+#| label: icf-gallery-save-check
+#| include: false
+pdf_path <- tempfile(fileext = ".pdf")
+invisible(plt_hte_icf(icf, save = list(filename = pdf_path)))
+stopifnot(file.exists(pdf_path), file.info(pdf_path)$size > 0)
+unlink(pdf_path)
+```
+
+```{r}
+#| label: icf-gallery-session
+args(get_hte_icf)
+args(plt_hte_icf)
+sessionInfo()
+```
