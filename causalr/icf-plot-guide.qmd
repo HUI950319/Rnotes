@@ -33,14 +33,15 @@ d <- data.frame(X1 = rbinom(n, 1, 0.5), X2 = rnorm(n), X3 = rnorm(n))
 d$z <- rbinom(n, 1, plogis(0.4 * d$X1 - 0.3 * d$X2))
 d$y <- d$X2 + d$z * (-1 + 4 * d$X1) + rnorm(n)
 fit_args <- list(cat_var = "z", adj_var = c("X1", "X2", "X3"),
-                 candidate_var = "X1", depth = 1, seed = 123,
+                 candidate_var = "X1", depth = 1:2, split_frac = 0.5, seed = 123,
                  rule_args = list(n_forest = 5, num_trees = 200, n_folds = 3, screen = FALSE),
                  grf_args = list(num.trees = 500, num.threads = 2))
 icf <- do.call(get_hte_icf, c(list(data = d, surv = "y"), fit_args))
 icf$rules
 icf$cv
 icf$vote
-stopifnot(nrow(icf$rules) > 1L)
+stopifnot(nrow(icf$rules) > 1L, attr(icf, "analysis")$split_frac == 0.5,
+          all(is.finite(icf$cv$cv_loss)))
 ```
 
 这里预先限定 `candidate_var="X1"`，便于稳定展示两叶树，**不是未知规则发现能力的评估**。
@@ -53,12 +54,17 @@ stopifnot(nrow(icf$rules) > 1L)
 | `cat_var`、`adj_var` | 必填 | 二分类治疗与完整调整集合；筛掉修饰变量不等于可以删掉混杂变量 |
 | `candidate_var` | `NULL` | 允许切分的原变量；默认所有调整变量 |
 | `surv`、`time` | `TRUE`、`120` | `TRUE` 读取 `time/DSS`；列名指定连续或二分类结局；时间单位与数据一致 |
-| `depth` | `1:3` | 候选正整数深度；默认还让深度 0 参加 CV，表示不划亚组 |
+| `depth` | `1:3` | 多个深度通过 CV 选择，默认让 0 参加；单个深度直接固定，跳过 CV 和闸门 |
 | `style` | `"causalR"` | `"icf"` 改变一组算法默认值，不只是图形风格 |
 | `factor_encoding` | `"integer"` | `"onehot"` 可让分类水平单独参与切分 |
-| `split_frac` | `0.5` | 按治疗组划分发现与估计样本；`1` 复用患者，区间不再诚实 |
+| `split_frac` | 通常 `0.5` | 单个 depth 或 style="icf" 时，若省略则改为 1；本页显式 0.5，独立估计 |
 | `seed` | `123` | 控制划分、森林、投票及 CV 的随机过程 |
 | `grf_args` | `list()` | 每次效应森林的设置；投票森林树数由 `rule_args$num_trees` 控制 |
+
+**条件默认不能只看 formals。** 单个 `depth` 时即使 `style="causalR"`，省略 `split_frac`
+也会发现与估计复用全部患者，`cv_loss/std.error` 为 NA；`rule_args$n_folds/gate` 不会运行。
+本页用 `depth=1:2, split_frac=0.5`，实际进行 CV，并断言 CV 损失有限。
+只允许 X1 切分时，深度 2 无法产生更深的新分区，不等于自动发现了多个修饰变量。
 
 ### rule_args：同一个 list 的局部覆盖
 
@@ -165,7 +171,8 @@ ds$time <- pmin(event, censor)
 ds$DSS <- as.integer(event <= censor)
 icf_surv <- do.call(get_hte_icf, c(list(data = ds, surv = TRUE, time = 24), fit_args))
 icf_surv$rules
-stopifnot(nrow(icf_surv$rules) > 1L)
+stopifnot(nrow(icf_surv$rules) > 1L, attr(icf_surv, "analysis")$split_frac == 0.5,
+          all(is.finite(icf_surv$cv$cv_loss)))
 ```
 
 ::: {.panel-tabset}
