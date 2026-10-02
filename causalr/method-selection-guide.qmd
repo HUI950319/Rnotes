@@ -1,0 +1,236 @@
+---
+title: "HTE 方法选择：变量筛选、线性投影与亚组规则"
+description: "在同一模拟数据上对照 select、unihtee、iCF 和亚组树，展示重要计算参数、输出差异与验证边界。"
+date: 2026-10-02
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-methods
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+四条路线回答不同的问题。先选需要的输出，再选方法；不能把不同单位的得分放在一起选“赢家”。
+图形沿用 [SHAP 参数页](../mlr/shap-guide.qmd) 的标签页与点击放大方式。
+
+## 按问题选择入口 {#sec-methods-map}
+
+| 问题 | 入口 | 输出 | 解释边界 |
+|---|---|---|---|
+| 哪些变量进入获益评分？ | `get_hte_select()` | 固定排序、累积模型指标、所选变量 | `selected` 不是显著修饰变量清单 |
+| 哪个变量有线性效应修饰信号？ | `get_hte_unihtee()` | TEM-VIP、区间、BH p 值 | 单变量边际投影，可能遗漏 U 形 |
+| 多次森林倾向哪组简单规则？ | `get_hte_icf()` | 投票、CV、胜出规则与叶子效应 | 投票一致不等于因果有效 |
+| 需要哪种分裂统计量或模型？ | `get_hte_tree()` | 不同引擎的规则树和叶子效应 | 发现统计量与估计效应可能不同尺度 |
+
+`get_hte()` 则输出森林 CATE 和预设亚组效应；它不要求必须生成离散规则。
+先确定治疗对照、结局方向、调整集合、目标人群与估计尺度，再考虑筛选。
+
+## 同一份数据，既有线性也有 U 形修饰 {#sec-methods-data}
+
+```{r}
+#| label: methods-data
+set.seed(20261002)
+n <- 1800
+d <- data.frame(b = rbinom(n, 1, 0.5), x = rnorm(n), u = rnorm(n), noise = rnorm(n))
+d$ps <- plogis(0.3 * d$x - 0.2 * d$b)
+d$z <- rbinom(n, 1, d$ps)
+d$true_tau <- 1 + 4 * d$b + 0.5 * d$x + 1.2 * (d$u^2 - 1)
+d$y <- d$x + d$z * d$true_tau + rnorm(n)
+vars <- c("b", "x", "u", "noise")
+forest_args <- list(num.trees = 500, num.threads = 2, seed = 123)
+```
+
+`ps` 和 `true_tau` 来自模拟机制。实际研究没有已知 PS 或个体真效应。
+本页各路线独立运行，患者划分及 nuisance 拟合不同；这是接口演示，不是方法性能竞赛。
+
+## select：排序与选多少变量是两个参数 {#sec-methods-select}
+
+| 参数 | 默认 | 用途 |
+|---|---|---|
+| `candidate_var` | 必填 | 数值或二分类候选；并列排序保留输入顺序 |
+| `ps_var` / `match_var` | 均 `NULL` | 必须二选一：已计算 PS 列，或每对恰有一治一控的 1:1 配对列 |
+| `imp_metric` | `"score_sd"` | 决定单变量的固定顺序 |
+| `sel_metric` | `NULL` | 决定累积模型停在哪一步；默认不自动选择 |
+| `n_select` | `NULL` | 手动指定个数，覆盖自动所选大小；`sel_metric` 的最优步仍记录 |
+| `fit_args$nfolds` | `10L` | LASSO 内部 CV；至少 3 折，配对路径以配对数为上限 |
+| `fit_args$standardize` | `TRUE` | 后端惩罚拟合标准化，不改变原列 |
+| `eval_args$train_frac` | `0.5` | 验证指标启用后，训练样本占比 |
+| `eval_args$adjust_var` | `NULL` | 评估森林的调整列，默认候选集合；还需包含实际混杂变量 |
+| `eval_args$num.trees` | `2000L` | 评估森林树数；本页减为 500 便于演示 |
+| `eval_args$target` / `$time` | `"RMST"` / `NULL` | 生存评估的目标与截点；连续结局不用 |
+| `seed` | `123L` | 控制 CV、验证切分和拟合 |
+
+可选指标包括 `score_sd`、`score_iqr`、`score_mean_abs`、`score_median`、`score_mean`、
+`autoc`、`qini`、`r_loss`、`dr_loss`。损失越小越好，其他指标越大越好。
+得分的幅度或均值不是预测准确度；四个验证指标会启用 `eval_args`。
+R/DR 损失只支持连续结局。小正 AUTOC 通过零基线也不是显著性检验。
+
+```{r}
+#| label: methods-select
+sel_manual <- get_hte_select(d, "z", vars, surv = "y", ps_var = "ps",
+                             n_select = 2, fit_args = list(nfolds = 3L), seed = 123)
+sel_eval <- get_hte_select(d, "z", vars, surv = "y", ps_var = "ps",
+                           imp_metric = "score_iqr", sel_metric = "autoc",
+                           fit_args = list(nfolds = 3L),
+                           eval_args = list(adjust_var = vars, num.trees = 500L), seed = 123)
+sel_manual$ranking
+sel_manual$selected
+sel_eval$forward
+sel_eval$selected
+```
+
+::: {.panel-tabset}
+
+### 手动选 2 个 {.unnumbered}
+
+```{r}
+#| label: fig-methods-select-manual
+#| fig-width: 9
+#| fig-height: 4.5
+#| fig-cap: "单变量得分 SD 固定顺序；上轴是累积模型的有符号均值。均值最大处不是验证最优处。"
+sel_manual$plots$combined
+```
+
+### 用验证 AUTOC 选大小 {.unnumbered}
+
+```{r}
+#| label: fig-methods-select-eval
+#| fig-width: 9
+#| fig-height: 4.5
+#| fig-cap: "IQR 决定顺序，AUTOC 决定大小。验证半参与了调参，报告最终性能仍需要独立测试。"
+sel_eval$plots$combined
+```
+
+:::
+
+前向过程只拟合固定排序的每个前缀，不搜索全部变量组合。此对象没有可直接交给
+`plt_hte_sub()` 的森林、患者 CATE 或最终评分模型；返回结构应按 `ranking/forward/selected/plots/analysis` 读取。
+
+## unihtee：有区间的边际线性投影 {#sec-methods-uni}
+
+| 参数 | 默认 | 用途与条件 |
+|---|---|---|
+| `candidate_var` | `NULL` | 默认所有调整列；候选只支持连续或二分类，多水平分类需另选方法 |
+| `adj_var` | `NULL` | nuisance 调整实际使用调整列与候选列的并集 |
+| `method` | `"grf"` | OOB 森林得分；`"glm"` 为交叉拟合 PS 和分臂结局 GLM，仅非生存 |
+| `measure` | `"diff"` | 可多选 `diff/ratio/OR`；ratio/OR 的 VIP 是对数尺度斜率再指数化 |
+| `glm_args` | `list()` | `folds=5`、`ps_trim=0.01`；PS 截断是稳定性处理，不能修复重叠不足 |
+| `conf_level` / `seed` | `0.95` / `123` | Wald 区间与随机过程 |
+| 绘图 `type` | `"bar"` | `bar/volcano/dep` |
+| 绘图 `x_var/measure` | `NULL/NULL` | 指定变量与一份效应尺度 |
+| 绘图 `sig_level` | `0.05` | 按 `p.adj` 着色，不能改成未说明的原始 p 值 |
+| 绘图 `dr_args` | `list(spline_df=2,bins=0)` | 依赖图的样条自由度与分位数组均值得分；只影响 `dep` |
+| 绘图 `axis_arg` | `list(share_y="all")` | `"none"` 各面板单独范围，比较时注意坐标变化 |
+| 绘图 `var_names/title/save` | 名称映射 / `NULL` / `list()` | 显示名称、标题、PDF 保存 |
+
+```{r}
+#| label: methods-uni
+uni <- get_hte_unihtee(d, "z", candidate_var = vars, adj_var = vars, surv = "y",
+                       method = "grf", grf_args = forest_args)
+uni$vip
+uni_glm <- get_hte_unihtee(d, "z", candidate_var = vars, adj_var = vars, surv = "y",
+                           method = "glm", glm_args = list(folds = 3), seed = 123)
+uni_glm$vip
+```
+
+连续变量报告每 1 SD 的斜率；二分类报告第二水平减第一水平。
+相关变量可以拥有自己的边际信号，不能按 p 值把它解释成独立贡献。
+`u` 的真效应呈对称 U 形，其线性 VIP 接近零仍可能有强修饰。
+
+::: {.panel-tabset}
+
+### VIP 与区间 {.unnumbered}
+
+```{r}
+#| label: fig-methods-uni-bar
+#| fig-width: 7
+#| fig-height: 4.5
+#| fig-cap: "颜色按 BH 调整 p 值。变量的 SD 单位与二分类对比单位分别报告。"
+plt_hte_unihtee(uni, type = "bar", var_names = NULL)
+```
+
+### 直线、样条与分箱 {.unnumbered}
+
+```{r}
+#| label: fig-methods-uni-dep
+#| fig-width: 11
+#| fig-height: 4.5
+#| fig-cap: "直线对应表中的线性 VIP；样条和分箱显示线性投影可能遗漏的 U 形。"
+plt_hte_unihtee(uni, type = "dep", x_var = c("b", "x", "u"), var_names = NULL,
+                dr_args = list(spline_df = 3, bins = 6), axis_arg = list(share_y = "none"))
+```
+
+:::
+
+## iCF 与 tree：从连续异质性到规则 {#sec-methods-rules}
+
+| 参数 | iCF | tree |
+|---|---|---|
+| 切分变量 | `candidate_var` | `candidate_var` |
+| 深度 | `depth=1:3`，CV 可选 0 | `max_depth=3`，上限 |
+| 随机划分 | `split_frac=0.5`、`seed=123` | 同名参数与默认 |
+| 算法控制 | `rule_args` 投票、CV、筛选、损失 | `method` 与 `tree_args` 控制分裂统计/剪枝 |
+| 最小叶子 | `rule_args$min_leaf=0.05` | `min_leaf=0.05` |
+| 最终估计 | `rule_args$estimate="aipw"` | `estimator="aipw"` 或 `"tmle"` |
+| 重复评估 | 投票比例与 CV | `get_hte_tree_stability()`；见 [稳定性页](tree-stability-guide.qmd) |
+
+为了固定图例，iCF 预先只允许 `b` 切分；tree 允许 `b/x/u`。两者搜索空间不同，
+**不能用是否多长一片叶子判断谁更好**。调整集合仍使用全部 `vars`。
+
+```{r}
+#| label: methods-rules
+icf <- get_hte_icf(d, "z", adj_var = vars, candidate_var = "b", surv = "y", depth = 1,
+                   rule_args = list(n_forest = 5, num_trees = 200, n_folds = 3, screen = FALSE),
+                   grf_args = forest_args, seed = 123)
+tree <- get_hte_tree(d, "z", adj_var = vars, candidate_var = c("b", "x", "u"), surv = "y",
+                     method = "ctree_dr", max_depth = 2, min_leaf = 0.1,
+                     grf_args = forest_args, seed = 123)
+icf$rules
+tree$rules
+stopifnot(nrow(icf$rules) > 1, nrow(tree$rules) > 1)
+```
+
+::: {.panel-tabset}
+
+### iCF {.unnumbered}
+
+```{r}
+#| label: fig-methods-icf
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "发现集投票与 CV 选择规则，估计集提供叶子效应。规则限于预设 b。"
+plt_hte_icf(icf, type = "effect")
+```
+
+### 条件推断树 {.unnumbered}
+
+```{r}
+#| label: fig-methods-tree
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "ctree_dr 用 AIPW 得分发现分裂，叶子效应在另一半患者中估计。"
+plt_hte_tree(tree, type = "effect")
+```
+
+:::
+
+## 从探索到确认 {#sec-methods-validation}
+
+保存完整调整集合和候选集合；变量筛选不能代替混杂控制。先冻结模型、变量、规则和效应尺度，
+再在独立数据上验证。同一数据反复比较算法、深度、种子或亚组后选择结果，
+即使每次内部都诚实切分，也没有自动校正这层选择。
+
+全流程性能比较需要同一目标人群、相同评估数据、相同效应尺度、外层验证与重复模拟。
+本页展示的每个结果都有自己的解释单位，没有统一的“重要性”横轴。
+
+```{r}
+args(get_hte_select)
+args(get_hte_unihtee)
+sessionInfo()
+```
