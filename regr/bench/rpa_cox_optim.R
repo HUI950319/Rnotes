@@ -8,6 +8,8 @@
 #   第 3 段 before = 63541f6，after = c71fe16（B）
 #   第 5 段 before = c71fe16，after = c1f6435（A，CSC）；脚本即第 3 段只保留两个 CSC 场景、
 #           文件前缀改为 before3_ / after3_
+#   第 7 段（方案 C）只装一个版本：f30bc69 前后的 RegR（.get.obj 已改用 max_times /
+#           keep_times）。其中 regr_curve_AB 一格仍按旧接口传 direct_times，报错未计入。
 # 汇总结果写在 rpa_cox_optim.csv。
 
 
@@ -209,4 +211,52 @@ cells <- list(
 for (nm in names(cells)) {
   sink(nullfile()); t <- system.time(r <- tryCatch({ cells[[nm]](); "ok" }, error = function(e) conditionMessage(e)))[["elapsed"]]; sink()
   message(sprintf("n=30000 %-16s %7.2f s  %s", nm, t, r))
+}
+
+## ==== 第 7 段：方案 C，不求置信区间的调整曲线（c_eval.R，已含 A + B）
+
+# Strategy C (no CI band on direct curves) on top of A + B, Windows R, installed RegR HEAD
+suppressPackageStartupMessages({ library(RegR); library(survival); library(prodlim) }); pdf(NULL)
+base <- readRDS("base2.rds"); lv <- levels(base$group); ref <- rbind(lv[1], lv[-1])
+cat("RegR", as.character(packageVersion("RegR")), "| has direct_times:",
+    "direct_times" %in% names(formals(RegR:::.get.obj)), "\n", file = stderr())
+grid_of <- function(d, ev) { et <- sort(unique(d$time[ev == 1]))
+  sort(unique(c(0, et[unique(round(seq(1, length(et), length.out = 48)))], 120))) }
+tm <- function(expr) { invisible(gc(reset = TRUE)); sink(nullfile())
+  t <- system.time(v <- tryCatch(force(expr), error = function(e) e))[["elapsed"]]; sink()
+  list(t = t, mb = sum(gc()[, 6]), v = v) }
+out <- list(); add <- function(...) { out[[length(out) + 1]] <<- data.frame(...)
+  r <- out[[length(out)]]; message(sprintf("%-4s n=%6d %-22s %8.2f s %7.0f MB %s", r$model, r$n, r$cell, r$sec, r$peak_mb, r$note)) }
+set.seed(2026)
+for (n in c(4387, 30000, 100000, 200000)) {
+  d <- if (n == nrow(base)) base else base[sample.int(nrow(base), n, replace = TRUE), ]
+  g <- grid_of(d, d$DSS)
+  fit <- coxph(Surv(time, DSS) ~ group + Sex, data = d, x = TRUE)
+  as <- function(...) adjustedCurves::adjustedsurv(d, variable = "group", ev_time = "time", event = "DSS",
+                                                   method = "direct", outcome_model = fit, ...)
+  r1 <- tm(as(conf_int = TRUE,  times = g, allContrasts = ref))
+  add(model = "cox", n = n, cell = "curve_AB_CI", sec = r1$t, peak_mb = r1$mb, note = "")
+  r2 <- tm(as(conf_int = FALSE, times = g))
+  same <- max(abs(r1$v$adj$surv[order(r1$v$adj$group, r1$v$adj$time)] - r2$v$adj$surv[order(r2$v$adj$group, r2$v$adj$time)]))
+  add(model = "cox", n = n, cell = "curve_BC_noCI", sec = r2$t, peak_mb = r2$mb, note = sprintf("surv max|diff| vs CI = %.1e", same))
+  r3 <- tm(as(conf_int = FALSE, times = NULL))
+  add(model = "cox", n = n, cell = "curve_C_noCI_full", sec = r3$t, peak_mb = r3$mb, note = sprintf("%d times", length(unique(r3$v$adj$time))))
+  r4 <- tm(RegR:::.get.obj(d, "group", "Sex", method = "direct", times = NULL, allow_fallback = FALSE, direct_times = g))
+  add(model = "cox", n = n, cell = "regr_curve_AB", sec = r4$t, peak_mb = r4$mb, note = "RegR .get.obj incl. diagnostic plot")
+  r5 <- tm(RegR:::.get.UM.sur(d, "group", adj_var = "Sex", method = "direct", time = 120))
+  add(model = "cox", n = n, cell = "SP120_direct", sec = r5$t, peak_mb = r5$mb, note = "needs CI, C does not apply")
+  r6 <- tm(suppressWarnings(get_cat(d, cat_var = "group", adj_var = "Sex", surv = TRUE, timepoint = 120)))
+  add(model = "cox", n = n, cell = "get_cat_total_AB", sec = r6$t, peak_mb = r6$mb, note = if (inherits(r6$v, "error")) conditionMessage(r6$v) else "")
+  if (n %in% c(30000, 100000)) {
+    cd <- d[, c("time", "event", "group", "Sex")]
+    cfit <- riskRegression::CSC(Hist(time, event) ~ group + Sex, data = cd); cfit$call$data <- cd
+    gc_ <- grid_of(d, d$event)
+    ac <- function(...) adjustedCurves::adjustedcif(d, variable = "group", ev_time = "time", event = "event",
+                                                    cause = 1, method = "direct", outcome_model = cfit, ...)
+    c1 <- tm(ac(conf_int = TRUE,  times = gc_, allContrasts = ref))
+    add(model = "csc", n = n, cell = "curve_AB_CI", sec = c1$t, peak_mb = c1$mb, note = "")
+    c2 <- tm(ac(conf_int = FALSE, times = gc_))
+    add(model = "csc", n = n, cell = "curve_BC_noCI", sec = c2$t, peak_mb = c2$mb, note = "")
+  }
+  write.csv(do.call(rbind, out), "c_eval.csv", row.names = FALSE)
 }

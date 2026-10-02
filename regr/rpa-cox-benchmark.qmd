@@ -1,6 +1,6 @@
 ---
 title: "RPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率"
-subtitle: "get_rpa → get_cat 各步骤在 4387 到 100000 例下的耗时和内存，以及已并入 RegR 的两项优化"
+subtitle: "get_rpa → get_cat 各步骤在 4387 到 200000 例下的耗时和内存，两项已并入 RegR 的优化，以及不画置信带的评估"
 date: 2026-10-02
 ---
 
@@ -49,7 +49,8 @@ get_cat(dat, cat_var = "group", adj_var = adj_var, surv = TRUE,
 3. **耗时几乎都花在置信区间上。**同样的调整曲线不求置信区间（`conf_int = FALSE`）时，n = 50000 也只要 6.7 s。
 4. **根源是 `ate()` 默认计算所有组之间的两两对比。**11 个组共 55 对，每对都要在约 157 个事件时间上算影响函数；adjustedCurves 实际只用到各组自己的平均生存率。改成"参照组对其余各组"的 10 对后，n = 8000 时从 40.6 s 降到 7.7 s，11 个组在所有时间点上的生存率、标准误和置信区间与默认结果完全相同。
 5. **减少时间点也有效。**曲线改为每 6 个月取一个点，n = 8000 时从 35 s 降到 5.7 s，n = 30000 时从 145 s 降到 18 s；120 个月处的估计值和置信区间不变，但曲线变粗。
-6. **方案 A 和改良后的方案 B 已于 2026-10-02 并入 RegR。**B 改成了「最多 50 个时间点，按事件时间抽取」。11 组、n = 30000 的 `get_cat()` 从 171 s 降到 14 s；保留下来的每个时间点上，曲线、标准误和置信区间与原来完全相同，HR 和生存率表一字不差。A 同样用于竞争风险的 CSC 模型；FGR 不经过 `ate()`，A 对它不适用，B 也没有让它变快。见「已并入 RegR 的优化」。
+6. **方案 A 和改良后的方案 B 已于 2026-10-02 并入 RegR。**B 改成了「最多 50 个时间点，按事件时间抽取」。11 组、n = 30000 的 `get_cat()` 从 171 s 降到 14 s；保留下来的每个时间点上，曲线、标准误和置信区间与原来完全相同，HR 和生存率表一字不差。A 同样用于竞争风险的 CSC 模型；FGR 不经过 `ate()`，A 对它不适用，B 也没有让它变快。`get_facet()` 的调整曲线后来也加上了 B。见「已并入 RegR 的优化」。
+7. **再去掉曲线的置信带（方案 C），大样本时曲线这一步还能快 3.6–5 倍，但尚未并入 RegR。**在 A + B 的基础上，n = 100000 时调整曲线从 37 s 降到 7 s，n = 200000 时从 75 s 降到 21 s，点估计不变；代价是图上的调整曲线和差值曲线都没有置信带。整个 `get_cat()` 估计快 2–3 倍，因为 120 个月生存率表本身需要置信区间，C 管不到。见「方案 C：不画置信带（评估）」。
 
 ## 测试设置
 
@@ -171,20 +172,21 @@ knitr::kable(data.frame(
 
 ## 已并入 RegR 的优化（A + B）
 
-2026-10-02 起，下面两项已并入 RegR（版本号仍是 0.1.3，对应提交 `63541f6`、`c71fe16`、`c1f6435`）。本节的「改动前 / 改动后」都在同一台机器、同一份数据上，用 Windows R 先后装两个版本各跑一次 `get_cat(..., timepoint = 120)`，环境同「测试设置」。
+2026-10-02 起，下面两项已并入 RegR（版本号仍是 0.1.3，对应提交 `63541f6`、`c71fe16`、`c1f6435`，B 之后又在 `27980d2`、`f30bc69` 中调整，见下表）。本节的「改动前 / 改动后」都在同一台机器、同一份数据上，用 Windows R 先后装两个版本各跑一次 `get_cat(..., timepoint = 120)`，环境同「测试设置」。
 
 | 优化 | 改了什么 | 作用范围 | 对结果的影响 |
 |:--|:--|:--|:--|
 | A | `.get.obj()` 的 direct 分支给 `adjustedsurv()` / `adjustedcif()` 传 `allContrasts = rbind(参照组, 其余各组)` | Cox 调整生存曲线；竞争风险 `cif_args = list(model = "CSC")` 的调整 CIF；也包括走同一函数的 120 月生存率（CIF）表 | 无。每组的估计、标准误、CI 与默认的两两对比完全相同 |
-| B | `get_cat()` 的调整曲线最多保留 50 个时间点：从全部事件时间中均匀抽 48 个，再加上 0 和 `timepoint` | `cat$obj$direct`，Cox 与竞争风险（CSC、FGR）都适用，因此覆盖 `get_rpa()`、`plt_cat1/2/3()`、`plt_rpa_km()` | 保留的时间点上数值完全相同；点与点之间的连线最多偏离约 1 个百分点 |
+| B | `.get.obj()` 的可选参数 `max_times` / `keep_times`（默认不限点数）。打开后，调整曲线最多保留 `max_times` 个时间点：按 DSS（竞争风险为结局 1）的事件时间均匀抽点，再加上 0、`keep_times` 和任一结局的最后一个事件时间。`get_cat()` 取 50 个点并保留 `timepoint`；`get_facet()` 取 50 个点并保留 `timepoint` 和 `max_t` | `get_cat()` 与 `get_facet()` 的调整曲线，Cox 与竞争风险（CSC、FGR）都适用，因此也覆盖 `get_rpa()`、`plt_cat1/2/3()`、`plt_rpa_km()` | 保留的时间点上数值完全相同；点与点之间的连线最多偏离约 1 个百分点 |
 
-: 已实施的两项优化。 {#tbl-applied}
+: 已实施的两项优化（B 为 `f30bc69` 之后的形式）。 {#tbl-applied}
 
 不受影响的部分：
 
 - KM、IPTW、匹配曲线照常使用全部事件时间：它们本来就快，而且 KM 要画成阶梯。
-- B 只加在 `get_cat()` 这一层，没有放进 `.get.obj()`。原因是 `get_facet_diff()` 会从 `times = NULL` 的曲线对象上读取 60、120、180 个月的数值，抽点会改变这些数。所以 `get_facet()` 和 `get_facet_diff()` 的曲线不变。
-- direct 方法失败而回退到 KM 时，回退曲线仍使用全部事件时间。抽点网格通过内部参数 `.get.obj(direct_times = )` 传入，只对 direct 方法生效。
+- B 默认关闭，只有 `get_cat()` 和 `get_facet()` 这两个只拿曲线画图的调用方打开它。`get_facet_diff()` 等调用方会从 `times = NULL` 的曲线对象上读取 60、120、180 个月的数值，抽点会改变这些数，所以它们仍使用全部事件时间。
+- 最初的实现（`c71fe16`）只在 `get_cat()` 里生成网格，经内部参数 `direct_times` 传给 `.get.obj()`。`f30bc69` 把网格移进 `.get.obj()`，改成 `max_times` / `keep_times`，并让 `get_facet()` 也用上。`27980d2` 把任一结局的最后一个事件时间加进网格：竞争风险的完整 CIF 一直画到任一结局的最后一个事件，只按结局 1 抽点时，本数据会停在 253 个月，而完整曲线到 263 个月。
+- direct 方法失败而回退到 KM 或 Aalen-Johansen 时，回退曲线仍使用全部事件时间，因为抽点网格只交给 direct 方法。
 - 从 `cat$obj$direct` 自行计算中位生存时间或 RMST 时，结果现在是近似值。
 
 ```{r}
@@ -245,7 +247,7 @@ cgv <- function(n, s) sprintf("%.1f", cg$sec[cg$n == n & cg$setting == s])
 ```{r}
 #| label: tbl-b-grid
 #| echo: false
-#| tbl-cap: "不同时间网格下带置信区间的调整曲线（Cox，11 组，已含方案 A）。偏移以百分点计，0.01 即 1 个百分点。这里的抽点网格是 0 加 49 个事件时间；实施版本是 48 个事件时间加 0 和 timepoint。"
+#| tbl-cap: "不同时间网格下带置信区间的调整曲线（Cox，11 组，已含方案 A）。偏移以百分点计，0.01 即 1 个百分点。这里的抽点网格是 0 加 49 个事件时间；现行版本是 47 个事件时间加 0、timepoint 和任一结局的最后一个事件时间。"
 g <- op[op$part == "B_grid_eval", ]
 glab <- c(full = "全部事件时间（158 个）", thin50 = "按事件时间均匀抽 50 个",
           even50 = "0 到最后事件时间等间距 50 个", even25 = "等间距 25 个")
@@ -258,14 +260,14 @@ knitr::kable(data.frame(
   check.names = FALSE), align = "rlrrrrr")
 ```
 
-按事件时间抽点比等间距更准，因为事件密集的早期取的点也多。实施时选了这种方式，并补上 `timepoint`，让曲线在 120 个月处与生存率表的数值一致。所有方式在保留的时间点上都与完整计算完全相同：`ate()` 在每个时间点上的估计互不依赖。
+按事件时间抽点比等间距更准，因为事件密集的早期取的点也多。实施时选了这种方式，并补上 `timepoint`，让曲线在 120 个月处与生存率表的数值一致；`get_facet()` 还补上 `max_t`，让曲线正好画到坐标轴的终点。所有方式在保留的时间点上都与完整计算完全相同：`ate()` 在每个时间点上的估计互不依赖。
 
 ![n = 4387 时 11 组的调整生存曲线。黑色实线为全部 158 个事件时间，红色虚线为按事件时间抽的 50 个点，蓝色点线为等间距 50 个点，灰色带为完整曲线的 95% CI。三条线在这个尺寸下几乎重合。](images/rpa-cox-benchmark/grid-compare.png){#fig-grid}
 
 ```{r}
 #| label: tbl-b-getcat
 #| echo: false
-#| tbl-cap: "方案 B 前后的 get_cat()（11 组，按 Sex 调整，已含方案 A）。四个场景的 HR / 生存率（CIF）表和未调整曲线都与改动前 identical()。"
+#| tbl-cap: "方案 B 前后的 get_cat()（11 组，按 Sex 调整，已含方案 A）。四个场景的 HR / 生存率（CIF）表和未调整曲线都与改动前 identical()。这组对比在 c71fe16 上测（48 个事件时间加 0 和 timepoint）；现行版本少抽 1 个点、多保留最后一个事件时间，Cox 曲线因此是 49 个点，没有重测。"
 bb <- op[op$part == "B_getcat", ]
 b4 <- bb[bb$setting == "before", ]; af <- bb[bb$setting == "after", ]
 sc <- c(cox11 = "Cox", csc11 = "竞争风险 · CSC", fgr11 = "竞争风险 · FGR")
@@ -300,9 +302,61 @@ knitr::kable(data.frame(
 
 不论 `cif_args` 选哪个模型，竞争风险的 HR 都用 Fine-Gray（`crr`）计算。两次 `crr` 拟合加起来占了六成，是现在的主要瓶颈，A 和 B 都不涉及这一步。
 
+## 方案 C：不画置信带（评估）
+
+A + B 之后，调整曲线的大部分时间仍花在置信区间上。方案 C 是在曲线上不求置信区间（`conf_int = FALSE`），只保留点估计。本节在 A + B 的基础上评估 C 在大样本时还能省多少时间；**C 尚未并入 RegR**。
+
+测法与前面相同：Windows R，11 组，按 `Sex` 调整，每个单元只跑一次。曲线这一格直接调 `adjustedsurv()` / `adjustedcif()`，三种做法用同一个 Cox / CSC 模型：
+
+- **A + B**：50 个时间点，带置信区间，`allContrasts` 只取参照组对其余各组。这是现行做法。
+- **B + C**：同样 50 个时间点，不带置信区间。
+- **只用 C**：全部 158 个事件时间，不带置信区间。
+
+另外两列是同一轮里的 120 个月生存率表（`.get.UM.sur()`，它本身需要置信区间，C 不涉及）和整个 `get_cat()`。`get_cat()` 用的是当时安装的 RegR（已含 A 和 `max_times = 50` 的 B）。
+
+```{r}
+#| label: tbl-c-cox
+#| echo: false
+#| tbl-cap: "方案 C 的评估：Cox 调整曲线（秒，括号内为峰值内存 GB）。n = 4387 的第一格是脚本里的第一次调用，包含加载 adjustedCurves 和 riskRegression 的开销，所以比后面整个 get_cat() 还慢。B + C 与 A + B 的点估计最大差值均为 0。"
+ce <- op[op$part == "C_eval" & op$case == "cox11", ]
+cv <- function(cell, mem = TRUE) {
+  x <- ce[ce$setting == cell, ]; x <- x[order(x$n), ]
+  if (mem) sprintf("%.1f（%.1f）", x$sec, x$peak_mb / 1024) else sprintf("%.1f", x$sec)
+}
+nn <- sort(unique(ce$n))
+knitr::kable(data.frame(
+  n = format(nn, big.mark = ","),
+  `A + B（带 CI）` = cv("curve_AB_CI"),
+  `B + C（不带 CI）` = paste0("**", cv("curve_BC_noCI"), "**"),
+  `只用 C（158 点，不带 CI）` = cv("curve_C_noCI_full"),
+  `120 月生存率表（需 CI）` = cv("SP120_direct", FALSE),
+  `整个 get_cat()（A + B）` = cv("get_cat_total_AB", FALSE),
+  check.names = FALSE), align = "rrrrrr")
+```
+
+```{r}
+#| label: c-numbers
+#| include: false
+cs <- function(model, n, cell) op$sec[op$part == "C_eval" & op$case == model & op$n == n & op$setting == cell]
+save_s <- function(n) cs("cox11", n, "curve_AB_CI") - cs("cox11", n, "curve_BC_noCI")
+est_s  <- function(n) cs("cox11", n, "get_cat_total_AB") - save_s(n)
+```
+
+竞争风险的 CSC 调整 CIF（50 个时间点）也一样：n = 30000 时从 `r sprintf("%.1f", cs("csc11", 30000, "curve_AB_CI"))` s 降到 `r sprintf("%.1f", cs("csc11", 30000, "curve_BC_noCI"))` s，n = 100000 时从 `r sprintf("%.1f", cs("csc11", 100000, "curve_AB_CI"))` s 降到 `r sprintf("%.1f", cs("csc11", 100000, "curve_BC_noCI"))` s。
+
+**对整个 `get_cat()` 的影响（估算，未实测）。**C 只省掉「曲线求置信区间」这一部分，即上表 A + B 与 B + C 之差：n = 30000、100000、200000 时分别约 `r sprintf("%.0f", save_s(30000))`、`r sprintf("%.0f", save_s(100000))`、`r sprintf("%.0f", save_s(200000))` s。从同一轮的 `get_cat()` 总耗时里减掉，约为 `r sprintf("%.0f", est_s(30000))`、`r sprintf("%.0f", est_s(100000))`、`r sprintf("%.0f", est_s(200000))` s，比现在快 2–3 倍。各格分开计时，有约 ±25% 的波动：n = 200000 时，分项加起来甚至略超过 `get_cat()` 的总耗时，所以这只是量级上的估计。C 之后剩下的主要是 120 个月生存率表和不带置信区间的曲线本身。
+
+不求置信区间时，再加 B 的额外收益已经不大：n = 200000 时，只用 C 是 `r sprintf("%.1f", cs("cox11", 200000, "curve_C_noCI_full"))` s，B + C 是 `r sprintf("%.1f", cs("cox11", 200000, "curve_BC_noCI"))` s。这时 B 的作用主要是省内存（`r sprintf("%.1f", op$peak_mb[op$part == "C_eval" & op$case == "cox11" & op$n == 200000 & op$setting == "curve_C_noCI_full"] / 1024)` GB 降到 `r sprintf("%.1f", op$peak_mb[op$part == "C_eval" & op$case == "cox11" & op$n == 200000 & op$setting == "curve_BC_noCI"] / 1024)` GB）。
+
+C 的代价：
+
+- `plt_cat1/2/3()`、`plt_rpa_km()` 右列以及 `get_rpa()` 组合图里的调整曲线，都不再有置信带。`plt_cat2()` 底部的生存率差曲线要用标准误，也会失去置信区间。
+- HR 表和 120 个月生存率表不受影响，照常有置信区间。
+- 要在 RegR 里实现 C，不能只传 `conf_int = FALSE`。`.plot.obj()` 和 `.plot.dif()` 目前默认按「有置信区间」来画，也得跟着改。所以 C 更适合做成可选开关（大样本探索时关掉置信带），不宜改成默认。
+
 ## 可选的改进
 
-下表是最初评估时列出的做法。A 已原样实施；B 实施时改成了「最多 50 个时间点、按事件时间抽取」，见上一节；C 和 D 没有采用。
+下表是最初评估时列出的做法。A 已原样实施；B 实施时改成了「最多 50 个时间点、按事件时间抽取」，见「已并入 RegR 的优化」；C 在 A + B 之上的大样本评估见上一节，尚未实施；D 没有采用。
 
 | 方案 | 改什么 | 提速 | 代价 |
 |:--|:--|:--|:--|
@@ -322,6 +376,7 @@ knitr::kable(data.frame(
 - 峰值内存只统计 R 堆，不含 R 之外的分配。
 - 优化前后的对比每个场景也只跑一次。n = 4387 时整个 `get_cat()` 只要几秒到十几秒，其中包括首次加载包的开销：同一个版本在两轮里分别测得 10.8 s 和 6.1 s，所以小样本的前后差别看不出来。
 - 方案 B 只在 11 组、事件时间以整月计（最多两三百个不同时间）的数据上评估过。时间以天计的数据会有上千个事件时间，B 的收益会更大，但没有实测。
+- 方案 C 的曲线耗时是直接调 adjustedCurves 测的，没有经过 RegR 的包装和诊断图；它对整个 `get_cat()` 的影响是用分项相减估算的。
 
 ## 复现脚本
 
@@ -335,7 +390,7 @@ knitr::kable(data.frame(
 #| code-summary: "rpa_cox_bench.R：计时矩阵与 ate() 开关试验"
 ```
 
-「已并入 RegR 的优化」一节读取 `rpa_cox_optim.csv`，其中只有汇总结果。产生这些数字的几个独立脚本按运行顺序原样收录在 `rpa_cox_optim.R` 里，每段单独保存成 .R 后运行；文件开头写明了每段的 before / after 各对应哪个 RegR 版本。
+「已并入 RegR 的优化」一节读取 `rpa_cox_optim.csv`，其中只有汇总结果。「方案 C」一节也读取这个文件（`part = "C_eval"`）。产生这些数字的几个独立脚本按运行顺序原样收录在 `rpa_cox_optim.R` 里，每段单独保存成 .R 后运行；文件开头写明了每段的 before / after 各对应哪个 RegR 版本。第 7 段（方案 C）里有一格仍按旧接口传了 `direct_times`，运行时报错，结果没有计入。
 
 ```{r}
 #| label: code-optim
