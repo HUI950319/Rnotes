@@ -1,0 +1,1080 @@
+diff --git a/NEWS.md b/NEWS.md
+index 8ac1bfb..dab5b43 100644
+--- a/NEWS.md
++++ b/NEWS.md
+@@ -1,5 +1,17 @@
+ # RegR 0.1.3
+ 
++`get_score()` gains a final `metrics = c("AUC", "BS")` argument accepting
++AUC, BS, AIC, BIC and Cox-Snell-type PVE. Selected likelihood criteria share
++the original fit and every Score bootstrap training fit, without extra
++model optimizations; likelihood-only bootstrap reuses `.eff_pblapply()`.
++The original Score fields/class remain available when prediction metrics
++are selected. New `obj`, `AUC.BS.AIC`, individual/combined curve and ROC
++fields carry the corresponding `get_score2()` results; `fit.stats` retains
++numeric likelihood estimates, percentile CIs, resamples and conventions.
++Survival summaries show mean AUC/BS across requested times, with pointwise
++CIs retained in Score and plots. Fine-Gray remains FGR with variance disabled;
++`get_fit_stats()` continues to use mets. `get_score2()` is unchanged.
++
+ `get_fit_stats()` computes AIC, BIC and Cox-Snell-type PVE from a shared fit
+ for Logistic, Cox and mets Fine-Gray models. Optional percentile bootstrap
+ intervals reuse each fitted model across all three statistics and use paired
+diff --git a/R/msr-fit-stats.R b/R/msr-fit-stats.R
+index ad9aad2..a9511cb 100644
+--- a/R/msr-fit-stats.R
++++ b/R/msr-fit-stats.R
+@@ -196,58 +196,87 @@ get_fit_stats <- function(data, vars, surv = TRUE, R = 0,
+       cox = survival::coxph(formula, data = dd, x = TRUE, y = TRUE),
+       crr = mets::cifregFG(formula, data = dd, cause = 1, cens.code = 0)
+     ), warning = function(w) stop(conditionMessage(w), call. = FALSE))
+-    if (mode == "crr") {
+-      # Unstratified, unweighted Fine-Gray risk sets at beta = 0. The two
+-      # reverse sums retain mets' entry/exit ordering, including tied months.
+-      prep <- fit$cox.prep
+-      jumps <- as.integer(prep$jumps) + 1L
+-      type <- prep$Z[, 6L]
+-      weight <- prep$sign * prep$weights
+-      s0 <- rev(cumsum(rev(weight * (type == 1))))[jumps] +
+-        fit$Gjumps * rev(cumsum(rev(weight * (type == 2))))[jumps]
+-      ll0 <- -sum(log(s0))
+-      ll <- fit$ploglik
+-      k <- length(fit$coef)
+-      events <- fit$nevent
+-      if (qr(fit$design$x)$rank != k || any(!is.finite(fit$coef)) ||
+-          max(abs(fit$gradient)) > 1e-5 * (1 + events)) {
+-        stop("Fine-Gray fit is singular or did not converge.", call. = FALSE)
+-      }
+-    } else {
+-      lk <- stats::logLik(fit)
+-      ll <- as.numeric(lk)
+-      k <- attr(lk, "df")
+-      ll0 <- if (mode == "cox") fit$loglik[1L] else
+-        ll - (fit$null.deviance - fit$deviance) / 2
+-      events <- if (mode == "cox") fit$nevent else sum(fit$y == 1)
+-      if (mode == "log" && !isTRUE(fit$converged)) {
+-        stop("Logistic fit did not converge.", call. = FALSE)
+-      }
++    .fit_stats_from_fit(fit, dd, mode, outcome)
++  }
++  fitted <- lapply(formulas, function(f) fit_one(d, f))
++  result <- .fit_stats_result(
++    fitted, d, function(dd, j) fit_one(dd, formulas[[j]]), R,
++    conf_level = conf_level, n_omitted = n_omitted
++  )
++  if (length(save)) do.call(save_tb, c(list(data = result$stats), save))
++  result
++}
++
++# Shared extraction for get_fit_stats() and get_score(); never refits a model.
++.fit_stats_from_fit <- function(fit, data, mode, outcome) {
++  if (mode == "crr" && inherits(fit, "FGR")) {
++    native <- fit$crrFit
++    ll <- native$loglik
++    ll0 <- native$loglik.null
++    k <- length(native$coef)
++    events <- sum(data[[outcome]] == 1)
++    if (!isTRUE(native$converged) || any(!is.finite(native$coef))) {
++      stop("Fine-Gray fit is singular or did not converge.", call. = FALSE)
+     }
+-    bic_n <- if (mode == "log") nrow(dd) else events
+-    gain <- ll - ll0
+-    if (length(ll) != 1L || !all(is.finite(c(ll, ll0, gain))) ||
+-        gain < -1e-7 * (1 + abs(ll0))) {
+-      stop("Invalid full/null log-likelihood from the fitted model.", call. = FALSE)
++  } else if (mode == "crr") {
++    # Retain mets' entry/exit ordering, including tied integer-month times.
++    prep <- fit$cox.prep
++    jumps <- as.integer(prep$jumps) + 1L
++    type <- prep$Z[, 6L]
++    weight <- prep$sign * prep$weights
++    s0 <- rev(cumsum(rev(weight * (type == 1))))[jumps] +
++      fit$Gjumps * rev(cumsum(rev(weight * (type == 2))))[jumps]
++    ll0 <- -sum(log(s0))
++    ll <- fit$ploglik
++    k <- length(fit$coef)
++    events <- fit$nevent
++    if (qr(fit$design$x)$rank != k || any(!is.finite(fit$coef)) ||
++        max(abs(fit$gradient)) > 1e-5 * (1 + events)) {
++      stop("Fine-Gray fit is singular or did not converge.", call. = FALSE)
++    }
++  } else {
++    lk <- stats::logLik(fit)
++    ll <- as.numeric(lk)
++    k <- attr(lk, "df")
++    ll0 <- if (mode == "cox") fit$loglik[1L] else
++      ll - (fit$null.deviance - fit$deviance) / 2
++    events <- if (mode == "cox") fit$nevent else sum(fit$y == 1)
++    if (mode == "log" && !isTRUE(fit$converged)) {
++      stop("Logistic fit did not converge.", call. = FALSE)
+     }
+-    value <- c(AIC = -2 * ll + 2 * k, BIC = -2 * ll + log(bic_n) * k,
+-               PVE = -expm1(-2 * max(0, gain) / nrow(dd)))
+-    list(obj = fit, value = value,
+-         info = data.frame(family = mode, n = nrow(dd), events = events, df = k,
+-                           logLik = ll, logLik_null = ll0, bic_n = bic_n))
+   }
+-  fitted <- lapply(formulas, function(f) fit_one(d, f))
+-  boot <- data.frame(model = character(), replicate = integer(),
+-                     AIC = numeric(), BIC = numeric(), PVE = numeric(), error = character())
+-  if (R >= 2L) {
++  bic_n <- if (mode == "log") nrow(data) else events
++  gain <- ll - ll0
++  if (length(ll) != 1L || !all(is.finite(c(ll, ll0, gain))) ||
++      gain < -1e-7 * (1 + abs(ll0))) {
++    stop("Invalid full/null log-likelihood from the fitted model.", call. = FALSE)
++  }
++  value <- c(AIC = -2 * ll + 2 * k, BIC = -2 * ll + log(bic_n) * k,
++             PVE = -expm1(-2 * max(0, gain) / nrow(data)))
++  list(obj = fit, value = value,
++       info = data.frame(family = mode, n = nrow(data), events = events, df = k,
++                         logLik = ll, logLik_null = ll0, bic_n = bic_n))
++}
++
++# Assemble paired intervals either from supplied Score refits or one bootstrap.
++.fit_stats_result <- function(fitted, data, fit_one, R, conf_level = 0.95,
++                              n_omitted = 0L, boot = NULL) {
++  labels <- names(fitted)
++  n <- nrow(data)
++  supplied_boot <- !is.null(boot)
++  if (is.null(boot)) {
++    boot <- data.frame(model = character(), replicate = integer(),
++                       AIC = numeric(), BIC = numeric(), PVE = numeric(), error = character())
++  }
++  if (R >= 2L && !supplied_boot) {
+     seeds <- sample.int(.Machine$integer.max, R)
+     rng_after <- get(".Random.seed", envir = .GlobalEnv)
+     on.exit(assign(".Random.seed", rng_after, envir = .GlobalEnv), add = TRUE)
+     boot_one <- function(b) {
+       set.seed(seeds[b])
+-      dd <- d[sample.int(n, n, replace = TRUE), , drop = FALSE]
+-      rows <- lapply(seq_along(formulas), function(j) {
+-        z <- tryCatch(fit_one(dd, formulas[[j]])$value, error = function(e) e)
++      dd <- data[sample.int(n, n, replace = TRUE), , drop = FALSE]
++      rows <- lapply(seq_along(fitted), function(j) {
++        z <- tryCatch(fit_one(dd, j)$value, error = function(e) e)
+         failed <- inherits(z, "error")
+         data.frame(
+           model = labels[j], replicate = b,
+@@ -264,14 +293,14 @@ get_fit_stats <- function(data, vars, surv = TRUE, R = 0,
+                  budget >= 1 && length(available) == 1L && is.finite(available))
+       as.integer(min(4L, available, budget, R)) else 1L
+     threshold <- if (.Platform$OS.type == "windows") 1e6 else 1e5
+-    if (as.double(n) * R * length(formulas) < threshold ||
++    if (as.double(n) * R * length(fitted) < threshold ||
+         isTRUE(getOption(".RegR.parallel_worker"))) cores <- 1L
+     boot_rows <- .eff_pblapply(seq_len(R), boot_one, n_cores = cores)
+     boot <- do.call(rbind, boot_rows)
+-    if (any(!is.na(boot$error))) {
+-      warning(sum(!is.na(boot$error)), " bootstrap model fits failed; see `boot$error`.",
+-              call. = FALSE)
+-    }
++  }
++  if (any(!is.na(boot$error))) {
++    warning(sum(!is.na(boot$error)), " bootstrap model fits failed; see `boot$error`.",
++            call. = FALSE)
+   }
+   tables <- lapply(seq_along(fitted), function(j) {
+     draws <- boot[boot$model == labels[j] & is.na(boot$error), c("AIC", "BIC", "PVE")]
+@@ -290,10 +319,8 @@ get_fit_stats <- function(data, vars, surv = TRUE, R = 0,
+     cbind(model = labels[j], fitted[[j]]$info, n_omitted = n_omitted,
+           R = R, R_success = sum(boot$model == labels[j] & is.na(boot$error)),
+           conf_level = conf_level, PVE_method = "Cox-Snell",
+-          BIC_basis = if (mode == "log") "subjects" else "target events")
++          BIC_basis = if (fitted[[j]]$info$family == "log") "subjects" else "target events")
+   }))
+-  result <- list(obj = lapply(fitted, `[[`, "obj"), stats = do.call(rbind, tables),
+-                 boot = boot, info = info)
+-  if (length(save)) do.call(save_tb, c(list(data = result$stats), save))
+-  result
++  list(obj = lapply(fitted, `[[`, "obj"), stats = do.call(rbind, tables),
++       boot = boot, info = info)
+ }
+diff --git a/R/msr-riskRegression.R b/R/msr-riskRegression.R
+index b535f89..ef96b8e 100644
+--- a/R/msr-riskRegression.R
++++ b/R/msr-riskRegression.R
+@@ -4,21 +4,22 @@
+ #
+ # Alternative metric backend to the mlr3 path in msr-get.R.
+ #
+-# Source-faithful port of FeatureAnalysis/R/get.msr.R sub-block:
++# Originally ported from the FeatureAnalysis/R/get.msr.R sub-block:
+ #   .get.score          -> get_score          [export]
+ #   .get.score.summary  -> get_score_summary  [export]
+ #   .plt.score          -> plt_score          [export]
+ #
+ # Architecture (1 layer of file-level peer functions):
+-#   get_score(data, vars, surv, timepoint, R)
+-#     +-- nested .get.fit (cox/FGR/glm dispatcher per var)
++#   get_score(data, vars, surv, timepoint, R, metrics)
++#     +-- one cox/FGR/glm fit per model and bootstrap training sample
+ #     +-- riskRegression::Score(...) on fit list
++#     +-- shared likelihood extraction and summary/plot results
+ #   get_score_summary(res.Score)        # 2 branches: sur ('times' col) / log
+ #   plt_score(res.Score)                # 2 branches: sur 2-curve / log ROC
+ #     +-- nested .fmt.plot (axis + CI clip helper, sur path only)
+ #
+ # Source faithfulness:
+-#   - all nested helpers retained verbatim
++#   - summary/plot legacy paths retained; get_score adds shared-fit metrics
+ #   - library() inside functions removed; namespace prefixes used
+ #   - `print(formula)` debug call replaced by RegR's `.cat_formula`
+ #   - .fmt_ci(digits=N) replaced by direct sprintf("%.Nf (%.Nf, %.Nf)") inline
+@@ -27,19 +28,18 @@
+ #   - .fmt_plot / .fmt_strip / .fmt_axis / .fmt_legend -> UtilsR equivalents
+ # =============================================================================
+ 
+-#' Compute riskRegression::Score for a list of (per-var) fitted models
++#' Select prediction and likelihood metrics from shared model fits
+ #'
+-#' Source-faithful port of `.get.score`. Builds a fit per element of
+-#' `vars` (each fit covering one model formula), then runs
+-#' [riskRegression::Score()] over the list to compute time-dependent
+-#' AUC + Brier.
++#' Fits each element of `vars` once. Selected AUC and Brier scores come from
++#' [riskRegression::Score()]; AIC, BIC and PVE are extracted from the same fits.
++#' Summary and plot fields from [get_score2()] are also included.
+ #'
+ #' Three model modes via `surv`:
+ #' \describe{
+ #'   \item{`TRUE`}{Cox via [survival::coxph()] (`Surv(time, DSS)`).}
+ #'   \item{`FALSE`}{Fine-Gray competing risk via [riskRegression::FGR()]
+ #'         (`Hist(time, event)`).}
+-#'   \item{character (e.g. `"DSS"`)}{Logistic via [speedglm::speedglm()]
++#'   \item{character (e.g. `"DSS"`)}{Logistic via [stats::glm()]
+ #'         (`outcome ~ vars`).}
+ #' }
+ #' Fine-Gray fits use `variance = FALSE`, including bootstrap refits, to
+@@ -47,34 +47,83 @@
+ #' Brier standard errors and confidence intervals.
+ #'
+ #' @param data data.frame with `time` / `DSS` / `event` columns + predictors.
+-#' @param vars Character vector or list of character vectors. Each element
+-#'   becomes one model in the list passed to Score.
+-#' @param surv Two-mode dispatcher (logical / character; see Description).
++#' @param vars Character vector or tidyselect selection for separate models,
++#'   or a list of character vectors for joint models. List names label the
++#'   models; unnamed elements use predictor names joined by `_`.
++#' @param surv `TRUE` for Cox, `FALSE` for Fine-Gray, or one binary outcome
++#'   column name for Logistic regression.
+ #' @param timepoint Numeric vector of times for time-dependent metrics.
+ #'   Default `seq(2, 200, 2)`.
+-#' @param R Bootstrap reps. 0/1 = no boot (`split.method = "none"`),
+-#'   >=2 = `"bootcv"` with `B = R`.
++#' @param R Nonnegative integer bootstrap repetitions. `NULL`, 0 or 1 means
++#'   no resampling. At least 2 enables `"bootcv"` with `B = R` for AUC/BS and
++#'   95% percentile intervals for likelihood metrics. Use substantially more
++#'   repetitions for reported intervals.
++#' @param metrics Nonempty character vector selecting any of `"AUC"`, `"BS"`,
++#'   `"AIC"`, `"BIC"`, `"PVE"`, without duplicates. Default `c("AUC", "BS")`.
++#'   The selected order is retained in the summary. `"BS"` maps to Score's
++#'   `Brier`; unselected prediction metrics are not computed.
+ #'
+-#' @return A `riskRegression::Score` object (named list with `AUC` /
+-#'   `Brier` / `ROC` / `null.model = NULL` etc.). Pass to
+-#'   [get_score_summary()] for tabular display or [plt_score()] for plot.
++#' @details
++#' When prediction and likelihood metrics are selected together, each Score
++#' bootstrap training fit supplies all selected likelihood statistics, without
++#' additional model fitting. AUC/BS evaluate out-of-bag predictions; likelihood
++#' intervals describe the resampled training fits. With likelihood metrics
++#' alone, an ordinary paired subject bootstrap uses `.eff_pblapply()` with the
++#' same worker/seed policy as [get_fit_stats()].
++#'
++#' AIC, BIC and Cox-Snell-type PVE follow [get_fit_stats()]:
++#' `PVE = 1 - exp(-2 * (LL - LL_null) / n)`. BIC uses subjects for Logistic
++#' and target events for Cox/Fine-Gray. Fine-Gray uses the FGR/cmprsk likelihood;
++#' [get_fit_stats()] uses mets, whose tied-time likelihood can differ. PVE is
++#' not a Nagelkerke-normalized R-squared. Compare likelihood criteria only
++#' across models sharing the same outcome, sample and likelihood convention.
++#'
++#' Selecting a likelihood metric uses common complete cases across all model
++#' predictors, time and outcome; omissions are recorded in `fit.stats$info`.
++#' Survival AUC/BS summaries average the requested available times, without
++#' interpreting variation across times as a confidence interval. Pointwise
++#' sampling intervals remain in `obj$AUC$score` / `obj$Brier$score` and plots.
++#' Logistic summaries use Score's single-point confidence intervals.
++#'
++#' Plot fields use ggplot2, optional UtilsR formatting and, for the combined
++#' survival plot, optional patchwork. Missing patchwork leaves `plt.combined`
++#' as `NULL`. Times are used unchanged, without rounding or a fixed axis limit.
++#'
++#' @return With AUC or BS selected, the original `Score` fields and class are
++#'   retained. Likelihood-only calls return a list. Both include:
++#'   \describe{
++#'     \item{obj}{The unaugmented Score object, or `NULL` without AUC/BS.}
++#'     \item{AUC.BS.AIC}{Formatted table: `model` plus the selected metrics.
++#'       The legacy field name also applies to BIC/PVE selections.}
++#'     \item{plt.AUC, plt.BS}{Selected survival metric curves, otherwise `NULL`.}
++#'     \item{plt.combined}{Two-panel survival plot when both curves and
++#'       patchwork are available, otherwise `NULL`.}
++#'     \item{plt.ROC}{Logistic ROC plot when Score supplies ROC data,
++#'       otherwise `NULL` (including bootstrap calls).}
++#'     \item{fit.stats}{Likelihood results in the [get_fit_stats()] structure
++#'       (`obj`, numeric `stats`, paired `boot`, `info`), restricted to selected
++#'       criteria, or `NULL` when no likelihood criterion was requested.}
++#'   }
+ #'
+ #' @examples
+-#' \dontrun{
+-#' data(seer_thyroid_mtc_2026, package = "ToyData")
++#' \donttest{
++#' data(seer_thyroid_mtc_2026, package = "RegR")
+ #' d <- as.data.frame(seer_thyroid_mtc_2026)
+ #' d <- d[!is.na(d$DSS) & !is.na(d$time) & d$time > 0, ]
+-#' d$DSS <- as.numeric(d$DSS)
+ #'
+-#' res_sur <- get_score(d, vars = "Sex", surv = TRUE, R = 0)
+-#' get_score_summary(res_sur)
+-#' plt_score(res_sur)
++#' res_sur <- run_quiet(get_score(
++#'   d, vars = list(c("Age", "Sex")), surv = TRUE, timepoint = c(24, 60),
++#'   metrics = c("AUC", "BS", "AIC", "BIC", "PVE")
++#' ))
++#' res_sur$AUC.BS.AIC
++#' res_sur$fit.stats$stats
++#' res_sur$plt.combined
+ #' }
+ #' @family msr
+ #' @export
+ get_score <- function(data, vars, surv = TRUE,
+                       timepoint = seq(2, 200, 2),
+-                      R = 0) {
++                      R = 0, metrics = c("AUC", "BS")) {
+ 
+   for (pkg in c("riskRegression", "prodlim", "survival")) {
+     if (!requireNamespace(pkg, quietly = TRUE)) {
+@@ -82,112 +131,226 @@ get_score <- function(data, vars, surv = TRUE,
+     }
+   }
+ 
+-  # riskRegression::Score parses bare Surv() / Hist() in formula -- need
+-  # them in scope (not namespace-prefixed). Local aliases avoid loading
+-  # full survival / prodlim namespaces.
+-  Surv <- survival::Surv
+-  Hist <- prodlim::Hist
+-
+-  cat_vars <- vars
+-
+-  ## function (nested .get.fit -- source-faithful)
+-  .get.fit <- function(data, co_var, time = "time", outcome = "DSS",
+-                       fastglm = TRUE) {
+-
+-    # get formula
+-    if (!is.null(time) && !is.null(outcome)) {
+-      if (length(unique(data[[outcome]])) == 2L) {
+-        formula <- stats::as.formula(
+-          sprintf("Surv(time = %s, event = %s) ~ %s",
+-                  time, outcome, paste(co_var, collapse = "+")))
+-      } else if (length(unique(data[[outcome]])) == 3L) {
+-        formula <- stats::as.formula(
+-          sprintf("Hist(%s, %s) ~ %s",
+-                  time, outcome, paste(co_var, collapse = "+")))
++  mode <- if (isTRUE(surv)) "cox" else if (isFALSE(surv)) "crr" else
++    if (is.character(surv) && length(surv) == 1L && !is.na(surv) &&
++        surv %in% names(data)) "log" else {
++    stop("`surv` must be logical (TRUE/FALSE) or a character outcome column name in `data`.")
++  }
++  requested <- tryCatch(rlang::eval_tidy(rlang::enquo(vars)),
++                        error = function(e) NULL)
++  if (is.list(requested) && !is.data.frame(requested)) {
++    model_vars <- lapply(requested, function(x) {
++      if (!is.character(x) || !length(x) || anyNA(x) || any(!nzchar(x))) {
++        stop("Each element of `vars` must be a nonempty character vector.", call. = FALSE)
+       }
+-    } else {
+-      formula <- stats::as.formula(
+-        sprintf("%s ~ %s", outcome, paste(co_var, collapse = "+")))
++      .resolve_vars(data, selected = tidyselect::all_of(x))
++      selected
++    })
++  } else {
++    .resolve_vars(data, vars = {{ vars }})
++    model_vars <- as.list(vars)
++  }
++  if (!length(model_vars)) stop("`vars` must select at least one predictor.", call. = FALSE)
++  nms <- names(model_vars)
++  if (is.null(nms)) nms <- rep("", length(model_vars))
++  auto <- vapply(model_vars, paste, collapse = "_", FUN.VALUE = character(1))
++  if (anyNA(nms)) stop("Model names cannot be missing.", call. = FALSE)
++  nms[!nzchar(nms)] <- auto[!nzchar(nms)]
++  if (anyDuplicated(nms)) stop("Model names must be unique.", call. = FALSE)
++  names(model_vars) <- nms
++  allowed <- c("AUC", "BS", "AIC", "BIC", "PVE")
++  if (!is.character(metrics) || !length(metrics) || anyNA(metrics) ||
++      anyDuplicated(metrics) || any(!metrics %in% allowed)) {
++    stop("`metrics` must select AUC, BS, AIC, BIC or PVE without duplicates.", call. = FALSE)
++  }
++  if (is.null(R)) R <- 0L
++  if (!is.numeric(R) || length(R) != 1L || !is.finite(R) ||
++      R < 0 || R != floor(R) || R > .Machine$integer.max) {
++    stop("`R` must be a nonnegative integer.", call. = FALSE)
++  }
++  R <- as.integer(R)
++  prediction_metrics <- intersect(metrics, c("AUC", "BS"))
++  likelihood_metrics <- intersect(metrics, c("AIC", "BIC", "PVE"))
++  outcome <- switch(mode, cox = "DSS", crr = "event", log = surv)
++  n_omitted <- 0L
++  if (length(likelihood_metrics)) {
++    required <- unique(c(unlist(model_vars, use.names = FALSE), outcome,
++                         if (mode != "log") "time"))
++    if (any(!required %in% names(data))) {
++      stop("Missing required outcome/time columns.", call. = FALSE)
+     }
++    keep <- stats::complete.cases(data[, required, drop = FALSE])
++    n_omitted <- sum(!keep)
++    data <- droplevels(as.data.frame(data[keep, , drop = FALSE]))
++    if (nrow(data) < 2L) stop("Fewer than two complete observations.", call. = FALSE)
++  }
+ 
+-    .cat_formula(data, co_var = co_var, time = time, outcome = outcome,
++  # Isolate formulas from the result/plot/refit environments, including names
++  # with spaces. Score requires bare Surv()/Hist() in its response formula.
++  formula_env <- new.env(parent = baseenv())
++  formula_env$Surv <- survival::Surv
++  formula_env$Hist <- prodlim::Hist
++  response <- if (mode == "log") as.name(outcome) else
++    call(if (mode == "cox") "Surv" else "Hist", as.name("time"), as.name(outcome))
++  formulas <- lapply(model_vars, function(x) {
++    rhs <- Reduce(function(a, b) call("+", a, b), lapply(x, as.name))
++    stats::as.formula(call("~", response, rhs), env = formula_env)
++  })
++  form <- stats::as.formula(call("~", response, 1), env = formula_env)
++  fit_one <- function(dd, j) {
++    formula <- formulas[[j]]
++    fit <- switch(mode,
++      cox = survival::coxph(formula, data = dd, x = TRUE, y = TRUE),
++      crr = riskRegression::FGR(formula, data = dd, cause = 1, variance = FALSE),
++      log = stats::glm(formula, data = dd, family = stats::binomial())
++    )
++    fit$call$formula <- formula
++    fit
++  }
++  fit_lis <- lapply(seq_along(model_vars), function(j) {
++    .cat_formula(data, co_var = model_vars[[j]],
++                 time = if (mode == "log") NULL else "time", outcome = outcome,
+                  type = "info")
+-
+-    # get fit
+-    if (!is.null(time) && !is.null(outcome)) {
+-      if (length(unique(data[[outcome]])) == 2L) {
+-        fit <- survival::coxph(formula, data = data, x = TRUE, y = TRUE)
+-      } else {
+-        fit <- riskRegression::FGR(formula, data = data, cause = 1,
+-                                  variance = FALSE)
+-      }
+-    } else {
+-      if (isTRUE(fastglm) && requireNamespace("speedglm", quietly = TRUE)) {
+-        fit <- speedglm::speedglm(formula, data = data,
+-                                  family = stats::binomial())
+-      } else {
+-        fit <- stats::glm(formula, data = data,
+-                          family = stats::binomial())
++    fit_one(data, j)
++  })
++  names(fit_lis) <- nms
++  fitted <- if (length(likelihood_metrics))
++    lapply(fit_lis, .fit_stats_from_fit, data = data, mode = mode, outcome = outcome)
++  boot_store <- vector("list", length(fit_lis))
++  if (length(likelihood_metrics) && length(prediction_metrics) && R >= 2L) {
++    fitter <- switch(mode, cox = survival::coxph, crr = riskRegression::FGR,
++                     log = stats::glm)
++    # Score evaluates each fit's call on the bootstrap training data. A
++    # function-valued call head captures criteria after that same native fit.
++    capture_refit <- function(j) {
++      force(j)
++      function(formula, data, ...) {
++        fit <- do.call(fitter, c(list(formula = formula, data = data), list(...)))
++        z <- tryCatch(.fit_stats_from_fit(fit, data, mode, outcome)$value,
++                      error = function(e) e)
++        failed <- inherits(z, "error")
++        b <- length(boot_store[[j]]) + 1L
++        boot_store[[j]][[b]] <<- data.frame(
++          model = nms[j], replicate = b,
++          AIC = if (failed) NA_real_ else z[["AIC"]],
++          BIC = if (failed) NA_real_ else z[["BIC"]],
++          PVE = if (failed) NA_real_ else z[["PVE"]],
++          error = if (failed) conditionMessage(z) else NA_character_)
++        fit
+       }
+     }
+-
+-    # # 修改 fit$call 以显示原始变量
+-    fit$call$formula <- formula
+-    fit
++    for (j in seq_along(fit_lis)) fit_lis[[j]]$call[[1L]] <- capture_refit(j)
+   }
+-
+-  ## get fit_lis
+-  if (isTRUE(surv)) {
+-    fit_lis <- lapply(cat_vars, function(x) {
+-      .get.fit(data = data, co_var = x, time = "time", outcome = "DSS")
+-    })
+-    form <- stats::as.formula("Surv(time, DSS) ~ 1")
+-  } else if (isFALSE(surv)) {
+-    fit_lis <- lapply(cat_vars, function(x) {
+-      .get.fit(data = data, co_var = x, time = "time", outcome = "event")
+-    })
+-    form <- stats::as.formula("Hist(time, event) ~ 1")
+-  } else if (is.character(surv) && surv %in% names(data)) {
+-    fit_lis <- lapply(cat_vars, function(x) {
+-      .get.fit(data = data, co_var = x, time = NULL, outcome = surv,
+-               fastglm = FALSE)
+-    })
+-    form <- stats::as.formula(sprintf("%s ~ 1", surv))
+-  } else {
+-    stop("`surv` must be logical (TRUE/FALSE) or a character outcome column name in `data`.")
++  res.Score <- NULL
++  if (length(prediction_metrics)) {
++    res.Score <- riskRegression::Score(
++      object = fit_lis, formula = form, data = data,
++      metrics = ifelse(prediction_metrics == "BS", "brier", "auc"),
++      plots = if (R >= 2L) "boxplot" else if ("AUC" %in% metrics) "ROC" else NULL,
++      null.model = FALSE, contrasts = FALSE,
++      times = if (mode == "log") NULL else timepoint,
++      split.method = if (R < 2L) "none" else "bootcv", B = R,
++      parallel = "no", cl = 10L
++    )
+   }
+-
+-  ## setnames (source-faithful)
+-  # When cat_vars is a character vector, each element is a model name.
+-  # When cat_vars is a list of character vectors (multi-var per model),
+-  # collapse each element to a single name via "_".
+-  if (is.list(cat_vars)) {
+-    nms <- vapply(cat_vars, function(x) paste(x, collapse = "_"),
+-                  character(1L))
+-  } else {
+-    nms <- cat_vars
++  fit_stats <- NULL
++  if (length(likelihood_metrics)) {
++    if (length(prediction_metrics) && R >= 2L && any(lengths(boot_store) != R)) {
++      stop("Score did not provide the expected bootstrap training fits.", call. = FALSE)
++    }
++    boot <- if (length(prediction_metrics) && R >= 2L)
++      do.call(rbind, unlist(boot_store, recursive = FALSE)) else NULL
++    fit_stats <- .fit_stats_result(
++      fitted, data, function(dd, j) .fit_stats_from_fit(fit_one(dd, j), dd, mode, outcome),
++      R, n_omitted = n_omitted, boot = boot
++    )
++    fit_stats$stats <- fit_stats$stats[fit_stats$stats$metric %in% likelihood_metrics, ]
++    fit_stats$boot <- fit_stats$boot[, c("model", "replicate", likelihood_metrics, "error"),
++                                      drop = FALSE]
++  }
++  format_metric <- function(x, lower = NA_real_, upper = NA_real_, digits = 3L) {
++    value <- sprintf(paste0("%.", digits, "f"), x)
++    if (is.finite(lower) && is.finite(upper))
++      paste0(value, " (", sprintf(paste0("%.", digits, "f"), lower), ", ",
++             sprintf(paste0("%.", digits, "f"), upper), ")") else value
++  }
++  res_table <- data.frame(model = nms)
++  for (metric in metrics) {
++    if (metric %in% prediction_metrics) {
++      native <- if (metric == "BS") "Brier" else "AUC"
++      scores <- res.Score[[native]]$score
++      res_table[[metric]] <- vapply(nms, function(label) {
++        z <- scores[as.character(scores$model) == label, ]
++        if ("times" %in% names(z)) {
++          format_metric(mean(z[[native]], na.rm = TRUE))
++        } else format_metric(z[[native]], z$lower, z$upper)
++      }, character(1))
++    } else {
++      res_table[[metric]] <- vapply(nms, function(label) {
++        z <- fit_stats$stats[fit_stats$stats$model == label &
++                              fit_stats$stats$metric == metric, ]
++        format_metric(z$estimate, z$lower, z$upper, if (metric == "PVE") 3L else 2L)
++      }, character(1))
++    }
+   }
+-  names(fit_lis) <- nms
+-
+-  ## get res.Score
+-  split.method <- if (is.null(R) || R %in% c(0, 1)) "none" else "bootcv"
+-  B <- R
+-
+-  res.Score <- riskRegression::Score(
+-    object       = fit_lis,
+-    formula      = form,
+-    data         = data,
+-    metrics      = c("auc", "brier"),
+-    plots        = if (R %in% c(0, 1)) "ROC" else "boxplot",
+-    null.model   = FALSE,
+-    contrasts    = FALSE,
+-    times        = timepoint,
+-    split.method = split.method,
+-    B            = B,
+-    cl           = 10L
+-  )
+ 
+-  res.Score
++  plt_AUC <- plt_BS <- plt_combined <- plt_ROC <- NULL
++  if (length(prediction_metrics)) {
++    has_utils <- requireNamespace("UtilsR", quietly = TRUE)
++    palette <- if (has_utils) rep_len(UtilsR::pal_lancet, length(nms)) else
++      grDevices::hcl.colors(length(nms), "Dark 3")
++    thm <- if (has_utils) UtilsR::theme_my(base_rect_size = 1.5, base_size = 12L) else
++      ggplot2::theme_bw(base_size = 12L)
++    build_curve <- function(native, label) {
++      ggplot2::ggplot(res.Score[[native]]$score,
++                     ggplot2::aes(x = .data$times, y = .data[[native]],
++                                  color = .data$model, fill = .data$model)) +
++        ggplot2::geom_line() +
++        ggplot2::geom_ribbon(ggplot2::aes(ymin = .data$lower, ymax = .data$upper),
++                             alpha = 0.3, color = NA) +
++        ggplot2::scale_color_manual(values = palette) +
++        ggplot2::scale_fill_manual(values = palette) +
++        ggplot2::labs(title = paste("Time-dependent", label, "curve"),
++                      x = "Times", y = label) + thm
++    }
++    if (mode != "log") {
++      if ("AUC" %in% metrics) plt_AUC <- build_curve("AUC", "AUC")
++      if ("BS" %in% metrics) plt_BS <- build_curve("Brier", "Brier score")
++      if (!is.null(plt_AUC) && !is.null(plt_BS) &&
++          requireNamespace("patchwork", quietly = TRUE)) {
++        plt_combined <- patchwork::wrap_plots(
++          plt_AUC + ggplot2::labs(title = NULL),
++          plt_BS + ggplot2::labs(title = NULL), ncol = 1
++        )
++        if (has_utils) plt_combined <- UtilsR::fmt_plot(
++          plt_combined,
++          fmt_strip_list = list(label = c("Time-dependent AUC curve",
++                                           "Time-dependent Brier score curve"),
++                                label_color = "white", label_fill = palette),
++          fmt_axis_list = list(x.axis = c(1)),
++          fmt_legend_list = list(legend.position = c(0.8, 0.2))
++        )
++      }
++    } else if (!is.null(res.Score$ROC$plotframe)) {
++      plt_ROC <- ggplot2::ggplot(res.Score$ROC$plotframe,
++                                ggplot2::aes(x = .data$FPR, y = .data$TPR,
++                                             color = .data$model)) +
++        ggplot2::geom_line(linewidth = 1) +
++        ggplot2::geom_abline(intercept = 0, slope = 1,
++                             linetype = "dashed", color = "gray50") +
++        ggplot2::scale_color_manual(values = palette) +
++        ggplot2::labs(x = "False Positive Rate (1 - Specificity)",
++                      y = "True Positive Rate (Sensitivity)") + thm
++      if (has_utils) plt_ROC <- UtilsR::fmt_legend(
++        UtilsR::fmt_strip(plt_ROC, label = "ROC curves"), legend.position = c(0.8, 0.2))
++    }
++  }
++  result <- c(res.Score, list(obj = res.Score, AUC.BS.AIC = res_table,
++                             plt.AUC = plt_AUC, plt.BS = plt_BS,
++                             plt.combined = plt_combined, plt.ROC = plt_ROC,
++                             fit.stats = fit_stats))
++  if (!is.null(res.Score)) class(result) <- class(res.Score)
++  result
+ }
+ 
+ 
+@@ -202,6 +365,9 @@ get_score <- function(data, vars, surv = TRUE,
+ #' @param res.Score Output of [get_score()] (i.e. a `Score` object from
+ #'   `riskRegression::Score()`).
+ #' @return data.frame with columns `model`, `C.index`, `Brier.score`.
++#'   With a nondefault metric selection, returns the selected-metric
++#'   `AUC.BS.AIC` table from [get_score()] instead. The legacy `C.index`
++#'   column represents mean time-dependent AUC, not Harrell's C-index.
+ #' @examplesIf requireNamespace("UtilsR", quietly = TRUE)
+ #' \donttest{
+ #' data(seer_thyroid_mtc_2026, package = "RegR")
+@@ -214,6 +380,10 @@ get_score <- function(data, vars, surv = TRUE,
+ #' @family msr
+ #' @export
+ get_score_summary <- function(res.Score) {
++  if (!is.null(res.Score$AUC.BS.AIC) &&
++      !identical(names(res.Score$AUC.BS.AIC), c("model", "AUC", "BS"))) {
++    return(res.Score$AUC.BS.AIC)
++  }
+ 
+   conf_level <- 0.95
+ 
+@@ -272,7 +442,9 @@ get_score_summary <- function(res.Score) {
+ #' curve from `res.Score$ROC$plotframe`.
+ #'
+ #' @param res.Score Output of [get_score()].
+-#' @return A `ggplot` (logistic) or `patchwork` (survival) object.
++#' @return A `ggplot` (logistic or one selected survival metric) or
++#'   `patchwork` (both survival metrics). Returns `NULL` when [get_score()]
++#'   has no applicable plot, including likelihood-only calls.
+ #' @examplesIf requireNamespace("patchwork", quietly = TRUE) && requireNamespace("UtilsR", quietly = TRUE)
+ #' \donttest{
+ #' data(seer_thyroid_mtc_2026, package = "RegR")
+@@ -284,6 +456,13 @@ get_score_summary <- function(res.Score) {
+ #' @family msr
+ #' @export
+ plt_score <- function(res.Score) {
++  if (!all(c("AUC", "Brier") %in% names(res.Score)) &&
++      "plt.AUC" %in% names(res.Score)) {
++    for (field in c("plt.combined", "plt.AUC", "plt.BS", "plt.ROC")) {
++      if (!is.null(res.Score[[field]])) return(res.Score[[field]])
++    }
++    return(NULL)
++  }
+ 
+   for (pkg in c("ggplot2", "patchwork")) {
+     if (!requireNamespace(pkg, quietly = TRUE)) {
+diff --git a/man/get_score.Rd b/man/get_score.Rd
+index dd6a902..f57d7bb 100644
+--- a/man/get_score.Rd
++++ b/man/get_score.Rd
+@@ -2,33 +2,61 @@
+ % Please edit documentation in R/msr-riskRegression.R
+ \name{get_score}
+ \alias{get_score}
+-\title{Compute riskRegression::Score for a list of (per-var) fitted models}
++\title{Select prediction and likelihood metrics from shared model fits}
+ \usage{
+-get_score(data, vars, surv = TRUE, timepoint = seq(2, 200, 2), R = 0)
++get_score(
++  data,
++  vars,
++  surv = TRUE,
++  timepoint = seq(2, 200, 2),
++  R = 0,
++  metrics = c("AUC", "BS")
++)
+ }
+ \arguments{
+ \item{data}{data.frame with \code{time} / \code{DSS} / \code{event} columns + predictors.}
+ 
+-\item{vars}{Character vector or list of character vectors. Each element
+-becomes one model in the list passed to Score.}
++\item{vars}{Character vector or tidyselect selection for separate models,
++or a list of character vectors for joint models. List names label the
++models; unnamed elements use predictor names joined by \verb{_}.}
+ 
+-\item{surv}{Two-mode dispatcher (logical / character; see Description).}
++\item{surv}{\code{TRUE} for Cox, \code{FALSE} for Fine-Gray, or one binary outcome
++column name for Logistic regression.}
+ 
+ \item{timepoint}{Numeric vector of times for time-dependent metrics.
+ Default \code{seq(2, 200, 2)}.}
+ 
+-\item{R}{Bootstrap reps. 0/1 = no boot (\code{split.method = "none"}),=2 = "bootcv" with B = R.}
++\item{R}{Nonnegative integer bootstrap repetitions. \code{NULL}, 0 or 1 means
++no resampling. At least 2 enables \code{"bootcv"} with \code{B = R} for AUC/BS and
++95\% percentile intervals for likelihood metrics. Use substantially more
++repetitions for reported intervals.}
++
++\item{metrics}{Nonempty character vector selecting any of \code{"AUC"}, \code{"BS"},
++\code{"AIC"}, \code{"BIC"}, \code{"PVE"}, without duplicates. Default \code{c("AUC", "BS")}.
++The selected order is retained in the summary. \code{"BS"} maps to Score's
++\code{Brier}; unselected prediction metrics are not computed.}
+ }
+ \value{
+-A \code{riskRegression::Score} object (named list with \code{AUC} /
+-\code{Brier} / \code{ROC} / \code{null.model = NULL} etc.). Pass to
+-\code{\link[=get_score_summary]{get_score_summary()}} for tabular display or \code{\link[=plt_score]{plt_score()}} for plot.
++With AUC or BS selected, the original \code{Score} fields and class are
++retained. Likelihood-only calls return a list. Both include:
++\describe{
++\item{obj}{The unaugmented Score object, or \code{NULL} without AUC/BS.}
++\item{AUC.BS.AIC}{Formatted table: \code{model} plus the selected metrics.
++The legacy field name also applies to BIC/PVE selections.}
++\item{plt.AUC, plt.BS}{Selected survival metric curves, otherwise \code{NULL}.}
++\item{plt.combined}{Two-panel survival plot when both curves and
++patchwork are available, otherwise \code{NULL}.}
++\item{plt.ROC}{Logistic ROC plot when Score supplies ROC data,
++otherwise \code{NULL} (including bootstrap calls).}
++\item{fit.stats}{Likelihood results in the \code{\link[=get_fit_stats]{get_fit_stats()}} structure
++(\code{obj}, numeric \code{stats}, paired \code{boot}, \code{info}), restricted to selected
++criteria, or \code{NULL} when no likelihood criterion was requested.}
++}
+ }
+ \description{
+-Source-faithful port of \code{.get.score}. Builds a fit per element of
+-\code{vars} (each fit covering one model formula), then runs
+-\code{\link[riskRegression:Score]{riskRegression::Score()}} over the list to compute time-dependent
+-AUC + Brier.
++Fits each element of \code{vars} once. Selected AUC and Brier scores come from
++\code{\link[riskRegression:Score]{riskRegression::Score()}}; AIC, BIC and PVE are extracted from the same fits.
++Summary and plot fields from \code{\link[=get_score2]{get_score2()}} are also included.
+ }
+ \details{
+ Three model modes via \code{surv}:
+@@ -36,23 +64,51 @@ Three model modes via \code{surv}:
+ \item{\code{TRUE}}{Cox via \code{\link[survival:coxph]{survival::coxph()}} (\code{Surv(time, DSS)}).}
+ \item{\code{FALSE}}{Fine-Gray competing risk via \code{\link[riskRegression:FGR]{riskRegression::FGR()}}
+ (\code{Hist(time, event)}).}
+-\item{character (e.g. \code{"DSS"})}{Logistic via \code{\link[speedglm:speedglm]{speedglm::speedglm()}}
++\item{character (e.g. \code{"DSS"})}{Logistic via \code{\link[stats:glm]{stats::glm()}}
+ (\code{outcome ~ vars}).}
+ }
+ Fine-Gray fits use \code{variance = FALSE}, including bootstrap refits, to
+ skip coefficient variance estimation. Score still computes AUC and
+ Brier standard errors and confidence intervals.
++
++When prediction and likelihood metrics are selected together, each Score
++bootstrap training fit supplies all selected likelihood statistics, without
++additional model fitting. AUC/BS evaluate out-of-bag predictions; likelihood
++intervals describe the resampled training fits. With likelihood metrics
++alone, an ordinary paired subject bootstrap uses \code{.eff_pblapply()} with the
++same worker/seed policy as \code{\link[=get_fit_stats]{get_fit_stats()}}.
++
++AIC, BIC and Cox-Snell-type PVE follow \code{\link[=get_fit_stats]{get_fit_stats()}}:
++\code{PVE = 1 - exp(-2 * (LL - LL_null) / n)}. BIC uses subjects for Logistic
++and target events for Cox/Fine-Gray. Fine-Gray uses the FGR/cmprsk likelihood;
++\code{\link[=get_fit_stats]{get_fit_stats()}} uses mets, whose tied-time likelihood can differ. PVE is
++not a Nagelkerke-normalized R-squared. Compare likelihood criteria only
++across models sharing the same outcome, sample and likelihood convention.
++
++Selecting a likelihood metric uses common complete cases across all model
++predictors, time and outcome; omissions are recorded in \code{fit.stats$info}.
++Survival AUC/BS summaries average the requested available times, without
++interpreting variation across times as a confidence interval. Pointwise
++sampling intervals remain in \code{obj$AUC$score} / \code{obj$Brier$score} and plots.
++Logistic summaries use Score's single-point confidence intervals.
++
++Plot fields use ggplot2, optional UtilsR formatting and, for the combined
++survival plot, optional patchwork. Missing patchwork leaves \code{plt.combined}
++as \code{NULL}. Times are used unchanged, without rounding or a fixed axis limit.
+ }
+ \examples{
+-\dontrun{
+-data(seer_thyroid_mtc_2026, package = "ToyData")
++\donttest{
++data(seer_thyroid_mtc_2026, package = "RegR")
+ d <- as.data.frame(seer_thyroid_mtc_2026)
+ d <- d[!is.na(d$DSS) & !is.na(d$time) & d$time > 0, ]
+-d$DSS <- as.numeric(d$DSS)
+ 
+-res_sur <- get_score(d, vars = "Sex", surv = TRUE, R = 0)
+-get_score_summary(res_sur)
+-plt_score(res_sur)
++res_sur <- run_quiet(get_score(
++  d, vars = list(c("Age", "Sex")), surv = TRUE, timepoint = c(24, 60),
++  metrics = c("AUC", "BS", "AIC", "BIC", "PVE")
++))
++res_sur$AUC.BS.AIC
++res_sur$fit.stats$stats
++res_sur$plt.combined
+ }
+ }
+ \seealso{
+diff --git a/man/get_score_summary.Rd b/man/get_score_summary.Rd
+index fe04f30..7c3b59a 100644
+--- a/man/get_score_summary.Rd
++++ b/man/get_score_summary.Rd
+@@ -12,6 +12,9 @@ get_score_summary(res.Score)
+ }
+ \value{
+ data.frame with columns \code{model}, \code{C.index}, \code{Brier.score}.
++With a nondefault metric selection, returns the selected-metric
++\code{AUC.BS.AIC} table from \code{\link[=get_score]{get_score()}} instead. The legacy \code{C.index}
++column represents mean time-dependent AUC, not Harrell's C-index.
+ }
+ \description{
+ Aggregates time-dependent C-index / Brier into a single CI string per
+diff --git a/man/plt_score.Rd b/man/plt_score.Rd
+index f3a8c54..2890142 100644
+--- a/man/plt_score.Rd
++++ b/man/plt_score.Rd
+@@ -10,7 +10,9 @@ plt_score(res.Score)
+ \item{res.Score}{Output of \code{\link[=get_score]{get_score()}}.}
+ }
+ \value{
+-A \code{ggplot} (logistic) or \code{patchwork} (survival) object.
++A \code{ggplot} (logistic or one selected survival metric) or
++\code{patchwork} (both survival metrics). Returns \code{NULL} when \code{\link[=get_score]{get_score()}}
++has no applicable plot, including likelihood-only calls.
+ }
+ \description{
+ Source-faithful port of \code{.plt.score}. For survival Score (with \code{times}
+diff --git a/tests/testthat/test-get-score.R b/tests/testthat/test-get-score.R
+index 8dac726..6fdbe67 100644
+--- a/tests/testthat/test-get-score.R
++++ b/tests/testthat/test-get-score.R
+@@ -305,3 +305,192 @@ test_that("get_score2 log path returns plt.ROC ggplot (NULL sur plots)", {
+   expect_null(res$plt.combined)
+   expect_s3_class(res$plt.ROC, "ggplot")
+ })
++
++# New scoring options use the package's own cohort and integer-month times.
++score_metrics_data <- function() {
++  e <- new.env()
++  utils::data("seer_thyroid_mtc_2026", package = "RegR", envir = e)
++  d <- as.data.frame(e$seer_thyroid_mtc_2026)
++  d <- d[stats::complete.cases(d[c("time", "DSS", "event", "Age", "Sex")]) &
++           d$time > 0, c("time", "DSS", "event", "Age", "Sex")]
++  withr::local_seed(20261002)
++  i <- unlist(lapply(split(seq_len(nrow(d)), d$event), sample, size = 40L))
++  droplevels(d[i, , drop = FALSE])
++}
++
++test_that("get_score metrics parameter preserves defaults and exposes get_score2 results", {
++  expect_identical(formals(get_score)$metrics, quote(c("AUC", "BS")))
++  expect_identical(tail(names(formals(get_score)), 2L), c("R", "metrics"))
++  d <- score_metrics_data()
++  invisible(capture.output(out <- get_score(
++    d, list(c("Age", "Sex")), timepoint = c(24, 60),
++    metrics = c("AUC", "BS", "AIC", "BIC", "PVE")
++  )))
++  expect_s3_class(out, "Score")
++  expect_s3_class(out$obj, "Score")
++  expect_equal(out$AUC, out$obj$AUC)
++  expect_equal(out$Brier, out$obj$Brier)
++  expect_named(out$AUC.BS.AIC, c("model", "AUC", "BS", "AIC", "BIC", "PVE"))
++  expect_equal(get_score_summary(out), out$AUC.BS.AIC)
++  expect_s3_class(out$plt.AUC, "ggplot")
++  expect_s3_class(out$plt.BS, "ggplot")
++  expect_s3_class(out$plt.combined, "patchwork")
++  expect_null(out$plt.ROC)
++  invisible(capture.output(default <- get_score(d, "Age", timepoint = c(24, 60))))
++  expect_named(get_score_summary(default), c("model", "C.index", "Brier.score"))
++})
++
++test_that("get_score metrics reuse native fits and Score bootstrap without changing AUC BS", {
++  d <- score_metrics_data()
++  Hist <- prodlim::Hist
++  Surv <- survival::Surv
++  for (mode in list("DSS", TRUE, FALSE)) local({
++    pkg <- if (is.character(mode)) "stats" else if (mode) "survival" else "riskRegression"
++    fun <- if (is.character(mode)) "glm" else if (mode) "coxph" else "FGR"
++    original <- getExportedValue(pkg, fun)
++    form <- if (is.character(mode)) DSS ~ Age else if (mode)
++      Surv(time, DSS) ~ Age else Hist(time, event) ~ Age
++    args <- if (is.character(mode)) list(family = stats::binomial()) else if (mode)
++      list(x = TRUE, y = TRUE) else list(cause = 1, variance = FALSE)
++    native <- do.call(original, c(list(formula = form, data = d), args))
++    native$call$formula <- form
++    count <- 0L
++    fits <- list()
++    events <- integer()
++    spy <- function(...) {
++      # Evaluate arguments so the stored native call has no dangling ..n
++      # references to this spy's dots when Score evaluates it later.
++      fit <- do.call(original, list(...))
++      count <<- count + 1L
++      fits[[count]] <<- fit
++      dd <- list(...)[["data"]]
++      events[count] <<- sum(dd[[if (identical(mode, FALSE)) "event" else "DSS"]] == 1)
++      fit
++    }
++    for (reps in c(0L, 3L)) {
++      set.seed(87)
++      ref <- suppressMessages(riskRegression::Score(
++        list(Age = native), formula = if (is.character(mode)) DSS ~ 1 else if (mode)
++          Surv(time, DSS) ~ 1 else Hist(time, event) ~ 1,
++        data = d, metrics = c("auc", "brier"),
++        plots = if (reps == 0L) "ROC" else "boxplot",
++        times = if (is.character(mode)) NULL else c(24, 60),
++        null.model = FALSE, contrasts = FALSE,
++        split.method = if (reps == 0L) "none" else "bootcv", B = reps, cl = 10L
++      ))
++      ref_rng <- .Random.seed
++      local({
++        environment(spy)$count <- 0L
++        environment(spy)$fits <- list()
++        environment(spy)$events <- integer()
++        do.call(testthat::local_mocked_bindings,
++                c(stats::setNames(list(spy), fun), list(.package = pkg, .env = environment())))
++        set.seed(87)
++        invisible(capture.output(out <- suppressMessages(get_score(
++          d, "Age", surv = mode, timepoint = c(24, 60), R = reps,
++          metrics = c("AUC", "BS", "AIC", "BIC", "PVE")
++        ))))
++        expect_identical(environment(spy)$count, reps + 1L)
++        expect_identical(.Random.seed, ref_rng)
++        for (m in c("AUC", "Brier")) {
++          expect_equal(as.data.frame(out[[m]]$score), as.data.frame(ref[[m]]$score),
++                       tolerance = 1e-12)
++        }
++        fit_stats <- out$fit.stats
++        expect_identical(fit_stats$info$R_success, reps)
++        expect_equal(fit_stats$info$n, nrow(d))
++        expect_equal(fit_stats$info$bic_n, if (is.character(mode)) nrow(d) else
++                       sum(d[[if (mode) "DSS" else "event"]] == 1))
++        recorded <- environment(spy)$fits
++        expected <- lapply(seq_along(recorded), function(j) {
++          fit <- recorded[[j]]
++          ll <- if (identical(mode, FALSE)) fit$crrFit$loglik else
++            as.numeric(stats::logLik(fit))
++          ll0 <- if (identical(mode, FALSE)) fit$crrFit$loglik.null else if (isTRUE(mode))
++            fit$loglik[1] else ll - (fit$null.deviance - fit$deviance) / 2
++          k <- if (identical(mode, FALSE)) length(fit$crrFit$coef) else
++            attr(stats::logLik(fit), "df")
++          c(AIC = -2 * ll + 2 * k,
++            BIC = -2 * ll + log(if (is.character(mode)) nrow(d) else
++                                  environment(spy)$events[j]) * k,
++            PVE = -expm1(-2 * (ll - ll0) / nrow(d)))
++        })
++        expect_equal(fit_stats$stats$estimate, unname(expected[[1]]), tolerance = 1e-10)
++        if (reps >= 2L) {
++          # Verify all criteria against the recorded native training fits.
++          expect_equal(fit_stats$boot$AIC, vapply(expected[-1], `[[`, numeric(1), "AIC"))
++          expect_equal(fit_stats$boot$BIC, vapply(expected[-1], `[[`, numeric(1), "BIC"))
++          expect_equal(fit_stats$boot$PVE, vapply(expected[-1], `[[`, numeric(1), "PVE"))
++          for (m in c("AIC", "BIC", "PVE")) {
++            row <- fit_stats$stats[fit_stats$stats$metric == m, ]
++            expect_equal(c(row$lower, row$upper),
++                         unname(stats::quantile(fit_stats$boot[[m]], c(0.025, 0.975))))
++            expect_equal(row$SE, stats::sd(fit_stats$boot[[m]]))
++          }
++        }
++        expect_true(all(fit_stats$stats$estimate[fit_stats$stats$metric == "PVE"] >= 0))
++      })
++    }
++  })
++})
++
++test_that("get_score metrics compute only selected predictions and support likelihood only", {
++  d <- score_metrics_data()
++  for (metric in c("AUC", "BS")) {
++    invisible(capture.output(out <- get_score(d, "Age", timepoint = c(24, 200),
++                                               metrics = metric)))
++    expect_named(out$AUC.BS.AIC, c("model", metric))
++    expect_null(out[[if (metric == "AUC") "Brier" else "AUC"]])
++    p <- out[[if (metric == "AUC") "plt.AUC" else "plt.BS"]]
++    expect_s3_class(p, "ggplot")
++    built <- ggplot2::ggplot_build(p)
++    expect_true(any(built$data[[1]]$x == 200))
++    expect_null(out$plt.combined)
++    expect_equal(get_score_summary(out), out$AUC.BS.AIC)
++    expect_s3_class(plt_score(out), "ggplot")
++  }
++  count <- 0L
++  original <- riskRegression::FGR
++  testthat::local_mocked_bindings(FGR = function(...) {
++    count <<- count + 1L
++    original(...)
++  }, .package = "riskRegression")
++  # Likelihood-only requests must bypass Score rather than evaluating risks.
++  testthat::local_mocked_bindings(Score = function(...) stop("Score must not run"),
++                                  .package = "riskRegression")
++  set.seed(18)
++  invisible(capture.output(out <- get_score(d, list(c("Age", "Sex")), surv = FALSE,
++    R = 3, metrics = c("PVE", "BIC", "AIC"))))
++  expect_identical(count, 4L)
++  expect_null(out$obj)
++  expect_named(out$AUC.BS.AIC, c("model", "PVE", "BIC", "AIC"))
++  expect_equal(out$fit.stats$info$R_success, 3L)
++  expect_null(plt_score(out))
++})
++
++test_that("get_score metrics validate selection and pair models on a common sample", {
++  d <- score_metrics_data()
++  for (bad in list(character(), "Brier", c("AUC", "AUC"), c("AUC", NA), 1)) {
++    expect_error(get_score(d, "Age", metrics = bad), "metrics")
++  }
++  expect_error(get_score(d, "Age", R = 1.5), "R")
++  d$Age[1] <- NA_real_
++  withr::local_seed(9)
++  invisible(capture.output(out <- suppressMessages(get_score(
++    d, list(a = "Age", b = "Age", sex = "Sex"), R = 3,
++    timepoint = c(24, 60), metrics = c("BS", "BIC", "PVE")
++  ))))
++  expect_equal(out$fit.stats$info$n, rep(nrow(d) - 1L, 3L))
++  expect_equal(out$fit.stats$info$n_omitted, rep(1L, 3L))
++  expect_named(out$fit.stats$obj, c("a", "b", "sex"))
++  expect_identical(unique(out$fit.stats$stats$metric), c("BIC", "PVE"))
++  expect_equal(unname(as.matrix(out$fit.stats$boot[
++    out$fit.stats$boot$model == "a", c("BIC", "PVE")])),
++    unname(as.matrix(out$fit.stats$boot[
++      out$fit.stats$boot$model == "b", c("BIC", "PVE")])))
++  invisible(capture.output(log_out <- get_score(d[-1, ], Age, surv = "DSS",
++                                                 metrics = "AUC")))
++  expect_s3_class(log_out$plt.ROC, "ggplot")
++  expect_null(log_out$plt.AUC)
++  expect_null(log_out$plt.BS)
++})
