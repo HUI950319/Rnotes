@@ -1,6 +1,6 @@
 ---
 title: "RPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率"
-subtitle: "get_rpa → get_cat 各步骤在 4387 到 200000 例下的耗时和内存，两项已并入 RegR 的优化，以及不画置信带的评估"
+subtitle: "get_rpa → get_cat 各步骤在 4387 到 200000 例下的耗时和内存，两项已并入 RegR 的优化，不画置信带的评估，以及竞争风险改用 mets 后的 1 万例前后对比"
 date: 2026-10-02
 ---
 
@@ -51,6 +51,7 @@ get_cat(dat, cat_var = "group", adj_var = adj_var, surv = TRUE,
 5. **减少时间点也有效。**曲线改为每 6 个月取一个点，n = 8000 时从 35 s 降到 5.7 s，n = 30000 时从 145 s 降到 18 s；120 个月处的估计值和置信区间不变，但曲线变粗。
 6. **方案 A 和改良后的方案 B 已于 2026-10-02 并入 RegR。**B 改成了「最多 50 个时间点，按事件时间抽取」。11 组、n = 30000 的 `get_cat()` 从 171 s 降到 14 s；保留下来的每个时间点上，曲线、标准误和置信区间与原来完全相同，HR 和生存率表一字不差。A 同样用于竞争风险的 CSC 模型；FGR 不经过 `ate()`，A 对它不适用，B 也没有让它变快。`get_facet()` 的调整曲线后来也加上了 B。见「已并入 RegR 的优化」。
 7. **再去掉曲线的置信带（方案 C），大样本时曲线这一步还能快 3.6–5 倍，但尚未并入 RegR。**在 A + B 的基础上，n = 100000 时调整曲线从 37 s 降到 7 s，n = 200000 时从 75 s 降到 21 s，点估计不变；代价是图上的调整曲线和差值曲线都没有置信带。整个 `get_cat()` 估计快 2–3 倍，因为 120 个月生存率表本身需要置信区间，C 管不到。见「方案 C：不画置信带（评估）」。
+8. **竞争风险已改用 mets（2026-10-02 并入 RegR）。**sHR、亚组交互 P、`get_inter()` 的模型和 Fine-Gray 调整 CIF 都改由 mets 计算，调整 CIF 不再做 bootstrap。1 万例时 `get_eff(surv = FALSE)` 从 42 s 降到 9 s，`get_cat()` 从 98 s 降到 20 s，`get_facet(method = "direct")` 从 13 s 降到 3 s。按整月记录的数据上 sHR 变化约 1%，调整 CIF 的点估计基本不变，置信区间由 bootstrap 改为 Wald 区间。`get_rpa()` 只走 Cox，不受影响。见「竞争风险改用 mets：1 万例前后对比」。
 
 ## 测试设置
 
@@ -300,7 +301,7 @@ knitr::kable(data.frame(
   check.names = FALSE), align = "lrr")
 ```
 
-不论 `cif_args` 选哪个模型，竞争风险的 HR 都用 Fine-Gray（`crr`）计算。两次 `crr` 拟合加起来占了六成，是现在的主要瓶颈，A 和 B 都不涉及这一步。
+不论 `cif_args` 选哪个模型，竞争风险的 HR 都用 Fine-Gray（`crr`）计算。两次 `crr` 拟合加起来占了六成，是现在的主要瓶颈，A 和 B 都不涉及这一步。这一步后来改用 mets，见「竞争风险改用 mets：1 万例前后对比」。
 
 ## 方案 C：不画置信带（评估）
 
@@ -354,6 +355,82 @@ C 的代价：
 - HR 表和 120 个月生存率表不受影响，照常有置信区间。
 - 要在 RegR 里实现 C，不能只传 `conf_int = FALSE`。`.plot.obj()` 和 `.plot.dif()` 目前默认按「有置信区间」来画，也得跟着改。所以 C 更适合做成可选开关（大样本探索时关掉置信带），不宜改成默认。
 
+## 竞争风险改用 mets：1 万例前后对比
+
+上面的「竞争风险还慢在哪里」一节显示，竞争风险的 HR 每次都要用 `crr` 拟合；Fine-Gray 的调整 CIF 更慢，要做 50 次 bootstrap，每次重新拟合一遍 `crr`。2026-10-02 起，RegR 把这几处改由 [mets](https://kkholst.github.io/mets/) 计算：
+
+- **sHR**：`mets::cifregFG()`，收敛容差收紧到 1e-10（默认值会让稀疏的组偏差约 0.2%）。mets 报错时给出警告，改回 `crr`。
+- **亚组交互 P**（`get_eff(sub_var =)`、`get_facet()`）：在同一个 mets 拟合上对交互项做联合 Wald 检验，与原来 `rms::anova()` 报告的检验相同。
+- **`get_inter()`** 的竞争风险模型同样改用 mets。
+- **Fine-Gray 调整 CIF**：`mets::survivalGtime()` 按 g-formula 标准化，用影响函数标准误给出 Wald 区间（截断到 0–1），不再 bootstrap。点估计仍是同一个 Fine-Gray g-formula。
+
+测试设置：
+
+- **环境：**WSL Ubuntu 22.04，R 4.4.3，mets 1.3.13，`OMP_NUM_THREADS=1`。环境与本页其余部分（Windows R）不同，绝对耗时不能直接比较。WSL 的多线程 BLAS 会让 mets 空转，一段 6 s 的计算能用掉 100 多 CPU 秒，其他进程一忙计时就大幅波动；设为单线程后才稳定。Windows R 的 BLAS 本来就是单线程。
+- **版本：**改动前为 RegR 254c339，改动后为 6d5faa8。两版装进两个独立的库，各在一个独立进程里依次运行。
+- **数据：**本页的 4387 例 RPA 分组数据，多取竞争风险的 `event` 列（597 个目标事件、583 个竞争事件），有放回重抽样到 10000 例。时间以整月记录，同一时间点有大量事件。
+- **计时：**每个调用跑 2 次，取较短的一次。
+
+```r
+get_eff(d, cat_var = "group", adj_var = c("Sex", "Age"), surv = FALSE, time = 120)
+get_eff(d, cat_var = "Sex", sub_var = "AgeGrp", adj_var = "Age", surv = FALSE, methods = "unadj")
+get_inter(d, exposure_names = c("Sex", "AgeGrp"), adj_var = "Age", surv = FALSE)
+get_cat(d, cat_var = "group", adj_var = c("Sex", "Age"), surv = FALSE, timepoint = 120)
+get_facet(d, split_var = "AgeGrp", cat_var = "Sex", adj_var = "Age", surv = FALSE, method = "direct")
+get_facet_diff(d, split_var = "AgeGrp", cat_var = "Sex", adj_var = "Age", surv = FALSE)
+get_rpa(d, c("Age", "Sex"), adj_var = "Age", surv = FALSE)
+```
+
+```{r}
+#| label: tbl-mets-10k
+#| echo: false
+#| tbl-cap: "竞争风险各函数在 n = 10000 时改用 mets 前后的耗时（秒）与结果变化。11 组（get_cat / get_eff），其余按 Sex 与年龄分组；AgeGrp 为是否 ≥ 55 岁。"
+mt <- read.csv("bench/cr_mets_10k.csv", encoding = "UTF-8")
+fn <- c(get_eff = "`get_eff()`", get_eff_sub = "`get_eff(sub_var)` 交互 P", get_inter = "`get_inter()`",
+        get_cat = "`get_cat()`", get_facet = "`get_facet(method = \"direct\")`",
+        get_facet_diff = "`get_facet_diff()`", get_rpa = "`get_rpa()`")
+knitr::kable(data.frame(
+  函数 = fn[mt$fun],
+  改动前 = sprintf("%.1f", mt$before_sec),
+  改动后 = sprintf("%.1f", mt$after_sec),
+  提速 = ifelse(mt$fun == "get_rpa", "—", sprintf("%.1f×", mt$before_sec / mt$after_sec)),
+  结果变化 = mt$change,
+  check.names = FALSE), align = "lrrrl", row.names = FALSE)
+```
+
+```{r}
+#| label: tbl-mets-cif
+#| echo: false
+#| tbl-cap: "get_eff() 中 120 个月的调整 CIF（95% CI）。点估计不变；区间从 50 次 bootstrap 的百分位区间改为影响函数的 Wald 区间。"
+cf <- read.csv("bench/cr_mets_10k_cif.csv", encoding = "UTF-8")
+knitr::kable(data.frame(组 = cf$group, 改动前 = cf$before, 改动后 = cf$after,
+                        check.names = FALSE), align = "lll")
+```
+
+几点说明：
+
+- **耗时省在哪里。**另一轮分步计时（未设 `OMP_NUM_THREADS`）中，改动前 `get_eff()` 的 49.1 s 里有 43.2 s 花在调整 CIF 的 bootstrap 上，改动后这一步只要 2.6 s。1 万例时 sHR 拟合本身快不了多少，`crr` 和 mets 都要 2–3 s；`crr` 的方差计算随 n 大约按 n² 增长，所以收益在大样本：10 万例时单次 `crr` 约 10 分钟，mets 约 20–30 s，整个 `get_eff(surv = FALSE)` 用 70 s。
+- **结果为什么会变。**同一时间点有大量事件时，mets 与 `crr` 处理并列时间的方式不同，sHR 相差约 1%；没有并列时间时两者相差不到 1e-4（模拟数据上约 1e-7），标准误之比为 1.000。调整 CIF 的点估计最多差约 0.002；区间宽度中位数约为原来的 1.1 倍，多数时点在 0.9–1.3 倍之间（`get_facet()` 个别早期时点达 1.8 倍），因为原来的区间来自只有 50 次重抽样的 bootstrap。
+- **`get_rpa()` 不受影响。**它内部固定按 Cox（`surv = TRUE`）调用 `get_cat()`，前后结果相同。表中的耗时差异来自计时波动。
+- **对比中发现并修复的两个问题。**一是新会话里还没加载 adjustedCurves 时，mets 生成的曲线用泛型 `plot()` 画图会出错，`.get.obj()` 随即悄悄改用 IPTW。二是传入 tibble 时 mets 报错，又悄悄退回旧的 bootstrap。两者都已修复，上表是修复后的结果。
+- **mets 的两个坑（RegR 已绕开）。**`survivalG()` 恰好在有并列事件的时间点上取值时，只计入其中第一个事件：按整月记录的数据上，1 个月时 CIF 读成 0.0014，实际约为 0.02。RegR 改为在略晚一点的时间取值。`cifregFG()` 的默认收敛容差太松，RegR 已收紧。
+
+**`get_facet()` / `get_facet_diff()` 的并行默认值。**竞争风险原来在 Windows（没有 adjustedCurves 的 fork 后端）上一律默认串行，因为 Fine-Gray 调整 CIF 里嵌套的 bootstrap 集群会在外层并行时崩溃，然后悄悄改用 IPTW。现在调整 CIF 不再 bootstrap，所以两个函数在 Cox 和竞争风险下都默认 `parallel = 4L`。下表在 3 个分层上比较了串行和并行，两种跑法得到的所有数据表都完全相同（`identical()`），每个分层用的都是 direct 方法：
+
+```{r}
+#| label: tbl-mets-parallel
+#| echo: false
+#| tbl-cap: "n = 10000，按 3 个分层（RPA 组合并为 low / mid / high）运行，parallel = 1L 与 4L 的耗时（秒）。"
+pr <- read.csv("bench/cr_mets_parallel.csv")
+knitr::kable(data.frame(
+  函数 = paste0("`", pr$fun, "()`"), 环境 = pr$os,
+  串行 = sprintf("%.1f", pr$serial_sec), `4 个并行` = sprintf("%.1f", pr$parallel_sec),
+  结果相同 = ifelse(pr$identical, "是", "否"),
+  check.names = FALSE), align = "llrrl")
+```
+
+Windows 上并行要先启动 4 个 R 进程并在每个进程里加载 RegR，所以只有 3 个分层时省得不多；分层越多，并行越划算。
+
 ## 可选的改进
 
 下表是最初评估时列出的做法。A 已原样实施；B 实施时改成了「最多 50 个时间点、按事件时间抽取」，见「已并入 RegR 的优化」；C 在 A + B 之上的大样本评估见上一节，尚未实施；D 没有采用。
@@ -398,4 +475,14 @@ C 的代价：
 #| eval: false
 #| code-fold: true
 #| code-summary: "rpa_cox_optim.R：方案 A / B 的前后对比"
+```
+
+「竞争风险改用 mets」一节读取 `cr_mets_10k.csv`、`cr_mets_10k_cif.csv` 和 `cr_mets_parallel.csv`，同样只有汇总结果。它们由 `cr_mets_10k.R` 在 WSL 上生成，文件开头写明了前后两版各对应哪个 RegR 版本，以及串行与并行对比的调用方式。
+
+```{r}
+#| label: code-mets
+#| file: bench/cr_mets_10k.R
+#| eval: false
+#| code-fold: true
+#| code-summary: "cr_mets_10k.R：竞争风险改用 mets 的前后对比"
 ```
