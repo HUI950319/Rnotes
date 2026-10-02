@@ -1,0 +1,231 @@
+---
+title: "causalR 包总览：问题、函数与返回对象"
+subtitle: "causalR 包函数手册 · 从研究问题选择入口"
+lang: zh
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-map
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+causalR 把**分析设计、效应估计、异质性探索和敏感性分析**组织成相互衔接的工具。
+本页先说明每个入口回答什么问题，再展示对象结构、重要参数和一套最短的计算—绘图流程。
+重要参数在下表展示，算法详解可参照配套模块手册，函数默认值以本页实际执行的源码为准。
+
+::: {.callout-note}
+识别假设先于函数选择：一致性、条件可交换性、正性，以及生存分析需要的删失条件。
+匹配或平衡改善是可观测协变量的诊断，不能证明未测量混杂已消除。
+:::
+
+## 按研究问题选函数 {#sec-map-questions}
+
+| 研究问题 | 入口 | 主要输出 | 下一步 |
+|---|---|---|---|
+| 倾向评分加权后，两组是否可比？ | `get_PSW()` | 多套权重、ESS、平衡诊断 | `plt_PSW()`，随后预先指定的结局模型 |
+| 不同匹配算法保留了哪些患者？ | `get_PSM()` | 匹配权重、匹配组和诊断 | `plt_PSM()`，结合匹配结构估计效应 |
+| 把匹配和加权方案放到同一张图？ | `get_bal()` | love plot、平衡表、可选基线表 | 在共同口径下比较设计 |
+| 平均效应多大，效应随协变量如何变化？ | `get_hte()` | `hte_res` | `plt_hte_dep/sub/cate/rate()` |
+| 候选修饰变量很多，如何先排序？ | `get_hte_select()` | 排序、固定顺序累加路径、选中变量 | 保留混杂变量，再作独立验证 |
+| 哪个变量呈现单变量线性效应修饰？ | `get_hte_unihtee()` | TEM-VIP、区间、p 值与 BH 校正 | `plt_hte_unihtee()` |
+| 从数据寻找可读的亚组规则？ | `get_hte_icf()`、`get_hte_tree()` | 规则与估计集上的效应 | 树图、亚组图和验证 |
+| 换样本或种子，亚组树是否相似？ | `get_hte_tree_stability()` | 入选频率、切点、Jaccard、重复状态 | 报告重复性与失败比例 |
+| 新患者落在哪条既有规则？ | `predict(hte_tree, newdata)` | 规则文字或叶子编号 | 原规则的外部应用与后续效应验证 |
+| 未测量混杂多强会改变结论？ | `get_sens()` | 稳健值、翻转点或 E 值等 | `plt_sens()` |
+
+```{mermaid}
+flowchart TD
+  Q[研究问题与目标人群] --> E[结局、时间点与效应尺度]
+  E --> P[匹配或加权设计]
+  P --> B[平衡、重叠与有效样本量]
+  B --> O[选定设计后的结局模型]
+  E --> H[get_hte：因果森林与双稳健效应]
+  H --> D[依赖图、亚组图、CATE 分布、排序评估]
+  E --> V[修饰变量筛选与规则发现]
+  V --> S[独立估计、稳定性和验证]
+  O --> U[未测量混杂敏感性分析]
+```
+
+这里是多条分析路线的地图。PS 权重不需要机械地再套进所有森林；匹配后的人群、加权目标人群
+与原始队列可能不同。混杂调整变量与候选修饰变量也不能混为同一个筛选集合。
+
+## 配套模块手册 {#sec-map-manuals}
+
+| 模块 | 教程 | 重点 |
+|---|---|---|
+| HTE 计算与绘图 | [第 1 页](https://hui950319.github.io/causalR/notes/causalR/01-hte.html) | 森林、效应尺度、四类图和排序诊断 |
+| 高维变量初筛 | [第 2 页](https://hui950319.github.io/causalR/notes/causalR/02-hte-select.html) | 排序、累加路径和验证指标 |
+| 倾向评分设计 | [第 3 页](https://hui950319.github.io/causalR/notes/causalR/03-ps.html) | PSM、PSW、平衡与设计后的效应估计 |
+| 未测量混杂 | [第 4 页](https://hui950319.github.io/causalR/notes/causalR/04-sens.html) | LM、Cox、DML、IV 的不同框架 |
+| iCF 规则发现 | [第 5 页](https://hui950319.github.io/causalR/notes/causalR/05-hte-icf.html) | 变量筛选、投票、深度选择与估计集 |
+| 单变量效应修饰 | [第 6 页](https://hui950319.github.io/causalR/notes/causalR/06-hte-unihtee.html) | TEM-VIP、森林与 GLM 路线 |
+| 亚组树 | [第 7 页](https://hui950319.github.io/causalR/notes/causalR/07-hte-tree.html) | 17 个 method、诚实估计与树图 |
+
+## 输入与返回对象的衔接 {#sec-map-objects}
+
+| 对象 | 核心字段 | 可交给的绘图接口 |
+|---|---|---|
+| `hte_res` | `stats`、`subgroup`、`importance`、`calibration`、`data`、`fit` | `plt_hte_dep/sub/cate/rate()` |
+| `hte_icf` | `rules`、`cv`、`vote`、`importance`、`est`、`tree` | `plt_hte_icf()`；`est` 可交给 HTE 图 |
+| `hte_tree` | `rules`、`nodes`、`est`、`tree`；拟合上下文在 `attr(x,"analysis")` | `plt_hte_tree()`；`est` 可交给亚组图 |
+| `get_hte_select()` 的 list | `ranking`、`forward`、`selected` 与组合图等 | 直接使用结果自带的图；不是 `hte_res` |
+| unihtee 结果 list | 筛选表和分析信息，细节见第 6 页 | `plt_hte_unihtee()` |
+| `psm_res` / `psw_res` | 设计结果、权重、诊断和分析信息 | `plt_PSM()` / `plt_PSW()` |
+| `sens_res` | `stats`、`bounds`、`fit`、`sens` 及分析属性 | `plt_sens()` |
+
+保留完整对象及其分析属性。只保存 `rules` 表会丢失预测所需的训练编码；只保存效应表也无法
+重画需要森林拟合的依赖图或重算排序诊断。对新样本的 `predict.hte_tree()` 不重新拟合森林，
+也不自动估计新样本的治疗效应。
+
+## 重要参数：先明确统计问题，再调计算与显示 {#sec-map-parameters}
+
+### HTE 主入口
+
+| 参数 | 默认或常用值 | 改变什么 | 例子 |
+|---|---|---|---|
+| `cat_var` | 必填二分类暴露 | 治疗与对照方向；因子第二水平为治疗 | `cat_var="z"` |
+| `adj_var` | `NULL`；实际分析应预先定义 | 森林条件化的协变量 | `c("age","marker","sex")` |
+| `sub_var` | `NULL` | 预先定义的分类亚组；不在协变量中会自动加入 | `sub_var="sex"` |
+| `surv` | `TRUE` | `time + DSS` 生存结局；列名表示连续或二分类结局 | `surv="y"` |
+| `time` | `120` | 生存概率或 RMST 的时间范围，单位沿用数据 | `time=60` |
+| `estimand` | `"ATE"` | 目标人群；非生存差值可用 ATT、ATC、ATO | `c("ATE","ATT")` |
+| `measure` | `"diff"` | 差值、比值或 OR；受结局与目标人群约束 | `c("diff","ratio")` |
+| `factor_encoding` | `"integer"` | 分类协变量的设计矩阵表示 | 无序多水平变量可研究 `"onehot"` |
+| `grf_args` | `list()` | 森林设置及已知倾向评分等逐行输入 | `list(num.trees=500,seed=42,num.threads=2)` |
+
+生存结局目前只支持 ATE；相对尺度只支持 ATE。`grf_args$target="RMST"` 改变目标结局，
+不是显示开关。`surv=FALSE` 的竞争风险路径当前不支持。
+
+### 筛选与规则发现
+
+| 参数 | 适用入口 | 重点 |
+|---|---|---|
+| `candidate_var` | select、unihtee、tree | 候选修饰变量；不取代预先定义的混杂调整变量 |
+| `split_frac` | icf、tree | 发现与估计样本的分配；`1` 会复用样本，失去这种诚实划分 |
+| `method` | tree | 决定切分引擎与切分尺度；`_dr/_cate/_r/_abs/_rel/_aft` 不等价 |
+| `max_depth`、`min_leaf` | tree | 规则复杂度与最小叶子大小 |
+| `alpha`、`tree_args` | tree | 检验门槛、引擎控制和条件约束，适用性依 method 而定 |
+| `reuse` | tree | 兼容时复用森林；需要同一数据、森林与切分设置 |
+| `n_rep`、`mode` | stability | 重复数与固定得分/完整重拟合的两种重复方案 |
+| `rule_args` | icf | 投票森林数、树数、叶子限制与估计设置 |
+
+这些入口使用的同名参数不保证有相同的允许值。例如 `method` 在 PSM 指匹配算法，在 PSW
+指倾向评分模型，在敏感性分析指分析框架；先读对应函数，不能把同名参数原样跨模块转发。
+
+### 计算一次，再控制显示
+
+| 显示入口 | 高频参数 | 应重点看什么 |
+|---|---|---|
+| `plt_hte_dep()` | `x_var`、`type`、`display`、`dr_args`、`pdp_args` | 双稳健曲线与森林 CATE 的区别；网格和抽样设置在 `pdp_args` |
+| `plt_hte_sub()` | `sub_var`、`measure`、`xlim`、`ticks_at`、`fixed_size` | 亚组双稳健估计、区间和效应方向 |
+| `plt_hte_cate()` | `sub_var`、`type` | 森林预测分布，不是逐人真效应的验证 |
+| `plt_hte_rate()` | `priority`、`type`、`train_frac`、`max_n`、`gates_args` | 排序与评估的样本独立性 |
+| `plt_hte_icf/tree()` | `type` | `effect/dr/box/bar/km` 的数据与尺度不同 |
+| 各公开绘图入口 | `save=list()` | 构造最终图后保存 PDF；缺省不写文件 |
+
+## 最短工作流：一个对象、三种图 {#sec-map-example}
+
+示例使用可公开的模拟数据。真实效应随 `marker` 改变，治疗分配受年龄和标志物影响。
+
+```{r}
+#| label: map-data
+set.seed(20261002)
+n <- 1000
+d <- data.frame(age = rnorm(n, 60, 10), marker = runif(n),
+                sex = factor(sample(c("Female", "Male"), n, TRUE)))
+d$z <- rbinom(n, 1, plogis(-0.2 + 0.3 * d$marker + 0.02 * (d$age - 60)))
+d$tau <- 0.5 + 2 * d$marker
+d$y <- 0.04 * (d$age - 60) + d$marker + d$z * d$tau + rnorm(n)
+head(d)
+```
+
+```{r}
+#| label: map-fit
+res <- get_hte(d, cat_var = "z", adj_var = c("age", "marker", "sex"),
+               sub_var = "sex", surv = "y",
+               grf_args = list(num.trees = 500, seed = 42, num.threads = 2))
+names(res)
+res$stats
+res$subgroup
+head(res$data[c("marker", ".cate", ".dr_score")])
+```
+
+::: {.panel-tabset}
+
+### 双稳健依赖曲线 {.unnumbered}
+
+```{r}
+#| label: fig-map-dep
+#| fig-width: 7
+#| fig-height: 4.6
+#| fig-cap: "标志物与效应的关系。纵轴是连续结局的均值差，治疗效应真值随 marker 增加。"
+plt_hte_dep(res, x_var = "marker", display = "dr")
+```
+
+### 森林 CATE 曲线 {.unnumbered}
+
+```{r}
+#| label: fig-map-forest
+#| fig-width: 7
+#| fig-height: 4.6
+#| fig-cap: "display='cate' 仅展示森林预测与平滑线；它与双稳健效应曲线的估计对象不同。"
+plt_hte_dep(res, x_var = "marker", display = "cate", cate_smooth = 0.7)
+```
+
+### 亚组森林图 {.unnumbered}
+
+```{r}
+#| label: fig-map-sub
+#| fig-width: 7
+#| fig-height: 4
+#| fig-cap: "预先定义的性别亚组。点和区间来自双稳健效应估计；不能仅凭两组显著性不同断言交互。"
+plt_hte_sub(res, sub_var = "sex", fixed_size = FALSE)
+```
+
+### CATE 分布 {.unnumbered}
+
+```{r}
+#| label: fig-map-cate
+#| fig-width: 7
+#| fig-height: 4
+#| fig-cap: "森林 CATE 的分布。它描述模型输出的离散程度，不能证明个体效应估计准确。"
+plt_hte_cate(res, sub_var = "sex", type = "density")
+```
+
+:::
+
+保存示例不在站点渲染时执行，以免产生无需求的文件；本地使用时指定自己的文件名。
+
+```{r}
+#| eval: false
+plt_hte_dep(res, x_var = "marker",
+            save = list(filename = "hte_marker.pdf", width = 7, height = 4.6))
+saveRDS(res, "hte_result.rds")
+```
+
+## 当前实现与扩展边界 {#sec-map-boundary}
+
+包名和 DESCRIPTION 包含目标试验模拟的定位，但当前这套公开入口集中在 PS 设计、HTE
+与敏感性分析。克隆—删失—加权、纵向 g-formula 等材料属于方法学习与实践，不能据此假定
+存在同名的一站式公共函数。
+
+探索发现、效应估计、重复稳定性、排序表现和决策价值分别报告。新发现的亚组要在未参与发现的
+数据上估计或验证；分裂频率、SHAP 或稳定性都不能单独建立因果解释。
+
+## 环境与接口速查 {#sec-map-session}
+
+```{r}
+packageVersion("causalR")
+packageVersion("grf")
+args(get_hte)
+args(get_hte_tree)
+args(get_hte_tree_stability)
+sessionInfo()
+```
