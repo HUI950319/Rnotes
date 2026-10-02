@@ -1,7 +1,7 @@
 ---
 title: "交互分析：get_inter、绝对风险与表格导出"
-description: "get_inter、get_inter_abs、fmt_inter、fmt_inter_ft、fmt_inter_gt、save_tb_inter 和 plt_inter 的接口、返回对象与 21 张参数对照图；补充 get_eff_inter / fmt_eff_inter_gt 的三份合并表。"
-date: 2026-10-01
+description: "交互分析的接口、结果与参数对照；补充 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
+date: 2026-10-02
 lightbox: true
 toc-depth: 2
 format:
@@ -24,6 +24,8 @@ format:
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
 
 **版本与执行范围：** 接口按 RegR **0.1.3** 的本机源码快照 `0add2bb` 核对，使用 WSL R **4.4.3** 实际拟合模型，生成 **21 张不同的结果图**，并验证 3 份 Word 导出文件。页面展示已保存的汇总结果；代码可在装有相应版本 RegR 及依赖的 R 环境中复现。
+
+**2026-10-02 更新：** [竞争风险绝对交互的 mets 优化](#cif-mets-update) 按 RegR 源码快照 `cefc1a5`、mets **1.3.13** 补充，包含默认 `delta` 与可选 `boot` 的真实结果、完整调用计时及可下载记录。该节更新了下文 Fine–Gray 区间的计算说明。
 
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
 
@@ -285,13 +287,13 @@ get_inter_abs(
 | `poi_time` | 显式传入即切换为完整随访的人时发生率；`sur_time = NULL` 也会切换到发生率尺度 |
 | 两个时间参数 | 生存模式下，不能同时显式传入非空的 `sur_time` 与 `poi_time`；Logistic 不使用这两个参数 |
 | `multicat_model` | **默认 `"separate"`**，与 `get_inter()` 的默认值不同；完整模型与逐对子集模型的标准化人群也不同 |
-| `ci_method` | `"delta"` 为解析近似区间，速度快；`"boot"` 为联合 bootstrap 百分位区间 |
-| `n_boot, n_cores` | bootstrap 次数与核数；默认 500 次、1 核。较小次数适合运行检查，正式区间需要充分的重复次数和稳定性检查 |
-| `cif_args` | 竞争风险标准化的工作模型：默认 `FGR`，可选 `CSC`。模型假设不同，不能只按速度认定两者等价 |
+| `ci_method` | 默认 `"delta"`，Fine–Gray 调整分支使用 mets 的联合影响函数协方差；`"boot"` 为联合 bootstrap 百分位区间，两种设置均使用 mets 拟合与标准化 |
+| `n_boot, n_cores` | bootstrap 次数与核数，默认 500 次、1 核；Fine–Gray 的 `delta` 分支不抽样，这两个参数不控制其耗时。较小抽样次数适合运行检查，正式区间需检查重复次数与稳定性 |
+| `cif_args` | 竞争风险标准化的工作模型：默认 `FGR`，可选 `CSC`。显式选择 `CSC` 时，调整分支仍使用 bootstrap，`delta` 会警告并回退；两者模型假设不同 |
 
 :::
 
-当前 Fine–Gray **调整分支的交互区间始终使用 bootstrap**，选择 `ci_method = "delta"` 时会警告并回退；不能因为设置了 `cif_args = list(model = "CSC")` 就认定这组交互区间走解析法。本页用 Cox / Logistic / Poisson 的 delta 路径展示结果，没有为这组图运行竞争风险 bootstrap。
+自 2026-10-02 的 `cefc1a5` 更新起，默认 Fine–Gray **调整分支可直接计算 delta 区间，无需 bootstrap**。旧版“选择 delta 仍回退 bootstrap”的说明仅适用于更新前的实现；显式选择 CSC 的调整分支仍保留回退行为。下方原有四组图展示 Cox / Logistic / Poisson，新的 CIF 示例见 [mets 优化与加速实测](#cif-mets-update)。
 
 ### 四种尺度设置
 
@@ -365,6 +367,143 @@ fmt_inter(inter_abs_or, output_format = "flextable")
 :::
 
 返回对象带 `get_inter_abs` 类与相应的 `inter_type`。二分类单结果仍分为 `Unadj` / `Adjus`，表为 **9×4**，比相对尺度多 IC 一行；多对比与分层结果可继续交给同一套格式化与 Word 导出函数。`plt_inter()` 的 8×4 比值表输入要求不适用于这些绝对结果。
+
+## 竞争风险更新：mets 联合 CIF 与加速实测 {#cif-mets-update}
+
+### 默认 delta 为什么不再需要抽样？
+
+`get_inter_abs(surv = FALSE)` 默认使用 Fine–Gray 工作模型。调整分支先用 `mets::cifregFG()` 拟合联合暴露状态与协变量，再用 `mets::survivalG()` 将同一人群标准化到四个暴露状态。它同时获得四个 CIF 的点估计与**完整的联合协方差**；未调整分支仍为各联合组的 Aalen–Johansen CIF。
+
+联合协方差保留不同标准化风险之间的相关性，也包含模型拟合与经验标准化人群分布的不确定性。不能把四个风险的标准误平方放在对角线上，就视为调整分支的完整协方差。令 $\mathbf p=(p_{00},p_{01},p_{10},p_{11})^\top$，$\mathbf a=(1,-1,-1,1)^\top$，则：
+
+$$
+\mathrm{IC}=\mathbf a^\top\mathbf p,\qquad
+\operatorname{Var}(\mathrm{IC})=\mathbf a^\top V\mathbf a.
+$$
+
+默认 `ci_method = "delta"` 从 $V$ 计算 IC、RERI、AP、SI 与乘性交互的区间；乘性项与 SI 使用对数尺度近似。这个分支不执行 bootstrap，因此提高 `n_boot` 或 `n_cores` 不会让它进行更多抽样。`mets::survivalG()` 的标准化风险与影响函数接口见 [官方帮助](https://kkholst.github.io/mets/reference/survivalG.html)。
+
+`ci_method = "boot"` 则在每次患者级联合重抽样后，通过同一 mets 模型重新拟合，并对该次抽样人群标准化；四个暴露状态使用同一次抽样，再组合交互指标。无法估计的抽样会整次剔除并警告。显式 `cif_args = list(model = "CSC")` 的调整分支仍使用 bootstrap，选择 `delta` 时会警告并回退。
+
+### 两种区间方法：同一队列的实际结果
+
+本节单独按 `time`、`event`、`Sex`、`Age`、`Race` 完整病例且 `time > 0` 筛选，得到 **4,387 人**：删失 3,207 人、目标事件 597 人、竞争事件 583 人。比较性别与年龄组，调整连续年龄与种族，在 **120 月**估计目标事件 CIF。连续年龄和年龄分组同时出现，是本次计时固定的调整设置；研究分析应按问题预先确定协变量。
+
+```r
+# 本节代码共用的数据；event: 0=删失，1=目标事件，2=竞争事件
+inter_cif_data <- as.data.frame(RegR::seer_thyroid_mtc_2026)
+cif_vars <- c("time", "event", "Sex", "Age", "Race")
+inter_cif_data <- inter_cif_data[
+  complete.cases(inter_cif_data[, cif_vars]) & inter_cif_data$time > 0,
+  cif_vars
+]
+inter_cif_data$Sex <- factor(inter_cif_data$Sex, levels = c("Female", "Male"))
+inter_cif_data$AgeH <- factor(
+  ifelse(inter_cif_data$Age >= 55, "ge55", "lt55"),
+  levels = c("lt55", "ge55")
+)
+```
+
+::: {.panel-tabset}
+
+### delta：默认方法 {.unnumbered}
+
+```r
+inter_cif_delta <- RegR::run_quiet({
+  get_inter_abs(
+    inter_cif_data, exposure_names = c("Sex", "AgeH"),
+    adj_var = c("Age", "Race"), surv = FALSE, sur_time = 120,
+    ci_method = "delta", cif_args = list(model = "FGR")
+  )
+})
+fmt_inter_gt(inter_cif_delta)
+```
+
+以下为该次调用中四个风险与主要加性交互 IC 的摘要。CIF 乘以 100 显示为百分比；IC 乘以 100 显示为百分点。括号内为 95% CI。
+
+| 状态或指标 | 未调整 | 调整年龄与种族 |
+|:--|--:|--:|
+| Female，<55：CIF（%） | 7.67（5.95，9.39） | 10.30（7.83，12.77） |
+| Female，≥55：CIF（%） | 12.78（10.71，14.86） | 10.59（8.80，12.38） |
+| Male，<55：CIF（%） | 16.83（13.78，19.87） | 23.12（18.54，27.69） |
+| Male，≥55：CIF（%） | 25.17（22.13，28.21） | 20.58（17.66，23.49） |
+| IC（百分点） | 3.23（−1.85，8.31） | −2.82（−8.32，2.67） |
+
+### boot：可选方法 {.unnumbered}
+
+```r
+set.seed(171)
+inter_cif_boot <- RegR::run_quiet({
+  get_inter_abs(
+    inter_cif_data, exposure_names = c("Sex", "AgeH"),
+    adj_var = c("Age", "Race"), surv = FALSE, sur_time = 120,
+    ci_method = "boot", cif_args = list(model = "FGR"),
+    n_boot = 50, n_cores = 1
+  )
+})
+fmt_inter_gt(inter_cif_boot)
+```
+
+这里 **50 次抽样仅用于示例与计时**，不作为正式分析的重复次数建议。正式分析可提高 `n_boot`，并检查随机种子、区间端点与成功抽样数的稳定性。
+
+| 状态或指标 | 未调整 | 调整年龄与种族 |
+|:--|--:|--:|
+| Female，<55：CIF（%） | 7.67（5.93，9.86） | 10.30（8.36，12.24） |
+| Female，≥55：CIF（%） | 12.78（10.53，14.59） | 10.59（8.80，12.22） |
+| Male，<55：CIF（%） | 16.83（14.08，19.90） | 23.12（20.19，25.76） |
+| Male，≥55：CIF（%） | 25.17（22.30，27.77） | 20.58（17.91，22.71） |
+| IC（百分点） | 3.23（−2.88，8.76） | −2.82（−7.42，1.38） |
+
+:::
+
+两种方法的点估计完全一致，区间方法不同。该例调整后的 IC 为 **−2.82 个百分点**，两种区间均跨 0；应结合估计量、时间点与调整设置解释。bootstrap 不会自动解决分母接近 0、稀疏联合组或工作模型不合适的问题，尤其 SI 等比值可能不稳定。
+
+### 优化前后的完整调用耗时 {#cif-mets-timing}
+
+2026-10-02 在 WSL Ubuntu-22.04、R **4.4.3**、mets **1.3.13** 下实测。比较更新前模块 `aac87ba` 与更新后模块 `cefc1a5`；其余依赖相同。每种设置在独立进程中顺序运行，`n_cores = 1`，BLAS / OpenMP 线程数均设为 1。预热后计时覆盖完整 `get_inter_abs()` 调用及其自动表格格式化，不计包加载、数据准备与结果保存。
+
+| 样本量 | 区间设置 | 优化前（秒） | 优化后（秒） | 加速倍数 | 时间减少 |
+|--:|:--|--:|--:|--:|--:|
+| 1,000 | `delta`，旧版回退 50 次抽样 | 2.740 | 0.231 | 11.9× | 91.57% |
+| 1,000 | 两版均 `boot`，50 次 | 2.984 | 2.981 | 1.00× | 0.10% |
+| 4,387 | `delta`，旧版回退 50 次抽样 | 18.863 | 0.390 | 48.4× | 97.93% |
+| 4,387 | 两版均 `boot`，50 次 | 19.305 | 9.211 | 2.10× | 52.29% |
+| **4,387** | **默认 `delta`，旧版回退 500 次抽样** | **185.535** | **0.411** | **451.4×** | **99.78%** |
+
+50 次抽样的各项分别重复 **3 次**，表中为中位数。默认 500 次的旧版实测 **1 次**，新版重复 **3 次**、范围 **0.338–0.504 秒**；这些是实际计时，未按 50 次结果外推。1,000 人是同一完整队列按 `set.seed(20261002)` 固定抽取的无放回子样本。单次结果展示与计时的调用种子从 171 起。
+
+::: {.callout-note title="如何理解 451 倍加速"}
+最大的收益来自默认路径省去了 500 次 bootstrap，改用联合协方差计算 delta 区间。因此 **451 倍包含区间方法变化的收益**；它不表示单次 Fine–Gray 拟合加速了 451 倍。相同 50 次 bootstrap 下，完整队列约快 **2.1 倍**，1,000 人子样本没有明显提速。具体耗时受样本量、事件数、协变量、机器与抽样次数影响。
+
+数值核对中，新版 `delta` / `boot` 的点估计完全一致；新旧未调整风险一致，调整后风险最大差异约 **0.030 个百分点**。新后端在请求时间恰逢事件时纳入该时间全部并列事件，且不跨越下一个事件时间；仅核对点估计不能证明两种区间具有相同覆盖率。
+:::
+
+[下载计时汇总 CSV](bench/inter_abs_mets_timing.csv) · [下载逐次计时 CSV](bench/inter_abs_mets_raw.csv)
+
+本机复测新版时，可在上述数据准备后运行以下代码。固定 `n_boot = 50` 使 bootstrap 检查较快；`delta` 不使用这个抽样次数。包加载和首次预热不计入后续计时，返回的是当前机器的运行结果。
+
+```r
+measure_cif <- function(mode) {
+  RegR::run_quiet({
+    get_inter_abs(
+      inter_cif_data, exposure_names = c("Sex", "AgeH"),
+      adj_var = c("Age", "Race"), surv = FALSE, sur_time = 120,
+      ci_method = mode, n_boot = 50, n_cores = 1
+    )
+  })
+}
+invisible(measure_cif("delta"))
+invisible(measure_cif("boot"))
+cif_timing <- do.call(rbind, lapply(c("delta", "boot"), function(mode) {
+  times <- vapply(1:3, function(i) {
+    gc()
+    set.seed(170 + i)
+    unname(system.time(invisible(measure_cif(mode)))["elapsed"])
+  }, numeric(1))
+  data.frame(ci_method = mode, median_seconds = median(times))
+}))
+cif_timing
+```
 
 ## fmt_inter()：自动选择表格后端 {#fmt-inter}
 
@@ -700,6 +839,7 @@ fmt_eff_inter_gt(eff_inter)
 
 ::: {.table-responsive}
 
+```{=html}
 <div id="vpxeuvthuv" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
 
   <table class="gt_table" style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-family: Calibri, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; display: table; border-collapse: collapse; line-height: normal; margin-left: auto; margin-right: auto; color: #333333; font-size: 16px; font-weight: normal; font-style: normal; background-color: #FFFFFF; width: auto; border-top-style: solid; border-top-width: 2px; border-top-color: #000000; border-right-style: solid; border-right-width: 2px; border-right-color: #000000; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #000000; border-left-style: solid; border-left-width: 2px; border-left-color: #000000; table-layout: fixed;" data-quarto-disable-processing="false" data-quarto-bootstrap="false" bgcolor="#FFFFFF">
@@ -847,7 +987,7 @@ fmt_eff_inter_gt(eff_inter)
   </tfoot>
 </table>
 </div>
-
+```
 
 :::
 
@@ -862,6 +1002,7 @@ fmt_eff_inter_gt(eff_inter, show_color = FALSE, event_by_group = FALSE,
 
 ::: {.table-responsive}
 
+```{=html}
 <div id="oednbpldxn" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
 
   <table class="gt_table" style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-family: Calibri, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; display: table; border-collapse: collapse; line-height: normal; margin-left: auto; margin-right: auto; color: #333333; font-size: 16px; font-weight: normal; font-style: normal; background-color: #FFFFFF; width: auto; border-top-style: solid; border-top-width: 2px; border-top-color: #000000; border-right-style: solid; border-right-width: 2px; border-right-color: #000000; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #000000; border-left-style: solid; border-left-width: 2px; border-left-color: #000000; table-layout: fixed;" data-quarto-disable-processing="false" data-quarto-bootstrap="false" bgcolor="#FFFFFF">
@@ -1001,7 +1142,7 @@ fmt_eff_inter_gt(eff_inter, show_color = FALSE, event_by_group = FALSE,
   </tfoot>
 </table>
 </div>
-
+```
 
 :::
 
@@ -1015,6 +1156,7 @@ fmt_eff_inter_gt(eff_inter_split, show_color = FALSE, event_by_group = FALSE)
 
 ::: {.table-responsive}
 
+```{=html}
 <div id="cuiedpxdpl" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
 
   <table class="gt_table" style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-family: Calibri, system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; display: table; border-collapse: collapse; line-height: normal; margin-left: auto; margin-right: auto; color: #333333; font-size: 16px; font-weight: normal; font-style: normal; background-color: #FFFFFF; width: auto; border-top-style: solid; border-top-width: 2px; border-top-color: #000000; border-right-style: solid; border-right-width: 2px; border-right-color: #000000; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #000000; border-left-style: solid; border-left-width: 2px; border-left-color: #000000; table-layout: fixed;" data-quarto-disable-processing="false" data-quarto-bootstrap="false" bgcolor="#FFFFFF">
@@ -1228,7 +1370,7 @@ fmt_eff_inter_gt(eff_inter_split, show_color = FALSE, event_by_group = FALSE)
   </tfoot>
 </table>
 </div>
-
+```
 
 :::
 
