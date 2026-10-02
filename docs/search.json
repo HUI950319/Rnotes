@@ -6362,5 +6362,71 @@
       "causalR · 因果推断与效应异质性",
       "<span class='chapter-number'>64</span>  <span class='chapter-title'>观察性研究工作流：平衡、效应、HTE 与敏感性</span>"
     ]
+  },
+  {
+    "objectID": "causalr/computation-reuse-guide.html",
+    "href": "causalr/computation-reuse-guide.html",
+    "title": "计算与复用：森林缓存、树参数与时间网格",
+    "section": "",
+    "text": "先建一份可复用背景\n比较多种树时，常见成本来自重复拟合发现/估计森林。reuse 允许在相同拟合背景下复用森林， 重新建立规则与估计叶子。它不是给新患者套用模型的接口；新患者分组用 predict()，见 树稳定性与预测。\nset.seed(20261002)\nn &lt;- 1400\nd &lt;- data.frame(b = rbinom(n, 1, 0.5), x = rnorm(n), noise = rnorm(n))\nd$z &lt;- rbinom(n, 1, plogis(0.3 * d$x))\nd$y &lt;- d$x + d$z * (1 + 4 * d$b + 0.5 * d$x) + rnorm(n)\ncommon &lt;- list(data = d, cat_var = \"z\", adj_var = c(\"b\", \"x\", \"noise\"),\n                candidate_var = c(\"b\", \"x\"), surv = \"y\", max_depth = 2,\n                min_leaf = 0.1, split_frac = 0.5, seed = 123,\n                grf_args = list(num.trees = 500, num.threads = 2))\nt_base &lt;- system.time(base &lt;- do.call(get_hte_tree, c(common, list(method = \"ctree_dr\"))))\nattr(base, \"analysis\")$forests_reused\n#&gt;  discovery estimation \n#&gt;      FALSE      FALSE\nbase$rules\n#&gt; # A tibble: 4 x 16\n#&gt;    leaf  node rule    n_disc     n n_treat estimate std.error conf.low conf.high\n#&gt;   &lt;int&gt; &lt;int&gt; &lt;chr&gt;    &lt;int&gt; &lt;int&gt;   &lt;int&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;\n#&gt; 1     1     3 b = 0 ~    276   279     141    0.935     0.135    0.670      1.20\n#&gt; 2     2     4 b = 0 ~     71    67      42    1.73      0.271    1.20       2.26\n#&gt; 3     3     6 b = 1 ~    105   112      48    4.36      0.193    3.98       4.74\n#&gt; 4     4     7 b = 1 ~    248   242     132    5.54      0.147    5.25       5.83\n#&gt; # i 6 more variables: p.value &lt;dbl&gt;, p_inter &lt;dbl&gt;, n_control &lt;int&gt;,\n#&gt; #   n_after_control &lt;int&gt;, n_after_treat &lt;int&gt;, status &lt;chr&gt;",
+    "crumbs": [
+      "causalR · 因果推断与效应异质性",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>计算与复用：森林缓存、树参数与时间网格</span>"
+    ]
+  },
+  {
+    "objectID": "causalr/computation-reuse-guide.html#sec-reuse-data",
+    "href": "causalr/computation-reuse-guide.html#sec-reuse-data",
+    "title": "计算与复用：森林缓存、树参数与时间网格",
+    "section": "",
+    "text": "可变和不可变的参数\n\n\n\n\n\n\n\n\n设置\n可与 reuse 一起改变？\n理由\n\n\n\n\nmethod\n可以\n同一得分背景上尝试不同树引擎\n\n\ncandidate_var、max_depth、alpha、min_leaf\n可以\n改变规则发现；alpha 只适用于检验引擎\n\n\ntree_args\n可以\n新引擎的切点、剪枝和检验控制\n\n\nestimator\n可以\nAIPW/TMLE 叶子报告；TMLE 只适用非生存\n\n\n原始 data、行顺序、列内容\n不可以\n原始数据严格一致，包括未用于拟合的列\n\n\ncat_var/adj_var/surv/time\n不可以\n决定治疗、调整集合和结局目标\n\n\nfactor_encoding\n不可以\n改变森林设计列与水平编码\n\n\nsplit_frac/seed\n不可以\n决定患者划分和随机背景\n\n\ngrf_args、grf 版本\n不可以\n森林设置与后端环境必须一致\n\n\n\n从模型树开始时，某个森林可能尚未建立；第一次需要它时仍会计算。 attr(x,\"analysis\")$forests_reused 的 discovery/estimation 布尔值才是本次是否复用的记录。 仅传入了 reuse 不代表所有森林都跳过拟合。",
+    "crumbs": [
+      "causalR · 因果推断与效应异质性",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>计算与复用：森林缓存、树参数与时间网格</span>"
+    ]
+  },
+  {
+    "objectID": "causalr/computation-reuse-guide.html#sec-reuse-comparison",
+    "href": "causalr/computation-reuse-guide.html#sec-reuse-comparison",
+    "title": "计算与复用：森林缓存、树参数与时间网格",
+    "section": "相同 rpart 设置：重新拟合与复用对照",
+    "text": "相同 rpart 设置：重新拟合与复用对照\n\nrp_args &lt;- list(method = \"rpart_dr\", tree_args = list(xval = 3, cp_rule = \"1se\"))\nt_fresh &lt;- system.time(fresh &lt;- do.call(get_hte_tree, c(common, rp_args)))\nt_cached &lt;- system.time(cached &lt;- do.call(get_hte_tree, c(common, rp_args, list(reuse = base))))\nattr(cached, \"analysis\")$forests_reused\n#&gt;  discovery estimation \n#&gt;       TRUE       TRUE\nstopifnot(all(attr(cached, \"analysis\")$forests_reused),\n          isTRUE(all.equal(fresh$rules, cached$rules)))\ndata.frame(object = c(\"base\", \"fresh\", \"cached\"),\n           bytes = c(as.numeric(object.size(base)), as.numeric(object.size(fresh)),\n                     as.numeric(object.size(cached))))\n#&gt;   object    bytes\n#&gt; 1   base 23216080\n#&gt; 2  fresh 23198432\n#&gt; 3 cached 46415072\n\n\n原始条件推断树复用后的 rpart本次运行耗时\n\n\n\nplt_hte_tree(base, type = \"effect\")\n\n\n\n\n\n\n\n图 65.1: 初次计算 ctree_dr，包含森林拟合。发现与估计患者分开。\n\n\n\n\n\n\n\n\nif (nrow(cached$rules) &gt; 1) plt_hte_tree(cached, type = \"effect\") else {\n  ggplot(cached$rules, aes(x = rule, y = estimate)) + geom_point() +\n    geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = .1) +\n    labs(x = \"No subgroup split selected\", y = \"Held-out leaf effect\") + theme_minimal()\n}\n\n\n\n\n\n\n\n图 65.2: 在相同森林与患者背景下重新建立 rpart 规则；实际断言核对 fresh 与 cached 的叶子表一致。\n\n\n\n\n\n\n\n\ntiming &lt;- data.frame(step = c(\"Initial ctree\", \"Fresh rpart\", \"Cached rpart\"),\n                      seconds = c(t_base[[\"elapsed\"]], t_fresh[[\"elapsed\"]], t_cached[[\"elapsed\"]]))\nggplot(timing, aes(step, seconds)) + geom_col(fill = \"steelblue\", width = .6) +\n  geom_text(aes(label = sprintf(\"%.3f s\", seconds)), vjust = -.4) +\n  scale_y_continuous(expand = expansion(mult = c(0, .18))) +\n  labs(x = NULL, y = \"Elapsed seconds (this render)\") + theme_minimal()\n\n\n\n\n\n\n\n图 65.3: 本次渲染环境中的一次 elapsed 测量，不是跨操作系统基准。cached 不含提前建立 base 的成本。\n\n\n\n\n\n\n\n\n单次计时受缓存、线程与系统负载影响。初始建模成本要计入完整流程；只有多次比较相同背景时， 才有机会摊薄它。对象各自保留数据与拟合背景，R 内存共享不等于序列化文件共享。",
+    "crumbs": [
+      "causalR · 因果推断与效应异质性",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>计算与复用：森林缓存、树参数与时间网格</span>"
+    ]
+  },
+  {
+    "objectID": "causalr/computation-reuse-guide.html#sec-reuse-engine-args",
+    "href": "causalr/computation-reuse-guide.html#sec-reuse-engine-args",
+    "title": "计算与复用：森林缓存、树参数与时间网格",
+    "section": "常用引擎与计算参数",
+    "text": "常用引擎与计算参数\n\n\n\n\n\n\n\n\n引擎/参数\n默认\n对计算和统计的影响\n\n\n\n\nmax_depth\n3\n深度上限；可设 Inf，policy 要求有限\n\n\nmin_leaf\n0.05\n占发现患者的最小比例，范围 [0,0.5)；每个子节点还需每臂两人\n\n\nalpha\n0.05\n检验门槛；1 强制允许分裂到深度/叶子约束，rpart/policy 不接受\n\n\nmaxt n_boot\n1000\n每个节点的 multiplier bootstrap；0 无 p 值并要求 alpha=1\n\n\nmaxt max_cuts\n100\n每设计列最多尝试的切点数\n\n\nctree testtype\n\"Bonferroni\"\n可用 Univariate/MonteCarlo，改变检验控制\n\n\nmob trim/max_cuts\n0.1/100\n数值切分两端裁去比例/候选切点上限；每切点重拟合，成本可很高\n\n\nabs/rel/aft adjust\nTRUE\n节点模型调整完整集合；FALSE 只放治疗\n\n\nabs/rel/aft parm\n\"treatment\"\n只检验治疗参数，\"all\" 检验所有参数，问题不同\n\n\nrpart xval\n10\nCV 折数；0 保留生长后的未剪枝树\n\n\nrpart cp_rule\n\"min\"\n\"1se\" 倾向选择误差在一标准误内的更小树\n\n\npolicy cost/better\n0/\"higher\"\n决策阈值与结局有利方向；不良事件通常用 lower\n\n\npolicy split_step\nNULL\n按发现人数设置切点步长，减少精确搜索成本\n\n\ngrf_args$num.trees\n包内默认 500，大样本 200\n只控制森林；不会代替节点 bootstrap/CV\n\n\ngrf_args$num.threads\ngrf 自动\n同时多任务时减少线程竞争；本页为 2\n\n\n\ntree_args 只接受相应引擎的已命名字段。把 maxt 的 n_boot 传给 rpart 会报错。 树接口不接受逐行 W.hat/Y.hat/sample.weights/clusters，因为发现/估计行被拆开； 单个已知 PS 标量可以使用，例如随机试验 W.hat=0.5。\n\n无效复用应明确报错\n\nchanged &lt;- common\nchanged$seed &lt;- 124\nreuse_error &lt;- tryCatch(do.call(get_hte_tree, c(changed, list(method = \"ctree_dr\", reuse = base))),\n                        error = function(e) conditionMessage(e))\nreuse_error\n#&gt; [1] \"`reuse` requires the same data and forest/split settings.\"\nstopifnot(is.character(reuse_error), grepl(\"same data and forest/split settings\", reuse_error, fixed = TRUE))\n\n换患者或种子时重新拟合；不能修改对象属性来绕过一致性检查。",
+    "crumbs": [
+      "causalR · 因果推断与效应异质性",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>计算与复用：森林缓存、树参数与时间网格</span>"
+    ]
+  },
+  {
+    "objectID": "causalr/computation-reuse-guide.html#sec-reuse-grid",
+    "href": "causalr/computation-reuse-guide.html#sec-reuse-grid",
+    "title": "计算与复用：森林缓存、树参数与时间网格",
+    "section": "生存时间网格：记录输入变化，再比较估计",
+    "text": "生存时间网格：记录输入变化，再比较估计\n\nset.seed(20261003)\nns &lt;- 1000\nds &lt;- data.frame(b = rbinom(ns, 1, .5), x = rnorm(ns))\nds$z &lt;- rbinom(ns, 1, .5)\nev &lt;- rexp(ns, .04 * exp(.2 * ds$x - .9 * ds$z * ds$b))\nce &lt;- pmin(rexp(ns, .008), 48)\nds$time &lt;- pmin(ev, ce)\nds$DSS &lt;- as.integer(ev &lt;= ce)\nsg &lt;- list(data = ds, cat_var = \"z\", adj_var = c(\"b\", \"x\"), candidate_var = \"b\",\n            time = 24, method = \"ctree_dr\", max_depth = 1, seed = 123)\nga &lt;- list(num.trees = 500, num.threads = 2, W.hat = .5)\ngrid_warnings &lt;- character()\ncoarse &lt;- withCallingHandlers(\n  do.call(get_hte_tree, c(sg, list(grf_args = c(ga, list(failure.times = seq(0, 24, by = 6)))))),\n  warning = function(w) {\n    grid_warnings &lt;&lt;- c(grid_warnings, conditionMessage(w))\n    invokeRestart(\"muffleWarning\")\n  })\nfine &lt;- do.call(get_hte_tree, c(sg, list(grf_args = c(ga,\n                 list(failure.times = sort(unique(c(0, ds$time, 24))))))))\ngrid_warnings\n#&gt; [1] \"The survival time grid rounds 37.7% of positive events up to `time` to zero. Use a denser `grf_args$failure.times` grid, or all observed times, and compare estimates.\"\ngc &lt;- attr(coarse, \"analysis\")$time_grid\ngf &lt;- attr(fine, \"analysis\")$time_grid\ngrid_tab &lt;- data.frame(grid = c(\"6-month grid\", \"Observed times\"),\n                        points = c(length(gc$points), length(gf$points)),\n                        n_events = c(gc$n_events, gf$n_events),\n                        event_bins = c(gc$n_bins, gf$n_bins),\n                        zero_fraction = c(gc$zero_fraction, gf$zero_fraction),\n                        max_rounding = c(gc$max_rounding, gf$max_rounding))\ngrid_tab\n#&gt;             grid points n_events event_bins zero_fraction max_rounding\n#&gt; 1   6-month grid      6      507          4     0.3767258     5.989423\n#&gt; 2 Observed times    849      507        507     0.0000000     0.000000\nstopifnot(gf$zero_fraction &lt;= gc$zero_fraction, gf$max_rounding &lt;= gc$max_rounding)\n\n粗网格的警告已捕获并显示，没有忽略诊断。两次使用相同数据和种子，但网格改变了森林设置， 因此没有复用。实际 points 还会补入截点之后的支持点，保留超过截点的患者。 自动网格、正事件数、占用 bin 数、映射到零的比例与最大误差都见 time_grid。\n\n映射损失估计半的总体效应\n\n\n\nggplot(grid_tab, aes(grid, zero_fraction)) + geom_col(fill = \"steelblue\", width = .6) +\n  scale_y_continuous(labels = scales::label_percent()) +\n  labs(x = NULL, y = \"Positive events mapped to zero\") + theme_minimal()\n\n\n\n\n\n\n\n图 65.4: 正事件映射到零的比例。它量化一种输入失真，不是估计偏倚或准确率。\n\n\n\n\n\n\n\n\neffect &lt;- rbind(coarse$est$stats, fine$est$stats)\neffect$grid &lt;- grid_tab$grid\nggplot(effect, aes(grid, estimate)) + geom_point(size = 2) +\n  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = .15) +\n  geom_hline(yintercept = 0, linetype = 2) +\n  labs(x = NULL, y = \"Survival difference at 24 months\") + theme_minimal()\n\n\n\n\n\n\n\n图 65.5: 相同估计患者中，两种网格的总体生存概率差与区间。单次相近也不能证明所有数据上误差小。\n\n\n\n\n\n\n\n\n“至少 10 个事件且至少 10% 映射到零”的包内警告阈值只是一项诊断。 不触发它不代表网格准确；还应检查 bin 数、最大误差、稀有事件、随访支持与细网格结果。",
+    "crumbs": [
+      "causalR · 因果推断与效应异质性",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>计算与复用：森林缓存、树参数与时间网格</span>"
+    ]
+  },
+  {
+    "objectID": "causalr/computation-reuse-guide.html#sec-reuse-save",
+    "href": "causalr/computation-reuse-guide.html#sec-reuse-save",
+    "title": "计算与复用：森林缓存、树参数与时间网格",
+    "section": "保存背景与复现",
+    "text": "保存背景与复现\n\nsaveRDS(base, \"hte_tree_context.rds\")\nbase &lt;- readRDS(\"hte_tree_context.rds\")\n\n缓存包含原患者数据，不应公开真实研究的原始对象。记录源码版本、R/grf 版本、 完整参数、编码和患者顺序；从保存对象继续分析仍需通过当前版本的复用一致性检查。\n\npackageVersion(\"causalR\")\n#&gt; [1] '0.0.0.9000'\npackageVersion(\"grf\")\n#&gt; [1] '2.6.1'\nsessionInfo()\n#&gt; R version 4.4.3 (2025-02-28 ucrt)\n#&gt; Platform: x86_64-w64-mingw32/x64\n#&gt; Running under: Windows 11 x64 (build 26200)\n#&gt; \n#&gt; Matrix products: default\n#&gt; \n#&gt; \n#&gt; locale:\n#&gt; [1] C\n#&gt; system code page: 65001\n#&gt; \n#&gt; time zone: Asia/Shanghai\n#&gt; tzcode source: internal\n#&gt; \n#&gt; attached base packages:\n#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     \n#&gt; \n#&gt; other attached packages:\n#&gt; [1] ggplot2_4.0.3      causalR_0.0.0.9000 testthat_3.3.2    \n#&gt; \n#&gt; loaded via a namespace (and not attached):\n#&gt;  [1] utf8_1.2.6         sandwich_3.1-3     generics_0.1.4     ggprism_1.0.7     \n#&gt;  [5] lattice_0.23-1     inum_1.0-5         grf_2.6.1          digest_0.6.39     \n#&gt;  [9] magrittr_2.0.5     evaluate_1.0.5     grid_4.4.3         RColorBrewer_1.1-3\n#&gt; [13] mvtnorm_1.4-2      pkgload_1.4.1      fastmap_1.2.0      Matrix_1.7-6      \n#&gt; [17] rprojroot_2.1.1    jsonlite_2.0.0     ggrepel_0.9.6      pkgbuild_1.4.8    \n#&gt; [21] brio_1.1.5         backports_1.5.1    Formula_1.2-6      survival_3.8-12   \n#&gt; [25] scales_1.4.0       cli_3.6.6          rlang_1.3.0        MatchIt_4.7.2     \n#&gt; [29] crayon_1.5.3       cobalt_4.6.0       splines_4.4.3      withr_3.0.3       \n#&gt; [33] yaml_2.3.12        otel_0.2.0         tools_4.4.3        parallel_4.4.3    \n#&gt; [37] checkmate_2.3.4    dplyr_1.2.1        strucchange_1.6-0  rpart_4.1.27      \n#&gt; [41] vctrs_0.7.3        R6_2.6.1           zoo_1.9-1          lifecycle_1.0.5   \n#&gt; [45] htmlwidgets_1.6.4  libcoin_1.0-13     ggparty_1.0.0.1    partykit_1.3-1    \n#&gt; [49] pkgconfig_2.0.3    desc_1.4.3         pillar_1.11.1      gtable_0.3.6      \n#&gt; [53] glue_1.8.1         Rcpp_1.1.1         xfun_0.57          tibble_3.3.1      \n#&gt; [57] tidyselect_1.2.1   knitr_1.51         dichromat_2.0-0.1  farver_2.1.2      \n#&gt; [61] htmltools_0.5.9    UtilsR_0.6.8       patchwork_1.3.2    labeling_0.4.3    \n#&gt; [65] rmarkdown_2.31     WeightIt_1.4.0     compiler_4.4.3     S7_0.2.2",
+    "crumbs": [
+      "causalR · 因果推断与效应异质性",
+      "<span class='chapter-number'>65</span>  <span class='chapter-title'>计算与复用：森林缓存、树参数与时间网格</span>"
+    ]
   }
 ]

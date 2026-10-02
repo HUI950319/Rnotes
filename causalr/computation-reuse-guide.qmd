@@ -1,0 +1,258 @@
+---
+title: "计算与复用：森林缓存、树参数与时间网格"
+description: "用真实运行展示 reuse 的有效范围、时间和内存，并对照生存事件网格诊断；整理主要引擎参数与复现信息。"
+date: 2026-10-02
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-reuse
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+比较多种树时，常见成本来自重复拟合发现/估计森林。`reuse` 允许在相同拟合背景下复用森林，
+重新建立规则与估计叶子。它不是给新患者套用模型的接口；新患者分组用 `predict()`，见
+[树稳定性与预测](tree-stability-guide.qmd)。
+
+## 先建一份可复用背景 {#sec-reuse-data}
+
+```{r}
+#| label: reuse-data
+set.seed(20261002)
+n <- 1400
+d <- data.frame(b = rbinom(n, 1, 0.5), x = rnorm(n), noise = rnorm(n))
+d$z <- rbinom(n, 1, plogis(0.3 * d$x))
+d$y <- d$x + d$z * (1 + 4 * d$b + 0.5 * d$x) + rnorm(n)
+common <- list(data = d, cat_var = "z", adj_var = c("b", "x", "noise"),
+                candidate_var = c("b", "x"), surv = "y", max_depth = 2,
+                min_leaf = 0.1, split_frac = 0.5, seed = 123,
+                grf_args = list(num.trees = 500, num.threads = 2))
+t_base <- system.time(base <- do.call(get_hte_tree, c(common, list(method = "ctree_dr"))))
+attr(base, "analysis")$forests_reused
+base$rules
+```
+
+### 可变和不可变的参数
+
+| 设置 | 可与 `reuse` 一起改变？ | 理由 |
+|---|---|---|
+| `method` | 可以 | 同一得分背景上尝试不同树引擎 |
+| `candidate_var`、`max_depth`、`alpha`、`min_leaf` | 可以 | 改变规则发现；alpha 只适用于检验引擎 |
+| `tree_args` | 可以 | 新引擎的切点、剪枝和检验控制 |
+| `estimator` | 可以 | AIPW/TMLE 叶子报告；TMLE 只适用非生存 |
+| 原始 `data`、行顺序、列内容 | 不可以 | 原始数据严格一致，包括未用于拟合的列 |
+| `cat_var/adj_var/surv/time` | 不可以 | 决定治疗、调整集合和结局目标 |
+| `factor_encoding` | 不可以 | 改变森林设计列与水平编码 |
+| `split_frac/seed` | 不可以 | 决定患者划分和随机背景 |
+| `grf_args`、grf 版本 | 不可以 | 森林设置与后端环境必须一致 |
+
+从模型树开始时，某个森林可能尚未建立；第一次需要它时仍会计算。
+`attr(x,"analysis")$forests_reused` 的 discovery/estimation 布尔值才是本次是否复用的记录。
+仅传入了 `reuse` 不代表所有森林都跳过拟合。
+
+## 相同 rpart 设置：重新拟合与复用对照 {#sec-reuse-comparison}
+
+```{r}
+#| label: reuse-comparison
+rp_args <- list(method = "rpart_dr", tree_args = list(xval = 3, cp_rule = "1se"))
+t_fresh <- system.time(fresh <- do.call(get_hte_tree, c(common, rp_args)))
+t_cached <- system.time(cached <- do.call(get_hte_tree, c(common, rp_args, list(reuse = base))))
+attr(cached, "analysis")$forests_reused
+stopifnot(all(attr(cached, "analysis")$forests_reused),
+          isTRUE(all.equal(fresh$rules, cached$rules)))
+data.frame(object = c("base", "fresh", "cached"),
+           bytes = c(as.numeric(object.size(base)), as.numeric(object.size(fresh)),
+                     as.numeric(object.size(cached))))
+```
+
+::: {.panel-tabset}
+
+### 原始条件推断树 {.unnumbered}
+
+```{r}
+#| label: fig-reuse-base
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "初次计算 ctree_dr，包含森林拟合。发现与估计患者分开。"
+plt_hte_tree(base, type = "effect")
+```
+
+### 复用后的 rpart {.unnumbered}
+
+```{r}
+#| label: fig-reuse-cached
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "在相同森林与患者背景下重新建立 rpart 规则；实际断言核对 fresh 与 cached 的叶子表一致。"
+if (nrow(cached$rules) > 1) plt_hte_tree(cached, type = "effect") else {
+  ggplot(cached$rules, aes(x = rule, y = estimate)) + geom_point() +
+    geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = .1) +
+    labs(x = "No subgroup split selected", y = "Held-out leaf effect") + theme_minimal()
+}
+```
+
+### 本次运行耗时 {.unnumbered}
+
+```{r}
+#| label: fig-reuse-timing
+#| fig-width: 7
+#| fig-height: 4
+#| fig-cap: "本次渲染环境中的一次 elapsed 测量，不是跨操作系统基准。cached 不含提前建立 base 的成本。"
+timing <- data.frame(step = c("Initial ctree", "Fresh rpart", "Cached rpart"),
+                      seconds = c(t_base[["elapsed"]], t_fresh[["elapsed"]], t_cached[["elapsed"]]))
+ggplot(timing, aes(step, seconds)) + geom_col(fill = "steelblue", width = .6) +
+  geom_text(aes(label = sprintf("%.3f s", seconds)), vjust = -.4) +
+  scale_y_continuous(expand = expansion(mult = c(0, .18))) +
+  labs(x = NULL, y = "Elapsed seconds (this render)") + theme_minimal()
+```
+
+:::
+
+单次计时受缓存、线程与系统负载影响。初始建模成本要计入完整流程；只有多次比较相同背景时，
+才有机会摊薄它。对象各自保留数据与拟合背景，R 内存共享不等于序列化文件共享。
+
+## 常用引擎与计算参数 {#sec-reuse-engine-args}
+
+| 引擎/参数 | 默认 | 对计算和统计的影响 |
+|---|---|---|
+| `max_depth` | `3` | 深度上限；可设 Inf，policy 要求有限 |
+| `min_leaf` | `0.05` | 占发现患者的最小比例，范围 [0,0.5)；每个子节点还需每臂两人 |
+| `alpha` | `0.05` | 检验门槛；1 强制允许分裂到深度/叶子约束，rpart/policy 不接受 |
+| maxt `n_boot` | `1000` | 每个节点的 multiplier bootstrap；0 无 p 值并要求 alpha=1 |
+| maxt `max_cuts` | `100` | 每设计列最多尝试的切点数 |
+| ctree `testtype` | `"Bonferroni"` | 可用 Univariate/MonteCarlo，改变检验控制 |
+| mob `trim/max_cuts` | `0.1/100` | 数值切分两端裁去比例/候选切点上限；每切点重拟合，成本可很高 |
+| abs/rel/aft `adjust` | `TRUE` | 节点模型调整完整集合；FALSE 只放治疗 |
+| abs/rel/aft `parm` | `"treatment"` | 只检验治疗参数，`"all"` 检验所有参数，问题不同 |
+| rpart `xval` | `10` | CV 折数；0 保留生长后的未剪枝树 |
+| rpart `cp_rule` | `"min"` | `"1se"` 倾向选择误差在一标准误内的更小树 |
+| policy `cost/better` | `0/"higher"` | 决策阈值与结局有利方向；不良事件通常用 lower |
+| policy `split_step` | `NULL` | 按发现人数设置切点步长，减少精确搜索成本 |
+| `grf_args$num.trees` | 包内默认 500，大样本 200 | 只控制森林；不会代替节点 bootstrap/CV |
+| `grf_args$num.threads` | grf 自动 | 同时多任务时减少线程竞争；本页为 2 |
+
+`tree_args` 只接受相应引擎的已命名字段。把 maxt 的 `n_boot` 传给 rpart 会报错。
+树接口不接受逐行 `W.hat/Y.hat/sample.weights/clusters`，因为发现/估计行被拆开；
+单个已知 PS 标量可以使用，例如随机试验 `W.hat=0.5`。
+
+### 无效复用应明确报错
+
+```{r}
+#| label: reuse-invalid
+changed <- common
+changed$seed <- 124
+reuse_error <- tryCatch(do.call(get_hte_tree, c(changed, list(method = "ctree_dr", reuse = base))),
+                        error = function(e) conditionMessage(e))
+reuse_error
+stopifnot(is.character(reuse_error), grepl("same data and forest/split settings", reuse_error, fixed = TRUE))
+```
+
+换患者或种子时重新拟合；不能修改对象属性来绕过一致性检查。
+
+## 生存时间网格：记录输入变化，再比较估计 {#sec-reuse-grid}
+
+```{r}
+#| label: reuse-grid-data
+set.seed(20261003)
+ns <- 1000
+ds <- data.frame(b = rbinom(ns, 1, .5), x = rnorm(ns))
+ds$z <- rbinom(ns, 1, .5)
+ev <- rexp(ns, .04 * exp(.2 * ds$x - .9 * ds$z * ds$b))
+ce <- pmin(rexp(ns, .008), 48)
+ds$time <- pmin(ev, ce)
+ds$DSS <- as.integer(ev <= ce)
+sg <- list(data = ds, cat_var = "z", adj_var = c("b", "x"), candidate_var = "b",
+            time = 24, method = "ctree_dr", max_depth = 1, seed = 123)
+ga <- list(num.trees = 500, num.threads = 2, W.hat = .5)
+grid_warnings <- character()
+coarse <- withCallingHandlers(
+  do.call(get_hte_tree, c(sg, list(grf_args = c(ga, list(failure.times = seq(0, 24, by = 6)))))),
+  warning = function(w) {
+    grid_warnings <<- c(grid_warnings, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  })
+fine <- do.call(get_hte_tree, c(sg, list(grf_args = c(ga,
+                 list(failure.times = sort(unique(c(0, ds$time, 24))))))))
+grid_warnings
+gc <- attr(coarse, "analysis")$time_grid
+gf <- attr(fine, "analysis")$time_grid
+grid_tab <- data.frame(grid = c("6-month grid", "Observed times"),
+                        points = c(length(gc$points), length(gf$points)),
+                        n_events = c(gc$n_events, gf$n_events),
+                        event_bins = c(gc$n_bins, gf$n_bins),
+                        zero_fraction = c(gc$zero_fraction, gf$zero_fraction),
+                        max_rounding = c(gc$max_rounding, gf$max_rounding))
+grid_tab
+stopifnot(gf$zero_fraction <= gc$zero_fraction, gf$max_rounding <= gc$max_rounding)
+```
+
+粗网格的警告已捕获并显示，**没有忽略诊断**。两次使用相同数据和种子，但网格改变了森林设置，
+因此没有复用。实际 `points` 还会补入截点之后的支持点，保留超过截点的患者。
+自动网格、正事件数、占用 bin 数、映射到零的比例与最大误差都见 `time_grid`。
+
+::: {.panel-tabset}
+
+### 映射损失 {.unnumbered}
+
+```{r}
+#| label: fig-reuse-grid-mapping
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "正事件映射到零的比例。它量化一种输入失真，不是估计偏倚或准确率。"
+ggplot(grid_tab, aes(grid, zero_fraction)) + geom_col(fill = "steelblue", width = .6) +
+  scale_y_continuous(labels = scales::label_percent()) +
+  labs(x = NULL, y = "Positive events mapped to zero") + theme_minimal()
+```
+
+### 估计半的总体效应 {.unnumbered}
+
+```{r}
+#| label: fig-reuse-grid-effect
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "相同估计患者中，两种网格的总体生存概率差与区间。单次相近也不能证明所有数据上误差小。"
+effect <- rbind(coarse$est$stats, fine$est$stats)
+effect$grid <- grid_tab$grid
+ggplot(effect, aes(grid, estimate)) + geom_point(size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = .15) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  labs(x = NULL, y = "Survival difference at 24 months") + theme_minimal()
+```
+
+:::
+
+“至少 10 个事件且至少 10% 映射到零”的包内警告阈值只是一项诊断。
+不触发它不代表网格准确；还应检查 bin 数、最大误差、稀有事件、随访支持与细网格结果。
+
+## 保存背景与复现 {#sec-reuse-save}
+
+```{r}
+#| label: reuse-rds-check
+#| include: false
+cache_path <- tempfile(fileext = ".rds")
+saveRDS(base, cache_path)
+restored <- readRDS(cache_path)
+stopifnot(inherits(restored, "hte_tree"), identical(restored$rules, base$rules))
+unlink(cache_path)
+```
+
+```{r}
+#| eval: false
+saveRDS(base, "hte_tree_context.rds")
+base <- readRDS("hte_tree_context.rds")
+```
+
+缓存包含原患者数据，不应公开真实研究的原始对象。记录源码版本、R/grf 版本、
+完整参数、编码和患者顺序；从保存对象继续分析仍需通过当前版本的复用一致性检查。
+
+```{r}
+packageVersion("causalR")
+packageVersion("grf")
+sessionInfo()
+```
