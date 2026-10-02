@@ -1,0 +1,229 @@
+---
+title: "生存效应尺度：概率差、事件风险比与 RMST"
+description: "逐图对照同一队列的生存效应尺度、time 截点和 grf_args 重要参数，说明净生存、竞争风险与发现尺度的边界。"
+date: 2026-10-02
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-survival-scale
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+`time` 和 `grf_args$target` 定义了要估计的生存效应；它们不是画图时的坐标设置。
+本页从同一模拟队列计算不同目标，再按 [SHAP 页](../mlr/shap-guide.qmd) 的标签页方式比较。
+
+## 先明确单位与有利方向 {#sec-survival-scale-map}
+
+| 目标 | 设置 | 比较量 | 治疗改善生存的方向 |
+|---|---|---|---|
+| 生存概率差 | 默认 target，`measure="diff"` | $S_1(t)-S_0(t)$ | 大于 0；0.10 为 10 个百分点 |
+| 事件风险比 | 默认 target，`measure="ratio"` | $[1-S_1(t)]/[1-S_0(t)]$ | 小于 1 |
+| 事件比值比 | 默认 target，`measure="OR"` | 事件 odds 的比值 | 小于 1；不是风险比 |
+| RMST 差 | `target="RMST"`，`measure="diff"` | $\int_0^t [S_1(u)-S_0(u)]du$ | 大于 0；单位与随访时间一致 |
+| RMST 比 | `target="RMST"`，`measure="ratio"` | 两臂 RMST 的比值 | 大于 1 |
+
+这里的 ratio 比较**两臂平均值的比**，不是个体条件比值的平均。
+`get_hte()` 默认 `survival.probability`；[grf 的原生函数](https://grf-labs.github.io/grf/reference/causal_survival_forest.html)
+默认 `RMST`，调用不同入口应显式写清楚。森林不返回 HR，不能把以上任何比值标为 HR。
+
+## 可核对真值的队列 {#sec-survival-scale-data}
+
+```{r}
+#| label: survival-scale-data
+set.seed(20261002)
+n <- 1600
+d <- data.frame(b = factor(rbinom(n, 1, 0.5)), x = rnorm(n), age = rnorm(n, 60, 10))
+d$ps <- plogis(0.3 * d$x + 0.01 * (d$age - 60))
+d$z <- rbinom(n, 1, d$ps)
+lam0 <- 0.025 * exp(0.25 * d$x + 0.015 * (d$age - 60))
+lam1 <- lam0 * exp(-0.2 - 0.7 * (d$b == "1"))
+ev <- rexp(n, ifelse(d$z == 1, lam1, lam0))
+cens <- pmin(rexp(n, 0.009), 48)
+d$time <- pmin(ev, cens)
+d$DSS <- as.integer(ev <= cens)
+table(d$z, d$DSS)
+tapply(d$time > 24, d$z, sum)
+```
+
+事件时间单位为月。本例没有竞争事件，删失独立；`ps` 由模拟机制已知。
+实际观察数据应估计 PS，并论证条件可交换性、重叠、删失机制和随访支持。
+
+## get_hte：重要生存参数 {#sec-survival-scale-args}
+
+| 参数 | 默认 | 条件与解释 |
+|---|---|---|
+| `cat_var` | 必填 | 二分类治疗；因子第二水平为治疗组，报告编码 |
+| `adj_var` | `NULL` | 森林条件化的完整调整集合，不能只留显著变量 |
+| `sub_var` | `NULL` | 预设分类亚组；缺少于调整集合时会加入森林 |
+| `surv` | `TRUE` | 固定读 `time` 和 `DSS`，事件为 1、删失为 0 |
+| `time` | `120` | 截点，单位同数据；每臂需要该截点处的支持及事件信息 |
+| `estimand` | `"ATE"` | 生存结局只支持 ATE |
+| `measure` | `"diff"` | 可多选；RMST 不支持 OR |
+| `factor_encoding` | `"integer"` | 编码方式改变森林设计列；`"onehot"` 将分类水平展开 |
+| `conf_level` | `0.95` | Wald 区间；比值的 `std.error` 在对数尺度 |
+| `grf_args$target` | `"survival.probability"` | `"RMST"` 切换为限制平均生存时间 |
+| `verbose` | `FALSE` | 报告因治疗/结局缺失而剔除的行 |
+
+| `grf_args` 子项 | 作用与限制 |
+|---|---|
+| `num.trees` | 当前 grf 默认 2000；causalR 对超过 10000 分析行的默认降为 200。本页显式 500 |
+| `seed`、`num.threads` | 复现种子与线程数；操作系统、版本变化仍应记录 |
+| `W.hat` | 已知或外部估计 PS；按患者行对齐。本页使用模拟真 PS |
+| `honesty`、`honesty.fraction` | 森林内部诚实建树；不同于亚组树的发现/估计患者划分 |
+| `min.node.size`、`sample.fraction` | 每棵树叶子大小与抽样比例；稀有事件不能只看总人数 |
+| `failure.times` | 可指定离散事件网格以控制时间与内存；grf 向下映射时间，粗网格会改变输入 |
+| `sample.weights`、`clusters` | 本接口仅支持 `measure="diff"`；relative measures 拒绝这些设置 |
+
+网格包含截点也不代表离散误差可以忽略。若早期事件被映射到零或丢失细时间信息，
+应检查输入映射，并与更细网格比较；不能把“没有警告”当作数值准确性证明。
+
+## 计算两种截点、两种目标 {#sec-survival-scale-fit}
+
+```{r}
+#| label: survival-scale-fit
+fa <- list(num.trees = 500, seed = 23, num.threads = 2, W.hat = d$ps)
+s12 <- get_hte(d, "z", adj_var = c("b", "x", "age"), sub_var = "b", time = 12,
+               measure = c("diff", "ratio", "OR"), grf_args = fa)
+s24 <- get_hte(d, "z", adj_var = c("b", "x", "age"), sub_var = "b", time = 24,
+               measure = c("diff", "ratio", "OR"), grf_args = fa)
+r12 <- get_hte(d, "z", adj_var = c("b", "x", "age"), sub_var = "b", time = 12,
+               measure = c("diff", "ratio"), grf_args = c(fa, list(target = "RMST")))
+r24 <- get_hte(d, "z", adj_var = c("b", "x", "age"), sub_var = "b", time = 24,
+               measure = c("diff", "ratio"), grf_args = c(fa, list(target = "RMST")))
+s24$stats
+r24$stats
+stopifnot(all(s24$stats$estimand == "ATE"), !any(r24$stats$measure == "OR"))
+```
+
+### 真值是两臂总体平均之后的对比
+
+```{r}
+#| label: survival-scale-truth
+truth <- do.call(rbind, lapply(c(12, 24), function(t) {
+  S0 <- mean(exp(-lam0 * t)); S1 <- mean(exp(-lam1 * t))
+  M0 <- mean((1 - exp(-lam0 * t)) / lam0)
+  M1 <- mean((1 - exp(-lam1 * t)) / lam1)
+  data.frame(time = t, survival_diff = S1 - S0, event_RR = (1 - S1) / (1 - S0),
+             event_OR = ((1 - S1) / S1) / ((1 - S0) / S0),
+             RMST_diff = M1 - M0, RMST_ratio = M1 / M0)
+}))
+truth
+```
+
+这是真机制在当前模拟协变量分布上的均值，用于有限样本核对，不是让估计值逐点等于真值的断言。
+
+## 24 个月：生存概率的三个尺度 {#sec-survival-scale-prob}
+
+::: {.panel-tabset}
+
+### 生存概率差 {.unnumbered}
+
+```{r}
+#| label: fig-survival-scale-diff
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "生存概率差，大于 0 为改善生存；0.1 表示 10 个百分点。"
+plt_hte_sub(s24, measure = "diff", fixed_size = FALSE, title = "Survival difference at 24 months")
+```
+
+### 事件风险比 {.unnumbered}
+
+```{r}
+#| label: fig-survival-scale-ratio
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "事件风险比，小于 1 为有利；分母是对照臂 24 个月事件风险。"
+plt_hte_sub(s24, measure = "ratio", fixed_size = FALSE, title = "Event risk ratio at 24 months")
+```
+
+### 事件比值比 {.unnumbered}
+
+```{r}
+#| label: fig-survival-scale-or
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "事件 odds 的比值。事件常见时，OR 与风险比的数值差异可能很大。"
+plt_hte_sub(s24, measure = "OR", fixed_size = FALSE, title = "Event odds ratio at 24 months")
+```
+
+:::
+
+## 24 个月：RMST 的两个尺度 {#sec-survival-scale-rmst}
+
+::: {.panel-tabset}
+
+### RMST 差 {.unnumbered}
+
+```{r}
+#| label: fig-survival-scale-rmst-diff
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "截至 24 个月的 RMST 差，单位为月。它积分整个时间窗，与终点概率差不同。"
+plt_hte_sub(r24, measure = "diff", fixed_size = FALSE, title = "RMST difference through 24 months")
+```
+
+### RMST 比 {.unnumbered}
+
+```{r}
+#| label: fig-survival-scale-rmst-ratio
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "RMST 比，大于 1 为有利；有利方向与事件风险比相反。"
+plt_hte_sub(r24, measure = "ratio", fixed_size = FALSE, title = "RMST ratio through 24 months")
+```
+
+:::
+
+## time 改变目标，不能只改标题 {#sec-survival-scale-time}
+
+```{r}
+#| label: fig-survival-scale-time
+#| fig-width: 10
+#| fig-height: 4.5
+#| fig-cap: "12 与 24 个月分别重拟合。虚线连接模拟机制真值；各面板使用不同单位，纵轴独立。"
+fits <- list(s12, s24, r12, r24)
+times <- c(12, 24, 12, 24)
+tab <- do.call(rbind, lapply(seq_along(fits), function(i) {
+  z <- fits[[i]]$stats
+  z$time <- times[i]
+  z$target <- if (i <= 2) "Survival" else "RMST"
+  z
+}))
+tab <- subset(tab, (target == "Survival" & measure %in% c("diff", "ratio")) |
+                    (target == "RMST" & measure == "diff"))
+tab$scale <- paste(tab$target, tab$measure)
+tr <- rbind(data.frame(time = truth$time, estimate = truth$survival_diff, scale = "Survival diff"),
+            data.frame(time = truth$time, estimate = truth$event_RR, scale = "Survival ratio"),
+            data.frame(time = truth$time, estimate = truth$RMST_diff, scale = "RMST diff"))
+ggplot(tab, aes(time, estimate)) + geom_point(size = 2) +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 1) +
+  geom_line(data = tr, linetype = 2, color = "steelblue") +
+  facet_wrap(~scale, scales = "free_y") + scale_x_continuous(breaks = c(12, 24)) +
+  labs(x = "Horizon (months)", y = "Effect on the specified scale") + theme_minimal()
+```
+
+## 净生存、竞争事件与规则发现 {#sec-survival-scale-boundary}
+
+`DSS=0` 按删失处理。若其他死因也编码为 0，得到疾病特异的净生存解释需要相应的独立删失假设；
+它不是 $1-$ 累积发生率。要研究竞争风险下的真实累积发生概率，应使用相应 CIF 方法与数据编码，
+不能给本函数改一个图名就完成转换。
+
+`mob_abs/ctree_abs` 的发现模型可以在加性风险尺度分裂，`mob_rel/ctree_rel` 在 Cox 模型尺度分裂，
+`mob_aft/ctree_aft` 在 AFT 模型尺度分裂；最终叶子效应仍按 `est` 中的森林目标解释。
+发现尺度上的模型参数、叶子生存概率差与 HR 不是同一个量。
+
+报告截点、单位、删失编码、每臂事件数和随访支持、target、measure、调整集合及森林设置。
+多个时间点的探索也存在多重比较，不能挑选最显著截点后按预设结论报告。
+
+```{r}
+attr(s24, "analysis")$target
+attr(r24, "analysis")$target
+sessionInfo()
+```
