@@ -1,0 +1,200 @@
+---
+title: "HTE 诊断：校准、RATE、TOC、Qini 与 GATES"
+description: "把修饰检验、模型校准、排序能力与效应大小分开解释；用参数标签页展示排序方向、平滑和分组数。"
+date: 2026-10-02
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-diagnostics
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+CATE 看起来有起伏，不足以证明模型准确。本页分别看**单变量修饰信号、校准、排序能力、
+分组效应**，并展示 `plt_hte_rate()` 的重要参数。接口与图形样式可先看 [包总览](index.qmd)。
+
+## 指标地图 {#sec-diagnostics-map}
+
+| 输出 | 回答的问题 | 不能据此回答 |
+|---|---|---|
+| `importance` | 森林在哪些变量上频繁分裂？ | 是否独立、显著地修饰治疗效应 |
+| `p_het`、`p_inter` | 单变量投影或分类组的效应是否相同？ | 多变量独立贡献、患者真实个体效应 |
+| differential 校准系数 | 森林排序中是否有正向异质性信号？ | p 值显著不等于系数已校准到 1 |
+| RATE：AUTOC / QINI | 预先指定的排序是否将高获益者排在前面？ | 个体效应的绝对误差、临床可实施性 |
+| GATES | 排序分组的双稳健效应如何变化？ | 事后挑选组的未经选择校正的最终结论 |
+| Jaccard / 投票比例 | 重复的分区是否相似？ | 因果识别、效应显著性或外部价值 |
+
+这些诊断以可识别性和有效的效应得分为前提，不能检测并修复所有未测量混杂。
+
+## 示例数据与返回表 {#sec-diagnostics-data}
+
+```{r}
+#| label: diagnostics-data
+set.seed(20261002)
+n <- 1400
+d <- data.frame(marker = rnorm(n), age = rnorm(n, 60, 10), noise = rnorm(n))
+d$z <- rbinom(n, 1, plogis(0.3 * d$marker + 0.01 * (d$age - 60)))
+d$y <- d$marker + 0.03 * (d$age - 60) + d$z * (1 + 2 * d$marker) + rnorm(n)
+res <- get_hte(d, "z", adj_var = c("marker", "age", "noise"), surv = "y",
+               grf_args = list(num.trees = 500, seed = 42, num.threads = 2))
+res$importance
+res$calibration
+```
+
+```{r}
+#| label: fig-diagnostics-importance
+#| fig-width: 7
+#| fig-height: 4
+#| fig-cap: "分裂频率与单变量检验是不同的输出。颜色按本页明确指定的 BH 检验族标记，不把重要性当 p 值。"
+imp <- res$importance
+imp$p_BH <- p.adjust(imp$p_het, "BH")
+ggplot(imp, aes(reorder(variable, importance), importance, fill = p_BH < 0.05)) +
+  geom_col(width = 0.65) + coord_flip() +
+  labs(x = NULL, y = "Split-frequency importance", fill = "BH p < 0.05") + theme_minimal()
+```
+
+### 校准系数怎样读
+
+`mean.forest.prediction` 描述平均预测部分；`differential.forest.prediction` 描述围绕均值的
+异质性预测部分。系数接近 1 是校准的理想参照，但表中的单侧 p 值检验正向信号，
+**不是对系数等于 1 的检验**。负 differential 系数应按原符号解释，不能取绝对值制造异质性。
+生存森林的实现使用相应删失校正残差，不应将它与原始事件的线性回归混用。
+
+## plt_hte_rate：重要参数 {#sec-diagnostics-args}
+
+| 参数 | 默认 | 作用与条件 |
+|---|---|---|
+| `x` | 必填 `hte_res` | 包含原分析数据与森林；不能只传 CATE 向量 |
+| `priority` | `"cate"` | 一到两个排序规则；数值越大越先治疗，可用原数据中的数值/逻辑列 |
+| `type` | `c("toc","qini")` | 可选择一个或多个面板，包括 `"gates"` |
+| `train_frac` | `0.5` | CATE 排序中用于学习排序的比例，余下用于评估 |
+| `max_n` | `10000` | CATE 排序的抽样上限；超过时两片森林各 500 棵树；稀有事件应慎用 |
+| `seed` | `NULL` | 默认沿用森林种子；控制抽样、切分、重拟合和区间重复 |
+| `smooth` | `0` | 不平滑；0.05–1 是显示用 LOESS 跨度，不改变 RATE 数值 |
+| `gates_args` | `list(n_groups=5)` | 排序分组数；并列得分保持同组，实际组数可能更少 |
+| `conf_level` | `0.95` | 置信区间与曲线带的水平 |
+| `title` | `NULL` | 标题覆盖 |
+| `save` | `list()` | 非空时保存 PDF；大小单位为英寸 |
+
+含 `"cate"` 的调用会在分开的患者上重新学习与评估排序，两个规则也会在同一评估半上比较。
+完全预先指定、没有用本研究结局挑选的评分可在全体患者上用保存的森林得分评估。
+**同一数据上先尝试很多评分，再挑最大的 RATE**，仍会产生选择后的乐观偏倚。
+
+## 曲线与平滑：数值不变、显示改变 {#sec-diagnostics-curves}
+
+```{r}
+#| label: diagnostics-rate
+p_raw <- plt_hte_rate(res, priority = c("cate", "marker"),
+                      type = c("toc", "qini"), train_frac = 0.5,
+                      max_n = Inf, seed = 77)
+p_smooth <- plt_hte_rate(res, priority = c("cate", "marker"),
+                         type = c("toc", "qini"), smooth = 0.2,
+                         train_frac = 0.5, max_n = Inf, seed = 77)
+attr(p_raw, "rate")
+stopifnot(isTRUE(all.equal(attr(p_raw, "rate"), attr(p_smooth, "rate"))))
+```
+
+::: {.panel-tabset}
+
+### smooth = 0 {.unnumbered}
+
+```{r}
+#| label: fig-diagnostics-raw
+#| fig-width: 10
+#| fig-height: 4.8
+#| fig-cap: "同一评估半上的 CATE 与预设 marker 排序。纵轴沿用连续结局的效应单位。"
+p_raw
+```
+
+### smooth = 0.2 {.unnumbered}
+
+```{r}
+#| label: fig-diagnostics-smooth
+#| fig-width: 10
+#| fig-height: 4.8
+#| fig-cap: "仅平滑曲线与带；上方的实际断言核对 RATE 表未变。平滑不能改善统计证据。"
+p_smooth
+```
+
+:::
+
+TOC(q) 是排序前 q 比例患者的平均效应减全体平均效应。AUTOC 更强调排序顶端；
+Qini(q)=q×TOC(q)，QINI 对各治疗比例采用另一种权重。负值是可能的，不应截成零。
+临床决策还要考虑效应大小、成本、伤害和可实施性，不能只看 p 值。
+
+## GATES：n_groups 的参数对照 {#sec-diagnostics-gates}
+
+::: {.panel-tabset}
+
+### 三组 {.unnumbered}
+
+```{r}
+#| label: fig-diagnostics-gates3
+#| fig-width: 7
+#| fig-height: 4.5
+#| fig-cap: "gates_args=list(n_groups=3)：排序切成较粗的组，通常每组信息量更大。"
+p_g3 <- plt_hte_rate(res, type = "gates", gates_args = list(n_groups = 3),
+                     max_n = Inf, seed = 77)
+p_g3
+```
+
+### 五组 {.unnumbered}
+
+```{r}
+#| label: fig-diagnostics-gates5
+#| fig-width: 7
+#| fig-height: 4.5
+#| fig-cap: "默认五组：展现更细的效应梯度，也有更小的每组样本量。菱形是组内平均森林 CATE。"
+p_g5 <- plt_hte_rate(res, type = "gates", gates_args = list(n_groups = 5),
+                     max_n = Inf, seed = 77)
+p_g5
+```
+
+:::
+
+```{r}
+#| label: diagnostics-gates-table
+attr(p_g5, "gates")
+```
+
+分组平均森林 CATE 与双稳健效应可不同。不能把第 1 组的显著性和第 5 组的不显著性当成
+组间差异显著，应读组间对比及其区间。试多个组数后挑最显著的图，也属于选择。
+
+## 排序方向与预设评分 {#sec-diagnostics-direction}
+
+```{r}
+#| label: fig-diagnostics-direction
+#| fig-width: 7
+#| fig-height: 4.5
+#| fig-cap: "预设 marker 与反向 marker 在全部分析患者上比较，因而评估人群与含 cate 的图不同。"
+res$data$reverse_marker <- -res$data$marker
+p_direction <- plt_hte_rate(res, priority = c("marker", "reverse_marker"),
+                            type = "toc", seed = 77)
+p_direction
+```
+
+反向列是已入森林的 marker 的确定性变换。未经森林条件化的新列如果本身是混杂变量，
+不能随意增加到 `x$data` 后就声称它的排序评估有效。
+
+## 保存、复现与报告 {#sec-diagnostics-report}
+
+```{r}
+#| eval: false
+plt_hte_rate(res, priority = "cate", type = c("toc", "qini", "gates"),
+             gates_args = list(n_groups = 4), max_n = Inf, seed = 77,
+             save = list(filename = "hte_diagnostics.pdf", width = 14, height = 5))
+```
+
+报告目标效应的单位、排序来源、训练/评估人数、种子、抽样上限、置信水平、分组数与并列值处理。
+生存结局同时报告 horizon 和每片两臂的随访支持；独立测试或外层重抽样用于评价完整的调参流程。
+
+```{r}
+args(plt_hte_rate)
+sessionInfo()
+```
