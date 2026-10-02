@@ -1,0 +1,209 @@
+---
+title: "亚组树的稳定性与新样本分组"
+subtitle: "get_hte_tree_stability() 与 predict.hte_tree()"
+lang: zh
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-stability
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+[第 7 页](https://hui950319.github.io/causalR/notes/causalR/07-hte-tree.html)介绍如何发现亚组树。本页回答两个后续问题：
+**改变发现样本或种子后，规则是否相似？固定规则后，另一批患者如何分组？**
+第一个问题由 `get_hte_tree_stability()` 回答，第二个由 `predict()` 回答。
+
+::: {.callout-important}
+稳定性描述重复性。一个稳定但有偏的规则仍可能错误；`predict()` 只应用原切点，
+不重新估计新患者的 CATE，也不证明外部队列中的叶子效应成立。
+:::
+
+## 两种 mode：重复的环节不同 {#sec-stability-modes}
+
+| 设置 | 每次改变什么 | 固定什么 | 适合回答 |
+|---|---|---|---|
+| `mode="tree"`，默认 | 在发现集内按治疗组 bootstrap 后重新种树；节点模型也按需重拟合 | 已有森林的得分或预测、原发现/估计划分 | 给定效应学习结果，分区对发现样本扰动是否敏感？ |
+| `mode="full"` | 在原始数据上重新划分发现/估计集，按新种子重拟合所需森林和树 | 原始患者集合、数据和分析方案 | 完整学习流程对随机划分与拟合是否敏感？ |
+
+`full` 是在原始队列上重新划分与拟合，**不是对整个原始队列 bootstrap 的外部验证**。
+两个 mode 在相同的原分析患者上比较分区；不同 mode 的 Jaccard 分布应分开报告。
+
+## 数据与参考树 {#sec-stability-data}
+
+```{r}
+#| label: stability-data
+set.seed(20261002)
+n <- 1400
+d <- data.frame(age = rnorm(n, 60, 10), marker = runif(n),
+                stage = factor(sample(c("I", "II", "III"), n, TRUE)))
+d$z <- rbinom(n, 1, plogis(-0.2 + 0.02 * (d$age - 60) + 0.4 * d$marker))
+d$tau <- -1 + 4 * (d$marker > 0.55) + 1 * (d$age > 65)
+d$y <- 0.03 * (d$age - 60) + 0.5 * as.numeric(d$stage) + d$z * d$tau + rnorm(n)
+adj <- c("age", "marker", "stage")
+ref <- get_hte_tree(d, cat_var = "z", adj_var = adj, surv = "y",
+                    max_depth = 2, min_leaf = 0.08,
+                    tree_args = list(n_boot = 300),
+                    grf_args = list(num.trees = 500, num.threads = 2), seed = 123)
+ref$rules
+```
+
+```{r}
+#| label: fig-stability-reference
+#| fig-width: 11
+#| fig-height: 5
+#| fig-cap: "参考树。叶子效应由未参与发现的估计集计算；这幅图本身不展示稳定性。"
+plt_hte_tree(ref, type = "effect")
+```
+
+## 重要参数与输入合同 {#sec-stability-parameters}
+
+| 参数 | 默认 | 允许值或条件 | 用途与注意事项 |
+|---|---|---|---|
+| `x` | 必填 | 保留拟合上下文的 `hte_tree` | 旧对象缺上下文时须重拟合；不能只传 `rules` 表 |
+| `data` | 必填 | 与原始输入完全相同，包括行顺序 | 不能先过滤、重新排序或新增辅助列再传入 |
+| `n_rep` | `50L` | 整数 2–10000 | 本页用较小次数演示；增加次数改善描述的稳定程度，不产生推断区间 |
+| `mode` | `"tree"` | `"tree"` / `"full"` | 决定重采样与重新拟合的环节 |
+| `seed` | `123` | 非负整数 | 重复序列的种子；函数结束或报错时恢复调用者随机数状态 |
+| `verbose` | `FALSE` | 逻辑值 | 输出每次重复完成状态，适合较长任务 |
+
+`n_rep` 不能代替参考树的 `tree_args$n_boot`：前者是重建多少棵树，后者是 max-t 节点检验
+的 bootstrap 次数。`max_depth/min_leaf/alpha/tree_args/grf_args` 等由参考树保留，
+需要更换分析方案时先重新拟合参考树，再分别检查稳定性。
+
+```{r}
+#| label: stability-run
+st_tree <- get_hte_tree_stability(ref, d, n_rep = 15, mode = "tree", seed = 77)
+st_full <- get_hte_tree_stability(ref, d, n_rep = 8, mode = "full", seed = 77)
+names(st_tree)
+st_tree$analysis
+st_tree$replicates
+```
+
+## 返回结构：频率、切点、分区一致性 {#sec-stability-value}
+
+| 字段 | 含义 | 分母或尺度 |
+|---|---|---|
+| `variable_frequency` | 每个候选切分变量的入选次数和频率 | 成功完成的重复树，不是所有计划重复 |
+| `cutpoints` | 每次切分的变量、水平、数值边界与方向 | 需同时看 `level/value/right`，不能只看数值 |
+| `agreement` | 成功重复之间的两两 Jaccard | 比较“哪些患者对同属一个叶子”，不比较叶子编号 |
+| `reference_agreement` | 每次成功重复与参考树的 Jaccard | 0–1，越大表示同组患者对更接近 |
+| `replicates` | 重复编号、状态、叶子数、警告和错误 | 失败重复不进入频率与一致性摘要 |
+| `analysis` | mode、重复数、种子、患者数和 method | 用于报告分析条件 |
+
+Jaccard 是同组患者对集合的交集数除以并集数，重命名叶子不会影响它。
+两组集合都为空时按接口定义记为 1。两棵都只有一个叶子的树也会高度一致，
+因此要同时报告叶子数；高一致性不保证发现了有用亚组。
+
+::: {.panel-tabset}
+
+### 变量入选频率 {.unnumbered}
+
+```{r}
+#| label: fig-stability-frequency
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "两种重复方案下的变量入选频率。分母为各方案成功完成的树。"
+freq <- rbind(transform(st_tree$variable_frequency, mode = "tree"),
+              transform(st_full$variable_frequency, mode = "full"))
+ggplot(freq, aes(variable, frequency, fill = mode)) +
+  geom_col(position = "dodge", width = 0.7) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(x = NULL, y = "Selection frequency", fill = "Mode") + theme_minimal()
+```
+
+### 分区一致性 {.unnumbered}
+
+```{r}
+#| label: fig-stability-jaccard
+#| fig-width: 7
+#| fig-height: 4
+#| fig-cap: "每次重复与参考树的同组患者对 Jaccard。图中分布不对应效应量的置信区间。"
+agreement <- rbind(transform(st_tree$reference_agreement, mode = "tree"),
+                   transform(st_full$reference_agreement, mode = "full"))
+ggplot(agreement, aes(mode, jaccard, colour = mode)) +
+  geom_boxplot(outlier.shape = NA, width = 0.4) +
+  geom_point(position = position_jitter(width = 0.08, seed = 1), alpha = 0.7) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(x = NULL, y = "Jaccard vs reference") + theme_minimal() +
+  theme(legend.position = "none")
+```
+
+### 切点分布 {.unnumbered}
+
+```{r}
+#| label: fig-stability-cutpoints
+#| fig-width: 8
+#| fig-height: 4
+#| fig-cap: "固定得分重复中的数值切点。不同变量使用自己的横轴；规则方向保留在原始表中。"
+cuts <- st_tree$cutpoints
+cuts
+if (nrow(cuts)) {
+  ggplot(cuts, aes(value)) + geom_histogram(bins = 12, fill = "#3979A3", colour = "white") +
+    facet_wrap(~ variable, scales = "free_x") +
+    labs(x = "Split boundary", y = "Number of splits") + theme_minimal()
+}
+```
+
+:::
+
+不要删掉失败重复后只报告一个“好看的”频率表。失败可能反映节点模型不收敛、样本过少
+或生存支持不足；先检查 `replicates$status/warning/error`，再决定是否需要修改方案。
+
+## predict：把固定规则应用到另一批患者 {#sec-stability-predict}
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `object` | 必填 | 保留切点与训练编码的 `hte_tree` |
+| `newdata` | 必填 | 包含原切分变量；不需要治疗与结局列 |
+| `type` | `"rule"` | 规则字符串；`"node"` 返回与 `object$rules$node` 对应的编号 |
+| `...` | 空 | 仅为 S3 兼容保留，额外参数会被拒绝 |
+
+```{r}
+#| label: stability-predict
+new_patients <- data.frame(age = c(50, 70, 55, 68), marker = c(0.2, 0.2, 0.8, 0.8),
+                          stage = factor(c("I", "II", "III", "I"),
+                                         levels = rev(levels(d$stage))))
+assigned <- transform(new_patients,
+                      rule = predict(ref, new_patients, type = "rule"),
+                      node = predict(ref, new_patients, type = "node"))
+assigned
+stopifnot(all(assigned$node %in% ref$rules$node))
+```
+
+上例故意改变因子水平的顺序。预测使用训练时的编码，不按新数据的因子编号重新解释规则。
+缺失值和训练未见过的分类水平会被拒绝；以下展示错误信息，未进行补值或静默分配。
+
+```{r}
+#| label: stability-invalid
+bad <- new_patients
+bad$stage <- as.character(bad$stage)
+bad$stage[1] <- "IV"
+tryCatch(predict(ref, bad), error = function(e) conditionMessage(e))
+```
+
+## 本地保存与报告 {#sec-stability-report}
+
+```{r}
+#| eval: false
+saveRDS(ref, "hte_tree_complete.rds")
+saveRDS(st_tree, "hte_tree_stability.rds")
+plt_hte_tree(ref, save = list(filename = "hte_tree.pdf"))
+```
+
+报告至少包含：参考树 method、发现/估计比例、重复 mode、计划与成功重复数、叶子数分布、
+变量入选频率、切点方向、Jaccard 摘要和失败原因。稳定性结果不产生效应区间或显著性检验，
+也不能用 Jaccard 筛选后的叶子区间来冒充完整流程的独立验证。
+
+```{r}
+#| label: stability-signatures
+args(get_hte_tree_stability)
+args(getS3method("predict", "hte_tree"))
+sessionInfo()
+```
