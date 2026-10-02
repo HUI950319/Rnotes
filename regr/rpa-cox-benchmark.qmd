@@ -1,0 +1,201 @@
+---
+title: "RPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率"
+subtitle: "get_rpa → get_cat 各步骤在 4387 到 100000 例下的耗时和内存"
+date: 2026-10-02
+---
+
+```{r}
+#| label: setup
+#| include: false
+tm <- read.csv("bench/rpa_cox_timing.csv")
+kn <- read.csv("bench/rpa_cox_knobs.csv")
+main <- tm[tm$run == "main", ]
+w <- reshape(main[, c("n", "cell", "sec")], idvar = "n", timevar = "cell", direction = "wide")
+names(w) <- sub("^sec\\.", "", names(w))
+w <- w[order(w$n), ]
+mem <- reshape(main[, c("n", "cell", "peak_mb")], idvar = "n", timevar = "cell", direction = "wide")
+names(mem) <- sub("^peak_mb\\.", "", names(mem))
+mem <- mem[order(mem$n), ]
+n_lab <- function(n) ifelse(n > 4387, paste0(format(n, big.mark = ","), "\\*"), format(n, big.mark = ","))
+f2 <- function(x) ifelse(is.na(x), "未测", ifelse(x < 10, sprintf("%.2f", x), sprintf("%.1f", x)))
+gb <- function(x) ifelse(is.na(x), "—", sprintf("%.1f", x / 1024))
+```
+
+评估对象是 RegR 0.1.3 中 `get_rpa()` 的生存路径（`surv = TRUE`）。传入 `adj_var` 后，`get_rpa()` 在终末节点分组上调用一次：
+
+```r
+get_cat(dat, cat_var = "group", adj_var = adj_var, surv = TRUE,
+        timepoint = 120, methods_obj = c("unadj", "direct"))
+```
+
+`get_cat()` 的结果由三块组成，本页分别计时：
+
+| 组成部分 | 内部调用 | 在 RPA 图表中的位置 |
+|:--|:--|:--|
+| `cat$obj` 曲线 | `.get.obj(times = NULL)` → `adjustedCurves::adjustedsurv()`，未调整用 `"km"`，调整用 `"direct"` | `plt_rpa_km()` 左右两列、`plt.sur`、`plt.rpa1`、`plt.rpa2` |
+| `cat$UM` 的 haz 表 | `.get.UM.haz()` → `survival::coxph()` | HR1 / HR2 |
+| `cat$UM` 的 sur 表 | `.get.UM.sur(time = 120)` → `.get.obj(times = 120)` | SP1 / SD1、SP2 / SD2 |
+
+: get_cat 的组成和对应的耗时单元。 {#tbl-parts}
+
+`"direct"` 是直接标准化（g-computation）：先拟合 `Surv(time, DSS) ~ group + adj_var` 的 Cox 模型，再把每个人分别放进每一组预测生存曲线，然后取平均。置信区间由 `riskRegression::ate()` 的影响函数给出。
+
+## 结论
+
+1. **慢的只有调整后的生存曲线。**n = 4387 时整个 `get_cat()` 用了 18.3 s，其中调整后的曲线占 17.4 s。HR 表在 n = 100000 时也只要 0.7 s；120 个月生存率表（含调整）在 n = 100000 时要 14 s；未调整的 KM 曲线始终不超过 1.7 s。
+2. **调整后曲线随 n 增长很快。**n = 15000、30000、50000 时分别要 65 s、160 s、262 s，峰值内存 6.6、11.2、18.6 GB。按 8000 到 50000 拟合，耗时约按 n^1.25^ 增长，内存基本与 n 成正比。外推到 n = 100000 约需 10 分钟、37 GB 内存（未实测）。
+3. **耗时几乎都花在置信区间上。**同样的调整曲线不求置信区间（`conf_int = FALSE`）时，n = 50000 也只要 6.7 s。
+4. **根源是 `ate()` 默认计算所有组之间的两两对比。**11 个组共 55 对，每对都要在约 157 个事件时间上算影响函数；adjustedCurves 实际只用到各组自己的平均生存率。改成"参照组对其余各组"的 10 对后，n = 8000 时从 40.6 s 降到 7.7 s，11 个组在所有时间点上的生存率、标准误和置信区间与默认结果完全相同。
+5. **减少时间点也有效。**曲线改为每 6 个月取一个点，n = 8000 时从 35 s 降到 5.7 s，n = 30000 时从 145 s 降到 18 s；120 个月处的估计值和置信区间不变，但曲线变粗。
+6. 以上两种改法都**还没有改进 RegR**，见文末「可选的改进」。
+
+## 测试设置
+
+- **环境：**Windows 11，Intel Core Ultra 9 275HX（24 逻辑核），128 GB 内存；R 4.4.3，RegR 0.1.3（Windows R 安装版），adjustedCurves 0.11.4，riskRegression 2025.5.20，survival 3.8.12。注意：[竞争风险 CIF 基准](get-eff-cif-benchmark.qmd)是在 WSL 上测的，环境不同，两页的绝对耗时不能直接比较。
+- **数据：**`RegR::seer_thyroid_mtc_2026`，n = 4387，DSS 事件 597 个。先在完整数据上运行 `get_rpa(d, c("Age", "T_stage"), adj_var = "Sex", surv = TRUE)`，得到 11 个终末节点分组；更大的 n 对这份带分组的数据按行有放回重抽样（表中标 \*），因此事件时间点始终是同样的 157 个。真实的大队列通常有更多不同的事件时间，调整曲线的耗时会更高。
+- **调整变量：**只有 `Sex`。
+- **计时：**每个单元只跑一次，记录 `system.time()` 的墙钟时间；峰值内存取 `gc(reset = TRUE)` 之后 `gc()` 的 "max used"，只统计 R 堆内存。只有一个分组变量时，RegR 的外层不会并行，所有调用都是单进程。
+- **波动：**同一份 n = 8000 数据上，同一个调整曲线调用先后测到 26–41 s。表中数字只用来看量级和增长趋势。
+
+## 耗时结果
+
+```{r}
+#| label: fig-timing
+#| echo: false
+#| fig-cap: "各步骤的墙钟耗时（秒），双对数坐标。虚线右侧为重抽样放大的样本。n = 100000 时没有测调整后的曲线。"
+#| fig-width: 7.5
+#| fig-height: 4.4
+#| renderings: [light, dark]
+library(ggplot2)
+lab <- c(curve_direct = "调整曲线（带 CI）", as_direct_noCI = "调整曲线（不带 CI）",
+         SP_direct = "120 月生存率 · 调整", curve_unadj = "KM 曲线 · 未调整",
+         SP_unadj = "120 月生存率 · 未调整", HR_direct = "HR · 调整", HR_unadj = "HR · 未调整")
+col <- c("#b4532a", "#d9a441", "#1f6f5c", "#6b7a8f", "#7fb3a4", "#9a8a3a", "#b9c0bb")
+pd <- main[main$cell %in% names(lab), ]
+pd$cell <- factor(pd$cell, levels = names(lab), labels = lab)
+p <- ggplot(pd, aes(n, sec, colour = cell)) +
+  geom_vline(xintercept = 4387, linetype = 3, colour = "grey55") +
+  geom_line(linewidth = 0.9) + geom_point(size = 1.8) +
+  scale_x_log10(breaks = unique(pd$n), labels = function(x) paste0(round(x / 1000, 1), "k")) +
+  scale_y_log10(breaks = c(0.1, 1, 10, 100), labels = function(x) paste(x, "s")) +
+  scale_colour_manual(values = col, name = NULL) +
+  labs(x = "样本量 n（对数）", y = "墙钟耗时（对数）") +
+  guides(colour = guide_legend(nrow = 3))
+th <- function(fg, bg, grid) theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom", panel.grid.minor = element_blank(),
+        panel.grid.major = element_line(colour = grid),
+        text = element_text(colour = fg), axis.text = element_text(colour = fg),
+        plot.background = element_rect(fill = bg, colour = NA))
+p + th("#1d2421", "white", "grey90")
+p + th("#dee2e6", "#222222", "#3a3f44")
+```
+
+::: {.nowrap .column-page}
+
+```{r}
+#| label: tbl-timing
+#| echo: false
+#| tbl-cap: "各步骤墙钟耗时（秒）与调整曲线的峰值内存（GB）。“曲线”是整个随访期的曲线（cat$obj），“120 月”是 timepoint = 120 的生存率与生存率差表。"
+knitr::kable(data.frame(
+  n = n_lab(w$n),
+  `KM 曲线` = f2(w$curve_unadj),
+  `调整曲线` = paste0("**", f2(w$curve_direct), "**"),
+  `其内存` = gb(mem$curve_direct),
+  `调整曲线（不带 CI）` = f2(w$as_direct_noCI),
+  `HR 未调整` = f2(w$HR_unadj), `HR 调整` = f2(w$HR_direct),
+  `120 月 未调整` = f2(w$SP_unadj), `120 月 调整` = f2(w$SP_direct),
+  check.names = FALSE), align = "rrrrrrrrr")
+```
+
+:::
+
+```{r}
+#| label: getcat-total
+#| include: false
+pil <- tm[tm$run == "pilot", ]
+gct <- pil$sec[pil$cell == "get_cat_total"]
+cdp <- pil$sec[pil$cell == "curve_direct"]
+```
+
+另外在 n = 4387 上测了一次完整的 `get_cat()`：`r sprintf("%.1f", gct)` s，其中调整曲线这一步 `r sprintf("%.1f", cdp)` s。`.get.obj()` 在 `times = NULL` 时还会打印一张诊断曲线图，直接调 `adjustedsurv()` 的耗时（`as_direct_CI`，见 CSV）比经过 RegR 包装的版本少 1–10 s，主要是这部分画图和包装开销，也夹杂了计时波动。
+
+## 慢在哪里
+
+调整曲线走的是 adjustedCurves 内部的 `surv_direct()`，Cox 模型在这里直接交给 `riskRegression::ate()`：
+
+```r
+surv <- riskRegression::ate(event = outcome_model, treatment = variable,
+                            data = data, estimator = "Gformula", times = times,
+                            se = conf_int, verbose = verbose, cause = 1, ...)
+```
+
+`times = NULL` 时，`times` 是全部事件时间（本数据 157 个）。`ate()` 的 `allContrasts` 默认取所有组的两两组合，11 个组就是 55 对，每对的风险差和风险比都要算影响函数。adjustedCurves 只读取其中的 `meanRisk`（各组自己的平均风险），两两对比算完就丢掉了。
+
+`adjustedsurv()` 会把 `...` 原样传给 `ate()`，所以可以从外面指定只算"参照组对其余各组"：
+
+```{r}
+#| label: tbl-contrast
+#| echo: false
+#| tbl-cap: "n = 8000，同一份数据、同一个 Cox 模型，只改 ate() 的 allContrasts。"
+kc <- kn[kn$batch == "contrast", ]
+knitr::kable(data.frame(
+  `allContrasts` = c("默认：所有两两组合（55 对）", "rbind(参照组, 其余各组)（10 对）"),
+  `耗时（s）` = sprintf("%.1f", kc$sec),
+  `输出行数` = kc$rows,
+  `与默认结果比较` = c("—", "11 组 × 全部时间点的 surv、se、CI 最大差值均为 0"),
+  check.names = FALSE), align = "lrrl")
+```
+
+如果只传一对（`matrix(lv[1:2], nrow = 2)`），耗时会降到 1 s 左右，但 `ate()` 只输出这两个组，其余 9 组的曲线没了，所以不能这样用。
+
+## 减少时间点
+
+```{r}
+#| label: tbl-grid
+#| echo: false
+#| tbl-cap: "带置信区间的调整曲线在不同时间网格下的耗时。最右列是第 1 组在 120 个月处的生存率（95% CI）。"
+kg <- kn[kn$batch == "grid" & kn$setting != "allContrasts_1pair", ]
+glab <- c(all_event_times = "全部事件时间（现在的做法）",
+          times_by_6 = "seq(0, 240, by = 6)", times_by_12 = "seq(0, 240, by = 12)")
+knitr::kable(data.frame(
+  n = format(kg$n, big.mark = ","), `时间网格` = glab[kg$setting],
+  `时间点 × 组` = kg$rows, `耗时（s）` = sprintf("%.1f", kg$sec),
+  `峰值内存（GB）` = sprintf("%.1f", kg$peak_mb / 1024),
+  `S(120) 第 1 组` = sprintf("%.4f (%.4f, %.4f)", kg$s120_g1, kg$ci_low, kg$ci_high),
+  check.names = FALSE), align = "rlrrrr")
+```
+
+`ate()` 在每个时间点上的估计互不依赖，所以只要 120 个月仍在网格里，该点的估计和置信区间就与全部事件时间时完全相同。代价是曲线从 145–158 个点降到 41 个（每 6 个月）或 21 个（每 12 个月），图形会变粗。
+
+## 可选的改进
+
+本页结果出来时，以下改法**都还没有改进 RegR**。
+
+| 方案 | 改什么 | 提速 | 代价 |
+|:--|:--|:--|:--|
+| A | 在 `.get.obj()` 的 direct 生存分支给 `adjustedsurv()` 加 `allContrasts = rbind(参照组, 其余各组)` | 调整曲线约 5 倍（n = 8000 实测）；120 月生存率表走同一个函数，预计也会受益，但没有单独测 | 结果完全相同，返回结构不变 |
+| B | 调整曲线改用每 6 个月一个点的时间网格 | 6–8 倍 | 曲线点数从 145–158 降到 41，图形变粗 |
+| C | 调整曲线不画置信带（`conf_int = FALSE`） | 25–48 倍 | 图上没有置信带 |
+| D | 不改 | — | n = 50000 时一次 `get_rpa()` 光调整曲线就要约 4.5 分钟、19 GB 内存 |
+
+: 加速调整曲线的几种做法。A 和 B 叠加的效果没有测。 {#tbl-options}
+
+## 局限
+
+- 只在 Windows R 上测了一次，每个单元只跑一次，耗时有约 ±25% 的波动。
+- 只测了 11 个分组、1 个调整变量的情形。两两对比的数量是 k(k−1)/2，分组越多，方案 A 的收益越大；只有 2 个组时只有 1 对，方案 A 没有作用。
+- n > 4387 的数据是重抽样放大的，事件时间点固定为 157 个，只能用来看耗时的增长趋势，不能拿来解释效应大小。
+- 没有计时 `get_rpa()` 里的建树（`partykit::ctree`）和拼图部分。
+- 峰值内存只统计 R 堆，不含 R 之外的分配。
+
+## 复现脚本
+
+脚本在 Windows R 的 Rscript 下运行，输出写到当前工作目录。本页图表直接读取 [`regr/bench/`](https://github.com/HUI950319/Rnotes/tree/main/regr/bench) 下的 `rpa_cox_timing.csv`（计时矩阵；`run = "pilot"` 是包含完整 `get_cat()` 的初测）和 `rpa_cox_knobs.csv`（`ate()` 两个开关的试验）。这些文件只有汇总结果，不含个体数据。
+
+```{r}
+#| label: code-bench
+#| file: bench/rpa_cox_bench.R
+#| eval: false
+#| code-fold: true
+#| code-summary: "rpa_cox_bench.R：计时矩阵与 ate() 开关试验"
+```
