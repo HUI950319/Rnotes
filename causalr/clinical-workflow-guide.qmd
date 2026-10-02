@@ -1,0 +1,256 @@
+---
+title: "观察性研究工作流：平衡、效应、HTE 与敏感性"
+description: "用完整模拟队列串联 PSM、PSW、get_bal、HTE 和未测量混杂敏感性，展示计算与绘图的重要参数。"
+date: 2026-10-02
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-workflow
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+工作流从研究问题和目标人群开始，再检查重叠与平衡、估计效应、探索异质性、做敏感性分析。
+本页使用模拟连续结局；各步骤给出可运行代码与参数对照，不构成患者治疗建议。
+
+## 每一步传什么对象 {#sec-workflow-map}
+
+| 步骤 | 输入 → 输出 | 重点 |
+|---|---|---|
+| PS 设计 | 原队列 → `psm_res` / `psw_res` | 配对、权重、保留患者、目标人群 |
+| 平衡比较 | 原队列 → `get_bal()` 的 `plt/balance/data` | 相同 SMD 分母上的不同方案 |
+| 效应估计 | 设计后数据 → 合适的结局模型与方差 | PS 设计函数本身不估计结局效应 |
+| HTE | 原队列和完整调整集合 → `hte_res` | 这是另一条建模路径；重叠权重不会自动传入森林 |
+| 敏感性 | 明确的目标模型 → `sens_res` | 解释该模型的估计量，不替代 HTE 验证 |
+
+## 队列与事先指定的调整集合 {#sec-workflow-data}
+
+```{r}
+#| label: workflow-data
+set.seed(20261002)
+n <- 1400
+d <- data.frame(age = rnorm(n, 60, 10), sex = factor(rbinom(n, 1, 0.5)),
+                stage = factor(sample(c("I", "II", "III"), n, TRUE)), marker = rnorm(n))
+d$z <- rbinom(n, 1, plogis(-0.4 + 0.04 * (d$age - 60) + 0.7 * (d$stage == "III") + 0.2 * d$marker))
+d$y <- 0.15 * (d$age - 60) + 1.5 * (d$stage == "III") + d$marker +
+  d$z * (1 + 2 * (d$sex == "1") + d$marker) + rnorm(n, sd = 1.5)
+adj <- c("age", "sex", "stage", "marker")
+table(d$z)
+```
+
+因果识别仍需要调整集合充分、重叠、治疗一致性和合适的时间顺序。
+不能按结局显著性删除混杂变量，也不能调整治疗后的中介来替代设计。
+
+## PSW 与 PSM：重要计算参数 {#sec-workflow-design-args}
+
+| 参数 | PSW | PSM | 条件 |
+|---|---|---|---|
+| 治疗与协变量 | `treat`、`adj_var` | 同名 | 完整基线调整集合 |
+| PS 来源 | `ps=NULL`、`method="glm"` | `ps=NULL`、`ps_method="glm"` | `ps` 指已有概率列；外部 PS 必须按行对齐 |
+| 目标 | `estimand` 默认六种 | `estimand="ATT"` | 不同目标人群的结果不应直接当同一效应 |
+| 匹配引擎 | — | `method="nearest"` | 也有 optimal/full/genetic/cem/exact/subclass，各自限制不同 |
+| 匹配数量 | — | `ratio=1` | nearest/optimal/genetic 使用 |
+| caliper | — | `NULL` | 本接口是 **PS 概率的 SD**，0.2 不能解释为 logit PS 的 0.2 SD |
+| 重用对照 | — | `replace=FALSE` | TRUE 时患者可跨配对；方差与长格式数据要另外处理 |
+| 稳定化 | `stabilize=FALSE` | — | 仅 ATE 权重；不能修复重叠不足 |
+| 剔除患者 | `trim_args` | `match_args$discard` 等 | 改变实际分析人群，记录被剔除者 |
+| 截断 PS | `trunc_args` | — | 保留患者但改变极端 PS 及权重 |
+| 后端设置 | `ps_args=list()` | `ps_args`、`match_args` | 管理字段如 data/formula 不能重复传 |
+| 平衡 | `balance=TRUE` | 同名 | 保存平衡表；否则 love 视图不可用 |
+
+| PSW 配置 | 默认 | 可选与影响 |
+|---|---|---|
+| `trim_args$method` | `"none"` | `ps` 绝对界、`pctl` 分位数、`cr` 对称 cutoff |
+| `trim_args$lower/upper` | `NULL/NULL` | 按方法填默认；`cr` 不接受手工上下界 |
+| `trim_args$refit` | `TRUE` | 剔除后重拟合 PS；已有外部 PS 无法重拟合，需显式 FALSE |
+| `trunc_args$method` | `"none"` | `ps` 或 `pctl`，修改 PS 而非直接裁剪权重 |
+| `trunc_args$lower/upper` | `0.01/0.99` | 绝对界或分位数；报告含义与取值 |
+
+ATO 是重叠人群效应；ATT 是治疗者目标，匹配又可能丢掉未找到对照的治疗者。
+ATM 与 EW 也有各自的目标权函数。方案不应仅因 SMD 更小或 p 更小就被选择。
+
+```{r}
+#| label: workflow-design
+pw <- get_PSW(d, "z", adj_var = adj, estimand = c("ATE", "ATT", "ATO"))
+pm <- get_PSM(d, "z", adj_var = adj, method = "nearest", estimand = "ATT",
+               ratio = 1, caliper = 0.2, replace = FALSE)
+pw$stats
+pm$stats
+stopifnot(all(c("w_ate", "w_att", "w_ato") %in% names(pw$data)),
+          all(c("w_nearest", "s_nearest") %in% names(pm$data)))
+```
+
+## PSW 的四种视图与匹配对照 {#sec-workflow-design-plots}
+
+`plt_PSW()` 的 `estimand=NULL` 画全部方案；`plt_PSM()` 用 `method=NULL` 选择方案。
+两者共有 `type`、`threshold=0.1`、`bins=40L`、`title=NULL`、`save=list()`。
+`threshold` 只画参考线，`bins` 只影响 PS 直方图；它们不改变设计。
+
+::: {.panel-tabset}
+
+### 平衡 {.unnumbered}
+
+```{r}
+#| label: fig-workflow-love
+#| fig-width: 9
+#| fig-height: 5
+#| fig-cap: "同一原队列与三种权重的基线平衡。0.1 是常用描述阈值，不能证明无混杂。"
+plt_PSW(pw, type = "love", threshold = 0.1)
+```
+
+### ESS {.unnumbered}
+
+```{r}
+#| label: fig-workflow-ess
+#| fig-width: 9
+#| fig-height: 5
+#| fig-cap: "有效样本量为 (sum w)^2/sum(w^2)，分别看两臂；它不是实际保留人数。"
+plt_PSW(pw, type = "ess")
+```
+
+### 权重 {.unnumbered}
+
+```{r}
+#| label: fig-workflow-weight
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "权重分布帮助检查极端值，不能只比较各方案平均权重。"
+plt_PSW(pw, type = "weight")
+```
+
+### PS {.unnumbered}
+
+```{r}
+#| label: fig-workflow-ps
+#| fig-width: 10
+#| fig-height: 5
+#| fig-cap: "bins=25：加权前后两臂的 PS 分布。重叠图与协变量平衡都应检查。"
+plt_PSW(pw, type = "ps", bins = 25)
+```
+
+### 匹配后的 PS {.unnumbered}
+
+```{r}
+#| label: fig-workflow-match
+#| fig-width: 8
+#| fig-height: 5
+#| fig-cap: "1:1 无放回匹配的 PS 分布。匹配保留的人群与原队列不同。"
+plt_PSM(pm, type = "ps", method = "nearest", bins = 25)
+```
+
+:::
+
+## get_bal：在共同分母上比较方案 {#sec-workflow-bal}
+
+```{r}
+#| label: fig-workflow-balance
+#| fig-width: 9
+#| fig-height: 5
+#| fig-cap: "多水平分期用整体 SMD 一行显示，所有方案使用共同未调整 pooled SD 分母。"
+bal <- get_bal(d, "z", adj_var = adj, methods = c("PSM", "ATE", "ATO"),
+                cat_smd = "overall", tbl = FALSE, var_names = NULL,
+                love_args = list(threshold = 0.1, legend_position = "bottom", base_size = 12))
+bal$plt
+```
+
+`methods` 可是缩写向量，也可是带名称的方案 list；PSM 缩写默认为 nearest、ATT、caliper=0.2。
+`cat_smd="level"` 展开分类水平；`tbl=TRUE` 另外生成表，`cores` 控制表的工作进程。
+`love_args` 支持 threshold、colors、shapes、size、line、var_order、base_size、ref_color、
+legend_position、legend_justification。`save_plt` 保存图，`save_tbl` 保存 Word 表。
+本页只运行绘图路径；方案的独立 halfmoon 平衡表与共同分母结果不应逐项要求相等。
+
+## 设计后的效应估计：明确方差与人群 {#sec-workflow-estimate}
+
+```{r}
+#| label: workflow-estimate
+f_ato <- lm(y ~ z, data = pw$data, weights = w_ato)
+V_ato <- sandwich::vcovHC(f_ato, type = "HC0")
+matched <- subset(pm$data, w_nearest > 0 & !is.na(s_nearest))
+f_att <- lm(y ~ z, data = matched, weights = w_nearest)
+V_att <- sandwich::vcovCL(f_att, cluster = matched$s_nearest, type = "HC1")
+b <- c(coef(f_ato)[["z"]], coef(f_att)[["z"]])
+se <- c(sqrt(V_ato["z", "z"]), sqrt(V_att["z", "z"]))
+data.frame(analysis = c("ATO weighted mean contrast", "Matched ATT contrast"),
+           estimate = b, std.error = se, conf.low = b - qnorm(.975) * se,
+           conf.high = b + qnorm(.975) * se)
+```
+
+这里是连续结局的教学估计：加权路径用异方差稳健方差，匹配路径按配对聚类。
+这些区间没有完整反映估计 PS、方案选择或匹配构造的不确定性，不能当成通用最终推断模板。
+放回匹配、可变比例、缺失、多中心或生存结局需要相应的数据结构与推断方法。
+
+## 原队列上的 HTE 是另一条路径 {#sec-workflow-hte}
+
+```{r}
+#| label: fig-workflow-hte
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-cap: "原队列 ATE 与预设性别亚组。它与前面的 ATO 加权或匹配 ATT 目标不同。"
+hte <- get_hte(d, "z", adj_var = adj, sub_var = "sex", surv = "y",
+               grf_args = list(num.trees = 500, num.threads = 2, seed = 123))
+plt_hte_sub(hte, fixed_size = FALSE, show_pinter = TRUE)
+```
+
+HTE 参数与诊断见 [总览](index.qmd)、[诊断页](hte-diagnostics-guide.qmd) 和
+[规则选择](method-selection-guide.qmd)。不能把同一权重再次传入森林后就称为
+“多做一层双稳健”；目标人群、PS、样本权重与得分构造必须一起论证。
+
+## 未测量混杂敏感性：绑定到明确模型 {#sec-workflow-sens}
+
+| 参数 | 默认 | 说明 |
+|---|---|---|
+| `method` | `"lm"` | sensemakr 的线性模型 partial R²；另有 cox/dml/iv，各自尺度不同 |
+| `treat/outcome/adj_var` | 治疗、结局、调整列 | 本例是调整后的线性回归系数，不是森林 CATE 或 ATO |
+| `bench_var` | `NULL` | 已调整基线变量作强度参照；不能放未调整变量 |
+| `q` / `conf_level` | `1` / `0.95` | 希望混杂解释掉的估计比例、置信水平 |
+| `bench_args$k_treat/k_out` | `1/NULL` | 相对 benchmark 的治疗端/结局端强度倍数；NULL 沿用治疗端 |
+| `bench_args$bound/bound_label` | `NULL/"Manual bound"` | 另外的手工强度边界与标签 |
+| 绘图 `type` | 按后端 | lm 为 contour/extreme；cox 为 tip/evalue；dml/iv 为 contour |
+| 绘图 `threshold` | `0` | 需要跨越的效应或检验参照值 |
+| 绘图 `lim` | `NULL` | contour 的两个 partial R² 轴上限，默认由分析范围决定 |
+| `contour_args` | 见帮助页 | sensitivity_of、n_levels、grid_n、round；grid_n 仅 DML |
+| `colors/save` | `NULL/list()` | 线色与 PDF 保存；标题只支持 tip/evalue 路径 |
+
+```{r}
+#| label: workflow-sensitivity
+sens <- get_sens(d, treat = "z", outcome = "y", adj_var = adj,
+                  bench_var = "age", method = "lm", q = 1,
+                  bench_args = list(k_treat = c(1, 2)))
+sens$stats
+sens$bounds
+```
+
+```{r}
+#| label: fig-workflow-sens
+#| fig-width: 8
+#| fig-height: 6
+#| fig-cap: "相对于已调整年龄的混杂强度参照。横纵轴是 partial R²，不能理解为混杂患者比例。"
+plt_sens(sens, type = "contour", contour_args = list(sensitivity_of = "estimate"))
+```
+
+敏感性结果描述“多强的未测量混杂可改变这个模型结论”，不能证明不存在未测量混杂。
+年龄参照的合理性也需要研究背景；它不是自动生成的最坏情况上界。
+
+## 报告与保存 {#sec-workflow-report}
+
+报告原始人数、缺失处理、两臂 PS 支持、设计目标、保留人数与 ESS、平衡、极端权重、
+结局模型、方差方法、HTE 发现/验证流程以及敏感性模型。各目标的单位和人群应贯穿图表。
+
+```{r}
+#| eval: false
+plt_PSW(pw, type = "love", save = list(filename = "psw_balance.pdf", width = 9, height = 5))
+plt_sens(sens, save = list(filename = "sensitivity.pdf", width = 8, height = 6))
+```
+
+```{r}
+args(get_PSW)
+args(get_PSM)
+args(get_sens)
+sessionInfo()
+```
