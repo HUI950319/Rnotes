@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="RegR 计算性能评估目录：竞争风险后端、RPA 生存路径与 Windows/Linux Cox/CIF 优化实测。">
+<meta name="description" content="RegR 性能评估：Logistic 3万至10万行拟合、FGR 方差开关与 mets 比较，以及 AIC/BIC/PVE 后端选择。">
 
 <title>性能评估 – R 包开发笔记</title>
 <style>
@@ -20,6 +20,41 @@ ul.task-list li input[type="checkbox"] {
   width: 0.8em;
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
   vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
 }
 </style>
 
@@ -48,6 +83,9 @@ ul.task-list li input[type="checkbox"] {
 <link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
 <link href="../site_libs/bootstrap/bootstrap-dark-b474d6efad454b713d1e816a9cc473a2.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
 <link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="../site_libs/quarto-contrib/glightbox/glightbox.min.js"></script>
+<link href="../site_libs/quarto-contrib/glightbox/glightbox.min.css" rel="stylesheet">
+<link href="../site_libs/quarto-contrib/glightbox/lightbox.css" rel="stylesheet">
 <script id="quarto-search-options" type="application/json">{
   "location": "sidebar",
   "copy-button": false,
@@ -76,10 +114,39 @@ ul.task-list li input[type="checkbox"] {
   }
 }</script>
 
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
 
 </head>
 
-<body class="nav-sidebar docked fullcontent quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+<body class="nav-sidebar docked quarto-light"><script id="quarto-html-before-body" type="application/javascript">
     const toggleBodyColorMode = (bsSheetEl) => {
       const mode = bsSheetEl.getAttribute("data-mode");
       const bodyEl = window.document.querySelector("body");
@@ -731,7 +798,34 @@ ul.task-list li input[type="checkbox"] {
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
 <!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
 
+  <ul>
+  <li><a href="#scoring-fit-20261003" id="toc-scoring-fit-20261003" class="nav-link active" data-scroll-target="#scoring-fit-20261003">本轮评估结论</a></li>
+  <li><a href="#测试条件与计时范围" id="toc-测试条件与计时范围" class="nav-link" data-scroll-target="#测试条件与计时范围">测试条件与计时范围</a></li>
+  <li><a href="#logistic-分支与大样本拟合" id="toc-logistic-分支与大样本拟合" class="nav-link" data-scroll-target="#logistic-分支与大样本拟合">Logistic 分支与大样本拟合</a>
+  <ul class="collapse">
+  <li><a href="#get_score-的实际调用" id="toc-get_score-的实际调用" class="nav-link" data-scroll-target="#get_score-的实际调用"><code>get_score()</code> 的实际调用</a></li>
+  <li><a href="#万5万10万行实测" id="toc-万5万10万行实测" class="nav-link" data-scroll-target="#万5万10万行实测">3万、5万、10万行实测</a></li>
+  </ul></li>
+  <li><a href="#fgr-方差-true-false-与-mets" id="toc-fgr-方差-true-false-与-mets" class="nav-link" data-scroll-target="#fgr-方差-true-false-与-mets">FGR 方差 TRUE / FALSE 与 mets</a>
+  <ul class="collapse">
+  <li><a href="#对齐模型设置" id="toc-对齐模型设置" class="nav-link" data-scroll-target="#对齐模型设置">对齐模型设置</a></li>
+  <li><a href="#拟合耗时" id="toc-拟合耗时" class="nav-link" data-scroll-target="#拟合耗时">拟合耗时</a></li>
+  <li><a href="#数值核对与使用边界" id="toc-数值核对与使用边界" class="nav-link" data-scroll-target="#数值核对与使用边界">数值核对与使用边界</a></li>
+  </ul></li>
+  <li><a href="#aicbicpve-可以直接使用-fgrfalse" id="toc-aicbicpve-可以直接使用-fgrfalse" class="nav-link" data-scroll-target="#aicbicpve-可以直接使用-fgrfalse">AIC、BIC、PVE 可以直接使用 FGR(FALSE)</a></li>
+  <li><a href="#是否值得把-mets-换成-fgrfalse" id="toc-是否值得把-mets-换成-fgrfalse" class="nav-link" data-scroll-target="#是否值得把-mets-换成-fgrfalse">是否值得把 mets 换成 FGR(FALSE)</a>
+  <ul class="collapse">
+  <li><a href="#更换会改变指标数值" id="toc-更换会改变指标数值" class="nav-link" data-scroll-target="#更换会改变指标数值">更换会改变指标数值</a></li>
+  <li><a href="#评估建议与当前实现" id="toc-评估建议与当前实现" class="nav-link" data-scroll-target="#评估建议与当前实现">评估建议与当前实现</a></li>
+  </ul></li>
+  <li><a href="#原始记录与复现" id="toc-原始记录与复现" class="nav-link" data-scroll-target="#原始记录与复现">原始记录与复现</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/performance-evaluation.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
 
@@ -789,8 +883,408 @@ ul.task-list li input[type="checkbox"] {
 </tbody>
 </table>
 <p>各页的结果对应其记录的源码快照、硬件环境、样本量和统计设置；比较耗时时需同时核对模型、置信区间和重采样配置。</p>
+<section id="scoring-fit-20261003" class="level2">
+<h2 class="anchored" data-anchor-id="scoring-fit-20261003">本轮评估结论</h2>
+<p>2026-10-03 的补充测试回答了四个问题：<code>get_score()</code> 的 Logistic 分支如何拟合，3万、5万、10万行是否慢，FGR 的方差计算开销有多大，以及是否应把 mets 换成 <code>FGR(variance = FALSE)</code>。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">问题</th>
+<th style="text-align: left;">本轮证据支持的结论</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>stats::glm()</code> 在10万行是否很慢？</td>
+<td style="text-align: left;">本轮低维 Logistic 模型不慢；单线程中位数为0.122秒和0.395秒。完整评分与重采样另有开销。</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">FGR 方差开关是否影响速度？</td>
+<td style="text-align: left;">影响明显：10万行 TRUE 单次108.233秒，FALSE 三次中位数1.643秒。两者输出的推断信息不同。</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">AIC、BIC、PVE 能否使用 FGR(FALSE)？</td>
+<td style="text-align: left;">可以。三个指标使用系数、完整/零系数模型似然和样本计数，不依赖系数方差矩阵。</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">有必要仅为提速将 mets 换成 FGR(FALSE)？</td>
+<td style="text-align: left;">没有稳定的大幅提速证据。若目的是统一 <code>get_fit_stats()</code> 与 <code>get_score()</code> 的似然口径，则有明确价值。</td>
+</tr>
+</tbody>
+</table>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>比较时的版本与当前源码状态
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>下文 mets 指标对照来自切换前的 <code>get_fit_stats()</code>，其竞争风险分支使用 <code>mets::cifregFG()</code>；<a href="https://github.com/HUI950319/RegR/blob/d5084cb/R/msr-fit-stats.R">RegR 源码快照 d5084cb</a> 保留了这一实现。</p>
+<p>本页编写时检查的 <strong>2026-10-03 工作区源码</strong> 已将该分支改为 <code>FGR(variance = FALSE)</code>，帮助文件也说明了这一变化。因此，“是否更换”是对更换理由的评估，不表示当前源码仍使用旧后端；工作区状态也不等同于所有已安装版本或已发布版本。本次页面更新不修改 RegR 源码。</p>
+</div>
+</div>
+</section>
+<section id="测试条件与计时范围" class="level2">
+<h2 class="anchored" data-anchor-id="测试条件与计时范围">测试条件与计时范围</h2>
+<p>测试环境为 WSL Ubuntu-22.04、R 4.4.3、Intel Core Ultra 9 275HX（24个逻辑 CPU），OpenBLAS pthread。竞争风险依赖版本为 <code>riskRegression 2026.3.11</code>、<code>cmprsk 2.2-12</code>、<code>mets 1.3.13</code>、<code>prodlim 2026.3.11</code>、<code>timereg 2.0.5</code>。机器存在其他 R 进程，不能视为独占环境。</p>
+<p>数据来自 <code>RegR/data/seer_thyroid_mtc_2026.rda</code>，原始4387行。固定随机种子 <code>20261003</code>，按各实验所需变量取完整病例后，有放回抽取10万行，再取前3万、5万、10万行作为嵌套样本。<strong>扩展行数不代表新增独立患者，这些样本只用于计算性能评估。</strong> 两类实验取完整病例的变量不同，不能把 Logistic 与 Fine–Gray 耗时差解释为相同数据上的纯算法差异。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">设置</th>
+<th style="text-align: left;">Logistic</th>
+<th style="text-align: left;">FGR / mets</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">原始分析样本</td>
+<td style="text-align: left;">两个公式涉及变量共同完整病例4017行；DSS事件470例</td>
+<td style="text-align: left;"><code>time/event/Age/Sex/Race</code> 完整且 <code>time &gt; 0</code> 的4387行；目标事件597例、竞争事件583例、删失3207例</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">扩展样本目标事件数（3万/5万/10万）</td>
+<td style="text-align: left;">3505 / 5869 / 11631</td>
+<td style="text-align: left;">4017 / 6670 / 13448</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">时间处理</td>
+<td style="text-align: left;">二分类模型不使用随访时间</td>
+<td style="text-align: left;">原始月份时间，未加 jitter；每档均有157个不同目标事件时点</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">线程</td>
+<td style="text-align: left;">分别测试 BLAS 1线程与本机原设置24线程；不改变生产设置</td>
+<td style="text-align: left;">每个独立 R 子进程 BLAS / OpenMP 均1线程</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">预热与重复</td>
+<td style="text-align: left;">每个公式5000行预热；每格5次；每轮随机模型/样本量顺序</td>
+<td style="text-align: left;">每格500行预热；TRUE每格1次，FALSE及mets每格3次；方法顺序未交替</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">安全上限与状态</td>
+<td style="text-align: left;">60次主拟合全部完成</td>
+<td style="text-align: left;">单次拟合180秒上限；9格、21次主拟合全部完成，无超时</td>
+</tr>
+</tbody>
+</table>
+<p>计时包含公式处理、设计矩阵构造、优化与拟合对象构造，以及配置要求的系数标准误计算；不含包/数据加载、样本扩展、计时前 GC、指标提取、预测、<code>Score()</code>、bootstrap 和绘图。下表中的区间是重复计时的最小—最大值，<strong>不是统计置信区间</strong>。本轮没有重新计时完整 <code>get_score()</code>。</p>
+</section>
+<section id="logistic-分支与大样本拟合" class="level2">
+<h2 class="anchored" data-anchor-id="logistic-分支与大样本拟合">Logistic 分支与大样本拟合</h2>
+<section id="get_score-的实际调用" class="level3">
+<h3 class="anchored" data-anchor-id="get_score-的实际调用"><code>get_score()</code> 的实际调用</h3>
+<p><code>surv = "DSS"</code> 这样的单个结局列名进入 Logistic 分支，模型为 <code>DSS ~ predictors</code>，使用 <code>stats::glm(..., family = stats::binomial())</code>。<code>surv = TRUE</code> 为 Cox，<code>surv = FALSE</code> 为 Fine–Gray。<code>vars = c("Age", "Sex")</code> 分别拟合两个模型；联合模型应写成 <code>vars = list(c("Age", "Sex"))</code>。</p>
+<p>评分使用预测概率，AUC/Brier 不需要将概率按0.5切成类别。Logistic 的评分不使用生存时点；<code>R = NULL/0/1</code> 不重采样，<code>R &gt;= 2</code> 时 AUC/BS 进入 <code>bootcv</code> 袋外评估。若同时选择 AIC/BIC/PVE，它们复用原样本及各 bootstrap 训练样本的拟合。似然指标与袋外预测指标的评价对象不同。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(seer_thyroid_mtc_2026, <span class="at">package =</span> <span class="st">"RegR"</span>)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>d <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(seer_thyroid_mtc_2026)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co"># 一个联合 Logistic 模型；R = 0 不重采样</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>RegR<span class="sc">::</span><span class="fu">get_score</span>(</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">vars =</span> <span class="fu">list</span>(<span class="at">clinical =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Race"</span>)),</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="st">"DSS"</span>, <span class="at">R =</span> <span class="dv">0</span>,</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">metrics =</span> <span class="fu">c</span>(<span class="st">"AUC"</span>, <span class="st">"BS"</span>, <span class="st">"AIC"</span>, <span class="st">"BIC"</span>, <span class="st">"PVE"</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>上述代码为可复制的调用示例，本页渲染不运行重型基准。选择似然指标时，函数使用所有候选模型预测变量与结局的共同完整病例；Logistic 不要求 <code>time</code> 完整。</p>
+</section>
+<section id="万5万10万行实测" class="level3">
+<h3 class="anchored" data-anchor-id="万5万10万行实测">3万、5万、10万行实测</h3>
+<p>简单模型为 <code>DSS ~ Age + Sex + Race</code>，因子展开后5个参数（含截距），IRLS 5次；临床模型为 <code>DSS ~ Age + Sex + Race + Tum + Nod_4 + M + Sur + Rad + Che</code>，展开后18个参数（含截距），IRLS 6次。保留默认 <code>glm.control(epsilon = 1e-8, maxit = 25)</code> 与默认返回字段。</p>
+<p>每格5次，表中为 <strong>中位数（最小—最大），单位秒</strong>。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">行数</th>
+<th style="text-align: right;">简单模型：1线程</th>
+<th style="text-align: right;">临床模型：1线程</th>
+<th style="text-align: right;">简单模型：24线程</th>
+<th style="text-align: right;">临床模型：24线程</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">30,000</td>
+<td style="text-align: right;">0.028（0.027–0.029）</td>
+<td style="text-align: right;">0.077（0.065–0.089）</td>
+<td style="text-align: right;">0.186（0.060–0.842）</td>
+<td style="text-align: right;">1.934（0.117–2.801）</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">50,000</td>
+<td style="text-align: right;">0.056（0.054–0.058）</td>
+<td style="text-align: right;">0.130（0.118–0.142）</td>
+<td style="text-align: right;">0.130（0.096–0.235）</td>
+<td style="text-align: right;">2.810（0.219–3.126）</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">100,000</td>
+<td style="text-align: right;">0.122（0.117–0.131）</td>
+<td style="text-align: right;">0.395（0.378–0.471）</td>
+<td style="text-align: right;">0.227（0.154–0.706）</td>
+<td style="text-align: right;">2.846（1.115–6.507）</td>
+</tr>
+</tbody>
+</table>
+<p>60次主拟合全部收敛、设计矩阵满秩、无警告；相同数据/公式跨重复和线程设置的系数、拟合概率、deviance 最大绝对差均为0。主测试先测24线程、后测1线程，因此补充10万行临床模型交替线程检查（顺序1/24/24/1/1/24）：1线程三次为0.648、0.326、0.315秒；24线程三次为3.757、2.033、3.039秒。中位数分别0.326和3.039秒，数值差仍为0。</p>
+<p>这支持本机低维模型中多线程调度开销较大的判断，不能据此普遍关闭其他计算的 BLAS 并行。单次 <code>glm()</code> 在本轮规模下不是主要慢点；完整评分慢时，还应定位概率预测、AUC/Brier 的标准误计算、重采样次数、候选模型数及绘图。结果不能外推到高维、完全分离、极稀有结局或复杂交互模型。</p>
+</section>
+</section>
+<section id="fgr-方差-true-false-与-mets" class="level2">
+<h2 class="anchored" data-anchor-id="fgr-方差-true-false-与-mets">FGR 方差 TRUE / FALSE 与 mets</h2>
+<section id="对齐模型设置" class="level3">
+<h3 class="anchored" data-anchor-id="对齐模型设置">对齐模型设置</h3>
+<p>三种配置使用同一 <code>Age + Sex + Race</code> 公式，展开后4个系数、不含截距；0为删失、1为目标事件、2为竞争事件。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>Hist <span class="ot">&lt;-</span> prodlim<span class="sc">::</span>Hist</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>Event <span class="ot">&lt;-</span> timereg<span class="sc">::</span>Event</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>fit_true <span class="ot">&lt;-</span> riskRegression<span class="sc">::</span><span class="fu">FGR</span>(</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Hist</span>(time, event) <span class="sc">~</span> Age <span class="sc">+</span> Sex <span class="sc">+</span> Race,</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> d, <span class="at">cause =</span> <span class="dv">1</span>, <span class="at">variance =</span> <span class="cn">TRUE</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>fit_false <span class="ot">&lt;-</span> riskRegression<span class="sc">::</span><span class="fu">FGR</span>(</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Hist</span>(time, event) <span class="sc">~</span> Age <span class="sc">+</span> Sex <span class="sc">+</span> Race,</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> d, <span class="at">cause =</span> <span class="dv">1</span>, <span class="at">variance =</span> <span class="cn">FALSE</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>fit_mets <span class="ot">&lt;-</span> mets<span class="sc">::</span><span class="fu">cifreg</span>(</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">Event</span>(time, event) <span class="sc">~</span> Age <span class="sc">+</span> Sex <span class="sc">+</span> Race,</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> d, <span class="at">cause =</span> <span class="dv">1</span>, <span class="at">cens.code =</span> <span class="dv">0</span>,</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">propodds =</span> <span class="cn">NULL</span>, <span class="at">stderr =</span> <span class="cn">TRUE</span>, <span class="at">cox.prep =</span> <span class="cn">FALSE</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>mets::cifreg()</code> 默认 <code>propodds = 1</code> 是 CIF 的 logit 比例优势模型；设置 <code>propodds = NULL</code> 才是本次比较的 Fine–Gray 模型。<a href="https://kkholst.github.io/mets/reference/cifreg.html">mets 官方接口说明</a>。本轮 mets 保留系数标准误；FGR 使用默认优化控制 <code>gtol = 1e-6</code>、<code>maxiter = 10</code>。</p>
+</section>
+<section id="拟合耗时" class="level3">
+<h3 class="anchored" data-anchor-id="拟合耗时">拟合耗时</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">行数</th>
+<th style="text-align: right;">FGR(TRUE)：单次</th>
+<th style="text-align: right;">FGR(FALSE)：三次中位数（范围）</th>
+<th style="text-align: right;">mets（含SE）：三次中位数（范围）</th>
+<th style="text-align: right;">TRUE单次 / FALSE中位数</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">30,000</td>
+<td style="text-align: right;">8.201</td>
+<td style="text-align: right;">0.440（0.422–0.512）</td>
+<td style="text-align: right;">0.237（0.189–0.900）</td>
+<td style="text-align: right;">18.6×</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">50,000</td>
+<td style="text-align: right;">27.923</td>
+<td style="text-align: right;">0.774（0.768–0.901）</td>
+<td style="text-align: right;">0.815（0.692–1.358）</td>
+<td style="text-align: right;">36.1×</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">100,000</td>
+<td style="text-align: right;">108.233</td>
+<td style="text-align: right;">1.643（1.540–1.918）</td>
+<td style="text-align: right;">1.343（1.209–2.427）</td>
+<td style="text-align: right;">65.9×</td>
+</tr>
+</tbody>
+</table>
+<div id="fig-fgr-fitting-time" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-fgr-fitting-time-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="bench/scoring_fit_20261003.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="图&nbsp;1: Fine–Gray 拟合耗时随样本量变化。纵轴为对数刻度；FGR(TRUE)为单次值，其他方法为三次中位数，竖线为最小—最大范围。不同重复次数和未交替的方法顺序限制了精确速度比的解释。"><img src="bench/scoring_fit_20261003.svg" class="img-fluid figure-img"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-fgr-fitting-time-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;1: Fine–Gray 拟合耗时随样本量变化。纵轴为对数刻度；FGR(TRUE)为单次值，其他方法为三次中位数，竖线为最小—最大范围。不同重复次数和未交替的方法顺序限制了精确速度比的解释。
+</figcaption>
+</figure>
+</div>
+<p>FGR(FALSE) 与 mets 处于同一耗时量级，5万行时 FGR(FALSE) 还略快。<strong>不能把 FGR(TRUE) 对 mets 的巨大速度比，套用于已经关闭系数方差计算的路径。</strong> TRUE 每格仅一次，表中倍数是描述性对照，不是精密的交替重复基准结论。</p>
+<p>FGR 将 <code>variance</code> 传给 <code>cmprsk::crr()</code>。<code>FALSE</code> 省略系数方差与残差计算，仍保留系数优化和预测所需的基线累计亚分布风险；本次随样本量增大，方差计算是主要耗时来源。<a href="https://search.r-project.org/CRAN/refmans/cmprsk/html/crr.html">cmprsk 官方说明</a>及<a href="https://raw.githubusercontent.com/cran/cmprsk/master/src/crr.f">底层 Fortran 实现</a>。mets 有自己的风险集累加与影响函数实现，本轮保留标准误仍较快；具体速度以实测为准。<a href="https://kkholst.github.io/mets/articles/cifreg.html">mets 方法说明</a>。</p>
+</section>
+<section id="数值核对与使用边界" class="level3">
+<h3 class="anchored" data-anchor-id="数值核对与使用边界">数值核对与使用边界</h3>
+<p>FGR(TRUE/FALSE) 在三档样本中系数和 sHR 最大差均为0；对每档前50行、36/60/120个月的 CIF 预测，最大差也均为0。这是已测样本与时点的一致性，未覆盖全部预测时点。21次主拟合均无警告；FGR 显式报告收敛，mets 的系数/方差有限、方差对角线为正、最大 Newton 步长小于 <code>2.1e-13</code>，未虚构 mets 的 <code>converged</code> 字段。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: right;">行数</th>
+<th style="text-align: right;">mets vs FGR：最大sHR相对差</th>
+<th style="text-align: right;">最大SE相对差</th>
+<th style="text-align: right;">最大95% CI端点绝对差</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">30,000</td>
+<td style="text-align: right;">0.0870%</td>
+<td style="text-align: right;">0.1819%</td>
+<td style="text-align: right;">0.002241</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">50,000</td>
+<td style="text-align: right;">0.0872%</td>
+<td style="text-align: right;">0.1838%</td>
+<td style="text-align: right;">0.002172</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">100,000</td>
+<td style="text-align: right;">0.0853%</td>
+<td style="text-align: right;">0.1708%</td>
+<td style="text-align: right;">0.002040</td>
+</tr>
+</tbody>
+</table>
+<p>SE/CI 比较使用 FGR(TRUE)，FGR(FALSE) 没有可用的系数标准误。mets 与 FGR 的点估计接近，但不能宣称逐数值等价；本轮也没有核对两后端预测的一致性。</p>
+<p>同一3万行样本随机重排行顺序（种子 <code>20261004</code>）后，mets 的最大 log-sHR 变化为 <code>8.97e-5</code>，sHR 为 <code>1.17e-4</code>，SE 为 <code>6.62e-6</code>；FGR(FALSE) 的最大 log-sHR 变化为 <code>1.75e-14</code>。该并列时间数据上观察到 mets 的轻微行顺序敏感性，不能据此断言所有后端差异都只由并列时间造成。</p>
+<p>只取点估计、预测或另做重抽样时，可以考虑 FGR(FALSE)。需要系数 Wald SE、P 值、CI 或依赖解析方差/影响函数的预测区间时，应保留提供这些信息的拟合与推断路径；关闭方差不能直接替代这些输出。</p>
+</section>
+</section>
+<section id="aicbicpve-可以直接使用-fgrfalse" class="level2">
+<h2 class="anchored" data-anchor-id="aicbicpve-可以直接使用-fgrfalse">AIC、BIC、PVE 可以直接使用 FGR(FALSE)</h2>
+<p>对于拟合成功的 FGR 对象，读取 <code>fit[["crrFit"]]</code> 中的 <code>loglik</code>、<code>loglik.null</code>、<code>coef</code> 即可；不需要方差矩阵，也不需要另拟合一个零系数模型。<a href="https://search.r-project.org/CRAN/refmans/cmprsk/html/crr.html">cmprsk 返回字段说明</a>。</p>
+<p>令 <span class="math inline">\(LL\)</span> 为完整模型 log pseudo-likelihood，<span class="math inline">\(LL_0\)</span> 为零系数模型 log pseudo-likelihood，<span class="math inline">\(k\)</span> 为系数个数，<span class="math inline">\(n\)</span> 为分析样本行数，<span class="math inline">\(E\)</span> 为目标事件数。本页采用 RegR 的口径：</p>
+<p><span class="math display">\[
+\mathrm{AIC}=-2LL+2k,\qquad
+\mathrm{BIC}=-2LL+k\log E,\qquad
+\mathrm{PVE}=1-\exp\{-2(LL-LL_0)/n\}.
+\]</span></p>
+<p>Fine–Gray 的 BIC 使用目标事件数是这里明确采用的约定；Logistic 的 BIC 使用分析样本数。PVE 的分母在各模式下均为分析样本数，它是 Cox–Snell 型似然伪 <span class="math inline">\(R^2\)</span>，不是 Nagelkerke 标准化 <span class="math inline">\(R^2\)</span>，也不是结局方差被解释的实际比例。Fine–Gray 使用伪/部分似然，这些指标应在<strong>相同结局、相同分析样本、相同似然口径</strong>下比较，不能跨模型家族比较绝对 AIC/BIC。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>z <span class="ot">&lt;-</span> fit_false[[<span class="st">"crrFit"</span>]]</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(z[[<span class="st">"converged"</span>]]))</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>LL <span class="ot">&lt;-</span> z[[<span class="st">"loglik"</span>]]</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>LL0 <span class="ot">&lt;-</span> z[[<span class="st">"loglik.null"</span>]]</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>k <span class="ot">&lt;-</span> <span class="fu">length</span>(z[[<span class="st">"coef"</span>]])</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>n <span class="ot">&lt;-</span> <span class="fu">nrow</span>(d)                        <span class="co"># d须为实际进入拟合的完整分析样本</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>E <span class="ot">&lt;-</span> <span class="fu">sum</span>(d[[<span class="st">"event"</span>]] <span class="sc">==</span> <span class="dv">1</span>)</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="fu">c</span>(<span class="at">AIC =</span> <span class="sc">-</span><span class="dv">2</span> <span class="sc">*</span> LL <span class="sc">+</span> <span class="dv">2</span> <span class="sc">*</span> k,</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">BIC =</span> <span class="sc">-</span><span class="dv">2</span> <span class="sc">*</span> LL <span class="sc">+</span> <span class="fu">log</span>(E) <span class="sc">*</span> k,</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">PVE =</span> <span class="sc">-</span><span class="fu">expm1</span>(<span class="sc">-</span><span class="dv">2</span> <span class="sc">*</span> <span class="fu">max</span>(<span class="dv">0</span>, LL <span class="sc">-</span> LL0) <span class="sc">/</span> n))</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="co"># 本页编写时源码中的公开接口</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>RegR<span class="sc">::</span><span class="fu">get_fit_stats</span>(</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  d, <span class="at">vars =</span> <span class="fu">list</span>(<span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Race"</span>)), <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">R =</span> <span class="dv">0</span></span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>另以2000行小样本直接核对方差开关：<span class="math inline">\(E=267\)</span>、<span class="math inline">\(k=4\)</span>，TRUE/FALSE 的完整与零系数模型似然完全相同，三个指标也相同：AIC 3774.870、BIC 3789.219、PVE 0.04382931。这里只证明已测模型的一致性，仍需检查收敛、有限似然与设计矩阵秩。</p>
+<p>若用 subject bootstrap 估计指标的 SE/百分位区间，每个重抽样拟合仍可用 FGR(FALSE)，区间来自重抽样分布。<code>get_score()</code> 的 AUC/Brier 标准误由评分流程计算，不能把“关闭系数方差”理解成“关闭所有不确定性计算”。</p>
+</section>
+<section id="是否值得把-mets-换成-fgrfalse" class="level2">
+<h2 class="anchored" data-anchor-id="是否值得把-mets-换成-fgrfalse">是否值得把 mets 换成 FGR(FALSE)</h2>
+<section id="更换会改变指标数值" class="level3">
+<h3 class="anchored" data-anchor-id="更换会改变指标数值">更换会改变指标数值</h3>
+<p>同一嵌套样本、同一预测变量，对照切换前 mets <code>get_fit_stats()</code> 与 FGR(FALSE) 的指标结果如下。<strong>差值为 FGR 减 mets，属于同一模型的后端差异。</strong></p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: right;">行数</th>
+<th style="text-align: right;">AIC差</th>
+<th style="text-align: right;">BIC差</th>
+<th style="text-align: right;">PVE差</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: right;">30,000</td>
+<td style="text-align: right;">+12.067807</td>
+<td style="text-align: right;">+12.067807</td>
+<td style="text-align: right;">−0.0000829734</td>
+</tr>
+<tr class="even">
+<td style="text-align: right;">50,000</td>
+<td style="text-align: right;">+20.443100</td>
+<td style="text-align: right;">+20.443100</td>
+<td style="text-align: right;">−0.0000887039</td>
+</tr>
+<tr class="odd">
+<td style="text-align: right;">100,000</td>
+<td style="text-align: right;">+40.964754</td>
+<td style="text-align: right;">+40.964754</td>
+<td style="text-align: right;">−0.0000878518</td>
+</tr>
+</tbody>
+</table>
+<p>例如10万行 PVE：mets 为0.0341458955，FGR 为0.0340580437。AIC/BIC差源于后端似然数值差异，不能解释为 FGR 模型更差，也不能混用两个后端的指标给候选模型排序。本轮没有检验多个候选模型的排序是否改变。</p>
+<p>这次补充指标检查每档仅一次：mets 全部指标处理耗时0.858/1.127/1.651秒，FGR 拟合加提取为0.973/0.743/1.542秒。两端计时边界略有差别，且没有重复，故不用于精确速度比；性能判断以主拟合的重复计时为主要依据。</p>
+</section>
+<section id="评估建议与当前实现" class="level3">
+<h3 class="anchored" data-anchor-id="评估建议与当前实现">评估建议与当前实现</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">更换目的</th>
+<th style="text-align: left;">判断</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">仅为提速</td>
+<td style="text-align: left;">证据不足以支持必须更换。FGR(FALSE) 与 mets 耗时接近，重复范围有重叠，也没有完整函数的稳定收益证明。</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">让 <code>get_fit_stats()</code> 与 <code>get_score()</code> 的竞争风险 AIC/BIC/PVE 使用同一似然</td>
+<td style="text-align: left;">值得局部统一到 FGR(FALSE)，两函数可复用同一套提取逻辑。本页编写时的工作区源码已采用此方案。</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">保持旧结果完全不变</td>
+<td style="text-align: left;">不能保证：点估计和似然存在实测差异，<code>obj</code> 中的拟合对象也从 <code>cifreg</code> 变为 <code>FGR</code>，下游对象访问须核对。</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">将全包 mets 推断和标准化路径全部替换</td>
+<td style="text-align: left;">本轮证据不支持。其他功能仍需系数 SE、解析推断或影响函数，不能直接用 FGR(FALSE) 覆盖。</td>
+</tr>
+</tbody>
+</table>
+<p>更换的主要收益是<strong>统一统计口径和对象使用逻辑</strong>。它不是已经证明的大幅性能优化，也不意味着可以移除全包的 mets 依赖。已有 mets 结果如需与新结果比较，应对全部候选模型用同一后端、同一样本重算。</p>
+</section>
+</section>
+<section id="原始记录与复现" class="level2">
+<h2 class="anchored" data-anchor-id="原始记录与复现">原始记录与复现</h2>
+<p><a href="bench/scoring_fit_20261003_evidence.zip">下载本轮证据包：计时、数值核对、环境和拟合脚本</a>。压缩包分为 <code>glm/</code> 与 <code>fgr-mets/</code>，包含逐次计时、汇总、线程交替检查、行顺序检查、指标后端差值、元数据及 R 会话版本；不含患者原始数据。<code>README.md</code> 说明路径与版本限制。</p>
+<p>两份主拟合脚本使用当时的 WSL 数据路径 <code>/mnt/e/Rpackage/RegR/data/seer_thyroid_mtc_2026.rda</code>；在其他环境中须修改脚本的数据路径，并先创建输出目录。复现时应核对原始数据哈希、依赖版本、线程与样本构造方式，而不是期待不同机器返回相同秒数。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 解压后，在具备相同依赖的 WSL R 环境中运行；输出目录须已存在</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="ex">Rscript</span> glm/benchmark-glm.R /absolute/output/glm</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="ex">Rscript</span> glm/benchmark-glm.R /absolute/output/glm thread-check</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="ex">Rscript</span> fgr-mets/benchmark-fgr-mets.R /absolute/output/fgr-mets</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>指标差值 CSV 保留的是切换前的 mets 对照，不能以当前 FGR 版 <code>get_fit_stats()</code> 重跑并称作 mets 结果。可查阅上述旧源码快照中的似然提取规则。本页发布只整理已有实测，没有重跑耗时矩阵，也没有修改包默认参数。</p>
 
 
+</section>
 
 </main> <!-- /main -->
 <script id="quarto-html-after-body" type="application/javascript">
@@ -1219,8 +1713,40 @@ ul.task-list li input[type="checkbox"] {
   </div>
 </nav>
 </div> <!-- /content -->
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/performance-evaluation.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script>var lightboxQuarto = GLightbox({"closeEffect":"zoom","descPosition":"bottom","loop":false,"openEffect":"zoom","selector":".lightbox"});
+(function() {
+  let previousOnload = window.onload;
+  window.onload = () => {
+    if (previousOnload) {
+      previousOnload();
+    }
+    lightboxQuarto.on('slide_before_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      const href = trigger.getAttribute('href');
+      if (href !== null) {
+        const imgEl = window.document.querySelector(`a[href="${href}"] img`);
+        if (imgEl !== null) {
+          const srcAttr = imgEl.getAttribute("src");
+          if (srcAttr && srcAttr.startsWith("data:")) {
+            slideConfig.href = srcAttr;
+          }
+        }
+      }
+    });
+
+    lightboxQuarto.on('slide_after_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      if (window.Quarto?.typesetMath) {
+        window.Quarto.typesetMath(slideNode);
+      }
+    });
+
+  };
+
+})();
+          </script>
 
 
 
 
-<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/performance-evaluation.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>
+</body></html>
