@@ -6,9 +6,9 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="SEER 数据处理：按甲状腺 / 胰腺与 2025 / 2026 schema 组织 ETL、分期和分析变量。">
+<meta name="description" content="WSL 的 R 默认按 24 线程使用 OpenBLAS，小矩阵反复调用、fork 并行和机器有负载时反而变慢。外部案例检索、本机设置验证与推荐做法。">
 
-<title>seerR 功能模块图 – R 包开发笔记</title>
+<title>WSL 下 R 的 OpenBLAS 线程与多核并行 – R 包开发笔记</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -18,8 +18,43 @@ div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
 ul.task-list{list-style: none;}
 ul.task-list li input[type="checkbox"] {
   width: 0.8em;
-  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
   vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
 }
 </style>
 
@@ -31,8 +66,8 @@ ul.task-list li input[type="checkbox"] {
 <script src="../site_libs/quarto-search/fuse.min.js"></script>
 <script src="../site_libs/quarto-search/quarto-search.js"></script>
 <meta name="quarto:offset" content="../">
-<link href="../seerr/index.html" rel="next">
-<link href="../utilsr/index.html" rel="prev">
+<link href="../mlr/function-modules.html" rel="next">
+<link href="../regr/get-score-benchmark-20261003.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
 <script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
@@ -45,12 +80,9 @@ ul.task-list li input[type="checkbox"] {
 <link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
 <script src="../site_libs/bootstrap/bootstrap.min.js"></script>
 <link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="../site_libs/bootstrap/bootstrap-43bd90803ede775e3c99abc21bf58872.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
-<link href="../site_libs/bootstrap/bootstrap-dark-a5ed893a13a39827e3611bf9872da821.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
-<link href="../site_libs/bootstrap/bootstrap-43bd90803ede775e3c99abc21bf58872.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
-<script src="../site_libs/quarto-contrib/glightbox/glightbox.min.js"></script>
-<link href="../site_libs/quarto-contrib/glightbox/glightbox.min.css" rel="stylesheet">
-<link href="../site_libs/quarto-contrib/glightbox/lightbox.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b474d6efad454b713d1e816a9cc473a2.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
 <script id="quarto-search-options" type="application/json">{
   "location": "sidebar",
   "copy-button": false,
@@ -253,8 +285,8 @@ ul.task-list li input[type="checkbox"] {
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../seerr/function-modules.html">seerR · SEER 数据处理</a></li><li class="breadcrumb-item"><a href="../seerr/function-modules.html"><span class="chapter-title">seerR 功能模块图</span></a></li></ol></nav>
-        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/function-modules.html">RegR · 临床回归与可视化</a></li><li class="breadcrumb-item"><a href="../regr/performance-evaluation.html">性能评估</a></li><li class="breadcrumb-item"><a href="../regr/wsl-openblas-threads-20261004.html"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
         <i class="bi bi-search"></i>
@@ -263,14 +295,14 @@ ul.task-list li input[type="checkbox"] {
   </nav>
 </header>
 <!-- content -->
-<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-full">
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
 <!-- sidebar -->
   <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation docked overflow-auto">
     <div class="pt-lg-2 mt-2 text-left sidebar-header sidebar-header-stacked">
       <a href="../index.html" class="sidebar-logo-link">
       </a>
     <div class="sidebar-title mb-0 py-0">
-      <a href="../">R 包开发笔记</a> 
+      <a href="../">R 包开发笔记</a>
         <div class="sidebar-tools-main">
     <a href="https://github.com/HUI950319/Rnotes" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
   <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="切换深色模式"><i class="bi"></i></a>
@@ -282,23 +314,23 @@ ul.task-list li input[type="checkbox"] {
         <div id="quarto-search" class="" title="搜索"></div>
         </div>
         </div>
-    <div class="sidebar-menu-container"> 
+    <div class="sidebar-menu-container">
     <ul class="list-unstyled mt-1">
         <li class="sidebar-item">
-  <div class="sidebar-item-container"> 
+  <div class="sidebar-item-container">
   <a href="../index.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">关于这份笔记</span></a>
   </div>
 </li>
         <li class="sidebar-item sidebar-item-section">
       <div class="sidebar-item-container">
-            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false">
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
  <span class="menu-text">RegR · 临床回归与可视化</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
           </a>
       </div>
-      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1">
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">
           <li class="sidebar-item">
   <div class="sidebar-item-container">
   <a href="../regr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RegR 功能模块图</span></a>
@@ -408,11 +440,11 @@ ul.task-list li input[type="checkbox"] {
       <div class="sidebar-item-container">
             <a href="../regr/performance-evaluation.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">性能评估</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
           </a>
       </div>
-      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2">
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2 show">
           <li class="sidebar-item">
   <div class="sidebar-item-container">
   <a href="../regr/get-eff-cif-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异</span></a>
@@ -433,17 +465,17 @@ ul.task-list li input[type="checkbox"] {
   <a href="../regr/scoring-fit-benchmark-20261003.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Logistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端</span></a>
   </div>
 </li>
-      <li class="sidebar-item">
-<div class="sidebar-item-container">
-<a class="sidebar-item-text sidebar-link" href="../regr/get-score-benchmark-20261003.html"><span class="chapter-title">get_score：大样本与100次 bootstrap 耗时</span></a>
-</div>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/get-score-benchmark-20261003.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">get_score：大样本与100次 bootstrap 耗时</span></a>
+  </div>
 </li>
-      <li class="sidebar-item">
-<div class="sidebar-item-container">
-<a class="sidebar-item-text sidebar-link" href="../regr/wsl-openblas-threads-20261004.html"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></a>
-</div>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/wsl-openblas-threads-20261004.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></a>
+  </div>
 </li>
-</ul>
+      </ul>
   </li>
       </ul>
   </li>
@@ -471,87 +503,67 @@ ul.task-list li input[type="checkbox"] {
   <a href="../mlr/shap-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP：get_shp 与 14 个绘图函数</span></a>
   </div>
 </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/imp-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">特征重要性：get_imp 与 9 个绘图函数</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/vpd-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">变量分布与 PDP：解释器、分组和预测时间</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/interaction-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">变量交互：H 统计量、paired-VIMP 与 VIV 图谱</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/shap-clust-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">SHAP 聚类：选 K、解释分组与固定中心分配</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/pdp-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">生存 PDP 图谱：时间、分箱与二维交互面</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/model-selection-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">模型筛选：学习器 × 缺失处理的重采样比较</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/hyper-tuning-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">超参数调优：搜索预算、配置图与嵌套验证</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/feature-selection-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">特征筛选：搜索路径、候选规模与选择稳定性</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">模型评估：时间 ROC、概率误差与分类阈值</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/calibration-dca-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">校准与 DCA：概率方向、重采样范围与阈值</span></span></a>
-          </div>
-        </li>
-</ul>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/imp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征重要性：get_imp 与 9 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/vpd-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量分布与 PDP：解释器、分组和预测时间</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量交互：H 统计量、paired-VIMP 与 VIV 图谱</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/shap-clust-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP 聚类：选 K、解释分组与固定中心分配</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/pdp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">生存 PDP 图谱：时间、分箱与二维交互面</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/model-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型筛选：学习器 × 缺失处理的重采样比较</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/hyper-tuning-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">超参数调优：搜索预算、配置图与嵌套验证</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/feature-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征筛选：搜索路径、候选规模与选择稳定性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型评估：时间 ROC、概率误差与分类阈值</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/calibration-dca-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">校准与 DCA：概率方向、重采样范围与阈值</span></a>
+  </div>
+</li>
+      </ul>
   </li>
         <li class="sidebar-item sidebar-item-section">
       <div class="sidebar-item-container">
-            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
  <span class="menu-text">UtilsR · 通用工具</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
           </a>
       </div>
-      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1">
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 ">
           <li class="sidebar-item">
   <div class="sidebar-item-container">
   <a href="../utilsr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 功能模块图</span></a>
@@ -626,16 +638,16 @@ ul.task-list li input[type="checkbox"] {
   </li>
         <li class="sidebar-item sidebar-item-section">
       <div class="sidebar-item-container">
-            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
  <span class="menu-text">seerR · SEER 数据处理</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
           </a>
       </div>
-      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 show">
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 ">
           <li class="sidebar-item">
   <div class="sidebar-item-container">
-  <a href="../seerr/function-modules.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">seerR 功能模块图</span></a>
+  <a href="../seerr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
@@ -769,25 +781,46 @@ ul.task-list li input[type="checkbox"] {
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
 <!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
 
+  <ul>
+  <li><a href="#主要结论" id="toc-主要结论" class="nav-link active" data-scroll-target="#主要结论">主要结论</a></li>
+  <li><a href="#本机环境" id="toc-本机环境" class="nav-link" data-scroll-target="#本机环境">本机环境</a></li>
+  <li><a href="#本机现象" id="toc-本机现象" class="nav-link" data-scroll-target="#本机现象">本机现象</a></li>
+  <li><a href="#四层原因外部报告" id="toc-四层原因外部报告" class="nav-link" data-scroll-target="#四层原因外部报告">四层原因（外部报告）</a>
+  <ul class="collapse">
+  <li><a href="#fork-并行叠加-blas-多线程线程数超过核数" id="toc-fork-并行叠加-blas-多线程线程数超过核数" class="nav-link" data-scroll-target="#fork-并行叠加-blas-多线程线程数超过核数">1. fork 并行叠加 BLAS 多线程，线程数超过核数</a></li>
+  <li><a href="#小矩阵开线程的成本高于计算" id="toc-小矩阵开线程的成本高于计算" class="nav-link" data-scroll-target="#小矩阵开线程的成本高于计算">2. 小矩阵：开线程的成本高于计算</a></li>
+  <li><a href="#机器有负载时速度断崖式下降" id="toc-机器有负载时速度断崖式下降" class="nav-link" data-scroll-target="#机器有负载时速度断崖式下降">3. 机器有负载时速度断崖式下降</a></li>
+  <li><a href="#wsl大小核结构被虚拟化隐藏" id="toc-wsl大小核结构被虚拟化隐藏" class="nav-link" data-scroll-target="#wsl大小核结构被虚拟化隐藏">4. WSL：大小核结构被虚拟化隐藏</a></li>
+  </ul></li>
+  <li><a href="#线程数在哪里设置才生效" id="toc-线程数在哪里设置才生效" class="nav-link" data-scroll-target="#线程数在哪里设置才生效">线程数在哪里设置才生效</a></li>
+  <li><a href="#推荐做法" id="toc-推荐做法" class="nav-link" data-scroll-target="#推荐做法">推荐做法</a></li>
+  <li><a href="#相关但不同的问题" id="toc-相关但不同的问题" class="nav-link" data-scroll-target="#相关但不同的问题">相关但不同的问题</a></li>
+  <li><a href="#参考资料" id="toc-参考资料" class="nav-link" data-scroll-target="#参考资料">参考资料</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/wsl-openblas-threads-20261004.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
 <!-- main -->
-<main class="content column-page-right" id="quarto-document-content">
+<main class="content" id="quarto-document-content">
 
 
-<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../seerr/function-modules.html">seerR · SEER 数据处理</a></li><li class="breadcrumb-item"><a href="../seerr/function-modules.html"><span class="chapter-title">seerR 功能模块图</span></a></li></ol></nav>
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/function-modules.html">RegR · 临床回归与可视化</a></li><li class="breadcrumb-item"><a href="../regr/performance-evaluation.html">性能评估</a></li><li class="breadcrumb-item"><a href="../regr/wsl-openblas-threads-20261004.html"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></a></li></ol></nav>
 <div class="quarto-title">
-<h1 class="title"><span class="chapter-title">seerR 功能模块图</span></h1>
+<h1 class="title"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></h1>
 </div>
 
 
 
-<div class="quarto-title-meta column-page-right">
+<div class="quarto-title-meta">
 
 
     <div>
     <div class="quarto-title-meta-heading">发布于</div>
     <div class="quarto-title-meta-contents">
-      <p class="date">2026年9月30日</p>
+      <p class="date">2026年10月4日</p>
     </div>
   </div>
 
@@ -799,40 +832,287 @@ ul.task-list li input[type="checkbox"] {
 </header>
 
 
-<p>SEER 数据处理：按甲状腺 / 胰腺与 2025 / 2026 schema 组织 ETL、分期和分析变量。</p>
-<p>本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。<strong>点击图片可放大查看</strong>，也可下载图源继续编辑。</p>
-<p><a href="../assets/module-maps/seerr/seerr-package-mindmap.drawio" class="btn btn-outline-primary" download="seerr-package-mindmap.drawio">下载 draw.io 图源</a> <a href="../assets/module-maps/seerr/seerr-package-mindmap.drawio.pdf" class="btn btn-outline-secondary" download="seerr-package-mindmap.drawio.pdf">下载三页 PDF</a></p>
-<p>图谱快照：<strong>2026-09-30</strong>。对应包版本：<strong>0.1.0</strong>。具体参数和返回值以当前安装版本的帮助页为准。</p>
-<section id="功能模块总览" class="level2">
-<h2 class="anchored" data-anchor-id="功能模块总览">功能模块总览</h2>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><a href="../assets/module-maps/seerr/seerr-package-mindmap-p1.drawio.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="seerR：功能模块总览"><img src="../assets/module-maps/seerr/seerr-package-mindmap-p1.drawio.svg" class="img-fluid figure-img" style="width:100.0%" alt="seerR 的功能模块总览；点击图片可放大阅读。"></a></p>
-<figcaption>seerR：功能模块总览</figcaption>
-</figure>
-</div>
-<p><a href="../assets/module-maps/seerr/seerr-package-mindmap-p1.drawio.png">查看原尺寸 PNG</a></p>
+<p>本页属于 <a href="../regr/performance-evaluation.html">RegR 性能评估</a>。<a href="../regr/rpa-cox-benchmark.html#竞争风险改用-mets1-万例前后对比">RPA 生存路径</a>、<a href="../regr/scoring-fit-benchmark-20261003.html">Logistic 与 Fine–Gray 拟合</a>和 <a href="../regr/get-score-benchmark-20261003.html">get_score</a> 几篇测试都把 BLAS 设成 1 线程，本页说明原因。问题出在 WSL 的 R 运行环境，与 RegR 的代码无关，在 WSL 上跑的其他 R 代码同样会遇到。</p>
+<section id="主要结论" class="level2">
+<h2 class="anchored" data-anchor-id="主要结论">主要结论</h2>
+<ul>
+<li>WSL（Ubuntu 22.04）的 R 链接的是 pthread 版 OpenBLAS，默认线程数等于逻辑 CPU 数（本机 24）。Windows 版 R 自带的是单线程参考 BLAS，没有这个问题。</li>
+<li>在<strong>小矩阵、反复调用</strong>的代码上（mets、<code>glm()</code> 的 IRLS、Cox 迭代等），多线程的同步和空转开销超过了计算本身，24 线程比 1 线程慢；机器有其他负载时还会再慢一倍以上。</li>
+<li><strong>fork 并行</strong>（<code>mclapply</code>、<code>future::multicore</code>）时，每个子进程都继承 24 个 BLAS 线程，8 个 worker 就是约 192 个线程抢 24 个核。</li>
+<li>这一现象在 GitHub 和 R 邮件列表上有大量相同报告，社区给出的做法是<strong>并行之前把 BLAS 设为 1 线程</strong>。</li>
+<li><strong><code>~/.Renviron</code> 里写 <code>OPENBLAS_NUM_THREADS</code> 无效</strong>，本机已验证。要么在启动 R 之前设好环境变量，要么在会话里调用 <code>RhpcBLASctl::blas_set_num_threads()</code>。</li>
+</ul>
 </section>
-<section id="函数与数据索引" class="level2">
-<h2 class="anchored" data-anchor-id="函数与数据索引">函数与数据索引</h2>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><a href="../assets/module-maps/seerr/seerr-package-mindmap-p2.drawio.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="seerR：函数与数据索引"><img src="../assets/module-maps/seerr/seerr-package-mindmap-p2.drawio.svg" class="img-fluid figure-img" style="width:100.0%" alt="seerR 的函数与数据索引；点击图片可放大阅读。"></a></p>
-<figcaption>seerR：函数与数据索引</figcaption>
-</figure>
-</div>
-<p><a href="../assets/module-maps/seerr/seerr-package-mindmap-p2.drawio.png">查看原尺寸 PNG</a></p>
+<section id="本机环境" class="level2">
+<h2 class="anchored" data-anchor-id="本机环境">本机环境</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">项目</th>
+<th style="text-align: left;">设置</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">CPU</td>
+<td style="text-align: left;">Intel Core Ultra 9 275HX，8 个性能核 + 16 个能效核，无超线程</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">WSL 中看到的 CPU</td>
+<td style="text-align: left;"><code>lscpu</code> 显示 24 个完全相同的 CPU，<code>Hypervisor vendor: Microsoft</code>，看不出大小核</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">系统、R</td>
+<td style="text-align: left;">WSL Ubuntu-22.04；R 4.4.3</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">BLAS</td>
+<td style="text-align: left;"><code>libopenblas0-pthread 0.3.20+ds-1</code>（经 <code>libblas.so.3</code> 链接），默认 24 线程；不是 OpenMP 版</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Windows R</td>
+<td style="text-align: left;">自带参考 BLAS，单线程</td>
+</tr>
+</tbody>
+</table>
+<p>查看当前线程数要用 <code>RhpcBLASctl::blas_get_num_procs()</code>，不要只看 <code>Sys.getenv("OPENBLAS_NUM_THREADS")</code>：环境变量有值，不代表 OpenBLAS 用了它（见<a href="#线程数在哪里设置才生效">下文</a>）。</p>
 </section>
-<section id="分析流程与对象流" class="level2">
-<h2 class="anchored" data-anchor-id="分析流程与对象流">分析流程与对象流</h2>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><a href="../assets/module-maps/seerr/seerr-package-mindmap-p3.drawio.svg" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="seerR：分析流程与对象流"><img src="../assets/module-maps/seerr/seerr-package-mindmap-p3.drawio.svg" class="img-fluid figure-img" style="width:100.0%" alt="seerR 的分析流程与对象流；点击图片可放大阅读。"></a></p>
-<figcaption>seerR：分析流程与对象流</figcaption>
-</figure>
+<section id="本机现象" class="level2">
+<h2 class="anchored" data-anchor-id="本机现象">本机现象</h2>
+<p>以下是本机在不同测试中留下的记录，环境同上。</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">测试</th>
+<th style="text-align: right;">多线程（默认 24）</th>
+<th style="text-align: right;">单线程</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>mets::survivalGtime()</code>，3 万例 × 48 个时间点（2026-10-02）</td>
+<td style="text-align: right;">44 s，CPU 时间 784 s</td>
+<td style="text-align: right;">26 s</td>
+<td style="text-align: left;">4 线程 34 s；同一计算在 Windows R 上 32 s；两种设置结果差 &lt; 1e-13</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">同上，机器上另有 R 进程在跑</td>
+<td style="text-align: right;">最慢 92 s</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: left;">多线程一遇到负载就严重变慢</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">同上，<code>mclapply</code> 8 个 worker</td>
+<td style="text-align: right;">34 s</td>
+<td style="text-align: right;">6.4 s</td>
+<td style="text-align: left;">每个 worker 又各开 24 个 BLAS 线程</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>glm()</code>，10 万行临床模型（2026-10-03）</td>
+<td style="text-align: right;">3.039 s</td>
+<td style="text-align: right;">0.326 s</td>
+<td style="text-align: left;">交替顺序测 3 次的中位数，系数差为 0；见<a href="../regr/scoring-fit-benchmark-20261003.html">拟合评估</a></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>get_rpa_mp2()</code> 4 万行 bootstrap（2026-10-04）</td>
+<td style="text-align: right;">串行 75.6 s；15 worker 20.6 s</td>
+<td style="text-align: right;">串行 59.1 s；15 worker 13.2 s</td>
+<td style="text-align: left;">改用单线程前后对比</td>
+</tr>
+</tbody>
+</table>
+<p><strong>反例：</strong>1500 × 1500 的 <code>crossprod()</code> 这类大矩阵运算，多线程 OpenBLAS 仍快约 20 倍。所以问题不在于 OpenBLAS 本身，而在于小矩阵被反复调用时，线程同步的开销压过了计算量。</p>
+<p><strong>诊断信号：</strong>在 WSL 上用 <code>Rprof()</code>，<code>total.time</code> 远大于实际耗时（CPU 时间被所有线程累加），且 <code>%*%</code>、<code>tcrossprod</code> 排在 <code>self.time</code> 前列。</p>
+</section>
+<section id="四层原因外部报告" class="level2">
+<h2 class="anchored" data-anchor-id="四层原因外部报告">四层原因（外部报告）</h2>
+<section id="fork-并行叠加-blas-多线程线程数超过核数" class="level3">
+<h3 class="anchored" data-anchor-id="fork-并行叠加-blas-多线程线程数超过核数">1. fork 并行叠加 BLAS 多线程，线程数超过核数</h3>
+<p><code>mclapply</code> 和 <code>future::multicore</code> 的子进程会继承父进程的 BLAS 线程设置，每个子进程都按 24 线程运行。这是报告最多的一类：</p>
+<ul>
+<li><a href="https://github.com/sangwon-hyun/flowmix/issues/14">sangwon-hyun/flowmix#14</a>：只设了 <code>mc.cores = 4</code>，笔记本 8 个核全部跑满，HPC 上也明显变慢。维护者确认，在并行之前调用 <code>RhpcBLASctl::blas_set_num_threads(1)</code> 就能解决。</li>
+<li><a href="https://github.com/futureverse/parallelly/issues/129">futureverse/parallelly#129</a>：讨论 <code>availableCores()</code> 是否应考虑 BLAS / OpenMP 线程变量。评论者的做法也是在显式并行前手动设为 1 线程。future 有一个 beta 选项 <code>future.fork.multithreading.enable</code>，但<a href="https://future.futureverse.org/reference/zzz-future.options.html">文档</a>只点名 OpenMP（经 RhpcBLASctl）和 RcppParallel，没有写 BLAS，不宜依赖。</li>
+<li>更严重的是崩溃和卡死。<a href="https://github.com/Budget-Lab-Yale/Tax-Simulator/issues/128">Budget-Lab-Yale/Tax-Simulator#128</a> 里，<code>%*%</code> 只在 <code>mclapply</code> 子进程里发生段错误，作者推测是这个原因，尚未验证。<strong>OpenMP 版的 OpenBLAS 不支持 fork</strong>：<a href="https://github.com/libKriging/libKriging/issues/325">libKriging/libKriging#325</a> 里 28 个子进程全部卡死在 futex 上；<a href="https://stat.ethz.ch/pipermail/r-help/2023-June/477540.html">r-help 2023-06</a> 中 Ivan Krylov 指出，OpenMP 版会忽略 <code>OPENBLAS_NUM_THREADS</code>，只认 <code>OMP_NUM_THREADS</code>。早期 OpenBLAS 本身也有 fork 后卡死的问题（<a href="https://github.com/OpenMathLib/OpenBLAS/issues/294">OpenBLAS#294</a>）。</li>
+</ul>
+<p>本机装的是 pthread 版，不受 fork 卡死影响。<strong>不要换成 <code>libopenblas0-openmp</code>。</strong></p>
+</section>
+<section id="小矩阵开线程的成本高于计算" class="level3">
+<h3 class="anchored" data-anchor-id="小矩阵开线程的成本高于计算">2. 小矩阵：开线程的成本高于计算</h3>
+<ul>
+<li>OpenBLAS 的线程策略是“要么 1 个，要么全部核”。维护者在 <a href="https://github.com/OpenMathLib/OpenBLAS/issues/3879">OpenBLAS#3879</a> 中说明，GEMM 在 M·N·K &gt; 262140 时就切到多线程（2023 年的实现），在 <a href="https://github.com/OpenMathLib/OpenBLAS/issues/5383">OpenBLAS#5383</a> 中也说，大多数函数要么用 1 个线程，要么用满全部核，除非用 <code>OPENBLAS_NUM_THREADS</code> 限制。</li>
+<li><a href="https://github.com/OpenMathLib/OpenBLAS/issues/1560">OpenBLAS#1560</a>：200×200、300×300 的复数特征值分解，1 线程比任何多线程设置都快，多出的线程大部分时间耗在内核态。<a href="https://github.com/OpenMathLib/OpenBLAS/issues/5469">OpenBLAS#5469</a>：15×15 的复数矩阵也是如此，维护者认为开线程和分配缓冲区的开销超过了计算量。</li>
+<li><a href="https://github.com/OpenMathLib/OpenBLAS/issues/5171">OpenBLAS#5171</a>：<code>perf</code> 显示约 77% 的 CPU 周期花在 <code>blas_thread_server</code> 上，热点是一段读时钟、和 <code>thread_timeout</code> 比较的空转循环。维护者的解释是空闲线程在等任务。这对应本机 Rprof 里 CPU 时间远大于实际耗时的现象。<a href="http://www.openmathlib.org/OpenBLAS/docs/faq/">OpenBLAS FAQ</a> 建议把 <code>OPENBLAS_THREAD_TIMEOUT</code> 设得比默认值 26 小，缩短空转时间。</li>
+</ul>
+</section>
+<section id="机器有负载时速度断崖式下降" class="level3">
+<h3 class="anchored" data-anchor-id="机器有负载时速度断崖式下降">3. 机器有负载时速度断崖式下降</h3>
+<p><a href="https://github.com/OpenMathLib/OpenBLAS/issues/5517">OpenBLAS#5517</a> 与本机“另有 R 进程时慢到 92 s”最接近。报告者调用约 13 万次 2×2 复数特征值分解：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">机器</th>
+<th style="text-align: right;">1 线程</th>
+<th style="text-align: right;">不限线程</th>
+<th style="text-align: right;">不限线程 + 后台一个 <code>cat /dev/zero</code></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">AMD EPYC 7351P（16 核 / 32 线程）</td>
+<td style="text-align: right;">约 0.25 s</td>
+<td style="text-align: right;">约 2.6 s</td>
+<td style="text-align: right;">约 170 s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">AMD Threadripper PRO 7965WX（24 核 / 48 线程）</td>
+<td style="text-align: right;">约 0.1 s</td>
+<td style="text-align: right;">约 1.4 s</td>
+<td style="text-align: right;">800–900 s</td>
+</tr>
+</tbody>
+</table>
+<p>触发条件是 OpenBLAS 线程数加上后台忙线程数超过逻辑 CPU 数。每次调用都要等所有线程会合，其中一个线程被抢占，其余线程都得等。该报告用的是 OpenMP 版；pthread 版每次调用同样要等所有线程完成，机制相同。</p>
+</section>
+<section id="wsl大小核结构被虚拟化隐藏" class="level3">
+<h3 class="anchored" data-anchor-id="wsl大小核结构被虚拟化隐藏">4. WSL：大小核结构被虚拟化隐藏</h3>
+<ul>
+<li><a href="https://github.com/microsoft/WSL/issues/13272">microsoft/WSL#13272</a>：WSL2 隐藏了性能核 / 能效核的结构，线程绑核调用可能不起作用；报告者的向量化多线程代码反而比标量代码慢 15–20%。<a href="https://github.com/microsoft/WSL/issues/9121">microsoft/WSL#9121</a>：<code>/sys/devices/system/cpu</code> 只有性能核的缓存信息。</li>
+<li><a href="https://github.com/numpy/numpy/issues/27174">numpy/numpy#27174</a>：同为大小核架构的 Core Ultra 7 155H（16 核 22 线程），在 Windows 上 OpenBLAS 默认 22 线程时 <code>inv(1000×1000)</code> 耗时 33 s，1 线程只要 0.29 s。后来在新内核的 Linux 上默认设置已正常，但线程数只要比可用核多 1 个，就从 0.09 s 跳到 2.7 s。</li>
+</ul>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
 </div>
-<p><a href="../assets/module-maps/seerr/seerr-package-mindmap-p3.drawio.png">查看原尺寸 PNG</a></p>
-<p>三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。</p>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>以下是推断
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>没有找到 WSL + R + OpenBLAS 的直接报告。WSL 里的 Linux 内核分不清哪个 vCPU 落在能效核上，OpenBLAS 又是把工作平均分给所有线程，最慢的那一份决定整次调用的耗时。所以在 WSL 上，多线程 BLAS 的收益可能比原生 Linux 小，也更容易被其他负载拖慢。</p>
+</div>
+</div>
+<p>另外，Ubuntu 22.04 自带的是 2022 年初发布的 OpenBLAS 0.3.20。上面多数 issue 是之后才提出的，相关调整（如 #5517 讨论的 <code>zher2</code> 线程阈值）即使已经合并，也不在这个版本里。</p>
+</section>
+</section>
+<section id="线程数在哪里设置才生效" class="level2">
+<h2 class="anchored" data-anchor-id="线程数在哪里设置才生效">线程数在哪里设置才生效</h2>
+<p>2026-10-04 在本机逐项验证（<code>blas_get_num_procs()</code> 的返回值）：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">方式</th>
+<th style="text-align: left;">结果与说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">会话中 <code>Sys.setenv(OPENBLAS_NUM_THREADS = 1)</code></td>
+<td style="text-align: left;"><strong>无效</strong>，返回 24。另见 <a href="https://stat.ethz.ch/pipermail/r-sig-hpc/2012-June/001409.html">r-sig-hpc 2012</a></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>~/.Renviron</code> / <code>Renviron.site</code> 写 <code>OPENBLAS_NUM_THREADS=1</code></td>
+<td style="text-align: left;"><strong>无效</strong>，返回 24。<code>Sys.getenv()</code> 显示 1，但 OpenBLAS 在 R 读取 Renviron 之前已按 24 线程初始化。另见 <a href="https://r-mailing-lists.thecoatlessprofessor.com/lists/r-sig-debian/msg/msg-a3603af42461">r-sig-debian 2016</a>、<a href="https://forum.posit.co/t/how-can-i-limit-multithreading-for-r-studio-server-open-source-users-as-admin/184310">Posit 论坛</a></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">启动前设环境变量：<code>OPENBLAS_NUM_THREADS=1 Rscript …</code></td>
+<td style="text-align: left;">有效，返回 1</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">启动前只设 <code>OMP_NUM_THREADS=1</code></td>
+<td style="text-align: left;">有效，返回 1。pthread 版在未设 <code>OPENBLAS_NUM_THREADS</code> 时也读它</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">会话中 <code>RhpcBLASctl::blas_set_num_threads(1L)</code></td>
+<td style="text-align: left;">有效，返回 1。之后 <code>mclapply</code> 子进程继承为 1</td>
+</tr>
+</tbody>
+</table>
+<p>把下面一行放进 WSL 的 <code>~/.Rprofile</code> 后，不同进程的实际线程数：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">requireNamespace</span>(<span class="st">"RhpcBLASctl"</span>, <span class="at">quietly =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  RhpcBLASctl<span class="sc">::</span><span class="fu">blas_set_num_threads</span>(<span class="dv">1</span>L)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 30%">
+<col style="width: 40%">
+<col style="width: 30%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">进程</th>
+<th style="text-align: center;">线程数</th>
+<th style="text-align: left;">原因</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">普通 <code>R</code> / <code>Rscript</code> 会话</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">读取 <code>~/.Rprofile</code></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>parallel::makeCluster()</code>（PSOCK）的 worker</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">worker 是新的 <code>Rscript</code> 进程，同样读取 <code>~/.Rprofile</code></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>mclapply</code> 子进程</td>
+<td style="text-align: center;">1</td>
+<td style="text-align: left;">fork 继承父进程设置</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>Rscript --vanilla</code></td>
+<td style="text-align: center;"><strong>24</strong></td>
+<td style="text-align: left;">不读取 <code>~/.Rprofile</code></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>callr::r()</code> 的子进程</td>
+<td style="text-align: center;"><strong>24</strong></td>
+<td style="text-align: left;">callr 默认不加载用户的 <code>~/.Rprofile</code></td>
+</tr>
+</tbody>
+</table>
+<p>工作目录里有项目级 <code>.Rprofile</code> 时，R 只读它而不读 <code>~/.Rprofile</code>，这一行也不会执行。上表 24 线程的情况需要在启动命令前加环境变量，或在子进程代码开头自己调用 <code>blas_set_num_threads(1L)</code>。</p>
+</section>
+<section id="推荐做法" class="level2">
+<h2 class="anchored" data-anchor-id="推荐做法">推荐做法</h2>
+<ol type="1">
+<li>在 WSL 的 <code>~/.Rprofile</code> 加上面那一行，默认单线程。不要写进 <code>~/.Renviron</code>。</li>
+<li>用 <code>--vanilla</code>、callr 或有项目级 <code>.Rprofile</code> 时，在启动命令前加 <code>OPENBLAS_NUM_THREADS=1</code>，或在子进程里调用 <code>blas_set_num_threads(1L)</code>。</li>
+<li>需要做大矩阵运算时，临时调高，用完恢复：</li>
+</ol>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>old <span class="ot">&lt;-</span> RhpcBLASctl<span class="sc">::</span><span class="fu">blas_get_num_procs</span>()</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>RhpcBLASctl<span class="sc">::</span><span class="fu">blas_set_num_threads</span>(<span class="dv">8</span>L)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="fu">on.exit</span>(RhpcBLASctl<span class="sc">::</span><span class="fu">blas_set_num_threads</span>(old), <span class="at">add =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<ol start="4" type="1">
+<li>在 WSL 上做性能对比、或判断“WSL 比 Windows 慢”之前，先用 <code>blas_get_num_procs()</code> 确认线程数。Windows R 是单线程 BLAS，两边线程数不同，耗时不能直接比较。</li>
+<li>保持 pthread 版 OpenBLAS。如果用的是 OpenMP 版，限制线程要设 <code>OMP_NUM_THREADS</code>，而且它与 fork 不兼容。</li>
+</ol>
+</section>
+<section id="相关但不同的问题" class="level2">
+<h2 class="anchored" data-anchor-id="相关但不同的问题">相关但不同的问题</h2>
+<p><a href="https://github.com/futureverse/future/issues/826">futureverse/future#826</a> 报告 WSL2 上 PSOCK worker 超过约 8 个时 <code>clusterEvalQ(cl, Sys.sleep(1))</code> 会卡住，与 BLAS 无关，issue 关闭时未找到原因。WSL 上 PSOCK 集群卡住时应另行排查。</p>
+</section>
+<section id="参考资料" class="level2">
+<h2 class="anchored" data-anchor-id="参考资料">参考资料</h2>
+<p>本页外部资料检索于 2026-10-04。</p>
+<ul>
+<li>R 邮件列表与论坛：<a href="https://stat.ethz.ch/pipermail/r-help/2023-June/477540.html">r-help 2023-06（mclapply 与 OpenMP 版 OpenBLAS）</a>；<a href="https://stat.ethz.ch/pipermail/r-sig-hpc/2012-June/001409.html">r-sig-hpc 2012（Sys.setenv 无效）</a>；<a href="https://r-mailing-lists.thecoatlessprofessor.com/lists/r-sig-debian/msg/msg-a3603af42461">r-sig-debian 2016（Renviron 读取时机太晚）</a>；<a href="https://forum.posit.co/t/how-can-i-limit-multithreading-for-r-studio-server-open-source-users-as-admin/184310">Posit 论坛（限制 RStudio Server 用户的线程）</a></li>
+<li>OpenBLAS：<a href="http://www.openmathlib.org/OpenBLAS/docs/faq/">FAQ</a>；<a href="https://github.com/OpenMathLib/OpenBLAS/issues/294">#294</a>、<a href="https://github.com/OpenMathLib/OpenBLAS/issues/1560">#1560</a>、<a href="https://github.com/OpenMathLib/OpenBLAS/issues/3879">#3879</a>、<a href="https://github.com/OpenMathLib/OpenBLAS/issues/5171">#5171</a>、<a href="https://github.com/OpenMathLib/OpenBLAS/issues/5383">#5383</a>、<a href="https://github.com/OpenMathLib/OpenBLAS/issues/5469">#5469</a>、<a href="https://github.com/OpenMathLib/OpenBLAS/issues/5517">#5517</a></li>
+<li>R 包与项目：<a href="https://github.com/sangwon-hyun/flowmix/issues/14">flowmix#14</a>、<a href="https://github.com/futureverse/parallelly/issues/129">parallelly#129</a>、<a href="https://future.futureverse.org/reference/zzz-future.options.html">future 选项文档</a>、<a href="https://github.com/futureverse/future/issues/826">future#826</a>、<a href="https://github.com/Budget-Lab-Yale/Tax-Simulator/issues/128">Tax-Simulator#128</a>、<a href="https://github.com/libKriging/libKriging/issues/325">libKriging#325</a></li>
+<li>WSL 与混合架构：<a href="https://github.com/microsoft/WSL/issues/13272">microsoft/WSL#13272</a>、<a href="https://github.com/microsoft/WSL/issues/9121">microsoft/WSL#9121</a>、<a href="https://github.com/numpy/numpy/issues/27174">numpy/numpy#27174</a></li>
+</ul>
 
 
 </section>
@@ -862,7 +1142,7 @@ ul.task-list li input[type="checkbox"] {
     anchorJS.add('.anchored');
     const isCodeAnnotation = (el) => {
       for (const clz of el.classList) {
-        if (clz.startsWith('code-annotation-')) {                     
+        if (clz.startsWith('code-annotation-')) {
           return true;
         }
       }
@@ -882,11 +1162,11 @@ ul.task-list li input[type="checkbox"] {
         button.setAttribute("data-bs-toggle", "tooltip");
         button.setAttribute("data-bs-placement", "left");
         button.setAttribute("data-bs-title", "已复制");
-        tooltip = new bootstrap.Tooltip(button, 
-          { trigger: "manual", 
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
             customClass: "code-copy-button-tooltip",
             offset: [0, -8]});
-        tooltip.show();    
+        tooltip.show();
       }
       setTimeout(function() {
         if (tooltip) {
@@ -963,7 +1243,7 @@ ul.task-list li input[type="checkbox"] {
       if (onUntriggerFn) {
         config.onUntrigger = onUntriggerFn;
       }
-      window.tippy(el, config); 
+      window.tippy(el, config);
     }
     const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
     for (var i=0; i<noterefs.length; i++) {
@@ -1038,7 +1318,7 @@ ul.task-list li input[type="checkbox"] {
       tippyHover(xref, undefined, function(instance) {
         instance.disable();
         let url = xref.getAttribute('href');
-        let hash = undefined; 
+        let hash = undefined;
         if (url.startsWith('#')) {
           hash = url;
         } else {
@@ -1066,7 +1346,7 @@ ul.task-list li input[type="checkbox"] {
               if (note !== null) {
                 const html = processXRef(id, note);
                 instance.setContent(html);
-              } 
+              }
             }).finally(() => {
               instance.enable();
               instance.show();
@@ -1090,7 +1370,7 @@ ul.task-list li input[type="checkbox"] {
               }
               const html = processXRef(null, note);
               instance.setContent(html);
-            } 
+            }
           }).finally(() => {
             instance.enable();
             instance.show();
@@ -1130,7 +1410,7 @@ ul.task-list li input[type="checkbox"] {
               height = bottom - top;
             }
             if (top !== null && height !== null && parent !== null) {
-              // cook up a div (if necessary) and position it 
+              // cook up a div (if necessary) and position it
               let div = window.document.getElementById("code-annotation-line-highlight");
               if (div === null) {
                 div = window.document.createElement("div");
@@ -1251,53 +1531,21 @@ ul.task-list li input[type="checkbox"] {
     }
   });
   </script>
-<nav class="page-navigation column-page-right">
+<nav class="page-navigation">
   <div class="nav-page nav-page-previous">
-      <a href="../utilsr/index.html" class="pagination-link" aria-label="UtilsR 概览">
-        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">UtilsR 概览</span></span>
-      </a>          
+      <a href="../regr/get-score-benchmark-20261003.html" class="pagination-link" aria-label="get_score：大样本与100次 bootstrap 耗时">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">get_score：大样本与100次 bootstrap 耗时</span></span>
+      </a>
   </div>
   <div class="nav-page nav-page-next">
-      <a href="../seerr/index.html" class="pagination-link" aria-label="seerR 概览">
-        <span class="nav-page-text"><span class="chapter-title">seerR 概览</span></span> <i class="bi bi-arrow-right-short"></i>
+      <a href="../mlr/function-modules.html" class="pagination-link" aria-label="MLR 功能模块图">
+        <span class="nav-page-text"><span class="chapter-title">MLR 功能模块图</span></span> <i class="bi bi-arrow-right-short"></i>
       </a>
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/seerr/function-modules.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script>var lightboxQuarto = GLightbox({"closeEffect":"zoom","descPosition":"bottom","loop":false,"openEffect":"zoom","selector":".lightbox"});
-(function() {
-  let previousOnload = window.onload;
-  window.onload = () => {
-    if (previousOnload) {
-      previousOnload();
-    }
-    lightboxQuarto.on('slide_before_load', (data) => {
-      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
-      const href = trigger.getAttribute('href');
-      if (href !== null) {
-        const imgEl = window.document.querySelector(`a[href="${href}"] img`);
-        if (imgEl !== null) {
-          const srcAttr = imgEl.getAttribute("src");
-          if (srcAttr && srcAttr.startsWith("data:")) {
-            slideConfig.href = srcAttr;
-          }
-        }
-      } 
-    });
-
-    lightboxQuarto.on('slide_after_load', (data) => {
-      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
-      if (window.Quarto?.typesetMath) {
-        window.Quarto.typesetMath(slideNode);
-      }
-    });
-
-  };
-
-})();
-          </script>
 
 
 
 
-</body></html>
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/wsl-openblas-threads-20261004.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>

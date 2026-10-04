@@ -1,0 +1,143 @@
+---
+title: "WSL 下 R 的 OpenBLAS 线程与多核并行"
+description: "WSL 的 R 默认按 24 线程使用 OpenBLAS，小矩阵反复调用、fork 并行和机器有负载时反而变慢。外部案例检索、本机设置验证与推荐做法。"
+date: 2026-10-04
+toc: true
+---
+
+本页属于 [RegR 性能评估](performance-evaluation.qmd)。[RPA 生存路径](rpa-cox-benchmark.qmd#竞争风险改用-mets1-万例前后对比)、[Logistic 与 Fine–Gray 拟合](scoring-fit-benchmark-20261003.qmd)和 [get_score](get-score-benchmark-20261003.qmd) 几篇测试都把 BLAS 设成 1 线程，本页说明原因。问题出在 WSL 的 R 运行环境，与 RegR 的代码无关，在 WSL 上跑的其他 R 代码同样会遇到。
+
+## 主要结论
+
+- WSL（Ubuntu 22.04）的 R 链接的是 pthread 版 OpenBLAS，默认线程数等于逻辑 CPU 数（本机 24）。Windows 版 R 自带的是单线程参考 BLAS，没有这个问题。
+- 在**小矩阵、反复调用**的代码上（mets、`glm()` 的 IRLS、Cox 迭代等），多线程的同步和空转开销超过了计算本身，24 线程比 1 线程慢；机器有其他负载时还会再慢一倍以上。
+- **fork 并行**（`mclapply`、`future::multicore`）时，每个子进程都继承 24 个 BLAS 线程，8 个 worker 就是约 192 个线程抢 24 个核。
+- 这一现象在 GitHub 和 R 邮件列表上有大量相同报告，社区给出的做法是**并行之前把 BLAS 设为 1 线程**。
+- **`~/.Renviron` 里写 `OPENBLAS_NUM_THREADS` 无效**，本机已验证。要么在启动 R 之前设好环境变量，要么在会话里调用 `RhpcBLASctl::blas_set_num_threads()`。
+
+## 本机环境
+
+| 项目 | 设置 |
+|:--|:--|
+| CPU | Intel Core Ultra 9 275HX，8 个性能核 + 16 个能效核，无超线程 |
+| WSL 中看到的 CPU | `lscpu` 显示 24 个完全相同的 CPU，`Hypervisor vendor: Microsoft`，看不出大小核 |
+| 系统、R | WSL Ubuntu-22.04；R 4.4.3 |
+| BLAS | `libopenblas0-pthread 0.3.20+ds-1`（经 `libblas.so.3` 链接），默认 24 线程；不是 OpenMP 版 |
+| Windows R | 自带参考 BLAS，单线程 |
+
+查看当前线程数要用 `RhpcBLASctl::blas_get_num_procs()`，不要只看 `Sys.getenv("OPENBLAS_NUM_THREADS")`：环境变量有值，不代表 OpenBLAS 用了它（见[下文](#线程数在哪里设置才生效)）。
+
+## 本机现象
+
+以下是本机在不同测试中留下的记录，环境同上。
+
+| 测试 | 多线程（默认 24） | 单线程 | 说明 |
+|:--|--:|--:|:--|
+| `mets::survivalGtime()`，3 万例 × 48 个时间点（2026-10-02） | 44 s，CPU 时间 784 s | 26 s | 4 线程 34 s；同一计算在 Windows R 上 32 s；两种设置结果差 < 1e-13 |
+| 同上，机器上另有 R 进程在跑 | 最慢 92 s | — | 多线程一遇到负载就严重变慢 |
+| 同上，`mclapply` 8 个 worker | 34 s | 6.4 s | 每个 worker 又各开 24 个 BLAS 线程 |
+| `glm()`，10 万行临床模型（2026-10-03） | 3.039 s | 0.326 s | 交替顺序测 3 次的中位数，系数差为 0；见[拟合评估](scoring-fit-benchmark-20261003.qmd) |
+| `get_rpa_mp2()` 4 万行 bootstrap（2026-10-04） | 串行 75.6 s；15 worker 20.6 s | 串行 59.1 s；15 worker 13.2 s | 改用单线程前后对比 |
+
+**反例：**1500 × 1500 的 `crossprod()` 这类大矩阵运算，多线程 OpenBLAS 仍快约 20 倍。所以问题不在于 OpenBLAS 本身，而在于小矩阵被反复调用时，线程同步的开销压过了计算量。
+
+**诊断信号：**在 WSL 上用 `Rprof()`，`total.time` 远大于实际耗时（CPU 时间被所有线程累加），且 `%*%`、`tcrossprod` 排在 `self.time` 前列。
+
+## 四层原因（外部报告）
+
+### 1. fork 并行叠加 BLAS 多线程，线程数超过核数
+
+`mclapply` 和 `future::multicore` 的子进程会继承父进程的 BLAS 线程设置，每个子进程都按 24 线程运行。这是报告最多的一类：
+
+- [sangwon-hyun/flowmix#14](https://github.com/sangwon-hyun/flowmix/issues/14)：只设了 `mc.cores = 4`，笔记本 8 个核全部跑满，HPC 上也明显变慢。维护者确认，在并行之前调用 `RhpcBLASctl::blas_set_num_threads(1)` 就能解决。
+- [futureverse/parallelly#129](https://github.com/futureverse/parallelly/issues/129)：讨论 `availableCores()` 是否应考虑 BLAS / OpenMP 线程变量。评论者的做法也是在显式并行前手动设为 1 线程。future 有一个 beta 选项 `future.fork.multithreading.enable`，但[文档](https://future.futureverse.org/reference/zzz-future.options.html)只点名 OpenMP（经 RhpcBLASctl）和 RcppParallel，没有写 BLAS，不宜依赖。
+- 更严重的是崩溃和卡死。[Budget-Lab-Yale/Tax-Simulator#128](https://github.com/Budget-Lab-Yale/Tax-Simulator/issues/128) 里，`%*%` 只在 `mclapply` 子进程里发生段错误，作者推测是这个原因，尚未验证。**OpenMP 版的 OpenBLAS 不支持 fork**：[libKriging/libKriging#325](https://github.com/libKriging/libKriging/issues/325) 里 28 个子进程全部卡死在 futex 上；[r-help 2023-06](https://stat.ethz.ch/pipermail/r-help/2023-June/477540.html) 中 Ivan Krylov 指出，OpenMP 版会忽略 `OPENBLAS_NUM_THREADS`，只认 `OMP_NUM_THREADS`。早期 OpenBLAS 本身也有 fork 后卡死的问题（[OpenBLAS#294](https://github.com/OpenMathLib/OpenBLAS/issues/294)）。
+
+本机装的是 pthread 版，不受 fork 卡死影响。**不要换成 `libopenblas0-openmp`。**
+
+### 2. 小矩阵：开线程的成本高于计算
+
+- OpenBLAS 的线程策略是“要么 1 个，要么全部核”。维护者在 [OpenBLAS#3879](https://github.com/OpenMathLib/OpenBLAS/issues/3879) 中说明，GEMM 在 M·N·K > 262140 时就切到多线程（2023 年的实现），在 [OpenBLAS#5383](https://github.com/OpenMathLib/OpenBLAS/issues/5383) 中也说，大多数函数要么用 1 个线程，要么用满全部核，除非用 `OPENBLAS_NUM_THREADS` 限制。
+- [OpenBLAS#1560](https://github.com/OpenMathLib/OpenBLAS/issues/1560)：200×200、300×300 的复数特征值分解，1 线程比任何多线程设置都快，多出的线程大部分时间耗在内核态。[OpenBLAS#5469](https://github.com/OpenMathLib/OpenBLAS/issues/5469)：15×15 的复数矩阵也是如此，维护者认为开线程和分配缓冲区的开销超过了计算量。
+- [OpenBLAS#5171](https://github.com/OpenMathLib/OpenBLAS/issues/5171)：`perf` 显示约 77% 的 CPU 周期花在 `blas_thread_server` 上，热点是一段读时钟、和 `thread_timeout` 比较的空转循环。维护者的解释是空闲线程在等任务。这对应本机 Rprof 里 CPU 时间远大于实际耗时的现象。[OpenBLAS FAQ](http://www.openmathlib.org/OpenBLAS/docs/faq/) 建议把 `OPENBLAS_THREAD_TIMEOUT` 设得比默认值 26 小，缩短空转时间。
+
+### 3. 机器有负载时速度断崖式下降
+
+[OpenBLAS#5517](https://github.com/OpenMathLib/OpenBLAS/issues/5517) 与本机“另有 R 进程时慢到 92 s”最接近。报告者调用约 13 万次 2×2 复数特征值分解：
+
+| 机器 | 1 线程 | 不限线程 | 不限线程 + 后台一个 `cat /dev/zero` |
+|:--|--:|--:|--:|
+| AMD EPYC 7351P（16 核 / 32 线程） | 约 0.25 s | 约 2.6 s | 约 170 s |
+| AMD Threadripper PRO 7965WX（24 核 / 48 线程） | 约 0.1 s | 约 1.4 s | 800–900 s |
+
+触发条件是 OpenBLAS 线程数加上后台忙线程数超过逻辑 CPU 数。每次调用都要等所有线程会合，其中一个线程被抢占，其余线程都得等。该报告用的是 OpenMP 版；pthread 版每次调用同样要等所有线程完成，机制相同。
+
+### 4. WSL：大小核结构被虚拟化隐藏
+
+- [microsoft/WSL#13272](https://github.com/microsoft/WSL/issues/13272)：WSL2 隐藏了性能核 / 能效核的结构，线程绑核调用可能不起作用；报告者的向量化多线程代码反而比标量代码慢 15–20%。[microsoft/WSL#9121](https://github.com/microsoft/WSL/issues/9121)：`/sys/devices/system/cpu` 只有性能核的缓存信息。
+- [numpy/numpy#27174](https://github.com/numpy/numpy/issues/27174)：同为大小核架构的 Core Ultra 7 155H（16 核 22 线程），在 Windows 上 OpenBLAS 默认 22 线程时 `inv(1000×1000)` 耗时 33 s，1 线程只要 0.29 s。后来在新内核的 Linux 上默认设置已正常，但线程数只要比可用核多 1 个，就从 0.09 s 跳到 2.7 s。
+
+::: {.callout-note}
+### 以下是推断
+
+没有找到 WSL + R + OpenBLAS 的直接报告。WSL 里的 Linux 内核分不清哪个 vCPU 落在能效核上，OpenBLAS 又是把工作平均分给所有线程，最慢的那一份决定整次调用的耗时。所以在 WSL 上，多线程 BLAS 的收益可能比原生 Linux 小，也更容易被其他负载拖慢。
+:::
+
+另外，Ubuntu 22.04 自带的是 2022 年初发布的 OpenBLAS 0.3.20。上面多数 issue 是之后才提出的，相关调整（如 #5517 讨论的 `zher2` 线程阈值）即使已经合并，也不在这个版本里。
+
+## 线程数在哪里设置才生效
+
+2026-10-04 在本机逐项验证（`blas_get_num_procs()` 的返回值）：
+
+| 方式 | 结果与说明 |
+|:--|:--|
+| 会话中 `Sys.setenv(OPENBLAS_NUM_THREADS = 1)` | **无效**，返回 24。另见 [r-sig-hpc 2012](https://stat.ethz.ch/pipermail/r-sig-hpc/2012-June/001409.html) |
+| `~/.Renviron` / `Renviron.site` 写 `OPENBLAS_NUM_THREADS=1` | **无效**，返回 24。`Sys.getenv()` 显示 1，但 OpenBLAS 在 R 读取 Renviron 之前已按 24 线程初始化。另见 [r-sig-debian 2016](https://r-mailing-lists.thecoatlessprofessor.com/lists/r-sig-debian/msg/msg-a3603af42461)、[Posit 论坛](https://forum.posit.co/t/how-can-i-limit-multithreading-for-r-studio-server-open-source-users-as-admin/184310) |
+| 启动前设环境变量：`OPENBLAS_NUM_THREADS=1 Rscript …` | 有效，返回 1 |
+| 启动前只设 `OMP_NUM_THREADS=1` | 有效，返回 1。pthread 版在未设 `OPENBLAS_NUM_THREADS` 时也读它 |
+| 会话中 `RhpcBLASctl::blas_set_num_threads(1L)` | 有效，返回 1。之后 `mclapply` 子进程继承为 1 |
+
+把下面一行放进 WSL 的 `~/.Rprofile` 后，不同进程的实际线程数：
+
+```r
+if (requireNamespace("RhpcBLASctl", quietly = TRUE))
+  RhpcBLASctl::blas_set_num_threads(1L)
+```
+
+| 进程 | 线程数 | 原因 |
+|:--|:--:|:--|
+| 普通 `R` / `Rscript` 会话 | 1 | 读取 `~/.Rprofile` |
+| `parallel::makeCluster()`（PSOCK）的 worker | 1 | worker 是新的 `Rscript` 进程，同样读取 `~/.Rprofile` |
+| `mclapply` 子进程 | 1 | fork 继承父进程设置 |
+| `Rscript --vanilla` | **24** | 不读取 `~/.Rprofile` |
+| `callr::r()` 的子进程 | **24** | callr 默认不加载用户的 `~/.Rprofile` |
+
+工作目录里有项目级 `.Rprofile` 时，R 只读它而不读 `~/.Rprofile`，这一行也不会执行。上表 24 线程的情况需要在启动命令前加环境变量，或在子进程代码开头自己调用 `blas_set_num_threads(1L)`。
+
+## 推荐做法
+
+1. 在 WSL 的 `~/.Rprofile` 加上面那一行，默认单线程。不要写进 `~/.Renviron`。
+2. 用 `--vanilla`、callr 或有项目级 `.Rprofile` 时，在启动命令前加 `OPENBLAS_NUM_THREADS=1`，或在子进程里调用 `blas_set_num_threads(1L)`。
+3. 需要做大矩阵运算时，临时调高，用完恢复：
+
+```r
+old <- RhpcBLASctl::blas_get_num_procs()
+RhpcBLASctl::blas_set_num_threads(8L)
+on.exit(RhpcBLASctl::blas_set_num_threads(old), add = TRUE)
+```
+
+4. 在 WSL 上做性能对比、或判断“WSL 比 Windows 慢”之前，先用 `blas_get_num_procs()` 确认线程数。Windows R 是单线程 BLAS，两边线程数不同，耗时不能直接比较。
+5. 保持 pthread 版 OpenBLAS。如果用的是 OpenMP 版，限制线程要设 `OMP_NUM_THREADS`，而且它与 fork 不兼容。
+
+## 相关但不同的问题
+
+[futureverse/future#826](https://github.com/futureverse/future/issues/826) 报告 WSL2 上 PSOCK worker 超过约 8 个时 `clusterEvalQ(cl, Sys.sleep(1))` 会卡住，与 BLAS 无关，issue 关闭时未找到原因。WSL 上 PSOCK 集群卡住时应另行排查。
+
+## 参考资料
+
+本页外部资料检索于 2026-10-04。
+
+- R 邮件列表与论坛：[r-help 2023-06（mclapply 与 OpenMP 版 OpenBLAS）](https://stat.ethz.ch/pipermail/r-help/2023-June/477540.html)；[r-sig-hpc 2012（Sys.setenv 无效）](https://stat.ethz.ch/pipermail/r-sig-hpc/2012-June/001409.html)；[r-sig-debian 2016（Renviron 读取时机太晚）](https://r-mailing-lists.thecoatlessprofessor.com/lists/r-sig-debian/msg/msg-a3603af42461)；[Posit 论坛（限制 RStudio Server 用户的线程）](https://forum.posit.co/t/how-can-i-limit-multithreading-for-r-studio-server-open-source-users-as-admin/184310)
+- OpenBLAS：[FAQ](http://www.openmathlib.org/OpenBLAS/docs/faq/)；[#294](https://github.com/OpenMathLib/OpenBLAS/issues/294)、[#1560](https://github.com/OpenMathLib/OpenBLAS/issues/1560)、[#3879](https://github.com/OpenMathLib/OpenBLAS/issues/3879)、[#5171](https://github.com/OpenMathLib/OpenBLAS/issues/5171)、[#5383](https://github.com/OpenMathLib/OpenBLAS/issues/5383)、[#5469](https://github.com/OpenMathLib/OpenBLAS/issues/5469)、[#5517](https://github.com/OpenMathLib/OpenBLAS/issues/5517)
+- R 包与项目：[flowmix#14](https://github.com/sangwon-hyun/flowmix/issues/14)、[parallelly#129](https://github.com/futureverse/parallelly/issues/129)、[future 选项文档](https://future.futureverse.org/reference/zzz-future.options.html)、[future#826](https://github.com/futureverse/future/issues/826)、[Tax-Simulator#128](https://github.com/Budget-Lab-Yale/Tax-Simulator/issues/128)、[libKriging#325](https://github.com/libKriging/libKriging/issues/325)
+- WSL 与混合架构：[microsoft/WSL#13272](https://github.com/microsoft/WSL/issues/13272)、[microsoft/WSL#9121](https://github.com/microsoft/WSL/issues/9121)、[numpy/numpy#27174](https://github.com/numpy/numpy/issues/27174)
