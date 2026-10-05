@@ -361,10 +361,14 @@ score_times[["AUC.BS.AIC"]]
 score_times[["ft"]]
 ```
 
+::: {.table-responsive}
+
 | model | AUC_score | AUC_score_60 | BS_score | BS_score_60 | AIC | BIC | PVE |
 | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
 | Basic | 0.639 (0.564, 0.714) | 0.653 (0.561, 0.745) | 0.072 (0.058, 0.087) | 0.061 (0.045, 0.076) | 1050 | 1055 | 0.03 |
 | Extended | 0.760 (0.698, 0.822) | 0.762 (0.694, 0.830) | 0.067 (0.053, 0.080) | 0.057 (0.043, 0.072) | 989.4 | 999.3 | 0.105 |
+
+:::
 
 ### 全队列与 bootstrap
 
@@ -378,10 +382,14 @@ score_both[["AUC.BS.AIC"]]
 score_both[["ft"]]
 ```
 
+::: {.table-responsive}
+
 | model | AUC_score | AUC_score_60 | BS_score | BS_score_60 | PVE | AUC_score* | AUC_score_60* | BS_score* | BS_score_60* | PVE* |
 | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
 | Basic | 0.639 (0.564, 0.714) | 0.653 (0.561, 0.745) | 0.072 (0.058, 0.087) | 0.061 (0.045, 0.076) | 0.03 | 0.624 (0.557, 0.690) | 0.633 (0.569, 0.700) | 0.071 (0.057, 0.094) | 0.058 (0.046, 0.079) | 0.030 (0.018, 0.062) |
 | Extended | 0.760 (0.698, 0.822) | 0.762 (0.694, 0.830) | 0.067 (0.053, 0.080) | 0.057 (0.043, 0.072) | 0.105 | 0.752 (0.702, 0.829) | 0.755 (0.684, 0.864) | 0.067 (0.055, 0.087) | 0.056 (0.046, 0.076) | 0.105 (0.068, 0.139) |
+
+:::
 
 星号后缀列来自 bootstrap 面板。20 次仅演示接口，报告区间应增加重复数并检查有效重复与收敛。AUC_score/BS_score 的跨时点 bootstrap 区间为有效袋外重复平均值的 2.5%/97.5% 分位数；PVE 区间描述重采样训练拟合。它们评价的数据不同。
 
@@ -401,6 +409,49 @@ only_bs[["fit.stats"]][["stats"]]
 :::
 
 只选所需指标会省去未请求的计算；只选 BS 不要求 AUC 可定义。`score_args$plots = "none"` 跳过辅助 ROC 数据，保留生存 AUC/Brier 曲线；Logistic 的 `plt.ROC` 此时为 NULL。`n_cores = 1L` 明确串行，NULL 使用自适应策略；并行上限也受 `options(mc.cores = k)` 约束。所有调用都增加 `ft`（缺 flextable 时为 NULL），`get_score()` 本身不提供 save 参数，可用 `save_tb(score_both[["ft"]], path = tempdir())` 导出。
+
+
+## get_fit_stats()：数值表与训练拟合区间 {#get-fit-stats}
+
+```r
+fit_stats <- get_fit_stats(d, vars = models_named,
+  timepoint = c(36, 60, 120), R = 0,
+  metrics = c("AUC", "BS", "AIC", "BIC", "PVE"))
+fit_stats[["stats"]]
+```
+
+| model | metric | estimate | SE | lower | upper |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| Basic | AUC | 0.6389 | 0.03809 | 0.5643 | 0.7136 |
+| Basic | BS | 0.07248 | 0.007359 | 0.05806 | 0.0869 |
+| Basic | AIC | 1050 |  |  |  |
+| Basic | BIC | 1055 |  |  |  |
+| Basic | PVE | 0.02958 |  |  |  |
+| Extended | AUC | 0.7599 | 0.03149 | 0.6982 | 0.8217 |
+| Extended | BS | 0.06677 | 0.006785 | 0.05347 | 0.08006 |
+| Extended | AIC | 989.4 |  |  |  |
+| Extended | BIC | 999.3 |  |  |  |
+| Extended | PVE | 0.1047 |  |  |  |
+
+返回 `obj`（拟合模型）、`stats`（model/metric/estimate/SE/lower/upper 数值长表）、`boot`（逐模型逐重复及 error）和 `info`（样本、事件、参数量、似然与重复成功数）。`stats` 的点估计来自原始分析样本；没有 bootstrap 时，AUC/BS 有影响函数 Wald 区间，AIC/BIC/PVE 没有区间。
+
+```r
+set.seed(20261005)
+fit_boot <- get_fit_stats(d, vars = list(Basic = c("Age", "Sex")),
+  timepoint = c(36, 60, 120), metrics = c("BS", "AIC", "PVE"), R = 20)
+fit_boot[["stats"]]
+fit_boot[["info"]]
+```
+
+| model | metric | estimate | SE | lower | upper |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| Basic | BS | 0.07248 | 0.007099 | 0.05917 | 0.08443 |
+| Basic | AIC | 1050 | 103.6 | 906.2 | 1234 |
+| Basic | PVE | 0.02958 | 0.009612 | 0.0163 | 0.04392 |
+
+R≥2 是普通受试者 bootstrap，所有候选模型共用抽样行；区间为百分位区间，SE 为 bootstrap 标准差。它描述训练拟合的变化，不执行 get_score 的 bootcv 袋外评价。示例 20 次仅作接口演示。
+
+`AIC = -2LL + 2k`，`BIC = -2LL + log(bic_n)k`；Logistic 的 bic_n 为人数，Cox/Fine–Gray 为目标事件数。`PVE = 1 - exp(-2(LL - LL_null)/n)`，不是标准化的 Nagelkerke R²。Fine–Gray 采用 `FGR(variance = FALSE)` 的似然约定，不能拿不同模型或不同样本的 AIC 直接混排。`save = list(path = tempdir(), title = "Fit statistics")` 可以把 stats 导出 Word。
 
 
 ## 固定留出集评价
