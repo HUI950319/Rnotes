@@ -799,6 +799,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#二分类-logistic-roc" id="toc-二分类-logistic-roc" class="nav-link" data-scroll-target="#二分类-logistic-roc">二分类 Logistic ROC</a></li>
   <li><a href="#get-score-current" id="toc-get-score-current" class="nav-link" data-scroll-target="#get-score-current">get_score()：指标、单时点列与双面板</a></li>
   <li><a href="#get-fit-stats" id="toc-get-fit-stats" class="nav-link" data-scroll-target="#get-fit-stats">get_fit_stats()：数值表与训练拟合区间</a></li>
+  <li><a href="#get-score-stage" id="toc-get-score-stage" class="nav-link" data-scroll-target="#get-score-stage">get_score_stage()：分期方案评价</a></li>
   <li><a href="#固定留出集评价" id="toc-固定留出集评价" class="nav-link" data-scroll-target="#固定留出集评价">固定留出集评价</a></li>
   <li><a href="#使用边界保存与复现记录" id="toc-使用边界保存与复现记录" class="nav-link" data-scroll-target="#使用边界保存与复现记录">使用边界、保存与复现记录</a></li>
   <li><a href="#相关页面与源码" id="toc-相关页面与源码" class="nav-link" data-scroll-target="#相关页面与源码">相关页面与源码</a></li>
@@ -1623,6 +1624,207 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>R≥2 是普通受试者 bootstrap，所有候选模型共用抽样行；区间为百分位区间，SE 为 bootstrap 标准差。它描述训练拟合的变化，不执行 get_score 的 bootcv 袋外评价。示例 20 次仅作接口演示。</p>
 <p><code>AIC = -2LL + 2k</code>，<code>BIC = -2LL + log(bic_n)k</code>；Logistic 的 bic_n 为人数，Cox/Fine–Gray 为目标事件数。<code>PVE = 1 - exp(-2(LL - LL_null)/n)</code>，不是标准化的 Nagelkerke R²。Fine–Gray 采用 <code>FGR(variance = FALSE)</code> 的似然约定，不能拿不同模型或不同样本的 AIC 直接混排。<code>save = list(path = tempdir(), title = "Fit statistics")</code> 可以把 stats 导出 Word。</p>
 </section>
+<section id="get-score-stage" class="level2">
+<h2 class="anchored" data-anchor-id="get-score-stage">get_score_stage()：分期方案评价</h2>
+<p><code>get_rpa_mp2()</code> 的新入口是 <code>get_score_stage()</code>，旧名作为弃用别名保留。它比较分期结构，不计算时间 AUC 或 Brier。下面完全使用模拟队列，六个基础组分别合并为三期和四期，两套方案都嵌套于基础分组。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261005</span>)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>ds <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="fu">runif</span>(<span class="dv">600</span>, <span class="dv">30</span>, <span class="dv">80</span>),</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>                 <span class="at">group =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>, <span class="at">each =</span> <span class="dv">100</span>)))</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>ds[[<span class="st">"DSS"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">600</span>, <span class="dv">1</span>, <span class="fl">0.75</span>)</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>ds[[<span class="st">"time"</span>]] <span class="ot">&lt;-</span> <span class="fu">rexp</span>(<span class="dv">600</span>,</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">rate =</span> <span class="fl">0.02</span> <span class="sc">*</span> <span class="fu">exp</span>(<span class="fl">0.35</span> <span class="sc">*</span> (<span class="fu">as.integer</span>(ds[[<span class="st">"group"</span>]]) <span class="sc">-</span> <span class="dv">1</span>))) <span class="sc">+</span> <span class="dv">1</span></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>ds[[<span class="st">"Stage_A"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ceiling</span>(<span class="fu">as.integer</span>(ds[[<span class="st">"group"</span>]]) <span class="sc">/</span> <span class="dv">2</span>), <span class="at">levels =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>)</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>ds[[<span class="st">"Stage_B"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">3</span>, <span class="dv">3</span>, <span class="dv">4</span>)[<span class="fu">as.integer</span>(ds[[<span class="st">"group"</span>]])], <span class="at">levels =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">4</span>)</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261005</span>)</span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>stage_res <span class="ot">&lt;-</span> <span class="fu">get_score_stage</span>(ds, <span class="at">cat_groups =</span> <span class="fu">c</span>(<span class="st">"Stage_A"</span>, <span class="st">"Stage_B"</span>),</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">adj_var =</span> <span class="st">"Age"</span>, <span class="at">R =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">20</span>),</span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">name_map =</span> <span class="fu">c</span>(<span class="at">Stage_A =</span> <span class="st">"Three stages"</span>, <span class="at">Stage_B =</span> <span class="st">"Four stages"</span>))</span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>stage_res[[<span class="st">"ft"</span>]]</span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>stage_res[[<span class="st">"ft_total"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>下表展示实际返回 ft 的数值；<code>*</code> 后缀列为 20 次 bootstrap 均值面板，前两列为全队列。ft_total 另外显示各标准的原始 Total score。</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">measures</th>
+<th style="text-align: left;">Stage_A</th>
+<th style="text-align: left;">Stage_B</th>
+<th style="text-align: left;">Stage_A*</th>
+<th style="text-align: left;">Stage_B*</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Hazard Consistency</td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Standardized Score</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Rank</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Hazard Discrimination</td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Standardized Score</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">0</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Rank</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">1</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Likelihood Difference</td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Standardized Score</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Rank</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Explained Variance</td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Standardized score</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Rank</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Sample Size Balance</td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Standardized Score</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">1</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Rank</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Overall Rank</td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Overall Score</td>
+<td style="text-align: left;">0</td>
+<td style="text-align: left;">4</td>
+<td style="text-align: left;">0.85</td>
+<td style="text-align: left;">3.15</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Rank</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+<td style="text-align: left;">1</td>
+<td style="text-align: left;">2</td>
+</tr>
+</tbody>
+</table>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">标准</th>
+<th style="text-align: left;">越优的方向</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Hazard Consistency</td>
+<td style="text-align: left;">合并基础组损失的似然/自由度越小越好</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Hazard Discrimination</td>
+<td style="text-align: left;">分期线性趋势的失拟合/自由度越小越好</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Likelihood Difference</td>
+<td style="text-align: left;">相对仅协变量模型的似然比统计量/自由度越大越好</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Explained Variance</td>
+<td style="text-align: left;">Schemper–Henderson 解释变异越大越好</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Sample Size Balance</td>
+<td style="text-align: left;">分期人数偏离等人数的程度越小越好</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Overall Rank</td>
+<td style="text-align: left;">前五项标准化分数权重 1、1、0.5、0.5、1；越小越好</td>
+</tr>
+</tbody>
+</table>
+<p>每项 Standardized Score 在当前比较的方案间缩放为 0（最佳）至 1（最差），因此增删候选方案可能改变标准化总分。Rank 1 为最佳；总分不是准确率。Bootstrap Overall Score 是每次抽样总分的平均，通常不能从展示的各项 bootstrap 标准化均值重新加权得到。</p>
+<p>输入必须有 <code>time</code>、0/1 的 <code>DSS</code>、基础分组 <code>group</code>、调整变量和全部方案列。方案列必须为按分期顺序设置水平的因子，每套至少三期且少于基础 group 的组数；嵌套关系由使用者核对，函数未自动验证。R=0/1/NULL 拟合一次，R≥2 仅显示 bootstrap 均值，<code>R = c(0, n)</code> 显示两面板，不返回分数置信区间。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_score_stage</span>(ds, <span class="at">cat_groups =</span> <span class="fu">c</span>(<span class="st">"Stage_A"</span>, <span class="st">"Stage_B"</span>), <span class="at">adj_var =</span> <span class="st">"Age"</span>,</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">path =</span> <span class="fu">tempdir</span>(), <span class="at">title =</span> <span class="st">"Comparison of staging schemes"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>新实现直接计算标准并向量化解释变异。与旧 remss 参考实现相比，死亡与删失同时间时的顺序约定，以及重采样后缺少阶段时的实际自由度处理，会引起部分数值差异；不能声称全部数值逐位不变。并行依据测得的全队列计算成本自适应选择，并遵守 <code>options(mc.cores = k)</code>。历史计时不代表当前所有数据的性能。</p>
+</section>
 <section id="固定留出集评价" class="level2">
 <h2 class="anchored" data-anchor-id="固定留出集评价">固定留出集评价</h2>
 <p>560 人用于拟合，240 人用于评价。这个随机留出划分只是演示，少量事件会造成不稳定，不能替代充分的内部重采样或真正外部队列。所有训练步骤应只在训练数据内完成；若再按测试表现选择模型，测试集会失去独立评价作用。</p>
@@ -1631,7 +1833,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
 <p>train 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_score</span>(score_test)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_score</span>(score_test)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><a href="images/model-evaluation-guide/heldout-score.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="train 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。"><img src="images/model-evaluation-guide/heldout-score.png" class="img-fluid figure-img" alt="留出集曲线；train 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。"></a></p>
@@ -1641,7 +1843,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
 <p>保留测试人群中各时点 AUC 和区间，便于与表观结果区分。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">as.data.frame</span>(score_test[[<span class="st">"AUC"</span>]][[<span class="st">"score"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">as.data.frame</span>(score_test[[<span class="st">"AUC"</span>]][[<span class="st">"score"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive">
 <div id="ccclvcuqla" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
 <table class="gt_table" data-quarto-disable-processing="false" data-quarto-bootstrap="false" style="-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; font-family: system-ui, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'; display: table; border-collapse: collapse; line-height: normal; margin-left: auto; margin-right: auto; color: #333333; font-size: 16px; font-weight: normal; font-style: normal; background-color: #FFFFFF; width: auto; border-top-style: solid; border-top-width: 2px; border-top-color: #A8A8A8; border-right-style: none; border-right-width: 2px; border-right-color: #D3D3D3; border-bottom-style: solid; border-bottom-width: 2px; border-bottom-color: #A8A8A8; border-left-style: none; border-left-width: 2px; border-left-color: #D3D3D3;" bgcolor="#FFFFFF">
@@ -1752,8 +1954,8 @@ Full
 <li><p><a href="https://github.com/HUI950319/RegR/blob/2e56cc6e06d548786b0a43d3449e463a0b36b252/R/msr-get.R">msr-get.R</a></p></li>
 <li><p><a href="https://github.com/HUI950319/RegR/blob/2e56cc6e06d548786b0a43d3449e463a0b36b252/R/utils-export.R">utils-export.R</a></p></li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 
 
 </section>
