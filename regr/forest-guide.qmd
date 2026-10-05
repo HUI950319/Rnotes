@@ -1,7 +1,7 @@
 ---
 title: "效应估计与森林图：get_eff 和 4 个绘图函数"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的参数示例，并补充 set_eff 的数值与区间对照。"
-date: 2026-10-01
+date: 2026-10-05
 lightbox: true
 toc-depth: 2
 ---
@@ -10,7 +10,7 @@ toc-depth: 2
 
 **版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际拟合模型并绘制 **24 张原有图**；本次另运行并增加 set_eff 的三张图与一张数值表。页面显示已保存的结果；代码可在装有 RegR、ToyData 及相关依赖的 R 环境中复现。
 
-本页的 `plt_eff2()` 命名模型分块使用本机新增提交 `00d3015`。2026-10-01 核对时，RegR 远端尚未包含该扩展；复现这一项需要含有该功能的版本。
+原有图和数值保留 2026-10-01 的执行记录。下方 `cat_var_rpa` 补充示例按 2026-10-05 源码 `3411eb0` 实际运行，使用另外的 800 人 MTC 演示样本。
 
 ## 示例数据与读图规则 {#data}
 
@@ -72,7 +72,7 @@ get_eff(
   time = 120, show_surdiff = TRUE,
   group_1 = NULL, group_2 = NULL,
   all = "Age",
-  cat_var_combine = NULL, split_var = NULL,
+  cat_var_combine = NULL, cat_var_rpa = NULL, split_var = NULL,
   direct_replace = NULL,
   subgroup_model = c("separate", "interaction")
 )
@@ -107,7 +107,7 @@ get_eff(
 |:--|:--|:--|:--|
 | `unadj` | 未调整的 Cox / Fine–Gray / Logistic 效应 | 生存模式 KM；竞争风险模式 Aalen–Johansen | 描述性组间比较 |
 | `direct` | 协变量调整后的回归系数 | 结局模型标准化后的组别概率与差值 | 调整后的回归系数与标准化概率是不同的量 |
-| `iptw` | 倾向评分加权后的效应 | 加权概率与差值 | 当前二分类概率路径以 ATT 为目标，多分类路径为 ATE；须检查权重、重叠与平衡 |
+| `iptw` | 倾向评分加权后的效应 | 加权概率与差值 | 当前默认二分类与多分类均以 ATE 为目标；须检查权重、重叠与平衡 |
 | `psm` | 匹配后的效应 | 匹配后概率与差值 | 当前二分类匹配为 1:1、ATT；有效分析样本可能减少 |
 
 :::
@@ -136,6 +136,51 @@ get_eff(
 `split_var` 与 `sub_var` 有不同含义：前者让模型在各外层数据子集中分别拟合，后者定义某个分析中的效应修饰变量。缺失的分层值不进入该层分析，层内不变的调整变量会被去除。
 
 另有两个针对特定任务的参数：`cat_var_combine` 将多列组合为联合分类变量，联合类别本身不等于交互检验；`direct_replace` 为单因素 / 多因素比值路径指定目标变量的调整组合，不同步改变概率表。
+
+### 多个分期方案分别调整 {#cat-var-rpa}
+
+`cat_var_rpa` 用于比较多列分期方案：每一列与 `adj_var` 分别建立 direct 模型。普通 `cat_var = c(...)` 在多因素路径中把这些列同时放入模型；`cat_var_combine` 则交叉成联合暴露。三者回答的问题不同。`cat_var_rpa` 与 `cat_var_combine` 不能同时指定；若同时提供 `cat_var`，函数提示并优先采用 `cat_var_rpa`。
+
+下面使用 RegR 自带 MTC 队列，演示分期与大小分组的独立模型，未使用前面的 598 人 PTC 队列。
+
+```r
+d_scheme <- as.data.frame(RegR::seer_thyroid_mtc_2026)
+used <- c("time", "DSS", "Age", "Tum", "Sex", "Race", "T_stage", "Sur")
+d_scheme <- droplevels(d_scheme[complete.cases(d_scheme[used]) &
+  d_scheme[["time"]] > 0 & d_scheme[["Tum"]] > 0 & d_scheme[["Tum"]] < 200, ])
+d_scheme[["DSS"]] <- as.integer(as.character(d_scheme[["DSS"]]))
+d_scheme[["Sex"]] <- factor(d_scheme[["Sex"]], levels = c("Female", "Male"))
+d_scheme[["stage"]] <- factor(ifelse(d_scheme[["T_stage"]] %in% c("T1", "T2"),
+                                      "Early", "Other"))
+d_scheme[["size_stage"]] <- cut(d_scheme[["Tum"]], c(0, 20, 40, Inf),
+                                  labels = c("Small", "Medium", "Large"))
+set.seed(20261005)
+d_scheme <- droplevels(d_scheme[sample.int(nrow(d_scheme), 800L), ])
+eff_scheme <- run_quiet(get_eff(d_scheme,
+  cat_var_rpa = c("stage", "size_stage"), adj_var = c("Age", "Sex"),
+  show_surdiff = FALSE))
+plt_eff(eff_scheme, show.sur = FALSE, fixed_size = FALSE)
+```
+
+![两种演示分期各自调整 Age 和 Sex；联合展示未调整与调整 HR。](images/forest-guide/separate-schemes.png){fig-alt="stage 与 size_stage 的独立 Cox 模型森林图。"}
+
+调整表的实际数值如下。已核对两列方案的估计与分别调用 `get_eff(cat_var = ...)` 一致；此处没有把两个方案互相调整。
+
+::: {.table-responsive}
+
+| label | estimate | conf.low | conf.high |
+| :-- | :-- | :-- | :-- |
+| stage |  |  |  |
+| Early | 1 | 1 | 1 |
+| Other | 6.96 | 4.34 | 11.16 |
+| size_stage |  |  |  |
+| Small | 1 | 1 | 1 |
+| Medium | 2.395 | 1.346 | 4.261 |
+| Large | 5.923 | 3.49 | 10.05 |
+
+:::
+
+方案类别和切点仅用于接口演示；较大的 HR 不代表方案的预测性能更好。若方案来自同一数据的 RPA 选树，节点效应仍是选择后的样本内估计。
 
 ### 返回对象及字段
 
