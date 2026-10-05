@@ -376,7 +376,7 @@ rpa_log[["rpa.gg2"]]
 
 ## get_rpa_pair()：相邻、参考组与全部比较 {#get-rpa-pair}
 
-从 `rpa_cit$dat` 的互斥终末组出发，在完整队列上拟合一个 Cox 模型，再由 emmeans 计算对比。各对比共用基线危险与协变量效应，和每次截取两个组重新拟合的结果可能不同。`surv = "DSS"` 切换为 Logistic OR；本函数不支持 `surv = FALSE` 的竞争风险模式。
+从 `rpa_cit$dat` 的互斥终末组出发，在完整队列上拟合一个 Cox 模型，再由 emmeans 计算对比。各对比共用基线危险与协变量效应，和每次截取两个组重新拟合的结果可能不同。`surv = "DSS"` 切换为 Logistic OR；源码 `97b7775` 新增 `surv = FALSE` 的 Fine–Gray 竞争风险模式，输出 sHR，见下面的独立示例。
 
 ::: {.panel-tabset}
 
@@ -431,6 +431,29 @@ get_rpa_pair(rpa_cit[["dat"]], adj_var = "Sex",
 
 `save` 只在非空时导出 Word；依赖 emmeans、flextable 与 officer。多重比较调整同时作用于 P 值与区间，但不能消除同一数据建树后再检验的选择偏倚。节点对比属于探索性估计，需要独立数据评价。
 
+
+## get_rpa_pair()：Fine–Gray 的 sHR 对比 {#pair-cif}
+
+工作期间新增的源码 `97b7775` 已实际核对。`surv = FALSE` 使用 `time` 与 `event`；没有 event 列才读取 status。编码为 0 = 删失、1 = 目标事件、2 = 竞争事件；因子按水平顺序解释。它与 `get_rpa()` 中 FALSE 仍进入生存建树的合同不同。
+
+为独立展示事件编码，下面使用原队列的 N 分组，而非把原生存树重新拟合成 CIF 树。
+
+```r
+d_cif_pair <- as.data.frame(RegR::seer_thyroid_mtc_2026)
+d_cif_pair <- d_cif_pair[!is.na(d_cif_pair[["DSS"]]) &
+  d_cif_pair[["time"]] > 0 & d_cif_pair[["N_3"]] %in% c("N0", "N_noExamined", "N1"), ]
+d_cif_pair[["group"]] <- droplevels(d_cif_pair[["N_3"]])
+pair_cif <- get_rpa_pair(d_cif_pair, adj_var = c("Age", "Sex"), surv = FALSE)
+pair_cif[["adj"]]
+pair_cif[["ft"]]
+```
+
+| group1 | group2 | estimate | conf.low | conf.high | p.value |
+| :-- | :-- | :-- | :-- | :-- | :-- |
+| N_noExamined | N0 | 4.788 | 3.335 | 6.873 | 2.067e-17 |
+| N1 | N_noExamined | 1.814 | 1.494 | 2.201 | 1.685e-09 |
+
+已核对 flextable 列名为 sHRs。相邻对比来自全队列同一个 Fine–Gray 模型，不能把这些 sHR 当作原因特异 HR、CIF 差或生存概率。将生存建树得到的终末组用于此入口时，评价的估计量已经改变；选择后推断的边界仍然适用。
 
 ## 使用边界、保存与复现记录
 
