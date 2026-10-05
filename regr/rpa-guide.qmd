@@ -1,7 +1,7 @@
 ---
 title: "RPA：建树、终末节点与生存和二分类输出"
-description: "get_rpa 的 cit/mob 分派、返回对象与 9 个实际图形示例；树图、节点效应、KM、汇总表、热图及 Logistic 节点图。"
-date: 2026-10-01
+description: "get_rpa 六种生存建树模式、节点规则与当前绘图接口；展示树图、节点效应、KM、汇总表、热图及 Logistic 节点图。"
+date: 2026-10-05
 lightbox: true
 toc-depth: 2
 ---
@@ -38,13 +38,15 @@ d <- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])
 ## 共用计算与返回对象
 
 
-`surv` 的类型决定路径：逻辑值 TRUE/FALSE 均进入生存分支，字符列名进入 Logistic 分支。此处 DSS 是随访中记录的目标死亡状态，二分类图只演示该入口，不是固定时间风险预测。cit 使用 ctree 的生存分裂检验；mob 使用 Weibull AFT 模型参数不稳定性分裂，节点后的 HR 与 KM 由独立的 get_cat() 路径估计。`adj_var` 在 mob 中进入节点模型，在 cit 中主要用于后续节点效应分析。返回 `dat`、`dat_all`、`fit`、`rpa_var`、`rpa.eff`；Logistic 还含 `rpa.gg1`/`rpa.gg2`。`dat_all` 包含多个层级节点，不能直接作为互斥终末组计算总体人数。
+`surv` 的类型决定路径：逻辑值 TRUE/FALSE 均进入 `Surv(time, DSS)` 生存分支，字符列名进入 Logistic 分支；此处 `FALSE` 不表示 Fine–Gray。此处 DSS 是随访中记录的目标死亡状态，二分类图只演示该入口，不是固定时间风险预测。`cit` 使用 ctree 的生存分裂检验；`mob` 使用截距型 Weibull AFT 模型参数不稳定性分裂。这两个模式的 `adj_var` 用于建树后的效应与曲线；调整后建树须显式选择下表的 `*_adj` 模式。返回 `dat`、`dat_all`、`fit`、`rpa_var`、`rpa.eff` 与 `ft.pair`；Logistic 还含 `rpa.gg1`/`rpa.gg2`。`dat_all` 包含多个层级节点，不能直接作为互斥终末组计算总体人数。
 
 ```r
 rpa_cit <- run_quiet({get_rpa(d, rpa_var = c("Age", "stage"),
-  adj_var = "Sex", surv = TRUE, rpa_model = "cit", timepoint = 60)})
+  adj_var = "Sex", surv = TRUE, rpa_model = "cit",
+  cat_arg = list(timepoint = 60))})
 rpa_mob <- run_quiet({get_rpa(d, rpa_var = c("Age", "stage"),
-  adj_var = "Sex", surv = TRUE, rpa_model = "mob", timepoint = 60)})
+  adj_var = "Sex", surv = TRUE, rpa_model = "mob",
+  cat_arg = list(timepoint = 60))})
 rpa_log <- run_quiet({get_rpa(d, rpa_var = c("Age", "stage"),
   adj_var = "Sex", surv = "DSS")})
 ```
@@ -56,7 +58,12 @@ rpa_log <- run_quiet({get_rpa(d, rpa_var = c("Age", "stage"),
 ```r
 get_rpa(data, rpa_var, adj_var = NULL, surv = TRUE,
         testtype = c("Bonferroni", "Univariate"),
-        rpa_model = c("cit", "mob"), timepoint = 120)
+        rpa_model = c("cit", "mob", "cit_adj", "mob_adj",
+                      "mob_int", "mob_adj_int"),
+        cat_arg = list(conf_level = 0.95, timepoint = 120,
+          time_dif = NULL,
+          curve_args = list(ci = TRUE, max_times = 50L,
+                            contrasts = "reference")))
 ```
 
 | 接口 | 输入 | 输出与选择 |
@@ -64,11 +71,44 @@ get_rpa(data, rpa_var, adj_var = NULL, surv = TRUE,
 | get_rpa | 数据、候选分裂变量 | 模型及节点结果 list |
 | plt_rpa | 生存 RPA 结果 | ggparty 树；count/compact/unadj/adjus/all 控制终末标签 |
 | plt_rpa_km | 生存 RPA 结果 | 节点分面曲线与内嵌表 |
-| plt_rpa_tab | 生存 RPA 结果 | 汇总表拼图，返回 patchwork |
+| plt_rpa_tab | 生存 RPA 结果 | 节点汇总表，返回分面 ggplot |
 | plt_rpa_heat | 数据框及三列 | 计数热图，不接收完整 RPA list |
 | rpa.gg1 / rpa.gg2 | Logistic 返回字段 | bar/pie 节点图 |
 
 默认 cit 的 minsplit/minbucket 均为 20，alpha 为 0.05；mob 的 minsize 为 20、alpha 为 0.05。当前公共接口不提供这些控制参数，不能把额外参数当作已支持。Bonferroni 针对节点分裂检验；它不校正用同一数据发现分组后再报告的全部节点效应。
+
+## 六种建树模式与节点规则 {#get-rpa-current}
+
+接口与本节输出按 2026-10-05 源码 `3411eb0` 核对。`timepoint` 已移入 `cat_arg`；改变这些节点后估计设置不改变分裂规则。
+
+| `rpa_model` | 建树时的调整与分裂含义 |
+|:--|:--|
+| `cit` | 未调整的 log-rank 分数；`adj_var` 只用于节点后分析 |
+| `cit_adj` | 每个节点重拟合调整 Cox 模型，对鞅残差分裂；须提供 `adj_var` |
+| `mob` | 截距型 Weibull AFT，检测截距与 `Log(scale)` 不稳定性 |
+| `mob_adj` | 节点内 Weibull AFT 调整 `adj_var`，检测基线参数不稳定性 |
+| `mob_int` | 截距型 Weibull AFT，只检测截距；形状变化本身不选变量 |
+| `mob_adj_int` | 调整 Weibull AFT，只检测截距；须提供 `adj_var` |
+
+MOB 候选子节点须达到每个 Weibull 参数至少 5 个事件的门槛。`cit_adj` 中拟合失败的节点停止分裂；不完全收敛的拟合仍可能被使用并发出警告，分析时需检查。
+
+```r
+rpa_adj <- run_quiet(get_rpa(d, c("Age", "stage"), adj_var = "Sex",
+  rpa_model = "cit_adj",
+  cat_arg = list(timepoint = 60,
+    curve_args = list(ci = FALSE, max_times = 25L))))
+plt_rpa(rpa_adj, term_label = "compact")
+
+# dat 是互斥终末组；rule 字段用于阅读和报告。
+unique(rpa_cit[["dat"]][c("group", "node_rule", "node_rule2")])
+rpa_cit[["ft.pair"]]
+```
+
+![cit_adj：逐节点调整 Sex 后的探索性分组；关闭调整曲线置信带只影响节点后的曲线计算。](images/rpa-guide/cit-adj.png){fig-alt="逐节点调整 Cox 鞅残差得到的 RPA 树。"}
+
+`node_rule` 保留分裂路径，`node_rule2` 合并重复变量的条件；两者均为展示文字。实际分组来自树的节点预测，不能把规则字符串当作可执行筛选表达式。建树丢弃的记录不进入终末节点后的效应样本；未分裂的树仍返回一个组，此时 `ft.pair` 为 `NULL`。曲线绘制失败时可保留估计与节点结果，应检查警告和缺失图字段。
+
+`cat_arg$conf_level` 控制节点后区间。当它不是 0.95 时，`get_cat()` 的 `p_value` 从该区间按固定 95% 换算规则回推，可能随置信水平改变；原始 95% Wald P 保存在 `p.value_0.95`。不能将变化的 `p_value` 当作新的分裂检验。
 
 ## 树图：终末标签、方向与算法
 
@@ -84,8 +124,8 @@ get_rpa(data, rpa_var, adj_var = NULL, surv = TRUE,
 cit：终末节点显示人数；分裂变量和切点沿树读取。
 
 ```r
-plt_rpa(rpa_cit, show_term_effect = "count", node_label_size = 10,
-        edge_label_size = 9, term_label_size = 9)
+plt_rpa(rpa_cit, term_label = "count",
+        text_args = list(node = 10, edge = 9, term = 9))
 ```
 
 
@@ -98,8 +138,8 @@ plt_rpa(rpa_cit, show_term_effect = "count", node_label_size = 10,
 同一 cit 树展示紧凑的节点效应；参考节点的选择会影响 HR。
 
 ```r
-plt_rpa(rpa_cit, show_term_effect = "compact", node_label_size = 10,
-        edge_label_size = 9, term_label_size = 9)
+plt_rpa(rpa_cit, term_label = "compact",
+        text_args = list(node = 10, edge = 9, term = 9))
 ```
 
 
@@ -112,8 +152,8 @@ plt_rpa(rpa_cit, show_term_effect = "compact", node_label_size = 10,
 只改变树的方向，节点分组和模型结果保持一致。
 
 ```r
-plt_rpa(rpa_cit, show_term_effect = "count", horizontal = FALSE,
-        node_label_size = 9, edge_label_size = 8, term_label_size = 8)
+plt_rpa(rpa_cit, term_label = "count", horizontal = FALSE,
+        text_args = list(node = 9, edge = 8, term = 8))
 ```
 
 
@@ -126,8 +166,8 @@ plt_rpa(rpa_cit, show_term_effect = "count", horizontal = FALSE,
 Weibull AFT 参数分区的 mob 树；不应将分裂模型系数直接读作 Cox HR。
 
 ```r
-plt_rpa(rpa_mob, show_term_effect = "count", node_label_size = 10,
-        edge_label_size = 9, term_label_size = 9)
+plt_rpa(rpa_mob, term_label = "count",
+        text_args = list(node = 10, edge = 9, term = 9))
 ```
 
 
@@ -151,8 +191,9 @@ plt_rpa(rpa_mob, show_term_effect = "count", node_label_size = 10,
 按终末节点分面显示生存曲线；表中的 SP 对应设定的 60 月。
 
 ```r
-plt_rpa_km(rpa_cit, base_size = 10, table_size = 4,
-           set_colnames = c("eve1", "HR", "SP", "SD"), show_row = 1:3)
+plt_rpa_km(rpa_cit,
+           table_args = list(labels = c("eve1", "HR", "SP", "SD"),
+                             rows = 1:3, size = 4))
 ```
 
 
@@ -165,8 +206,9 @@ plt_rpa_km(rpa_cit, base_size = 10, table_size = 4,
 节点的未调整与调整汇总表；结果属于当前数据上的探索性比较。
 
 ```r
-plt_rpa_tab(rpa_cit, font_size = 9,
-            set_colnames = c("eve1", "HR", "SP", "SD"), show_row = 1:3)
+plt_rpa_tab(rpa_cit,
+            table_args = list(labels = c("eve1", "HR", "SP", "SD"),
+                              rows = 1:3, size = 9))
 ```
 
 
@@ -243,9 +285,9 @@ rpa_log[["rpa.gg2"]]
 
 - [RegR 函数参考](https://hui950319.github.io/RegR/reference/index.html)
 
-- [rpa-get.R](https://github.com/HUI950319/RegR/blob/2e56cc6e06d548786b0a43d3449e463a0b36b252/R/rpa-get.R)
+- [rpa-get.R](https://github.com/HUI950319/RegR/blob/3411eb0/R/rpa-get.R)
 
-- [rpa-plt.R](https://github.com/HUI950319/RegR/blob/2e56cc6e06d548786b0a43d3449e463a0b36b252/R/rpa-plt.R)
+- [rpa-plt.R](https://github.com/HUI950319/RegR/blob/3411eb0/R/rpa-plt.R)
 
 
 ```r
