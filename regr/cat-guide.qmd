@@ -1,7 +1,7 @@
 ---
 title: "KM/CIF 组合图：get_cat 与 3 个绘图函数"
 description: "get_cat 的数据、方法和返回对象详解；用 RegR 自带 MTC 队列比较 plt_cat1、plt_cat2、plt_cat3 的 20 个实际图形示例。"
-date: 2026-10-01
+date: 2026-10-05
 lightbox: true
 toc-depth: 2
 ---
@@ -105,7 +105,7 @@ get_cat(
 |:--|:--|:--|
 | `"unadj"` | 生存模式用 KM；CIF 模式用 Aalen–Johansen；回归比值未调整 | 实际展示 |
 | `"direct"` | 用结局模型标准化得到组别曲线，回归比值另行估计 | 实际展示 |
-| `"iptw"` | 倾向评分加权；当前二分类路径按 ATT，多分类路径按 ATE | 未执行，应先检查重叠与加权平衡 |
+| `"iptw"` | 倾向评分加权；当前二分类和多分类默认均按 ATE | 应先检查重叠、权重与加权平衡 |
 | `"psm"` | 二分类 1:1 近邻匹配，分析匹配后的子队列 | 未执行；不支持多分类暴露 |
 
 :::
@@ -134,6 +134,35 @@ cat_fit                       # 打印效应范围和可复制的坐标参数
 :::
 
 `Mul` 不是“多变量调整表”的简称。`get_cat()` 不负责把所有布局画好；改变图形参数可复用 `cat_fit`，改变结局、方法、调整变量或时间点则需要重新分析。
+
+## get_cat()：多个独立暴露与曲线计算 {#get-cat-multiple}
+
+2026-10-05 源码 `3411eb0` 支持一次传入多个 `cat_var`：每个暴露独立调用 get_cat，返回具名 `cat_res` list，不把它们组合成一个暴露。`cat_var_combine` 则建立联合分类，含义不同。下面重新抽取 800 人作为独立补充例子，与本页前面的全队列图分开阅读。
+
+```r
+d_multi <- as.data.frame(seer_thyroid_mtc_2026)
+used <- c("Sex", "Age", "Race", "DSS", "time", "event", "T_stage")
+d_multi <- droplevels(d_multi[complete.cases(d_multi[used]) &
+                               d_multi[["time"]] > 0, ])
+d_multi[["Sex"]] <- factor(d_multi[["Sex"]], levels = c("Female", "Male"))
+d_multi[["stage"]] <- factor(ifelse(d_multi[["T_stage"]] %in% c("T1", "T2"),
+                                   "Early", "Other"))
+set.seed(20261005)
+d_multi <- droplevels(d_multi[sample.int(nrow(d_multi), 800L), ])
+cat_multi <- run_quiet(get_cat(d_multi,
+  cat_var = c(Sex = "Sex", Stage = "stage"), adj_var = c("Age", "Race"),
+  timepoint = 120, time_dif = NULL,
+  curve_args = list(ci = TRUE, max_times = 25L, contrasts = "reference")))
+names(cat_multi)                    # "Sex" "Stage"
+class(cat_multi[["Sex"]])           # "cat_res"
+cat_multi[["Sex"]][["cat"]][["UM"]]
+```
+
+本次核对确认多暴露调用中的 Sex 效应表与相同参数的单独 Sex 调用一致。名称来自字符向量的 names；不命名时用列名。
+
+`curve_args` 的公共默认值为 `list(ci = TRUE, max_times = 50L, contrasts = c("reference", "all"))`，实际默认选择 reference。`ci = FALSE` 仅省去 direct 曲线区间；`max_times = NULL` 保留完整网格，正整数控制调整曲线抽点；`contrasts = "all"` 请求全部曲线对比。它们不改变未调整 KM 或单时点效应表。未知、重复或空字段名会报错。
+
+单时点 `timepoint` 与多时点 `time_dif` 会按组别随访上限处理，不能将自动截短的概率结果仍报告为原请求时点。IPTW 二分类默认已统一为 ATE；CIF 的 IPTW 曲线采用加权 Aalen–Johansen，不是加权 Fine–Gray 曲线。回归 sHR 与加权 CIF 是不同的估计量。`conf_level != 0.95` 时，应按帮助页区分从显示区间回推的 `p_value` 与保留的 `p.value_0.95`。
 
 ## 绘图入口速查 {#plot-index}
 
