@@ -1,7 +1,7 @@
 ---
 title: "causalR 功能模块图"
 description: "因果推断与效应异质性：倾向评分加权 / 匹配、因果森林、亚组规则、效应修饰筛选和敏感性分析。"
-date: 2026-09-30
+date: 2026-10-05
 lightbox: true
 format:
   html:
@@ -22,6 +22,36 @@ format:
 [下载三页 PDF](../assets/module-maps/causalr/causalr-package-mindmap.drawio.pdf){.btn .btn-outline-secondary download="causalr-package-mindmap.drawio.pdf"}
 
 图谱快照：**2026-09-30**。对应包版本：**0.0.0.9000**。具体参数和返回值以当前安装版本的帮助页为准。
+
+## get_PSW()：含空格或连字符的变量名 {#psw-column-names}
+
+2026-10-03 的源码修复 `4582e7f` 让 PS 拟合可以使用 `Age (years)`、`chol-level` 等列名。内部为 WeightIt 建立合法占位名，返回拟合对象的 `covs` 恢复原名，避免变量被误当成函数或在平衡诊断中遗漏。
+
+```r
+library(causalR)
+set.seed(20261005)
+d_psw <- data.frame(age = rnorm(300, 50, 10), chol = rnorm(300))
+d_psw[["z"]] <- rbinom(300, 1,
+  plogis(-1 + 0.02 * d_psw[["age"]] + 0.4 * d_psw[["chol"]]))
+names(d_psw) <- c("Age (years)", "chol-level", "treatment arm")
+psw <- get_PSW(d_psw, treat = "treatment arm",
+  adj_var = c("Age (years)", "chol-level"), estimand = "ATE", balance = TRUE)
+psw[["stats"]]
+names(psw[["fit"]][["covs"]])
+# "Age (years)" "chol-level"
+```
+
+下面为实际合成数据运行结果；已确认改名前后的 PS 数值一致，且拟合对象保留两个原始调整列名。
+
+::: {.table-responsive}
+
+| estimand | n | n_treat | n_ctrl | ess | ess_treat | ess_ctrl | ess_pct | w_min | w_max | w_mean | w_sd | w_cv | smd_max | smd_over |
+| :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
+| ATE | 300 | 148 | 152 | 287.5 | 142.3 | 145.3 | 0.9584 | 1.32 | 3.774 | 2 | 0.4172 | 0.2086 | 0.003106 | 0 |
+
+:::
+
+此修复针对列名兼容，不改变估计目标、修剪或权重截断。依然需要检查权重、重叠和平衡；它不是让任意模型后端接受任意额外参数。
 
 ## 功能模块总览
 
