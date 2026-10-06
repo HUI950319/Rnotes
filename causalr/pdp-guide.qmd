@@ -1,0 +1,216 @@
+---
+title: "HTE PDP：因果森林效应的部分依赖"
+description: "get_hte_pdp 的返回表、分位数网格、分类变量、抽样预算与森林权重；同一森林上的参数对照和实际曲线。"
+date: 2026-10-07
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-pdp
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+`get_hte_pdp()` 复用 `get_hte()` 保存的森林，返回每个协变量取值下的平均预测效应。
+它不重新拟合因果森林；返回表可以保存或自行画图，现有 `plt_hte_dep(display="pdp")`
+使用同一部分依赖引擎。接口按提交 `d4aeb78` 核对，下面实际拟合森林并计算全部曲线。
+
+## PDP 解释的是什么 {#pdp-meaning}
+
+设森林预测效应为 $\hat\tau(x)$，对协变量 $j$ 的部分依赖是
+
+$$\operatorname{PDP}_j(v)=\frac{\sum_i w_i\hat\tau(v,x_{i,-j})}{\sum_i w_i}.$$
+
+把解释样本的这一列设成同一取值，其他列保持原样，再平均森林预测。这里的 $w_i$
+是森林观察权重；未设置权重时等权。曲线解释的是**完整森林的预测函数**，与训练患者的
+OOB CATE、双稳健投影曲线以及真实个体治疗效应分别对应不同对象。
+
+| 原始结局 | PDP 纵轴 |
+|---|---|
+| 连续 | 预测均值差 |
+| 二分类 | 预测风险差 |
+| 生存 | 固定时点的 S(t) 差，或已拟合模型的 RMST 差 |
+
+解释始终在森林的 `diff` 尺度上进行，不能把曲线读作 HR、OR 或 Fine–Gray sHR。
+变量相关时，替换一列可能形成少见组合；ALE 的局部变化提供另一种查看方式。
+
+## 参数与返回对象 {#pdp-args}
+
+| 参数 | 默认 | 作用与条件 |
+|---|---|---|
+| `x` | 必填 | 完整 `hte_res`，包含 `fit` 与分析编码 |
+| `x_var` | `NULL` | 所有协变量按 `importance` 顺序；也可传列名、`"num"`、`"fct"` |
+| `grid_n` | `21` | 连续变量的分位数网格点数，整数且至少 2；重复分位数合并 |
+| `max_n` | `NULL` | 由时间成本模型选择解释患者数；正整数显式限制，`Inf` 使用全体 |
+| `time_budget` | `20` | `max_n=NULL` 时的估算预算，单位秒；显式指定 `max_n` 时忽略 |
+| `verbose` | `FALSE` | 显示估计与实际耗时 |
+
+数值变量超过 5 个不同值时按连续变量处理；其他变量遍历水平。返回 tibble 的
+`variable/value/level/estimate` 分别是列名、数值位置、分类水平和平均 CATE。
+`attr(out,"analysis")` 记录患者数、网格设置及估计和实际耗时。
+
+## 同一森林上的曲线 {#pdp-data}
+
+示例是公开合成数据，`marker` 有右偏长尾，`stage` 有三个水平；治疗分配依赖已观察协变量。
+随机种子与森林线程固定，参数比较复用同一对象。
+
+```{r}
+#| label: pdp-data
+set.seed(20261007)
+n <- 900
+d <- data.frame(marker = exp(rnorm(n, 0, 0.8)), age = rnorm(n, 60, 10),
+                stage = factor(sample(c("I", "II", "III"), n, replace = TRUE)),
+                noise = rnorm(n))
+d$z <- rbinom(n, 1, plogis(0.2 * log(d$marker) + 0.015 * (d$age - 60)))
+tau <- 0.6 + 1.4 * tanh(log(d$marker)) + 0.35 * (d$stage == "III")
+d$y <- log(d$marker) + 0.03 * (d$age - 60) + d$z * tau + rnorm(n)
+covs <- c("marker", "age", "stage", "noise")
+res <- get_hte(d, "z", adj_var = covs, surv = "y",
+               grf_args = list(num.trees = 500, seed = 17, num.threads = 2))
+pdp <- get_hte_pdp(res, x_var = c("marker", "age", "stage"), max_n = Inf)
+stopifnot(all(is.finite(pdp$estimate)), attr(pdp, "analysis")$n == n)
+knitr::kable(head(pdp), digits = 3)
+attr(pdp, "analysis")
+```
+
+::: {.panel-tabset}
+
+### 连续变量
+
+```{r}
+#| label: fig-pdp-continuous
+#| fig-width: 9
+#| fig-height: 4
+#| fig-cap: "同一森林的 marker 与 age 部分依赖，纵轴为平均预测治疗效应。横轴的远端也可能只有少量数据支持。"
+ggplot(subset(pdp, !is.na(value)), aes(value, estimate)) +
+  geom_line(color = "#347BA0") + geom_point(color = "#347BA0", size = 1.8) +
+  facet_wrap(~ variable, scales = "free_x") +
+  labs(x = "Covariate value", y = "Mean predicted treatment effect") +
+  theme_minimal(base_size = 12)
+```
+
+### 分类变量
+
+```{r}
+#| label: fig-pdp-factor
+#| fig-width: 7
+#| fig-height: 4
+#| fig-cap: "把所有患者的 stage 分别设为每个水平后平均预测；这些点不等于在各 stage 组内估计的双稳健亚组效应。"
+cat_pdp <- get_hte_pdp(res, x_var = "fct", max_n = Inf)
+ggplot(cat_pdp, aes(level, estimate)) + geom_point(size = 3, color = "#347BA0") +
+  labs(x = "Stage assigned to every patient", y = "Mean predicted treatment effect") +
+  theme_minimal(base_size = 12)
+```
+
+:::
+
+## grid_n：分位数覆盖与长尾 {#pdp-grid}
+
+自 2026-10-06 起，连续变量网格取 0 到 1 的等概率分位数，而非从最小到最大取等距离数值。
+它在数据密集区放更多点，但仍包含最小值、最大值；并不自动删除极端值。
+
+::: {.panel-tabset}
+
+### 7 点与 21 点
+
+```{r}
+#| label: fig-pdp-grid
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-cap: "两条曲线只改变 grid_n；网格点来自同一数据的分位数，均复用全体患者与同一森林。"
+p7 <- get_hte_pdp(res, "marker", grid_n = 7, max_n = Inf)
+p21 <- get_hte_pdp(res, "marker", grid_n = 21, max_n = Inf)
+expected <- unique(as.numeric(quantile(res$data$marker, seq(0, 1, length.out = 21))))
+stopifnot(isTRUE(all.equal(p21$value, expected)))
+grid_compare <- rbind(data.frame(grid = "7 quantiles", p7),
+                      data.frame(grid = "21 quantiles", p21))
+ggplot(grid_compare, aes(value, estimate, color = grid)) + geom_line() + geom_point() +
+  geom_rug(data = d, aes(x = marker), inherit.aes = FALSE, alpha = 0.12) +
+  labs(x = "Marker", y = "Mean predicted treatment effect", color = "Grid") +
+  theme_minimal(base_size = 12)
+```
+
+### 网格位置对照
+
+```{r}
+#| label: fig-pdp-grid-position
+#| fig-width: 8
+#| fig-height: 3.5
+#| fig-cap: "只比较网格位置。长尾数值上的等距离网格会把许多点放在观察稀少的位置；PDP 当前使用分位数网格。"
+positions <- rbind(data.frame(value = p21$value, grid = "Current: quantiles"),
+                   data.frame(value = seq(min(d$marker), max(d$marker), length.out = 21),
+                              grid = "Reference: equal spacing"))
+ggplot(positions, aes(value, grid)) + geom_point(size = 2, color = "#347BA0") +
+  geom_rug(data = d, aes(x = marker), inherit.aes = FALSE, alpha = 0.12) +
+  labs(x = "Marker", y = NULL) + theme_minimal(base_size = 12)
+```
+
+:::
+
+存在大量并列值时网格会少于 `grid_n`，这是合并分位数的结果。分类变量不受 `grid_n` 影响。
+
+## max_n 与 time_budget：记录实际使用的患者 {#pdp-budget}
+
+```{r}
+#| label: fig-pdp-budget
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-cap: "全体、显式 100 人和成本模型预算的曲线对照。抽样均匀取行，能复现，但减少患者可能改变平均曲线。"
+p100 <- get_hte_pdp(res, "marker", max_n = 100)
+pauto <- get_hte_pdp(res, "marker", time_budget = 0.05)
+pauto2 <- get_hte_pdp(res, "marker", time_budget = 0.05)
+stopifnot(identical(pauto$estimate, pauto2$estimate))
+budget_compare <- rbind(data.frame(sample = "All patients", p21),
+                        data.frame(sample = "max_n = 100", p100),
+                        data.frame(sample = paste0("Budget: n = ", attr(pauto, "analysis")$n), pauto))
+ggplot(budget_compare, aes(value, estimate, color = sample)) + geom_line() + geom_point() +
+  labs(x = "Marker", y = "Mean predicted treatment effect", color = NULL) +
+  theme_minimal(base_size = 12)
+```
+
+成本模型控制抽样规模，**不是计时器强制中断**，默认 20 秒也不是每台机器的完成承诺。
+同一森林和参数会选同一批均匀间隔行，实际耗时随机器变化。本页 0.05 秒设置用于演示抽样机制；
+实际分析应检查 `analysis$n` 与曲线稳定性。显式 `max_n` 后 `time_budget` 被忽略。
+
+## 森林观察权重 {#pdp-weights}
+
+`grf_args$sample.weights` 或 `equalize.cluster.weights=TRUE` 时，PDP 的平均使用相应权重。
+下面将年龄较大的患者赋予较高权重，重新拟合一个有权森林，再查看它的 PDP。
+
+```{r}
+#| label: pdp-weighted
+obs_weights <- ifelse(d$age >= 60, 3, 1)
+weighted <- get_hte(d, "z", adj_var = covs, surv = "y",
+                    grf_args = list(num.trees = 500, seed = 17, num.threads = 2,
+                                    sample.weights = obs_weights))
+pw <- get_hte_pdp(weighted, "marker", max_n = Inf)
+stopifnot(all(is.finite(pw$estimate)))
+knitr::kable(head(pw), digits = 3)
+```
+
+这一调用同时改变森林训练和解释时的平均权重，比较它与原森林时应报告两个变化。
+PDP 图本身不包含效应估计的置信区间；加一条视觉平滑线也不会得到新的推断。
+
+## 衔接绘图与复现 {#pdp-links}
+
+```r
+# 同一 hte_res 的现有绘图入口
+plt_hte_dep(res, x_var = "marker", display = "pdp",
+            pdp_args = list(grid_n = 21, max_n = Inf))
+```
+
+参见 [causalR 总览](index.qmd)、[HTE 诊断](hte-diagnostics-guide.qmd) 和
+[生存效应尺度](survival-estimands-guide.qmd)。PDP 的基础定义见
+[Friedman（2001）](https://doi.org/10.1214/aos/1013203451)。
+源码：[hte-explain.R](https://github.com/HUI950319/causalR/blob/d4aeb785b9deff6b3f9144954b7716876a190a68/R/hte-explain.R)。
+
+```{r}
+args(get_hte_pdp)
+packageVersion("grf")
+sessionInfo()
+```
