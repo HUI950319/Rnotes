@@ -1,0 +1,2069 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.25">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="MLR 的 get_shp() 在 2026-10-06 的 6 项改动：生存森林多线程、森林转换、连续变量分箱、CPU 上的 SHAP 多进程、精简加载；1 万行训练在 Linux（Python SHAP，GPU/CPU）与 Windows（treeshap）上的优化前后实测，以及 ranger 生存分裂、Python TreeSHAP 与子进程启动的专项剖析。">
+
+<title>MLR：get_shp 提速策略与实测 – R 包开发笔记</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../mlr/function-modules.html" rel="next">
+<link href="../regr/mlr-imp-speedup-20261006.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-4571e413af9019dfdcc70175faf53a1f.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-b474d6efad454b713d1e816a9cc473a2.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="../site_libs/bootstrap/bootstrap-184620d5ecb7d4f24b4f29b3aac7083c.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="../site_libs/quarto-contrib/glightbox/glightbox.min.js"></script>
+<link href="../site_libs/quarto-contrib/glightbox/glightbox.min.css" rel="stylesheet">
+<link href="../site_libs/quarto-contrib/glightbox/lightbox.css" rel="stylesheet">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+
+
+</head>
+
+<body class="nav-sidebar docked quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/function-modules.html">RegR · 临床回归与可视化</a></li><li class="breadcrumb-item"><a href="../regr/performance-evaluation.html">性能评估</a></li><li class="breadcrumb-item"><a href="../regr/mlr-shp-speedup-20261006.html"><span class="chapter-title">MLR：get_shp 提速策略与实测</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation docked overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header sidebar-header-stacked">
+      <a href="../index.html" class="sidebar-logo-link">
+      </a>
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">R 包开发笔记</a> 
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/HUI950319/Rnotes" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="切换深色模式"><i class="bi"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">关于这份笔记</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">RegR · 临床回归与可视化</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RegR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/flow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">队列筛选与流程图：get_flt、plt_flo 与 plt_flo2</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/forest-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">效应估计与森林图：get_eff 和 4 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/cat-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">KM/CIF 组合图：get_cat 与 3 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/facet-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分面生存曲线：get_facet 的 22 个可视化示例</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">交互分析：get_inter、绝对风险与表格导出</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/rcs-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RCS 组合图：get_rcs_all 的 7 种模式</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/cut-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">切点分析：get_cut、get_cut_ci 与 get_cut_plot</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/rpa-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA：建树、终末节点与生存和二分类输出</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/ps-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">倾向评分：PSM、IPTW 与平衡诊断</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/variable-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量筛选：策略比较、LASSO 路径与共线性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/table-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">临床表格：基线、分层、事件构成与生存摘要</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/um-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">单多因素分析：手工模型、自动筛选与绝对效应</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/eff-cat-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">同一暴露的效应比较：调整模型、结局与分层</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型评价：C-index、时点 AUC、Brier 与验证人群</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/nomogram-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">列线图、ROC、校准与决策曲线：Cox 和 Logistic</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/conditional-survival-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">条件生存：已存活多久、再存活多久与固定终点</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/hazard-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">瞬时风险：平滑方法、分组与协变量标准化</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/gbtm-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分组轨迹模型：拟合、组数比较与后验分类</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/effect-comparison-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">组间特征比较：SMD、Cohen’s d、点图与雷达图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/rpa-adjust-literature.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA 建树时要不要调整协变量：ctree 与 mob 的文献检索</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="../regr/performance-evaluation.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">性能评估</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/get-eff-cif-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/rpa-cox-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/cox-cif-optimization-20261002.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cox / CIF 优化：Windows 与 Linux 五档样本量实测</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/scoring-fit-benchmark-20261003.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Logistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/get-score-benchmark-20261003.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">get_score：大样本与100次 bootstrap 耗时</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/wsl-openblas-threads-20261004.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/mlr-vpd-ale-speedup-20261006.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR：get_vpd / get_ale / get_ale2 提速策略与实测</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/mlr-imp-speedup-20261006.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR：get_imp 提速策略与实测</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/mlr-shp-speedup-20261006.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">MLR：get_shp 提速策略与实测</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
+ <span class="menu-text">MLR · 机器学习解释</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR 概览</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/shap-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP：get_shp 与 14 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/imp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征重要性：get_imp 与 9 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/vpd-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量分布与 PDP：解释器、分组和预测时间</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量交互：H 统计量、paired-VIMP 与 VIV 图谱</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/shap-clust-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP 聚类：选 K、解释分组与固定中心分配</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/pdp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">生存 PDP 图谱：时间、分箱与二维交互面</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/model-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型筛选：学习器 × 缺失处理的重采样比较</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/hyper-tuning-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">超参数调优：搜索预算、配置图与嵌套验证</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/feature-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征筛选：搜索路径、候选规模与选择稳定性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型评估：时间 ROC、概率误差与分类阈值</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/calibration-dca-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">校准与 DCA：概率方向、重采样范围与阈值</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">UtilsR · 通用工具</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 概览</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/categorical-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分类变量：plt_cat 的 11 种图形与重要参数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/continuous-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">连续变量：分布、统计比较与多面板布局</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/format-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ggplot 格式化：主题、坐标、图例、条带与面板标签</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/palette-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">配色系统：检索、颜色映射与离散和连续色阶</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/missing-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">数据检视与缺失：摘要、缺失模式和 KNN 插补</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/scatter-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">组合散点图：边际分布、双分组与配对差值</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/flow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分类分布与流向：堆积柱、Alluvial 和 Sankey</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/sets-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">集合比较：Venn、UpSet、成员分组与 Jaccard 热图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/comparison-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">双侧比较图：Butterfly、分布镜像与 Dumbbell</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/rank-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">排名与共享特征：Rank、方法一致性和圆形棒棒糖</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/factor-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">因子与统计文本：排序、合并、分箱和区间格式化</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../utilsr/composition-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">图形组合与导出：展平、grob、插图和栅格化</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
+ <span class="menu-text">seerR · SEER 数据处理</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../seerr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../seerr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">LabR · 基础实验作图</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../labr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">LabR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../labr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">LabR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">scMMR · 单细胞多任务模型</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../scmmr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">scMMR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../scmmr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">scMMR 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">ToyData · 示例数据</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../toydata/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ToyData 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../toydata/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ToyData 概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false">
+ <span class="menu-text">causalR · 因果推断与效应异质性</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 ">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">causalR 功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">causalR 包总览：问题、函数与返回对象</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/tree-stability-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">亚组树的稳定性与新样本分组</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/icf-plot-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">iCF 亚组树：计算参数与五种叶子视图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/hte-diagnostics-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE 诊断：校准、RATE、TOC、Qini 与 GATES</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/method-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE 方法选择：变量筛选、线性投影与亚组规则</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/survival-estimands-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">生存效应尺度：概率差、事件风险比与 RMST</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/clinical-workflow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">观察性研究工作流：平衡、效应、HTE 与敏感性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../causalr/computation-reuse-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">计算与复用：森林缓存、树参数与时间网格</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+   
+  <ul>
+  <li><a href="#主要结果" id="toc-主要结果" class="nav-link active" data-scroll-target="#主要结果">主要结果</a></li>
+  <li><a href="#优化前的耗时构成" id="toc-优化前的耗时构成" class="nav-link" data-scroll-target="#优化前的耗时构成">优化前的耗时构成</a></li>
+  <li><a href="#优化策略" id="toc-优化策略" class="nav-link" data-scroll-target="#优化策略">优化策略</a>
+  <ul class="collapse">
+  <li><a href="#生存森林多线程" id="toc-生存森林多线程" class="nav-link" data-scroll-target="#生存森林多线程">1. 生存森林多线程</a></li>
+  <li><a href="#生存森林转换不再逐树拼矩阵" id="toc-生存森林转换不再逐树拼矩阵" class="nav-link" data-scroll-target="#生存森林转换不再逐树拼矩阵">2. 生存森林转换不再逐树拼矩阵</a></li>
+  <li><a href="#连续变量分-200-个分位数箱" id="toc-连续变量分-200-个分位数箱" class="nav-link" data-scroll-target="#连续变量分-200-个分位数箱">3. 连续变量分 200 个分位数箱</a></li>
+  <li><a href="#cpu-上的-shap-分给多个子进程" id="toc-cpu-上的-shap-分给多个子进程" class="nav-link" data-scroll-target="#cpu-上的-shap-分给多个子进程">4. CPU 上的 SHAP 分给多个子进程</a></li>
+  <li><a href="#只加载需要的-mlr3-包" id="toc-只加载需要的-mlr3-包" class="nav-link" data-scroll-target="#只加载需要的-mlr3-包">5. 只加载需要的 mlr3 包</a></li>
+  <li><a href="#其他" id="toc-其他" class="nav-link" data-scroll-target="#其他">6. 其他</a></li>
+  </ul></li>
+  <li><a href="#优化前后实测" id="toc-优化前后实测" class="nav-link" data-scroll-target="#优化前后实测">优化前后实测</a>
+  <ul class="collapse">
+  <li><a href="#linuxwslpython-shap" id="toc-linuxwslpython-shap" class="nav-link" data-scroll-target="#linuxwslpython-shap">Linux（WSL）：Python SHAP</a></li>
+  <li><a href="#windows-rtreeshap" id="toc-windows-rtreeshap" class="nav-link" data-scroll-target="#windows-rtreeshap">Windows R：treeshap</a></li>
+  </ul></li>
+  <li><a href="#专项剖析" id="toc-专项剖析" class="nav-link" data-scroll-target="#专项剖析">专项剖析</a>
+  <ul class="collapse">
+  <li><a href="#sec-ranger-logrank" id="toc-sec-ranger-logrank" class="nav-link" data-scroll-target="#sec-ranger-logrank">ranger 生存分裂与连续变量</a></li>
+  <li><a href="#sec-bins" id="toc-sec-bins" class="nav-link" data-scroll-target="#sec-bins">分箱取多少箱</a></li>
+  <li><a href="#sec-gil" id="toc-sec-gil" class="nav-link" data-scroll-target="#sec-gil">Python TreeSHAP 不释放 GIL</a></li>
+  <li><a href="#子进程启动windows-比-linux-慢" id="toc-子进程启动windows-比-linux-慢" class="nav-link" data-scroll-target="#子进程启动windows-比-linux-慢">子进程启动：Windows 比 Linux 慢</a></li>
+  <li><a href="#作图开销" id="toc-作图开销" class="nav-link" data-scroll-target="#作图开销">作图开销</a></li>
+  <li><a href="#试过但没有采用" id="toc-试过但没有采用" class="nav-link" data-scroll-target="#试过但没有采用">试过但没有采用</a></li>
+  </ul></li>
+  <li><a href="#使用建议" id="toc-使用建议" class="nav-link" data-scroll-target="#使用建议">使用建议</a></li>
+  <li><a href="#sec-method" id="toc-sec-method" class="nav-link" data-scroll-target="#sec-method">测试口径</a></li>
+  <li><a href="#局限" id="toc-局限" class="nav-link" data-scroll-target="#局限">局限</a></li>
+  <li><a href="#下载" id="toc-下载" class="nav-link" data-scroll-target="#下载">下载</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/mlr-shp-speedup-20261006.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/function-modules.html">RegR · 临床回归与可视化</a></li><li class="breadcrumb-item"><a href="../regr/performance-evaluation.html">性能评估</a></li><li class="breadcrumb-item"><a href="../regr/mlr-shp-speedup-20261006.html"><span class="chapter-title">MLR：get_shp 提速策略与实测</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-title">MLR：get_shp 提速策略与实测</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+    <div>
+    <div class="quarto-title-meta-heading">发布于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">2026年10月6日</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<p>本页属于 <a href="../regr/performance-evaluation.html">RegR 性能评估</a>，评估对象是 MLR（<a href="https://hui950319.github.io/MLR/">pkgdown 站点</a>）的 <code>get_shp()</code>。它先训练一个树模型（ranger、XGBoost 或 LightGBM，生存或二分类），再用 Python <code>shap</code>（GPU 或 CPU）或 R 的 treeshap 计算 SHAP 值和交互值，最后预渲染 6 张图。<a href="../regr/mlr-imp-speedup-20261006.html">get_imp 提速页</a>的多进程 TreeSHAP 复用了本页第 4 项的函数。</p>
+<section id="主要结果" class="level2">
+<h2 class="anchored" data-anchor-id="主要结果">主要结果</h2>
+<ul>
+<li><strong>Windows R 提速最多。</strong>本机 Windows 版 R 没有 Python <code>shap</code>，只能用 treeshap 引擎：带交互的生存 ranger 67.0 → <strong>12.2 s</strong>，分类 ranger 42.1 → <strong>9.5 s</strong>，会话第一次调用 67.5 → <strong>16.3 s</strong>。</li>
+<li><strong>有 GPU 时（WSL 里的 Python SHAP）</strong>，生存 ranger 8.0 → <strong>2.2 s</strong>（含作图 9.2 → 3.4 s），会话第一次调用 18.8 → <strong>7.6 s</strong>。Python 走 CPU 时，生存 41.2 → <strong>16.9 s</strong>，分类 26.6 → <strong>15.0 s</strong>。</li>
+<li><strong>连续预测变量曾经是最慢的情形。</strong>年龄和肿瘤大小为连续值时，生存 ranger 在 WSL 上 95.8 → <strong>3.1 s</strong>，Windows 上 163.2 → <strong>13.2 s</strong>。</li>
+<li><strong>XGBoost、LightGBM 和 GPU 上的分类 ranger 前后持平</strong>（0.4–10 s）。它们本来就快，多进程的自适应判断让它们留在单进程，没有因为启动子进程而变慢。</li>
+</ul>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">场景（1 万行训练，解释 400 行，带交互，不作图）</th>
+<th style="text-align: right;">优化前</th>
+<th style="text-align: right;">优化后</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Windows，treeshap，生存 ranger</td>
+<td style="text-align: right;">67.0 s</td>
+<td style="text-align: right;"><strong>12.2 s</strong></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Windows，treeshap，分类 ranger</td>
+<td style="text-align: right;">42.1 s</td>
+<td style="text-align: right;"><strong>9.5 s</strong></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Windows，treeshap，会话第一次调用（含作图）</td>
+<td style="text-align: right;">67.5 s</td>
+<td style="text-align: right;"><strong>16.3 s</strong></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">WSL，Python GPU，生存 ranger</td>
+<td style="text-align: right;">8.0 s</td>
+<td style="text-align: right;"><strong>2.2 s</strong></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">WSL，Python CPU，生存 ranger</td>
+<td style="text-align: right;">41.2 s</td>
+<td style="text-align: right;"><strong>16.9 s</strong></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">WSL，Python GPU，会话第一次调用（含作图）</td>
+<td style="text-align: right;">18.8 s</td>
+<td style="text-align: right;"><strong>7.6 s</strong></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">年龄、肿瘤大小为连续值，生存 ranger（WSL GPU / Windows）</td>
+<td style="text-align: right;">95.8 / 163.2 s</td>
+<td style="text-align: right;"><strong>3.1 / 13.2 s</strong></td>
+</tr>
+</tbody>
+</table>
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>只有分箱会改变数值
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>6 项改动里 5 项只改实现方式：统一口径的 16 个可比场景，新旧两版的 SHAP 矩阵逐位相同（<code>identical()</code> 为真）。会改变数值的是连续变量分箱：两个连续变量场景里，SHAP 与优化前的逐行相关为 0.995，与同一森林只换随机种子的差异（0.997）相当，留出集 C-index 不降。另有一处是改正：旧版在每个会话里，第一次设了种子的调用与之后的调用结果不同，现在一致。</p>
+</div>
+</div>
+</section>
+<section id="优化前的耗时构成" class="level2">
+<h2 class="anchored" data-anchor-id="优化前的耗时构成">优化前的耗时构成</h2>
+<p>有 GPU 时，旧版一次调用约 8 s，SHAP 本身只占 0.27 s；九成时间花在 R 端两个只用单核的步骤：训练生存森林和把森林转成 TreeSHAP 的树表。没有 GPU 时，单核的 TreeSHAP 交互值成为大头，而 Windows 版 R 没有 Python <code>shap</code>，只能走更慢的 treeshap。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">步骤（WSL，1 万行，解释 400 行，带交互）</th>
+<th style="text-align: right;">耗时（秒）</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>surv.ranger</code> 训练</td>
+<td style="text-align: right;">4.24</td>
+<td style="text-align: left;">mlr3 学习器默认 1 线程</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">森林转换 <code>treeshap::ranger_surv.unify()</code></td>
+<td style="text-align: right;">3.98</td>
+<td style="text-align: left;"><code>rowSums</code> 1.64 s、逐树 <code>rbind</code> 约 1.2 s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">转成 Python 树字典</td>
+<td style="text-align: right;">0.03</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Python GPU TreeSHAP</td>
+<td style="text-align: right;">0.27</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">抽样、建任务、打印、shapviz 等</td>
+<td style="text-align: right;">0.61</td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">6 张预渲染图</td>
+<td style="text-align: right;">1.23</td>
+<td style="text-align: left;"><code>plt_shp_sum()</code> 构建时就渲染蜂群图</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">会话第一次调用另加</td>
+<td style="text-align: right;">9.54</td>
+<td style="text-align: left;">导入 <code>shap</code> 3.91 s、加载 mlr3verse 3.54 s 等</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><em>没有 GPU 时替代 GPU 那一行：</em></td>
+<td style="text-align: right;"></td>
+<td style="text-align: left;"></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Python CPU TreeSHAP（单核）</td>
+<td style="text-align: right;">30.0</td>
+<td style="text-align: left;">2000 行 150 s，1 万行 763 s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">treeshap R 引擎（单核）</td>
+<td style="text-align: right;">约 52</td>
+<td style="text-align: left;">按 40 行实测外推</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="优化策略" class="level2">
+<h2 class="anchored" data-anchor-id="优化策略">优化策略</h2>
+<p>下表中每项的“代表性实测”取自当次提交时的记录，各自的数据和调用不同，只能看同一行的前后对比；统一口径的前后对照见下一节。</p>
+<div id="fig-mlr-shp-commits" class="quarto-float quarto-figure quarto-figure-center anchored" alt="各项优化的提速倍数横向条形图，按建模、SHAP 准备、SHAP 计算、加载四类着色，每条标注优化前后的秒数。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mlr-shp-commits-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="bench/mlr_shp_20261006_commits.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="图&nbsp;30.1: 各项优化的代表性实测。每条的场景不同，横轴只表示该项自身的前后倍数。"><img src="bench/mlr_shp_20261006_commits.png" class="img-fluid figure-img" style="width:100.0%" alt="各项优化的提速倍数横向条形图，按建模、SHAP 准备、SHAP 计算、加载四类着色，每条标注优化前后的秒数。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mlr-shp-commits-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;30.1: 各项优化的代表性实测。每条的场景不同，横轴只表示该项自身的前后倍数。
+</figcaption>
+</figure>
+</div>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+<col style="width: 20%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">提交</th>
+<th style="text-align: left;">策略</th>
+<th style="text-align: left;">代表性实测</th>
+<th style="text-align: left;">耗时（秒）</th>
+<th style="text-align: left;">结果</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">f1aa304</td>
+<td style="text-align: left;">不算 OOB 与样本内 C-index（此前已完成）</td>
+<td style="text-align: left;">生存 ranger 的 <code>get_shp()</code>，1 万行</td>
+<td style="text-align: left;">21 → <strong>14</strong></td>
+<td style="text-align: left;">一致</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">50fdcfb</td>
+<td style="text-align: left;">生存森林多线程</td>
+<td style="text-align: left;"><code>surv.ranger</code> 训练，1 万行，1 → 10 线程</td>
+<td style="text-align: left;">4.24 → <strong>0.64</strong></td>
+<td style="text-align: left;">一致</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">50fdcfb</td>
+<td style="text-align: left;">生存森林转换不再逐树拼矩阵</td>
+<td style="text-align: left;"><code>ranger_surv.unify</code>，1 万行、200 棵树</td>
+<td style="text-align: left;">3.98 → <strong>0.69</strong></td>
+<td style="text-align: left;">逐位一致</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">9320d12</td>
+<td style="text-align: left;">CPU 上的 SHAP 分给多个子进程</td>
+<td style="text-align: left;">treeshap 生存 ranger 带交互，1 万行</td>
+<td style="text-align: left;">49.5 → <strong>11.9</strong></td>
+<td style="text-align: left;">逐位一致</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">9320d12</td>
+<td style="text-align: left;">同上</td>
+<td style="text-align: left;">Python CPU 生存 ranger 带交互，1 万行</td>
+<td style="text-align: left;">35.4 → <strong>16.2</strong></td>
+<td style="text-align: left;">逐位一致</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">9320d12</td>
+<td style="text-align: left;">只加载 mlr3proba 与 mlr3extralearners</td>
+<td style="text-align: left;">会话首次调用（GPU，含作图）</td>
+<td style="text-align: left;">13.5 → <strong>9.3</strong></td>
+<td style="text-align: left;">首次调用改为与后续一致</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">d421aba</td>
+<td style="text-align: left;">Windows 上子进程启动按 4 s 估计</td>
+<td style="text-align: left;">Windows treeshap 分类 XGBoost 带交互</td>
+<td style="text-align: left;">8.7 → <strong>7.8</strong></td>
+<td style="text-align: left;">一致</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">706de10</td>
+<td style="text-align: left;">取值多于 200 的数值变量分 200 个分位数箱</td>
+<td style="text-align: left;">生存 ranger，年龄与肿瘤大小为连续值</td>
+<td style="text-align: left;">54.2 → <strong>5.7</strong></td>
+<td style="text-align: left;">在种子噪声范围内变化</td>
+</tr>
+</tbody>
+</table>
+<section id="生存森林多线程" class="level3">
+<h3 class="anchored" data-anchor-id="生存森林多线程">1. 生存森林多线程</h3>
+<p>生存路径通过 mlr3 的 <code>surv.ranger</code> 训练森林，而 mlr3 的学习器默认 <code>num.threads = 1</code>；ranger 自己的默认值是用满所有核心（分类路径直接调 ranger，所以一直很快）。现在按包内 <code>get_exp()</code> 同样的规则取线程数：每 1000 行训练数据 1 个，最多 16 个，留出 2 个逻辑核。</p>
+<p>ranger 每棵树的随机种子由主种子派生，与线程数无关。同一个 <code>set.seed()</code> 下，1 线程和 10 线程长出的森林逐位相同，之后的随机数流也相同，所以这项改动不影响任何结果。</p>
+</section>
+<section id="生存森林转换不再逐树拼矩阵" class="level3">
+<h3 class="anchored" data-anchor-id="生存森林转换不再逐树拼矩阵">2. 生存森林转换不再逐树拼矩阵</h3>
+<p>TreeSHAP 需要先把森林转成统一的树表。<code>treeshap::ranger_surv.unify(type = "risk")</code> 对每棵树把所有节点的累积风险向量 <code>do.call(rbind, ...)</code> 成矩阵（两次），再 <code>rowSums</code> 得到每个叶子的风险；剖析显示单是 <code>rowSums</code> 就占 1.64 s。新增的 <code>.shp_ranger_surv_unify()</code> 直接对每个节点的向量求和，再交给 treeshap 自己的组装函数，返回对象与原函数逐位相同（<code>identical()</code> 为真），1 万行从 4.0 s 降到 0.7 s。代价是要用 <code>:::</code> 调用 treeshap 的未导出函数 <code>ranger_unify.common()</code>，测试里直接与原函数比对，treeshap 升级改动它时会立即报错。</p>
+</section>
+<section id="连续变量分-200-个分位数箱" class="level3">
+<h3 class="anchored" data-anchor-id="连续变量分-200-个分位数箱">3. 连续变量分 200 个分位数箱</h3>
+<p>这是唯一会改变数值的一项。ranger 的生存分裂（logrank）对每个节点、每个候选变量，要比较节点里每个样本和每个候选分裂值，耗时随连续变量的不同取值数近似平方增长，详见下文<a href="#sec-ranger-logrank">专项剖析</a>。SEER 里年龄是整数岁（约 90 个取值），不受影响；但同样 1 万行，年龄和肿瘤大小一旦是连续值，生存调用就要近一分钟。</p>
+<p>现在 <code>get_shp()</code> 在抽样和建模之前，对 <code>vars</code> 里不同取值多于 200 个的数值变量，在全部数据上按分位数分成 200 箱，每个值换成所在箱的中位数；所有模型和任务都生效，调用开头的信息框会列出被分箱的变量（如 <code>200 quantile bins: Age, Tum</code>）。因子、取值不超过 200 个的变量、时间与结局列都不动。<code>shp$X</code> 和各张图里这些变量显示箱中位数，<code>par_lis$data</code> 保留传入的原始数据。为什么选 200 箱，见<a href="#sec-bins">分箱取多少箱</a>。</p>
+</section>
+<section id="cpu-上的-shap-分给多个子进程" class="level3">
+<h3 class="anchored" data-anchor-id="cpu-上的-shap-分给多个子进程">4. CPU 上的 SHAP 分给多个子进程</h3>
+<p>没有 GPU 时，SHAP 交互值是最大的开销，而 Python 和 R 的 TreeSHAP 都只用一个核。新的 <code>.shp_explain_rows()</code> 先在本进程算前 20 行、据此估计剩余耗时；只有剩余耗时超过子进程启动时间的两倍，才把剩下的行分给 PSOCK 子进程（最多 16 个，留出 2 个核，每个至少 4 行）。启动时间按实测取：treeshap 2 s（Windows 4 s），Python 6 s（每个子进程要导入 <code>shap</code>）。适用于 <code>engine = "treeshap"</code>，以及 Python 实际走 CPU 时（<code>device = "cpu"</code>，或 <code>"auto"</code> 而没有 CUDA 扩展，由适配器新增的 <code>gpu_available()</code> 判断）；GPU 调用保持一次完成。</p>
+<p>TreeSHAP 对每一行单独计算，所以分块后按行拼回，与一次算完逐位相同；测试里对具名行名和自动行名、有无交互都做了 <code>identical()</code> 比对。子进程只需要 treeshap 或 reticulate，不需要加载 MLR。XGBoost 这类快的模型估计耗时不够，会留在单进程。<a href="../regr/mlr-imp-speedup-20261006.html">get_imp 提速页</a>的多进程 TreeSHAP 复用的就是这个函数。</p>
+<p>为什么不用线程：shap 的 C++ 扩展计算时不释放 GIL，线程池完全没有加速，见<a href="#sec-gil">专项剖析</a>。</p>
+</section>
+<section id="只加载需要的-mlr3-包" class="level3">
+<h3 class="anchored" data-anchor-id="只加载需要的-mlr3-包">5. 只加载需要的 mlr3 包</h3>
+<p>生存路径原来 <code>loadNamespace("mlr3verse")</code> 来注册 <code>surv.ranger</code>，而这个学习器其实由 mlr3extralearners 注册。mlr3verse 会连带加载 mlr3torch 与 torch，新会话要 3.5 s；只加载 mlr3proba 和 mlr3extralearners 需要 1.3 s。</p>
+<p>这项改动还修好了一个可复现性问题：torch 加载时会调用一次 <code>sample()</code>，推动 R 的随机数流。所以旧版在每个会话里，第一次设了种子的 <code>get_shp()</code> 与之后的调用结果不同。实测旧版同一进程里第 1 次与第 2 次结果不同；新版两次相同，且等于旧版的第 2 次。</p>
+</section>
+<section id="其他" class="level3">
+<h3 class="anchored" data-anchor-id="其他">6. 其他</h3>
+<ul>
+<li>treeshap 引擎原来每次调用都执行 <code>future::plan("multisession")</code>，而 treeshap 0.4.0 根本不用 future，这行只会改掉调用方的全局设置，已删除（50fdcfb）。</li>
+<li>帮助页新增 Speed 小节，汇总上述耗时与使用建议（0d3247c），<code>?MLR::get_shp</code> 可见。</li>
+</ul>
+</section>
+</section>
+<section id="优化前后实测" class="level2">
+<h2 class="anchored" data-anchor-id="优化前后实测">优化前后实测</h2>
+<p>同一份数据和调用，优化前（<code>df0486b</code>）与优化后（<code>0d3247c</code>）各在全新的 R 进程里跑一遍；口径见<a href="#sec-method">测试口径</a>。</p>
+<div id="fig-mlr-shp-before-after" class="quarto-float quarto-figure quarto-figure-center anchored" alt="两个分面的点线图，左为 WSL，右为 Windows，纵轴是场景，横轴是秒的对数刻度，灰点为优化前、红点为优化后；ranger 与连续变量场景的红点明显左移，XGBoost 与 LightGBM 前后重合。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mlr-shp-before-after-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="bench/mlr_shp_20261006_before_after.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="图&nbsp;30.2: get_shp() 优化前后的耗时（对数刻度）。左为 WSL 里的 Python SHAP，右为 Windows R 的 treeshap 引擎。"><img src="bench/mlr_shp_20261006_before_after.png" class="img-fluid figure-img" style="width:100.0%" alt="两个分面的点线图，左为 WSL，右为 Windows，纵轴是场景，横轴是秒的对数刻度，灰点为优化前、红点为优化后；ranger 与连续变量场景的红点明显左移，XGBoost 与 LightGBM 前后重合。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mlr-shp-before-after-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;30.2: get_shp() 优化前后的耗时（对数刻度）。左为 WSL 里的 Python SHAP，右为 Windows R 的 treeshap 引擎。
+</figcaption>
+</figure>
+</div>
+<section id="linuxwslpython-shap" class="level3">
+<h3 class="anchored" data-anchor-id="linuxwslpython-shap">Linux（WSL）：Python SHAP</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">场景</th>
+<th style="text-align: right;">优化前（秒）</th>
+<th style="text-align: right;">优化后（秒）</th>
+<th style="text-align: left;">SHAP 与优化前</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">GPU，生存 ranger</td>
+<td style="text-align: right;">8.00</td>
+<td style="text-align: right;"><strong>2.23</strong></td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">GPU，生存 ranger，含作图</td>
+<td style="text-align: right;">9.23</td>
+<td style="text-align: right;"><strong>3.40</strong></td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">GPU，分类 ranger</td>
+<td style="text-align: right;">0.84</td>
+<td style="text-align: right;">0.85</td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">GPU，生存 XGBoost</td>
+<td style="text-align: right;">0.38</td>
+<td style="text-align: right;">0.37</td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">GPU，分类 XGBoost</td>
+<td style="text-align: right;">0.38</td>
+<td style="text-align: right;">0.35</td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">GPU，分类 LightGBM</td>
+<td style="text-align: right;">1.15</td>
+<td style="text-align: right;">1.31</td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">CPU，生存 ranger</td>
+<td style="text-align: right;">41.18</td>
+<td style="text-align: right;"><strong>16.88</strong></td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">CPU，分类 ranger</td>
+<td style="text-align: right;">26.58</td>
+<td style="text-align: right;"><strong>15.02</strong></td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">CPU，分类 XGBoost</td>
+<td style="text-align: right;">3.85</td>
+<td style="text-align: right;">4.03</td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">GPU，生存 ranger，年龄与肿瘤大小为连续值</td>
+<td style="text-align: right;">95.83</td>
+<td style="text-align: right;"><strong>3.11</strong></td>
+<td style="text-align: left;">逐行相关 0.995</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">会话第一次调用，生存 ranger，含作图</td>
+<td style="text-align: right;">18.77</td>
+<td style="text-align: right;"><strong>7.62</strong></td>
+<td style="text-align: left;">—</td>
+</tr>
+</tbody>
+</table>
+<p>GPU 上的生存 ranger 剩下约 2.2 s：训练 0.6 s、森林转换 0.7 s、SHAP 0.3 s，其余是抽样和整理结果。Python 走 CPU 时只快了 1.8–2.4 倍，因为每个子进程都要导入 <code>shap</code>（4–5 s，并行进行），解释 400 行时这段启动占了相当比例；解释的行越多收益越大，2000 行时从 150 s 降到 22 s。</p>
+</section>
+<section id="windows-rtreeshap" class="level3">
+<h3 class="anchored" data-anchor-id="windows-rtreeshap">Windows R：treeshap</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">场景</th>
+<th style="text-align: right;">优化前（秒）</th>
+<th style="text-align: right;">优化后（秒）</th>
+<th style="text-align: left;">SHAP 与优化前</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">生存 ranger</td>
+<td style="text-align: right;">67.01</td>
+<td style="text-align: right;"><strong>12.20</strong></td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">生存 ranger，含作图</td>
+<td style="text-align: right;">61.84</td>
+<td style="text-align: right;"><strong>13.14</strong></td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">分类 ranger</td>
+<td style="text-align: right;">42.12</td>
+<td style="text-align: right;"><strong>9.54</strong></td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">生存 ranger，不算交互</td>
+<td style="text-align: right;">14.76</td>
+<td style="text-align: right;"><strong>7.89</strong></td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">生存 XGBoost</td>
+<td style="text-align: right;">8.11</td>
+<td style="text-align: right;">8.00</td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">分类 XGBoost</td>
+<td style="text-align: right;">7.39</td>
+<td style="text-align: right;">7.54</td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">分类 LightGBM</td>
+<td style="text-align: right;">10.07</td>
+<td style="text-align: right;">9.89</td>
+<td style="text-align: left;">逐位相同</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">生存 ranger，年龄与肿瘤大小为连续值</td>
+<td style="text-align: right;">163.17</td>
+<td style="text-align: right;"><strong>13.19</strong></td>
+<td style="text-align: left;">逐行相关 0.995</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">会话第一次调用，生存 ranger，含作图</td>
+<td style="text-align: right;">67.50</td>
+<td style="text-align: right;"><strong>16.28</strong></td>
+<td style="text-align: left;">—</td>
+</tr>
+</tbody>
+</table>
+<p>treeshap 的子进程不需要 Python，启动快，带交互的 ranger 场景提速 4.4–5.5 倍；连续变量场景同时受益于分箱和多进程，提速 12 倍。会话第一次调用从 67.5 s 降到 16.3 s，除了多进程，还少了加载 mlr3verse。旧版“含作图”比“不作图”还快 5 s，是单次测量的波动：慢场景都只跑了 1 次。</p>
+</section>
+</section>
+<section id="专项剖析" class="level2">
+<h2 class="anchored" data-anchor-id="专项剖析">专项剖析</h2>
+<section id="sec-ranger-logrank" class="level3">
+<h3 class="anchored" data-anchor-id="sec-ranger-logrank">ranger 生存分裂与连续变量</h3>
+<p>ranger 开发版 <code>src/TreeSurvival.cpp</code> 的 logrank 分裂：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode cpp code-with-copy"><code class="sourceCode cpp"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co">// :403  每个节点、每个候选变量，分配 (不同取值数 × 事件时间数) 的计数数组</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="bu">std::</span>vector<span class="op">&lt;</span><span class="dt">size_t</span><span class="op">&gt;</span> num_deaths_right_child<span class="op">(</span>num_splits <span class="op">*</span> num_timepoints<span class="op">);</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co">// :364-371  节点里每个样本，逐个与每个候选分裂值比较</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> <span class="op">(</span><span class="dt">size_t</span> pos <span class="op">=</span> start_pos<span class="op">[</span>nodeID<span class="op">];</span> pos <span class="op">&lt;</span> end_pos<span class="op">[</span>nodeID<span class="op">];</span> <span class="op">++</span>pos<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> <span class="op">(</span><span class="dt">size_t</span> i <span class="op">=</span> <span class="dv">0</span><span class="op">;</span> i <span class="op">&lt;</span> num_splits<span class="op">;</span> <span class="op">++</span>i<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="op">(</span>value <span class="op">&gt;</span> possible_split_values<span class="op">[</span>i<span class="op">])</span> <span class="op">{</span> <span class="op">...</span> <span class="op">}</span> <span class="cf">else</span> <span class="op">{</span> <span class="cf">break</span><span class="op">;</span> <span class="op">}</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>每个节点的开销约为“样本数 × 不同取值数”，另加“不同取值数 × 事件时间数”大小的数组分配与清零。所以连续变量越多、取值越密，训练越慢，而大部分时间花在内存上，加线程反而更慢。下表是 1 万行、200 棵树的直接 ranger 训练（10 线程），年龄与肿瘤大小加了小扰动使每个约有 1 万个取值：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">数据</th>
+<th style="text-align: right;">训练（秒）</th>
+<th style="text-align: right;">每棵树节点数</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">原始数据（年龄 91 个、肿瘤大小 87 个取值）</td>
+<td style="text-align: right;">1.95</td>
+<td style="text-align: right;">967</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">仅年龄为连续值</td>
+<td style="text-align: right;">20.9</td>
+<td style="text-align: right;">1010</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">仅肿瘤大小为连续值</td>
+<td style="text-align: right;">28.4</td>
+<td style="text-align: right;">1081</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">两者均为连续值</td>
+<td style="text-align: right;"><strong>53.9</strong></td>
+<td style="text-align: right;">1104</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">同上，22 线程</td>
+<td style="text-align: right;">68.9</td>
+<td style="text-align: right;">1104</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">同上，取整回整数</td>
+<td style="text-align: right;">0.79</td>
+<td style="text-align: right;">1068</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">同上，<code>splitrule = "extratrees"</code></td>
+<td style="text-align: right;">0.54</td>
+<td style="text-align: right;">930</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">同上，<code>sample.fraction = 0.3</code></td>
+<td style="text-align: right;">2.50</td>
+<td style="text-align: right;">485</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">同上，<code>min.node.size = 20</code></td>
+<td style="text-align: right;">55.9</td>
+<td style="text-align: right;">709</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">两者均为连续值，5000 行（5 线程）</td>
+<td style="text-align: right;">7.22</td>
+<td style="text-align: right;">639</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">原始数据，事件时间按天（967 个）</td>
+<td style="text-align: right;">4.41</td>
+<td style="text-align: right;">973</td>
+</tr>
+</tbody>
+</table>
+<p>行数减半，耗时约降到 1/7.5；<code>min.node.size</code> 只影响深层节点，对开销最大的顶层节点没有帮助；事件时间数的影响远小于预测变量的取值数。<code>extratrees</code> 和 <code>sample.fraction</code> 也很快，但会改变森林的类型或每棵树看到的数据，没有采用。</p>
+</section>
+<section id="sec-bins" class="level3">
+<h3 class="anchored" data-anchor-id="sec-bins">分箱取多少箱</h3>
+<p>用同一份数据（8000 行训练、2000 行留出，8 线程），比较不同箱数下的训练耗时、留出集 C-index，以及 400 行 SHAP 与不分箱森林的一致性；参照是同一分箱下只换随机种子的差异：</p>
+<div id="fig-mlr-shp-binning" class="quarto-float quarto-figure quarto-figure-center anchored" alt="左图横轴是每个连续变量的不同取值数（对数刻度），纵轴是训练秒数，不处理时约 20 秒，分 200 箱约 0.9 秒；右图纵轴是逐行 SHAP 相关，200 到 1000 箱都在 0.996 以上，接近换种子的 0.997。">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-mlr-shp-binning-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<a href="bench/mlr_shp_20261006_binning.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="图&nbsp;30.3: 连续变量分箱：训练耗时（左）与 SHAP 和不分箱模型的逐行相关（右）。虚线是只换随机种子的参照。"><img src="bench/mlr_shp_20261006_binning.png" class="img-fluid figure-img" style="width:100.0%" alt="左图横轴是每个连续变量的不同取值数（对数刻度），纵轴是训练秒数，不处理时约 20 秒，分 200 箱约 0.9 秒；右图纵轴是逐行 SHAP 相关，200 到 1000 箱都在 0.996 以上，接近换种子的 0.997。"></a>
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-mlr-shp-binning-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+图&nbsp;30.3: 连续变量分箱：训练耗时（左）与 SHAP 和不分箱模型的逐行相关（右）。虚线是只换随机种子的参照。
+</figcaption>
+</figure>
+</div>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+<col style="width: 14%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">处理</th>
+<th style="text-align: right;">不同取值数（年龄 / 肿瘤大小）</th>
+<th style="text-align: right;">训练（秒）</th>
+<th style="text-align: right;">留出 C-index</th>
+<th style="text-align: right;">重要性排序相关</th>
+<th style="text-align: right;">重要性最大偏差</th>
+<th style="text-align: right;">逐行 SHAP 相关</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">不处理</td>
+<td style="text-align: right;">10000 / 9966</td>
+<td style="text-align: right;">20.2</td>
+<td style="text-align: right;">0.935</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">—</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">取整</td>
+<td style="text-align: right;">91 / 100</td>
+<td style="text-align: right;">0.60</td>
+<td style="text-align: right;">0.946</td>
+<td style="text-align: right;">1.000</td>
+<td style="text-align: right;">5.1%</td>
+<td style="text-align: right;">0.992</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">分 1000 箱</td>
+<td style="text-align: right;">1000 / 997</td>
+<td style="text-align: right;">2.34</td>
+<td style="text-align: right;">0.938</td>
+<td style="text-align: right;">1.000</td>
+<td style="text-align: right;">4.0%</td>
+<td style="text-align: right;">0.998</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">分 500 箱</td>
+<td style="text-align: right;">500 / 499</td>
+<td style="text-align: right;">1.52</td>
+<td style="text-align: right;">0.937</td>
+<td style="text-align: right;">1.000</td>
+<td style="text-align: right;">1.7%</td>
+<td style="text-align: right;">0.997</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><strong>分 200 箱</strong></td>
+<td style="text-align: right;">200 / 200</td>
+<td style="text-align: right;"><strong>0.86</strong></td>
+<td style="text-align: right;">0.937</td>
+<td style="text-align: right;">1.000</td>
+<td style="text-align: right;">2.2%</td>
+<td style="text-align: right;"><strong>0.996</strong></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">分 100 箱</td>
+<td style="text-align: right;">100 / 100</td>
+<td style="text-align: right;">0.62</td>
+<td style="text-align: right;">0.935</td>
+<td style="text-align: right;">1.000</td>
+<td style="text-align: right;">1.8%</td>
+<td style="text-align: right;">0.991</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">分 50 箱</td>
+<td style="text-align: right;">50 / 50</td>
+<td style="text-align: right;">0.52</td>
+<td style="text-align: right;">0.938</td>
+<td style="text-align: right;">1.000</td>
+<td style="text-align: right;">6.2%</td>
+<td style="text-align: right;">0.988</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">参照：200 箱换随机种子</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">1.000</td>
+<td style="text-align: right;">3.3%</td>
+<td style="text-align: right;">0.997</td>
+</tr>
+</tbody>
+</table>
+<p>200 到 1000 箱与不分箱模型的差异和换随机种子相当，预测能力不降；分到 50 箱才开始比随机噪声差一点。直接取整只适合取值范围小的变量（年龄约 90 个整数）：范围大的化验值取整后可能仍有几千个取值；0–1 之间的比值取整后只剩 2 个值。按分位数分箱对这两种情况都适用，所以内置的是分位数分箱而不是取整。</p>
+</section>
+<section id="sec-gil" class="level3">
+<h3 class="anchored" data-anchor-id="sec-gil">Python TreeSHAP 不释放 GIL</h3>
+<p>把 480 行带交互的 CPU SHAP 交给 Python 线程池，4、8 线程与单线程一样慢，16 线程反而更慢；改成 R 的 PSOCK 子进程才有效（结果都与单进程逐位相同）：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">方式</th>
+<th style="text-align: right;">行数</th>
+<th style="text-align: right;">线程 / 进程数</th>
+<th style="text-align: right;">耗时（秒）</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Python 单线程</td>
+<td style="text-align: right;">480</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">37.3</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Python 线程池</td>
+<td style="text-align: right;">480</td>
+<td style="text-align: right;">4 / 8 / 16</td>
+<td style="text-align: right;">37.1 / 37.7 / 54.6</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Python 单进程</td>
+<td style="text-align: right;">2000</td>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">150.4</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">PSOCK 子进程（含启动）</td>
+<td style="text-align: right;">2000</td>
+<td style="text-align: right;">8 / 16</td>
+<td style="text-align: right;">27.6 / 22.0</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="子进程启动windows-比-linux-慢" class="level3">
+<h3 class="anchored" data-anchor-id="子进程启动windows-比-linux-慢">子进程启动：Windows 比 Linux 慢</h3>
+<p>16 个 PSOCK 子进程启动并加载 treeshap，Windows 要 3.1 s，Linux（WSL）1.8 s（8 个分别为 2.0 s 和 1.3 s），还不含把模型传给每个子进程的时间。最初两边都按 2 s 估计，Windows 上 XGBoost（单进程 7.9 s）也被拆分，反而慢到 8.7 s；改为 Windows 按 4 s 估计后，它留在单进程，ranger 仍然拆分。</p>
+</section>
+<section id="作图开销" class="level3">
+<h3 class="anchored" data-anchor-id="作图开销">作图开销</h3>
+<p><code>render_plots = TRUE</code> 时，<code>plt_shp_sum()</code> 为了把蜂群图和环形小图拼在一起，构建时就用 <code>ggplotGrob()</code> 把图完整渲染了一遍（约 0.6 s），<code>plt_shp_viv()</code> 也一样（约 0.2 s）。所以作图开销在 <code>get_shp()</code> 里就实打实花掉，而不是等打印时才算；解释行数增加到 1 万时作图也只多 0.5 s 左右，不是瓶颈。</p>
+</section>
+<section id="试过但没有采用" class="level3">
+<h3 class="anchored" data-anchor-id="试过但没有采用">试过但没有采用</h3>
+<ul>
+<li><strong>调大 <code>min.node.size</code></strong>：树变小，CPU SHAP 从 30 s 降到 21.7 s（20）和 13.8 s（50），但重要性幅度偏差分别达 33% 和 54%，取 50 时排序都变了。</li>
+<li><strong><code>num.trees</code> 从 200 降到 100</strong>：训练、转换和 SHAP 都约减半，与 200 棵树的差异和换随机种子相当（排序相关 1.000，逐行相关 0.996），但它是源码保真的固定值，改默认需要另行决定。</li>
+<li><strong>生存森林用 <code>splitrule = "extratrees"</code> 或 <code>sample.fraction = 0.3</code></strong>：连续变量时训练只要 0.5–2.5 s，但改变森林本身，分箱已经解决同一问题。</li>
+<li><strong>Python 线程池</strong>：GIL 不释放，见上文。</li>
+</ul>
+</section>
+</section>
+<section id="使用建议" class="level2">
+<h2 class="anchored" data-anchor-id="使用建议">使用建议</h2>
+<ul>
+<li><code>Num.sample</code> 默认只用 2000 行训练（GPU 上整个调用约 1.5 s）；要用 1 万行训练需显式传 <code>Num.sample = 10000</code>。</li>
+<li>有 GPU 时，把 <code>exp.sample</code> 从 400 提到 1 万行只多约 3 s，可以解释全部样本。</li>
+<li>没有 GPU 时，交互值是大头：不需要交互图就设 <code>interactions = FALSE</code>（Windows treeshap 生存调用约从 11 s 降到 5 s；<code>plt.viv</code>、<code>plt.mai</code>、<code>plt.int*</code> 随之为 <code>NULL</code>）。</li>
+<li>只要数值时设 <code>render_plots = FALSE</code>，省 1–1.5 s。</li>
+<li>Windows R 没有装 Python <code>shap</code> 时，必须用 <code>engine = "treeshap"</code>；默认的 Python 引擎会先花约 6 s 找 Python，然后报错。若在 WSL 里有 GPU（本机 WSL 里装了 RStudio Server），Python 引擎会快得多。</li>
+<li>对速度敏感时可考虑 <code>model = "xgboost"</code>：它的树浅，CPU 上带交互也只要 4–8 s。</li>
+</ul>
+</section>
+<section id="sec-method" class="level2">
+<h2 class="anchored" data-anchor-id="sec-method">测试口径</h2>
+<ul>
+<li><strong>数据</strong>：RegR 自带的 SEER 甲状腺髓样癌队列 <code>seer_thyroid_mtc_2026</code>（去缺失后 4017 行），有放回重抽到 1 万行；6 个预测变量 <code>Age</code>、<code>T_stage</code>、<code>N_stage</code>、<code>Sex</code>、<code>Sur</code>、<code>Tum</code>，生存结局 <code>time</code> / <code>DSS</code>，分类结局 <code>DSS</code>。“连续变量”场景给年龄加 ±0.5 岁、给肿瘤大小乘以 exp(N(0, 0.05)) 的扰动，使两者各有约 1 万个取值。</li>
+<li><strong>调用</strong>：<code>Num.sample = 10000</code>、<code>exp.sample = 400</code>、<code>interactions = TRUE</code>、<code>render_plots = FALSE</code>（标注“作图”的场景除外），<code>set.seed(2)</code> 后调用；其余参数为默认值。</li>
+<li><strong>版本</strong>：优化前为 MLR <code>df0486b</code>，优化后为 <code>0d3247c</code>，两者装进项目外的临时库，在各自全新的 R 进程里先预热（加载命名空间、初始化 Python 与 GPU）再计时。快的场景重复 3 次取中位数，慢的跑 1 次。“会话首次调用”在另起的全新进程里测，不预热。</li>
+<li><strong>环境</strong>：24 个逻辑核（<code>detectCores()</code> = 24）、NVIDIA RTX 5090 Laptop GPU、Windows 11。Linux 一列是 WSL Ubuntu 22.04 上的 R 4.4.3、Python 3.12、shap 0.52；Windows 一列是 Windows 版 R 4.4.3，没有 Python，用 treeshap 0.4.0。ranger 0.18.0，mlr3 1.8.0，mlr3extralearners 1.5.2。</li>
+<li><strong>一致性</strong>：每个场景保存 400 × 6 的 SHAP 矩阵，新旧两版逐一比对（<code>identical()</code> 与逐行相关）。</li>
+</ul>
+</section>
+<section id="局限" class="level2">
+<h2 class="anchored" data-anchor-id="局限">局限</h2>
+<ul>
+<li>重抽样数据里约 4000 种不同的行重复出现，树比真正 1 万个不同病人时小一些；连续变量场景只扰动了两个变量。</li>
+<li>单次测量有约 ±1 s 的波动，慢场景只跑了 1 次。</li>
+<li>“代表性实测”与各节里的剖析数字取自开发过程中的不同时刻，代码状态和机器负载不完全相同，只用于说明各项改动自身的作用；前后对比以统一口径的那一节为准。</li>
+<li>GPU 一列依赖 CUDA 版 shap；没有 GPU 的机器上，Python 引擎的表现参照 CPU 一列。</li>
+</ul>
+</section>
+<section id="下载" class="level2">
+<h2 class="anchored" data-anchor-id="下载">下载</h2>
+<ul>
+<li>优化前后统一口径计时：<a href="bench/mlr_shp_20261006_timing.csv">mlr_shp_20261006_timing.csv</a></li>
+<li>各项提交的代表性实测：<a href="bench/mlr_shp_20261006_commits.csv">mlr_shp_20261006_commits.csv</a></li>
+<li>优化前的耗时构成：<a href="bench/mlr_shp_20261006_stages_before.csv">mlr_shp_20261006_stages_before.csv</a></li>
+<li>连续变量与 ranger 训练：<a href="bench/mlr_shp_20261006_continuous.csv">mlr_shp_20261006_continuous.csv</a></li>
+<li>分箱数与一致性：<a href="bench/mlr_shp_20261006_binning.csv">mlr_shp_20261006_binning.csv</a></li>
+<li>线程与子进程：<a href="bench/mlr_shp_20261006_cpu_parallel.csv">mlr_shp_20261006_cpu_parallel.csv</a></li>
+<li>测速脚本：<a href="bench/mlr_shp_20261006_benchmark.R">mlr_shp_20261006_benchmark.R</a>；作图脚本：<a href="bench/mlr_shp_20261006_figures.R">mlr_shp_20261006_figures.R</a></li>
+</ul>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/hui950319\.github\.io\/Rnotes\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../regr/mlr-imp-speedup-20261006.html" class="pagination-link" aria-label="MLR：get_imp 提速策略与实测">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">MLR：get_imp 提速策略与实测</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../mlr/function-modules.html" class="pagination-link" aria-label="MLR 功能模块图">
+        <span class="nav-page-text"><span class="chapter-title">MLR 功能模块图</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/mlr-shp-speedup-20261006.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script>var lightboxQuarto = GLightbox({"closeEffect":"zoom","descPosition":"bottom","loop":false,"openEffect":"zoom","selector":".lightbox"});
+(function() {
+  let previousOnload = window.onload;
+  window.onload = () => {
+    if (previousOnload) {
+      previousOnload();
+    }
+    lightboxQuarto.on('slide_before_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      const href = trigger.getAttribute('href');
+      if (href !== null) {
+        const imgEl = window.document.querySelector(`a[href="${href}"] img`);
+        if (imgEl !== null) {
+          const srcAttr = imgEl.getAttribute("src");
+          if (srcAttr && srcAttr.startsWith("data:")) {
+            slideConfig.href = srcAttr;
+          }
+        }
+      } 
+    });
+  
+    lightboxQuarto.on('slide_after_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      if (window.Quarto?.typesetMath) {
+        window.Quarto.typesetMath(slideNode);
+      }
+    });
+  
+  };
+  
+})();
+          </script>
+
+
+
+
+</body></html>
