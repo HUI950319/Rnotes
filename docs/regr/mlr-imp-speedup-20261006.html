@@ -6,8 +6,9 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
+<meta name="description" content="MLR 的 get_imp() 在 2026-10-06 的 4 项性能优化：TreeSHAP 多进程、置换重要性线程、按需加载 mlr3 包、复用 impurity 森林；SEER 4387 行的优化前后实测、耗时拆分与尚未处理的开销。">
 
-<title>scMMR 概览 – R 包开发笔记</title>
+<title>MLR：get_imp 提速策略与实测 – R 包开发笔记</title>
 <style>
 code{white-space: pre-wrap;}
 span.smallcaps{font-variant: small-caps;}
@@ -30,8 +31,8 @@ ul.task-list li input[type="checkbox"] {
 <script src="../site_libs/quarto-search/fuse.min.js"></script>
 <script src="../site_libs/quarto-search/quarto-search.js"></script>
 <meta name="quarto:offset" content="../">
-<link href="../toydata/function-modules.html" rel="next">
-<link href="../scmmr/function-modules.html" rel="prev">
+<link href="../mlr/function-modules.html" rel="next">
+<link href="../regr/mlr-vpd-ale-speedup-20261006.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
 <script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
@@ -249,7 +250,7 @@ ul.task-list li input[type="checkbox"] {
       <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
         <i class="bi bi-layout-text-sidebar-reverse"></i>
       </button>
-        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../scmmr/function-modules.html">scMMR · 单细胞多任务模型</a></li><li class="breadcrumb-item"><a href="../scmmr/index.html"><span class="chapter-title">scMMR 概览</span></a></li></ol></nav>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/function-modules.html">RegR · 临床回归与可视化</a></li><li class="breadcrumb-item"><a href="../regr/performance-evaluation.html">性能评估</a></li><li class="breadcrumb-item"><a href="../regr/mlr-imp-speedup-20261006.html"><span class="chapter-title">MLR：get_imp 提速策略与实测</span></a></li></ol></nav>
         <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
         </a>
       <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
@@ -287,484 +288,464 @@ ul.task-list li input[type="checkbox"] {
   </div>
 </li>
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
-            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
  <span class="menu-text">RegR · 临床回归与可视化</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1">
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RegR 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/flow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">队列筛选与流程图：get_flt、plt_flo 与 plt_flo2</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/forest-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">效应估计与森林图：get_eff 和 4 个绘图函数</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/cat-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">KM/CIF 组合图：get_cat 与 3 个绘图函数</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/facet-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分面生存曲线：get_facet 的 22 个可视化示例</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">交互分析：get_inter、绝对风险与表格导出</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/rcs-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RCS 组合图：get_rcs_all 的 7 种模式</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/cut-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">切点分析：get_cut、get_cut_ci 与 get_cut_plot</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/rpa-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA：建树、终末节点与生存和二分类输出</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/ps-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">倾向评分：PSM、IPTW 与平衡诊断</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/variable-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量筛选：策略比较、LASSO 路径与共线性</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/table-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">临床表格：基线、分层、事件构成与生存摘要</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/um-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">单多因素分析：手工模型、自动筛选与绝对效应</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/eff-cat-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">同一暴露的效应比较：调整模型、结局与分层</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型评价：C-index、时点 AUC、Brier 与验证人群</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/nomogram-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">列线图、ROC、校准与决策曲线：Cox 和 Logistic</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/conditional-survival-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">条件生存：已存活多久、再存活多久与固定终点</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/hazard-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">瞬时风险：平滑方法、分组与协变量标准化</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/gbtm-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分组轨迹模型：拟合、组数比较与后验分类</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/effect-comparison-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">组间特征比较：SMD、Cohen’s d、点图与雷达图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/rpa-adjust-literature.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA 建树时要不要调整协变量：ctree 与 mob 的文献检索</span></a>
   </div>
 </li>
           <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
+      <div class="sidebar-item-container"> 
             <a href="../regr/performance-evaluation.html" class="sidebar-item-text sidebar-link">
  <span class="menu-text">性能评估</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2">
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2 show">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/get-eff-cif-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/rpa-cox-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/cox-cif-optimization-20261002.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cox / CIF 优化：Windows 与 Linux 五档样本量实测</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../regr/scoring-fit-benchmark-20261003.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Logistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端</span></a>
   </div>
 </li>
-      <li class="sidebar-item">
-<div class="sidebar-item-container">
-<a class="sidebar-item-text sidebar-link" href="../regr/get-score-benchmark-20261003.html"><span class="chapter-title">get_score：大样本与100次 bootstrap 耗时</span></a>
-</div>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/get-score-benchmark-20261003.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">get_score：大样本与100次 bootstrap 耗时</span></a>
+  </div>
 </li>
-      <li class="sidebar-item">
-<div class="sidebar-item-container">
-<a class="sidebar-item-text sidebar-link" href="../regr/wsl-openblas-threads-20261004.html"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></a>
-</div>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/wsl-openblas-threads-20261004.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></a>
+  </div>
 </li>
-<li class="sidebar-item">
-<div class="sidebar-item-container">
-<a class="sidebar-item-text sidebar-link" href="../regr/mlr-vpd-ale-speedup-20261006.html"><span class="chapter-title">MLR：get_vpd / get_ale / get_ale2 提速策略与实测</span></a>
-</div>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/mlr-vpd-ale-speedup-20261006.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR：get_vpd / get_ale / get_ale2 提速策略与实测</span></a>
+  </div>
 </li>
-<li class="sidebar-item">
-<div class="sidebar-item-container">
-<a class="sidebar-item-text sidebar-link" href="../regr/mlr-imp-speedup-20261006.html"><span class="chapter-title">MLR：get_imp 提速策略与实测</span></a>
-</div>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../regr/mlr-imp-speedup-20261006.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">MLR：get_imp 提速策略与实测</span></a>
+  </div>
 </li>
-</ul>
+      </ul>
   </li>
       </ul>
   </li>
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
+      <div class="sidebar-item-container"> 
             <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
  <span class="menu-text">MLR · 机器学习解释</span></a>
           <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 ">
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 ">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../mlr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../mlr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR 概览</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../mlr/shap-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP：get_shp 与 14 个绘图函数</span></a>
   </div>
 </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/imp-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">特征重要性：get_imp 与 9 个绘图函数</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/vpd-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">变量分布与 PDP：解释器、分组和预测时间</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/interaction-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">变量交互：H 统计量、paired-VIMP 与 VIV 图谱</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/shap-clust-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">SHAP 聚类：选 K、解释分组与固定中心分配</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/pdp-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">生存 PDP 图谱：时间、分箱与二维交互面</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/model-selection-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">模型筛选：学习器 × 缺失处理的重采样比较</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/hyper-tuning-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">超参数调优：搜索预算、配置图与嵌套验证</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/feature-selection-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">特征筛选：搜索路径、候选规模与选择稳定性</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">模型评估：时间 ROC、概率误差与分类阈值</span></span></a>
-          </div>
-        </li>
-
-        <li class="sidebar-item">
-          <div class="sidebar-item-container">
-          <a href="../mlr/calibration-dca-guide.html" class="sidebar-item-text sidebar-link">
- <span class="menu-text"><span class="chapter-title">校准与 DCA：概率方向、重采样范围与阈值</span></span></a>
-          </div>
-        </li>
-</ul>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/imp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征重要性：get_imp 与 9 个绘图函数</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/vpd-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量分布与 PDP：解释器、分组和预测时间</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量交互：H 统计量、paired-VIMP 与 VIV 图谱</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/shap-clust-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP 聚类：选 K、解释分组与固定中心分配</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/pdp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">生存 PDP 图谱：时间、分箱与二维交互面</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/model-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型筛选：学习器 × 缺失处理的重采样比较</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/hyper-tuning-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">超参数调优：搜索预算、配置图与嵌套验证</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/feature-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征筛选：搜索路径、候选规模与选择稳定性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型评估：时间 ROC、概率误差与分类阈值</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="../mlr/calibration-dca-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">校准与 DCA：概率方向、重采样范围与阈值</span></a>
+  </div>
+</li>
+      </ul>
   </li>
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
-            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
  <span class="menu-text">UtilsR · 通用工具</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1">
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth1 ">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR 概览</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/categorical-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分类变量：plt_cat 的 11 种图形与重要参数</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/continuous-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">连续变量：分布、统计比较与多面板布局</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/format-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ggplot 格式化：主题、坐标、图例、条带与面板标签</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/palette-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">配色系统：检索、颜色映射与离散和连续色阶</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/missing-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">数据检视与缺失：摘要、缺失模式和 KNN 插补</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/scatter-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">组合散点图：边际分布、双分组与配对差值</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/flow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分类分布与流向：堆积柱、Alluvial 和 Sankey</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/sets-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">集合比较：Venn、UpSet、成员分组与 Jaccard 热图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/comparison-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">双侧比较图：Butterfly、分布镜像与 Dumbbell</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/rank-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">排名与共享特征：Rank、方法一致性和圆形棒棒糖</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/factor-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">因子与统计文本：排序、合并、分箱和区间格式化</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../utilsr/composition-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">图形组合与导出：展平、grob、插图和栅格化</span></a>
   </div>
 </li>
       </ul>
   </li>
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
+      <div class="sidebar-item-container"> 
             <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
  <span class="menu-text">seerR · SEER 数据处理</span></a>
           <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 ">
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth1 ">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../seerr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../seerr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">seerR 概览</span></a>
   </div>
 </li>
       </ul>
   </li>
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
+      <div class="sidebar-item-container"> 
             <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
  <span class="menu-text">LabR · 基础实验作图</span></a>
           <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 ">
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth1 ">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../labr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">LabR 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../labr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">LabR 概览</span></a>
   </div>
 </li>
       </ul>
   </li>
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
-            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="true">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
  <span class="menu-text">scMMR · 单细胞多任务模型</span></a>
-          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 show">
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth1 ">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../scmmr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">scMMR 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
-  <a href="../scmmr/index.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">scMMR 概览</span></a>
+  <div class="sidebar-item-container"> 
+  <a href="../scmmr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">scMMR 概览</span></a>
   </div>
 </li>
       </ul>
   </li>
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
+      <div class="sidebar-item-container"> 
             <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
  <span class="menu-text">ToyData · 示例数据</span></a>
           <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 ">
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 ">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../toydata/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ToyData 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../toydata/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ToyData 概览</span></a>
   </div>
 </li>
       </ul>
   </li>
         <li class="sidebar-item sidebar-item-section">
-      <div class="sidebar-item-container">
+      <div class="sidebar-item-container"> 
             <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false">
  <span class="menu-text">causalR · 因果推断与效应异质性</span></a>
           <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
             <i class="bi bi-chevron-right ms-2"></i>
-          </a>
+          </a> 
       </div>
-      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 ">
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth1 ">  
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">causalR 功能模块图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">causalR 包总览：问题、函数与返回对象</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/tree-stability-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">亚组树的稳定性与新样本分组</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/icf-plot-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">iCF 亚组树：计算参数与五种叶子视图</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/hte-diagnostics-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE 诊断：校准、RATE、TOC、Qini 与 GATES</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/method-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE 方法选择：变量筛选、线性投影与亚组规则</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/survival-estimands-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">生存效应尺度：概率差、事件风险比与 RMST</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/clinical-workflow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">观察性研究工作流：平衡、效应、HTE 与敏感性</span></a>
   </div>
 </li>
           <li class="sidebar-item">
-  <div class="sidebar-item-container">
+  <div class="sidebar-item-container"> 
   <a href="../causalr/computation-reuse-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">计算与复用：森林缓存、树参数与时间网格</span></a>
   </div>
 </li>
@@ -775,16 +756,35 @@ ul.task-list li input[type="checkbox"] {
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
 <!-- margin-sidebar -->
-    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar zindex-bottom">
-        
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+   
+  <ul>
+  <li><a href="#主要结果" id="toc-主要结果" class="nav-link active" data-scroll-target="#主要结果">主要结果</a></li>
+  <li><a href="#耗时都花在哪" id="toc-耗时都花在哪" class="nav-link" data-scroll-target="#耗时都花在哪">耗时都花在哪</a></li>
+  <li><a href="#优化策略" id="toc-优化策略" class="nav-link" data-scroll-target="#优化策略">优化策略</a>
+  <ul class="collapse">
+  <li><a href="#treeshap-按行分给多个进程" id="toc-treeshap-按行分给多个进程" class="nav-link" data-scroll-target="#treeshap-按行分给多个进程">1. TreeSHAP 按行分给多个进程</a></li>
+  <li><a href="#置换重要性按工作量定线程" id="toc-置换重要性按工作量定线程" class="nav-link" data-scroll-target="#置换重要性按工作量定线程">2. 置换重要性按工作量定线程</a></li>
+  <li><a href="#只加载需要的-mlr3-包" id="toc-只加载需要的-mlr3-包" class="nav-link" data-scroll-target="#只加载需要的-mlr3-包">3. 只加载需要的 mlr3 包</a></li>
+  <li><a href="#复用-impurity-森林" id="toc-复用-impurity-森林" class="nav-link" data-scroll-target="#复用-impurity-森林">4. 复用 impurity 森林</a></li>
+  </ul></li>
+  <li><a href="#内部抽样与样本量" id="toc-内部抽样与样本量" class="nav-link" data-scroll-target="#内部抽样与样本量">内部抽样与样本量</a></li>
+  <li><a href="#尚未处理" id="toc-尚未处理" class="nav-link" data-scroll-target="#尚未处理">尚未处理</a></li>
+  <li><a href="#测试口径" id="toc-测试口径" class="nav-link" data-scroll-target="#测试口径">测试口径</a></li>
+  <li><a href="#局限" id="toc-局限" class="nav-link" data-scroll-target="#局限">局限</a></li>
+  <li><a href="#下载" id="toc-下载" class="nav-link" data-scroll-target="#下载">下载</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/mlr-imp-speedup-20261006.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
     </div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
 
 
-<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../scmmr/function-modules.html">scMMR · 单细胞多任务模型</a></li><li class="breadcrumb-item"><a href="../scmmr/index.html"><span class="chapter-title">scMMR 概览</span></a></li></ol></nav>
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/function-modules.html">RegR · 临床回归与可视化</a></li><li class="breadcrumb-item"><a href="../regr/performance-evaluation.html">性能评估</a></li><li class="breadcrumb-item"><a href="../regr/mlr-imp-speedup-20261006.html"><span class="chapter-title">MLR：get_imp 提速策略与实测</span></a></li></ol></nav>
 <div class="quarto-title">
-<h1 class="title"><span class="chapter-title">scMMR 概览</span></h1>
+<h1 class="title"><span class="chapter-title">MLR：get_imp 提速策略与实测</span></h1>
 </div>
 
 
@@ -792,6 +792,12 @@ ul.task-list li input[type="checkbox"] {
 <div class="quarto-title-meta">
 
     
+    <div>
+    <div class="quarto-title-meta-heading">发布于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">2026年10月6日</p>
+    </div>
+  </div>
   
     
   </div>
@@ -801,24 +807,316 @@ ul.task-list li input[type="checkbox"] {
 </header>
 
 
-<p>scMMR 是基于 reticulate + PyTorch 的单细胞多任务深度学习模型，包含细胞注释、模块评分和通路分析。</p>
-<p><strong>主要函数：</strong> <code>DNN_*()</code>、<code>ComputeModuleScore()</code>、<code>RunPathwayAnalysis()</code>、<code>PlotPathway*()</code></p>
-<p>参考文档：<a href="https://hui950319.github.io/scMMR/" class="uri">https://hui950319.github.io/scMMR/</a>　源码：<a href="https://github.com/HUI950319/scMMR" class="uri">https://github.com/HUI950319/scMMR</a></p>
+<p>本页属于 <a href="../regr/performance-evaluation.html">RegR 性能评估</a>，评估对象是 MLR（<a href="https://hui950319.github.io/MLR/">pkgdown 站点</a>）的 <code>get_imp()</code>。它在同一类树模型上算三种变量重要性：mean.SHAP、impurity 和 permutation（XGBoost 为 mean.SHAP、gain 和 permutation），各自归一化到 [0, 1] 后放在一起比较，并打印三张图。本轮优化只涉及默认的 ranger 后端。</p>
+<section id="主要结果" class="level2">
+<h2 class="anchored" data-anchor-id="主要结果">主要结果</h2>
+<ul>
+<li><strong>同一会话里的生存调用 22.2 → 10.2 s，分类调用 14.1 → 6.8 s</strong>（WSL，SEER 甲状腺数据 <code>seer_thyroid_mtc_2026</code> 4387 行、7 个变量）。新会话的第一次生存调用 34.1 → 18.8 s。</li>
+<li><strong>最大的一块是 TreeSHAP。</strong>600 行 SHAP 原来单进程算 9.0 s，改成按行分给多个进程后是 3.2 s，结果与单进程逐位相同。</li>
+<li><strong>Windows 上优化后的耗时与 Linux 接近</strong>：同一会话的生存调用 12.3 s、分类 7.3 s；新会话第一次生存调用 28.3 s，比 Linux 多出的部分来自加载包和启动工作进程，没有逐项拆开。</li>
+<li><strong>剩下约 10 s 里仍有约 2.5 s 是白花的</strong>：本机没有装 <code>shap</code> 的 Python 环境，每次调用先启动 Python、失败后才回落到 TreeSHAP。</li>
+</ul>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">调用</th>
+<th style="text-align: right;">WSL 优化前</th>
+<th style="text-align: right;">WSL 优化后</th>
+<th style="text-align: right;">Windows 优化后</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">生存，新会话第一次</td>
+<td style="text-align: right;">34.1 s</td>
+<td style="text-align: right;"><strong>18.8 s</strong></td>
+<td style="text-align: right;">28.3 s</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">生存，同一会话再调</td>
+<td style="text-align: right;">22.2 s</td>
+<td style="text-align: right;"><strong>10.2 s</strong></td>
+<td style="text-align: right;">12.3 s</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">分类</td>
+<td style="text-align: right;">14.1 s</td>
+<td style="text-align: right;"><strong>6.8 s</strong></td>
+<td style="text-align: right;">7.3 s</td>
+</tr>
+</tbody>
+</table>
 <div class="callout callout-style-default callout-note callout-titled">
 <div class="callout-header d-flex align-content-center">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-注记
+<span class="screen-reader-only">注记</span>只有一项会改变数值
 </div>
 </div>
 <div class="callout-body-container callout-body">
-<p>这个分区的笔记还在整理中。</p>
+<p>4 项里 3 项只改实现方式：多进程 TreeSHAP 与单进程逐位相同；不加载 mlr3verse 不影响模型；置换重要性换线程数后森林不变，只是重要性值的末位可能随线程数变化（以前样本量不同时线程数也会变，这一点并不新）。会改变数值的是第 4 项：没有 Python SHAP 时，生存分支的 mean.SHAP 改为解释 impurity 森林，不再另训一片同样设置的森林，差别相当于换一个随机种子。设了 <code>set.seed()</code> 时，同一会话里第一次与后续调用的结果仍然一致。</p>
 </div>
 </div>
+</section>
+<section id="耗时都花在哪" class="level2">
+<h2 class="anchored" data-anchor-id="耗时都花在哪">耗时都花在哪</h2>
+<p>优化前，一次生存调用（同一会话、第二次）约 20 s，分步实测如下：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">环节</th>
+<th style="text-align: right;">优化前</th>
+<th style="text-align: right;">优化后</th>
+<th style="text-align: left;">说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">尝试 Python SHAP（失败）</td>
+<td style="text-align: right;">2.5 s</td>
+<td style="text-align: right;">2.5 s</td>
+<td style="text-align: left;">启动 Python 本身就要约 2.7 s，未改</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">impurity 森林（500 棵树）</td>
+<td style="text-align: right;">1.5 s</td>
+<td style="text-align: right;">1.5 s</td>
+<td style="text-align: left;">未改</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">permutation 森林（500 棵树）</td>
+<td style="text-align: right;">6.0–6.7 s</td>
+<td style="text-align: right;"><strong>1.9 s</strong></td>
+<td style="text-align: left;">3 线程 → 16 线程</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">为 SHAP 另训的森林</td>
+<td style="text-align: right;">1.9 s</td>
+<td style="text-align: right;"><strong>0</strong></td>
+<td style="text-align: left;">改为解释 impurity 森林</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">unify（转换 500 棵树）</td>
+<td style="text-align: right;">0.9 s</td>
+<td style="text-align: right;">0.9 s</td>
+<td style="text-align: left;">未改</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">TreeSHAP 600 行</td>
+<td style="text-align: right;">9.0 s</td>
+<td style="text-align: right;"><strong>3.2 s</strong></td>
+<td style="text-align: left;">单进程 → 多进程</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">三张图</td>
+<td style="text-align: right;">1.0 s</td>
+<td style="text-align: right;">1.0 s</td>
+<td style="text-align: left;">未改</td>
+</tr>
+</tbody>
+</table>
+<p>为什么 3000 行就要这么久：</p>
+<ul>
+<li><strong>SHAP 的计算量看的是树有多大，而不是样本量本身。</strong>TreeSHAP 的计算量大致是“解释行数 × 树数 × 每棵树叶子数 × 树深²”。生存森林叶子很小，3000 行训练出来平均每棵树约 200 片叶子，于是 600 行 × 500 棵树 × 200 片叶子，再乘树深的平方，单核要 9 秒。</li>
+<li><strong>置换重要性对每个变量都要重算 C 指数。</strong>按 ranger 的实现，生存森林每棵树要在袋外样本（约 1100 例，37%）上算一次 C 指数，打乱 7 个变量后各再算一次；C 指数两两比较样本对，约 60 万对。合计约 500 × 8 × 60 万 ≈ 24 亿次比较，单线程 17 s。</li>
+<li><strong>生存叶子要存整条累积风险曲线。</strong>这批数据有 285 个不同的随访时间，每片叶子都存一条 285 点的曲线，训练和 unify 都比同样大小的分类森林重得多（分类森林 4387 行训练 0.1 s，生存森林 3000 行要 1.5 s）。</li>
+</ul>
+</section>
+<section id="优化策略" class="level2">
+<h2 class="anchored" data-anchor-id="优化策略">优化策略</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">提交</th>
+<th style="text-align: left;">策略</th>
+<th style="text-align: left;">实测</th>
+<th style="text-align: left;">结果</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">20e32fb</td>
+<td style="text-align: left;">生存备用路径与分类路径的 TreeSHAP 改走 <code>get_shp()</code> 已有的分块多进程函数</td>
+<td style="text-align: left;">600 行：9.0 → <strong>3.2 s</strong></td>
+<td style="text-align: left;">逐位一致</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">86df983</td>
+<td style="text-align: left;">生存置换重要性森林的线程数按“行数 × 变量数”定</td>
+<td style="text-align: left;">3000 行 × 7 个变量：6.7 → <strong>1.9 s</strong></td>
+<td style="text-align: left;">森林不变；重要性末位可能随线程数变</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">d0f9acc</td>
+<td style="text-align: left;">只加载 mlr3proba + mlr3extralearners（生存）或 mlr3learners（分类），不加载整个 mlr3verse</td>
+<td style="text-align: left;">新会话加载 5.5 → <strong>1.6 s</strong></td>
+<td style="text-align: left;">一致；不再连带加载 torch</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">54d2fd6</td>
+<td style="text-align: left;">没有 Python SHAP 时，生存 SHAP 解释 impurity 森林，不再另训一片</td>
+<td style="text-align: left;">少训练一片森林，省 <strong>1.9 s</strong></td>
+<td style="text-align: left;">有变化：mean.SHAP 来自另一片同设置的森林</td>
+</tr>
+</tbody>
+</table>
+<section id="treeshap-按行分给多个进程" class="level3">
+<h3 class="anchored" data-anchor-id="treeshap-按行分给多个进程">1. TreeSHAP 按行分给多个进程</h3>
+<p>TreeSHAP 对每一行单独计算，按行拆开再拼回来，结果与一次算完逐位相同。<code>get_shp()</code> 早已有这样的函数：先算 20 行估计剩余耗时，超过工作进程启动时间的两倍才开进程（最多 16 个、留出 2 个逻辑核；Windows 上按每个进程 4 s 启动时间估计）。<code>get_imp()</code> 的两个 ranger 分支此前直接调用单进程的 <code>treeshap::treeshap()</code>，现在改走同一个函数。这项改动同时去掉了 TreeSHAP 的进度条。</p>
+</section>
+<section id="置换重要性按工作量定线程" class="level3">
+<h3 class="anchored" data-anchor-id="置换重要性按工作量定线程">2. 置换重要性按工作量定线程</h3>
+<p>MLR 的自动线程数按每 1000 行 1 个线程来定，3000 行只给 3 个线程，而本机有 24 个逻辑核。置换重要性要对每个变量重新预测一遍袋外样本，工作量是“行数 × 变量数”，改用这个数后 3000 × 7 达到 16 个线程的上限：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">线程数</th>
+<th style="text-align: right;">1</th>
+<th style="text-align: right;">3</th>
+<th style="text-align: right;">8</th>
+<th style="text-align: right;">16</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">耗时</td>
+<td style="text-align: right;">17.2 s</td>
+<td style="text-align: right;">6.7 s</td>
+<td style="text-align: right;">3.0 s</td>
+<td style="text-align: right;"><strong>1.9 s</strong></td>
+</tr>
+</tbody>
+</table>
+<p>impurity 森林的工作量只与行数有关，线程数不变。</p>
+</section>
+<section id="只加载需要的-mlr3-包" class="level3">
+<h3 class="anchored" data-anchor-id="只加载需要的-mlr3-包">3. 只加载需要的 mlr3 包</h3>
+<p><code>get_imp()</code> 原来加载整个 mlr3verse 来注册 <code>surv.ranger</code> 和 <code>classif.ranger</code>。mlr3verse 会连带加载 mlr3torch 和 torch，新会话要 5.5 s；而 <code>surv.ranger</code> 由 mlr3extralearners 注册、<code>classif.ranger</code> 由 mlr3learners 注册，只加载它们需要 1.6 s。<code>get_shp()</code> 的生存路径之前已经做过同样的改动。</p>
+</section>
+<section id="复用-impurity-森林" class="level3">
+<h3 class="anchored" data-anchor-id="复用-impurity-森林">4. 复用 impurity 森林</h3>
+<p>生存分支原来建了三片森林：impurity、permutation，以及一片只在 SHAP 备用路径里训练的森林（500 棵树、不算重要性）。impurity 森林的树数、行数和线程数都与它相同，而重要性模式不影响 ranger 怎么长树，所以 SHAP 改为直接解释 impurity 森林。</p>
+</section>
+</section>
+<section id="内部抽样与样本量" class="level2">
+<h2 class="anchored" data-anchor-id="内部抽样与样本量">内部抽样与样本量</h2>
+<p><code>get_imp()</code> 内部只做一次性的不放回抽样，不做交叉验证或 bootstrap 式的重抽样，所以重要性没有不确定性估计，结果随种子变化。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">路径</th>
+<th style="text-align: left;">训练数据</th>
+<th style="text-align: left;">SHAP 评估行</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">生存</td>
+<td style="text-align: left;">未发生事件者与事件者之比超过 9:1 时，把前者抽到事件数的 9 倍；再超过 3000 行就随机截到 3000</td>
+<td style="text-align: left;">600</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">分类</td>
+<td style="text-align: left;">全部数据，不抽样</td>
+<td style="text-align: left;">600</td>
+</tr>
+</tbody>
+</table>
+<p>本例 3790:597 ≈ 6.3:1，没有触发 9:1 的调整，只是从 4387 行随机截到 3000 行。生存分支最多只用 3000 行，所以数据再大耗时也基本不变；分类分支不抽样，样本越多树越深，TreeSHAP 越慢。</p>
+</section>
+<section id="尚未处理" class="level2">
+<h2 class="anchored" data-anchor-id="尚未处理">尚未处理</h2>
+<p>下面几项要么改变结果，要么还没有做，留待以后决定：</p>
+<ul>
+<li><strong>跳过注定失败的 Python 尝试</strong>（约 2.5 s）：没有可用的 <code>shap</code> 时可以直接走 TreeSHAP，不改变结果。也可以先 <code>reticulate::use_condaenv("MLR-shap")</code> 让它真正走 GPU，但那样 SHAP 会换成 <code>get_shp()</code> 的模型，数值会变。</li>
+<li><strong>SHAP 评估行数 600 → 300</strong>：TreeSHAP 4.4 s 对单进程 8.8 s，正好减半，但会改变结果。</li>
+<li><strong>三种重要性不是同一个模型算的</strong>：Python 路径跑通时，SHAP 来自 <code>get_shp()</code> 的森林（200 棵树、最多 2000 行、单独抽样），impurity 与 permutation 来自另一份 3000 行的抽样（500 棵树）；分类分支也是三片各自训练的森林。这与帮助页“from one selected tree model”的说法不符。</li>
+<li><strong>分类分支不抽样</strong>：TreeSHAP 的耗时随样本量大致线性增长，几万行时会明显变慢。</li>
+</ul>
+<p>传入现成的 <code>shp</code> 时，ranger 路径完全跳过 SHAP 计算；这些说明也写进了 <code>?get_imp</code> 的 Runtime 一节。</p>
+</section>
+<section id="测试口径" class="level2">
+<h2 class="anchored" data-anchor-id="测试口径">测试口径</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">项目</th>
+<th style="text-align: left;">设置</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">日期、环境</td>
+<td style="text-align: left;">2026-10-06；WSL Ubuntu-22.04 与 Windows 11；R 4.4.3；Intel Core Ultra 9 275HX（24 个逻辑核）</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">MLR 版本</td>
+<td style="text-align: left;">优化前 706de10（装在临时库）；优化后 54d2fd6</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">数据</td>
+<td style="text-align: left;"><code>RegR::seer_thyroid_mtc_2026</code> 取 <code>time</code>、<code>DSS</code> 与 7 个变量（Age、Sex、Race、Grade、T_stage、N_stage、M），去掉缺失后 4387 行、597 例事件、286 个不同随访时间</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">调用</td>
+<td style="text-align: left;"><code>get_imp(d, vars, surv = TRUE)</code> 连调两次，再 <code>get_imp(d, vars, surv = "DSS")</code>；全部默认参数；每次调用前 <code>set.seed(1)</code></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">计时</td>
+<td style="text-align: left;"><code>system.time()</code> 的实际耗时，包括打印三张图（输出到临时 PDF）</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Python</td>
+<td style="text-align: left;">两个平台都没有可用的 <code>shap</code>，生存分支都回落到 TreeSHAP</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">重复</td>
+<td style="text-align: left;">整次调用各跑 1 次；分步耗时来自另外几次探针，同一环节在不同次之间相差约 10%</td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="局限" class="level2">
+<h2 class="anchored" data-anchor-id="局限">局限</h2>
+<ul>
+<li>整次调用只跑了一次，机器负载会带来 ±1 s 左右的波动；前后差距远大于此。</li>
+<li>Windows 只测了优化后，没有优化前的对照。</li>
+<li>只有一份数据、7 个变量。变量更多时置换重要性的工作量按变量数增长，多线程的收益会更大；SHAP 的耗时则主要取决于树的大小。</li>
+</ul>
+</section>
+<section id="下载" class="level2">
+<h2 class="anchored" data-anchor-id="下载">下载</h2>
+<ul>
+<li>整次调用计时：<a href="bench/mlr_imp_20261006_timing.csv">mlr_imp_20261006_timing.csv</a></li>
+<li>分步计时：<a href="bench/mlr_imp_20261006_stages.csv">mlr_imp_20261006_stages.csv</a></li>
+<li>测速脚本：<a href="bench/mlr_imp_20261006_benchmark.R">mlr_imp_20261006_benchmark.R</a></li>
+</ul>
 
 
+</section>
 
 </main> <!-- /main -->
 <script id="quarto-html-after-body" type="application/javascript">
@@ -1236,13 +1534,13 @@ ul.task-list li input[type="checkbox"] {
   </script>
 <nav class="page-navigation">
   <div class="nav-page nav-page-previous">
-      <a href="../scmmr/function-modules.html" class="pagination-link" aria-label="scMMR 功能模块图">
-        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">scMMR 功能模块图</span></span>
+      <a href="../regr/mlr-vpd-ale-speedup-20261006.html" class="pagination-link" aria-label="MLR：get_vpd / get_ale / get_ale2 提速策略与实测">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-title">MLR：get_vpd / get_ale / get_ale2 提速策略与实测</span></span>
       </a>          
   </div>
   <div class="nav-page nav-page-next">
-      <a href="../toydata/function-modules.html" class="pagination-link" aria-label="ToyData 功能模块图">
-        <span class="nav-page-text"><span class="chapter-title">ToyData 功能模块图</span></span> <i class="bi bi-arrow-right-short"></i>
+      <a href="../mlr/function-modules.html" class="pagination-link" aria-label="MLR 功能模块图">
+        <span class="nav-page-text"><span class="chapter-title">MLR 功能模块图</span></span> <i class="bi bi-arrow-right-short"></i>
       </a>
   </div>
 </nav>
@@ -1251,4 +1549,4 @@ ul.task-list li input[type="checkbox"] {
 
 
 
-<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/scmmr/index.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/mlr-imp-speedup-20261006.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer></body></html>
