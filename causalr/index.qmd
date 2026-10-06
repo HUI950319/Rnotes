@@ -2,6 +2,7 @@
 title: "causalR 包总览：问题、函数与返回对象"
 subtitle: "causalR 包函数手册 · 从研究问题选择入口"
 lang: zh
+date: 2026-10-07
 lightbox: true
 toc-depth: 2
 ---
@@ -33,12 +34,15 @@ causalR 把**分析设计、效应估计、异质性探索和敏感性分析**�
 | 不同匹配算法保留了哪些患者？ | `get_PSM()` | 匹配权重、匹配组和诊断 | `plt_PSM()`，结合匹配结构估计效应 |
 | 把匹配和加权方案放到同一张图？ | `get_bal()` | love plot、平衡表、可选基线表 | 在共同口径下比较设计 |
 | 平均效应多大，效应随协变量如何变化？ | `get_hte()` | `hte_res` | `plt_hte_dep/sub/cate/rate()` |
+| 森林效应随变量如何变化，相关变量怎样解释？ | `get_hte_pdp()`、`get_hte_ale()` | PDP / ALE 结果表 | [PDP](pdp-guide.qmd)、[ALE](ale-guide.qmd) 与自定义图形 |
+| 哪些变量贡献了患者的预测治疗效应？ | `get_hte_shp()` | `shapviz` 与保真度记录 | [SHAP 方法与图形](shap-guide.qmd) |
 | 候选修饰变量很多，如何先排序？ | `get_hte_select()` | 排序、固定顺序累加路径、选中变量 | 保留混杂变量，再作独立验证 |
 | 哪个变量呈现单变量线性效应修饰？ | `get_hte_unihtee()` | TEM-VIP、区间、p 值与 BH 校正 | `plt_hte_unihtee()` |
 | 从数据寻找可读的亚组规则？ | `get_hte_icf()`、`get_hte_tree()` | 规则与估计集上的效应 | 树图、亚组图和验证 |
 | 换样本或种子，亚组树是否相似？ | `get_hte_tree_stability()` | 入选频率、切点、Jaccard、重复状态 | 报告重复性与失败比例 |
 | 新患者落在哪条既有规则？ | `predict(hte_tree, newdata)` | 规则文字或叶子编号 | 原规则的外部应用与后续效应验证 |
 | 未测量混杂多强会改变结论？ | `get_sens()` | 稳健值、翻转点或 E 值等 | `plt_sens()` |
+| 已发表 RR/OR/HR 的 E-value 多大？ | `get_evalue()` | 比值、换算 RR 与点估计/区间 E-value | [E-value 指南](evalue-guide.qmd) |
 
 ```{mermaid}
 flowchart TD
@@ -48,9 +52,11 @@ flowchart TD
   B --> O[选定设计后的结局模型]
   E --> H[get_hte：因果森林与双稳健效应]
   H --> D[依赖图、亚组图、CATE 分布、排序评估]
+  H --> F[PDP、ALE、SHAP：解释完整森林的 CATE]
   E --> V[修饰变量筛选与规则发现]
   V --> S[独立估计、稳定性和验证]
   O --> U[未测量混杂敏感性分析]
+  O --> EV[get_evalue：RR、OR、HR 的 E-value]
 ```
 
 这里是多条分析路线的地图。PS 权重不需要机械地再套进所有森林；匹配后的人群、加权目标人群
@@ -73,12 +79,15 @@ flowchart TD
 | 对象 | 核心字段 | 可交给的绘图接口 |
 |---|---|---|
 | `hte_res` | `stats`、`subgroup`、`importance`、`calibration`、`data`、`fit` | `plt_hte_dep/sub/cate/rate()` |
+| PDP / ALE tibble | `variable/value/level`、`estimate` 或 `ale/n`；`analysis` 记录解释样本与预算 | `ggplot2`；PDP 与现有依赖图共用引擎 |
+| `shapviz` | `S`、`X`、`baseline`；`analysis` 标明方法、人数和代理 R² | `shapviz::sv_*()` 或兼容的 MLR 图；本入口不自动计算交互矩阵 |
 | `hte_icf` | `rules`、`cv`、`vote`、`importance`、`est`、`tree` | `plt_hte_icf()`；`est` 可交给 HTE 图 |
 | `hte_tree` | `rules`、`nodes`、`est`、`tree`；拟合上下文在 `attr(x,"analysis")` | `plt_hte_tree()`；`est` 可交给亚组图 |
 | `get_hte_select()` 的 list | `ranking`、`forward`、`selected` 与组合图等 | 直接使用结果自带的图；不是 `hte_res` |
 | unihtee 结果 list | 筛选表和分析信息，细节见第 6 页 | `plt_hte_unihtee()` |
 | `psm_res` / `psw_res` | 设计结果、权重、诊断和分析信息 | `plt_PSM()` / `plt_PSW()` |
 | `sens_res` | `stats`、`bounds`、`fit`、`sens` 及分析属性 | `plt_sens()` |
+| E-value tibble | 原比值、换算后的 RR、`evalue_point/evalue_ci` | 结果报告或自定义图；不是 `sens_res` |
 
 保留完整对象及其分析属性。只保存 `rules` 表会丢失预测所需的训练编码；只保存效应表也无法
 重画需要森林拟合的依赖图或重算排序诊断。对新样本的 `predict.hte_tree()` 不重新拟合森林，
@@ -129,6 +138,22 @@ flowchart TD
 | `plt_hte_rate()` | `priority`、`type`、`train_frac`、`max_n`、`gates_args` | 排序与评估的样本独立性 |
 | `plt_hte_icf/tree()` | `type` | `effect/dr/box/bar/km` 的数据与尺度不同 |
 | 各公开绘图入口 | `save=list()` | 构造最终图后保存 PDF；缺省不写文件 |
+
+### 森林解释与独立比值敏感性：2026-10-06 更新
+
+| 入口 | 重点参数 | 条件与解释 |
+|---|---|---|
+| [PDP](pdp-guide.qmd) | `x_var/grid_n/max_n/time_budget` | 分位数网格；加权平均完整森林 CATE |
+| [ALE](ale-guide.qmd) | `x_var/n_bins/max_n/time_budget` | 局部变化与零中心；无序分类水平按相似性排序 |
+| [SHAP](shap-guide.qmd) | `method/bg_n/surrogate_args/max_n/seed` | 默认新拟合 xgboost 代理；Kernel 直接解释森林；查看代理留出 R² |
+| [E-value](evalue-guide.qmd) | `effect` 或 `est/lo/hi`、`measure/rare/conf_level` | RR/OR/HR；`conf_level` 仅数据拟合路线，`rare` 先按研究设计判断 |
+
+三个森林解释入口默认 `max_n=NULL,time_budget=20`，成本模型选择解释人数；显式 `max_n`
+后忽略预算。现有 `plt_hte_dep()` 的 `pdp_args` 仍默认 `grid_n=21,max_n=1000`，不接受
+`time_budget`。调用相同引擎不意味着抽样默认值相同。
+
+这些解释都使用森林的观察权重，包括 `sample.weights` 或等群集权重；SHAP 的默认绘图汇总
+仍等权平均解释患者。解释的是模型效应差，不能把 SHAP、ALE 或 PDP 当成独立效应修饰检验。
 
 ## 最短工作流：一个对象、三种图 {#sec-map-example}
 
@@ -199,7 +224,33 @@ plt_hte_sub(res, sub_var = "sex", fixed_size = FALSE)
 plt_hte_cate(res, sub_var = "sex", type = "density")
 ```
 
+### PDP 与双稳健投影 {.unnumbered}
+
+```{r}
+#| label: fig-map-pdp
+#| fig-width: 7
+#| fig-height: 4.6
+#| fig-cap: "蓝色 PDP 使用完整森林 CATE 的患者平均，红色曲线使用双稳健投影。相同纵轴单位不使两种估计对象相同。"
+plt_hte_dep(res, x_var = "marker", display = c("dr", "pdp"),
+            pdp_args = list(grid_n = 7, max_n = 300))
+```
+
+### 二维 PDP 热图 {.unnumbered}
+
+```{r}
+#| label: fig-map-heat
+#| fig-width: 7
+#| fig-height: 4.6
+#| fig-cap: "marker 与 age 的二维森林 PDP。9 个分位数点形成非等距网格，热图单元延伸到相邻点中间；颜色为平均预测治疗效应差。"
+plt_hte_dep(res, x_var = c("marker", "age"), type = "heat",
+            pdp_args = list(grid_n = 9, max_n = 300))
+```
+
 :::
+
+`plt_hte_dep()` 的 PDP 和热图自 2026-10-06 起改用分位数网格；并列分位数会合并。
+在有权森林中，平均使用森林观察权重，和该对象的双稳健效应目标相衔接。
+网格和样本数控制解释计算，不会产生新的置信区间。
 
 保存示例不在站点渲染时执行，以免产生无需求的文件；本地使用时指定自己的文件名。
 
@@ -227,5 +278,9 @@ packageVersion("grf")
 args(get_hte)
 args(get_hte_tree)
 args(get_hte_tree_stability)
+args(get_hte_pdp)
+args(get_hte_ale)
+args(get_hte_shp)
+args(get_evalue)
 sessionInfo()
 ```
