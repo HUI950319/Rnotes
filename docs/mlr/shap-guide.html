@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="get_shp 的任务、采样、后端与返回对象详解；用 ToyData::toy_shp 比较 14 个 plt_shp_* 函数的 34 个图形示例。">
+<meta name="description" content="get_shp 的自动分箱、任务、采样、后端与返回对象详解；用 ToyData::toy_shp 比较 14 个 plt_shp_* 函数的 34 个图形示例。">
 
 <title>SHAP：get_shp 与 14 个绘图函数 – R 包开发笔记</title>
 <style>
@@ -66,7 +66,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <script src="../site_libs/quarto-search/fuse.min.js"></script>
 <script src="../site_libs/quarto-search/quarto-search.js"></script>
 <meta name="quarto:offset" content="../">
-<link href="../utilsr/function-modules.html" rel="next">
+<link href="../mlr/imp-guide.html" rel="next">
 <link href="../mlr/index.html" rel="prev">
 <script src="../site_libs/quarto-html/quarto.js" type="module"></script>
 <script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
@@ -1105,6 +1105,50 @@ window.Quarto = {
 </table>
 </div>
 <p><code>onehot</code> 将分类特征展开成编码列；<code>target</code> 是分类任务中的交叉拟合、平滑目标编码。Boosting 模型产生的编码列 SHAP 会按原始变量归并，交互块也按原始变量求和，因此下游绘图仍面对原始特征层级。</p>
+</section>
+<section id="numeric-binning" class="level3">
+<h3 class="anchored" data-anchor-id="numeric-binning">数值变量的自动分箱</h3>
+<p><strong>当前行为（2026-10-07 核对）：</strong> <code>get_shp()</code> 会检查 <code>vars</code> 中的数值预测变量。 如果某列有 <strong>超过 200 个不同的非缺失值</strong>，就先用整份输入数据的分位数构造最多 200 个箱，再把每个值替换为其所在箱的中位数。重复的分位数边界会合并，因此实际箱数 可能少于 200。恰好 200 个不同值的数值列，以及因子、字符列，不走这一步。</p>
+<p>分箱发生在训练抽样和解释抽样<strong>之前</strong>，适用于当前入口支持的所有模型、任务和 SHAP 引擎。它会改变拟合数据与模型；当前接口没有关闭自动分箱的参数。</p>
+<div class="table-responsive">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">位置</th>
+<th style="text-align: left;">分箱后的含义</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">模型训练与解释输入</td>
+<td style="text-align: left;">使用箱中位数；模型不再区分同一箱内的原始数值</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>res$shp$X</code></td>
+<td style="text-align: left;">解释样本中相应列保存箱中位数；其余列按原有编码处理</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">依赖图横轴、数值着色</td>
+<td style="text-align: left;">对应 <code>shp$X</code> 的箱中位数，可能出现重复横坐标或颜色；不能据此读取箱内的精细变化</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>res$par_lis$data</code></td>
+<td style="text-align: left;">保留调用时的原始数据；不会被分箱后的拟合副本覆盖</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>调用前可先检查哪些变量会触发分箱：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="binning-cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="binning-cb3-1"><a href="#binning-cb3-1" aria-hidden="true" tabindex="-1"></a>bin_vars <span class="ot">&lt;-</span> <span class="fu">Filter</span>(<span class="cf">function</span>(v) {</span>
+<span id="binning-cb3-2"><a href="#binning-cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">is.numeric</span>(data[[v]]) <span class="sc">&amp;&amp;</span></span>
+<span id="binning-cb3-3"><a href="#binning-cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">length</span>(<span class="fu">unique</span>(stats<span class="sc">::</span><span class="fu">na.omit</span>(data[[v]]))) <span class="sc">&gt;</span> <span class="dv">200</span>L</span>
+<span id="binning-cb3-4"><a href="#binning-cb3-4" aria-hidden="true" tabindex="-1"></a>}, <span class="fu">intersect</span>(vars, <span class="fu">names</span>(data)))</span>
+<span id="binning-cb3-5"><a href="#binning-cb3-5" aria-hidden="true" tabindex="-1"></a>bin_vars</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>本页下面的图形仍来自此前保存的 <code>ToyData::toy_shp</code>，补充说明没有重新计算这个对象。 不要仅凭当前分箱规则反推旧对象是否经过相同预处理。验证集应先从原始数据划分； 上述分位数边界基于传给 <code>get_shp()</code> 的整份数据，不能把混入验证集后的结果当作独立验证。 运行耗时的历史实测见 <a href="../regr/mlr-shp-speedup-20261006.html">get_shp 提速记录</a>。</p>
 </section>
 <section id="训练样本与解释样本是两件事" class="level3">
 <h3 class="anchored" data-anchor-id="训练样本与解释样本是两件事">训练样本与解释样本是两件事</h3>
