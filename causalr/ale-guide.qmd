@@ -1,0 +1,209 @@
+---
+title: "HTE ALE：相关协变量与分类水平的局部效应"
+description: "get_hte_ale 的中心化效应、n_bins 对照、无序因子相似性排序、抽样后空水平和实际曲线。"
+date: 2026-10-07
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-ale
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+`get_hte_ale()` 查看森林 CATE 随某个协变量的局部变化。对连续变量，在分位数区间两端预测，
+在区间内平均变化，再累积并中心化；它复用已拟合的森林。接口按 causalR 提交 `d4aeb78`
+核对，本页全部结果来自合成数据的实际计算。
+
+## ALE 与 PDP 的问题不同 {#ale-meaning}
+
+[PDP](pdp-guide.qmd) 把一列设成同一值后，对所有解释患者平均。ALE 主要在患者所属的小区间
+或相邻水平间计算变化，减少把患者移动到远离自身取值的位置。它基于
+[Apley 与 Zhu（2020）](https://doi.org/10.1111/rssb.12377) 的局部解释框架。
+
+**ALE 纵轴是中心化后的 CATE 变化，平均中心为零。** 正值表示该位置相对于中心的预测效应
+更高，不直接说明患者治疗获益为正。连续、二分类、生存结局分别继承森林的均值差、风险差、
+S(t) 差或 RMST 差尺度；ALE 不给出新的因果效应检验或区间。
+
+## 参数和返回列 {#ale-args}
+
+| 参数 | 默认 | 作用与条件 |
+|---|---|---|
+| `x` | 必填 `hte_res` | 保留 `fit`、数据和训练编码 |
+| `x_var` | `NULL` | 所有协变量按重要性排序；可传列名、`"num"`、`"fct"` |
+| `n_bins` | `20` | 连续变量的分位数区间数，整数且至少 1；并列分位数合并 |
+| `max_n` | `NULL` | 成本模型选择患者数；正整数限定，`Inf` 使用全体 |
+| `time_budget` | `20` | `max_n=NULL` 时的估算秒数，显式 `max_n` 时忽略 |
+| `verbose` | `FALSE` | 显示估计与实际耗时 |
+
+返回 `variable/value/level/ale/n`。`ale` 是中心化累积效应，`n` 是区间或水平中的实际患者数，
+不是权重和；连续变量最低边界的 `n=NA`。`analysis` 属性记录解释患者数、分箱和耗时。
+数值变量超过 5 个不同值才按连续变量处理，分类变量不受 `n_bins` 控制。
+
+## 相关协变量的合成数据 {#ale-data}
+
+```{r}
+#| label: ale-data
+set.seed(20261007)
+n <- 800
+d <- data.frame(x1 = rnorm(n), noise = rnorm(n))
+d$x2 <- 0.9 * d$x1 + rnorm(n, sd = 0.25)
+d$region <- factor(as.character(cut(d$x1, c(-Inf, -0.7, 0, 0.7, Inf),
+                                   labels = c("A", "B", "C", "D"))),
+                    levels = c("C", "A", "D", "B", "Rare"))
+d$region[2] <- "Rare"
+d$z <- rbinom(n, 1, plogis(0.2 * d$x1))
+d$y <- d$x1 + d$x2 + d$z * (0.5 + 1.2 * tanh(d$x1)) + rnorm(n)
+res <- get_hte(d, "z", adj_var = c("x1", "x2", "region", "noise"), surv = "y",
+               grf_args = list(num.trees = 500, seed = 17, num.threads = 2))
+a20 <- get_hte_ale(res, x_var = c("x1", "x2"), max_n = Inf)
+stopifnot(all(is.finite(a20$ale)))
+knitr::kable(head(a20), digits = 3)
+attr(a20, "analysis")
+```
+
+```{r}
+#| label: fig-ale-correlation
+#| fig-width: 7
+#| fig-height: 4.5
+#| fig-cap: "观察到的 x1 与 x2 高度相关。PDP 替换其中一列时会产生远离点云的组合，解释需结合数据支持。"
+ggplot(d, aes(x1, x2)) + geom_point(alpha = 0.25, color = "#347BA0") +
+  labs(x = "x1", y = "x2") + theme_minimal(base_size = 12)
+```
+
+## 连续变量：曲线和分箱数 {#ale-continuous}
+
+::: {.panel-tabset}
+
+### ALE 与平移后的 PDP
+
+```{r}
+#| label: fig-ale-pdp
+#| fig-width: 9
+#| fig-height: 4.5
+#| fig-cap: "ALE 与减去原协变量平均预测的 PDP。PDP 的平移只为展示相同纵轴单位，两条曲线的定义和中心化方式仍不同。"
+pdp <- get_hte_pdp(res, c("x1", "x2"), max_n = Inf)
+background_mean <- mean(as.numeric(predict(res$fit, res$fit$X.orig)$predictions))
+compare <- rbind(data.frame(variable = a20$variable, value = a20$value,
+                            estimate = a20$ale, method = "ALE"),
+                  data.frame(variable = pdp$variable, value = pdp$value,
+                             estimate = pdp$estimate - background_mean, method = "PDP - background mean"))
+ggplot(compare, aes(value, estimate, color = method)) + geom_line() + geom_point(size = 1.4) +
+  geom_hline(yintercept = 0, linetype = 2, color = "grey60") +
+  facet_wrap(~ variable, scales = "free_x") +
+  labs(x = "Covariate value", y = "Centered CATE variation", color = NULL) +
+  theme_minimal(base_size = 12)
+```
+
+### n_bins = 5 与 20
+
+```{r}
+#| label: fig-ale-bins
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-cap: "同一森林与全体患者，只改变连续变量的分位数分箱数。细分箱展示更多局部变化，也需检查每箱的支持。"
+a5 <- get_hte_ale(res, "x1", n_bins = 5, max_n = Inf)
+bins <- rbind(data.frame(bins = "5 bins", a5),
+               data.frame(bins = "20 bins", subset(a20, variable == "x1")))
+ggplot(bins, aes(value, ale, color = bins)) + geom_line() + geom_point() +
+  geom_hline(yintercept = 0, linetype = 2) +
+  labs(x = "x1", y = "Centered CATE variation", color = NULL) +
+  theme_minimal(base_size = 12)
+```
+
+### 查看区间支持
+
+```{r}
+#| label: ale-bin-counts
+knitr::kable(subset(a20, variable == "x1"), digits = 3)
+```
+
+:::
+
+分箱基于实际解释患者的分位数；改变 `max_n` 也可能改变分箱位置。
+有大量并列值时实际区间数会减少，不能仅根据 `n_bins` 推断返回行数。
+
+## 无序因子：按相似性逐步移动 {#ale-factor}
+
+数值、逻辑和有序因子保留自身顺序。三个或更多水平的无序因子或字符列，则根据其他协变量
+在各水平间的分布差异，用一维尺度排序连接相近水平。本例输入水平顺序特意写为
+`C, A, D, B, Rare`；下表与图沿用函数实际返回的顺序。
+
+```{r}
+#| label: fig-ale-factor
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-cap: "无序 region 的 ALE 路径。横轴顺序来自其他协变量的相似性；纵轴为中心化变化，不能按字母顺序重新连线。"
+factor_ale <- get_hte_ale(res, "region", max_n = Inf)
+factor_ale$step <- seq_len(nrow(factor_ale))
+knitr::kable(factor_ale, digits = 3)
+ggplot(factor_ale, aes(step, ale)) + geom_line(color = "#347BA0") +
+  geom_point(aes(size = n), color = "#347BA0") +
+  scale_x_continuous(breaks = factor_ale$step, labels = factor_ale$level) +
+  geom_hline(yintercept = 0, linetype = 2) +
+  labs(x = "Returned step order", y = "Centered CATE variation", size = "Patients") +
+  theme_minimal(base_size = 12)
+```
+
+相似性排序属于解释路径，不改变已训练森林的因子编码。把无序变量声明为有序因子会改变其
+统计含义，不能为了让图好看而改变类型。
+
+## 抽样后空水平与曲线复现 {#ale-sampling}
+
+::: {.panel-tabset}
+
+### 空水平
+
+```{r}
+#| label: ale-empty-level
+small <- get_hte_ale(res, "region", max_n = 40)
+rare_row <- subset(small, level == "Rare")
+stopifnot(nrow(rare_row) == 1, rare_row$n == 0, is.na(rare_row$ale))
+knitr::kable(small, digits = 3)
+```
+
+`Rare` 只有原数据第 2 行，均匀取 40 行没有选中它。当前实现跳过此水平并连接两侧有支持
+的水平，保留 `ale=NA,n=0`，不会让后续水平全部变成 NA。它没有估计该空水平的效应。
+
+### 解释患者数
+
+```{r}
+#| label: fig-ale-sample
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-cap: "同一森林上全体与 80 人的 ALE；减少解释样本同时改变局部支持和分箱边界。"
+a80 <- get_hte_ale(res, "x1", max_n = 80)
+a80_repeat <- get_hte_ale(res, "x1", max_n = 80)
+stopifnot(identical(a80$ale, a80_repeat$ale))
+sample_compare <- rbind(data.frame(sample = "All patients", subset(a20, variable == "x1")),
+                        data.frame(sample = "max_n = 80", a80))
+ggplot(sample_compare, aes(value, ale, color = sample)) + geom_line() + geom_point() +
+  labs(x = "x1", y = "Centered CATE variation", color = NULL) +
+  theme_minimal(base_size = 12)
+```
+
+:::
+
+`max_n=NULL` 时的 `time_budget` 使用成本模型调节人数，不强制按秒终止。请同时记录
+`analysis$n/n_total`、`n_bins` 与各区间支持；抽样可复现不意味着少量样本已足够。
+
+## 权重、解释边界与复现 {#ale-links}
+
+区间平均、水平平均和零中心化使用森林观察权重，包括 `sample.weights` 和等群集权重。
+`n` 仍报告人数。ALE 说明模型效应如何变化，相关变量之间的变化分配仍取决于已拟合模型，
+不能单独确定真正的效应修饰因子。
+
+参见 [PDP 与森林权重](pdp-guide.qmd#pdp-weights)、[HTE 诊断](hte-diagnostics-guide.qmd)
+和 [causalR 总览](index.qmd)。源码：
+[hte-explain.R](https://github.com/HUI950319/causalR/blob/d4aeb785b9deff6b3f9144954b7716876a190a68/R/hte-explain.R)。
+
+```{r}
+args(get_hte_ale)
+packageVersion("grf")
+sessionInfo()
+```
