@@ -14,6 +14,16 @@ quarto render
 站点用 Quarto book 构建，输出到 `docs/`，GitHub Pages 从 `main` 分支的 `docs/` 发布。
 含 R 代码块的页面由 `execute: freeze: auto` 缓存在 `_freeze/`，只有源文件变动时才重跑。
 
+发布前检查已生成的站点（不执行 R 分析）：
+
+```bash
+python -m pip install beautifulsoup4 PyYAML
+python scripts/check_site.py
+```
+
+检查页底上一页／下一页是否遵循 `_quarto.yml`，以及侧栏、站内链接与锚点、
+搜索索引和 sitemap。GitHub Actions 会在每次 push 和 pull request 中执行同一检查。
+
 ## 数据说明
 
 仓库公开。笔记中的分析结果只含汇总统计量，不含任何个体水平数据；
