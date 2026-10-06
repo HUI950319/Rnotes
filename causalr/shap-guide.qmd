@@ -1,0 +1,244 @@
+---
+title: "HTE SHAP：代理模型、Kernel SHAP 与保真度"
+description: "get_hte_shp 的两种方法、shapviz 返回对象、代理模型验证 R²、背景样本和计算预算；六张实际解释图。"
+date: 2026-10-07
+lightbox: true
+toc-depth: 2
+---
+
+```{r}
+#| label: setup-hte-shap
+#| include: false
+if (nzchar(Sys.getenv("CAUSALR_SOURCE"))) {
+  pkgload::load_all(Sys.getenv("CAUSALR_SOURCE"), quiet = TRUE)
+} else library(causalR)
+library(ggplot2)
+library(shapviz)
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
+```
+
+`get_hte_shp()` 将模型预测的治疗效应分解为协变量贡献。**默认会新拟合一个 xgboost 代理模型，
+返回这个代理模型的 TreeSHAP。** 它对原森林是近似解释。`method="kernel"` 则直接调用
+原森林计算 Kernel SHAP。这两个方法都复用原因果森林，但解释路线不同。
+接口按提交 `d4aeb78` 核对，以下森林、SHAP 和全部图形实际计算。
+
+## 方法和解释对象 {#hte-shap-methods}
+
+| 方法 | 实际解释 | 保真度与成本 |
+|---|---|---|
+| `surrogate`（默认） | 用协变量预测森林完整 CATE 的新 xgboost 模型 | 80% 解释患者训练，20% 检查；`analysis$r2` 报告留出患者上的加权 R² |
+| `kernel` | 原森林的预测函数，相对于背景患者 | 无新代理模型；最多 8 个原协变量时枚举联盟，更多变量采用混合计算，森林预测次数较多 |
+
+默认 TreeSHAP 的贡献对代理模型成立；R² 高表示代理预测较好地复现森林输出，仍不保证
+每个变量的贡献与 Kernel 路线相同。两者对相关变量的分配机制也不同。
+方法背景见 [Lundberg 与 Lee（2017）](https://arxiv.org/abs/1705.07874) 和
+[Kernel SHAP 官方文档](https://cran.r-project.org/web/packages/kernelshap/refman/kernelshap.html)。
+
+解释的单位是森林 CATE 的 `diff` 尺度：连续结局均值差、二分类风险差，或生存 S(t) / RMST 差。
+变量贡献不等于这个变量对结局的因果效应，也不能单凭 SHAP 重要性确立独立效应修饰。
+
+## 参数与返回对象 {#hte-shap-args}
+
+| 参数 | 默认 | 作用与条件 |
+|---|---|---|
+| `x` | 完整 `hte_res` | 复用森林、协变量数据和训练编码 |
+| `method` | `"surrogate"` | 可选 `"kernel"` |
+| `max_n` | `NULL` | 由成本模型选解释人数；正整数或 `Inf` 显式指定 |
+| `bg_n` | `50` | 仅 Kernel 的背景人数，均匀取行；代理路线不要显式传此项 |
+| `surrogate_args` | `list(nrounds=300,max_depth=6,learning_rate=0.1)` | 仅代理路线；部分覆盖按默认合并；Kernel 路线不要显式传此项 |
+| `time_budget` | `20` | `max_n=NULL` 时按估算成本选择人数，不强制计时中断 |
+| `seed` | `123` | 留出切分或联盟抽样种子；函数退出恢复原 RNG 状态 |
+| `verbose` | `FALSE` | 输出估计与实际耗时 |
+
+返回标准 `shapviz` 对象：`S` 是患者 × 原协变量贡献矩阵，`X` 保留原协变量值，`baseline`
+是解释基线。one-hot 编码列会合并回原变量，每个因子一列 SHAP。`analysis` 属性记录方法、
+实际人数、背景人数或代理 R²、参数及耗时；该对象没有自动提供 SHAP 交互矩阵。
+
+## 拟合一次并检查保真度 {#hte-shap-data}
+
+```{r}
+#| label: hte-shap-data
+set.seed(20261007)
+n <- 900
+d <- data.frame(marker = rnorm(n), age = rnorm(n, 60, 10),
+                stage = factor(sample(c("I", "II", "III"), n, replace = TRUE)),
+                noise = rnorm(n))
+d$z <- rbinom(n, 1, plogis(0.2 * d$marker + 0.01 * (d$age - 60)))
+d$y <- d$marker + 0.03 * (d$age - 60) +
+  d$z * (0.5 + 1.5 * tanh(d$marker) + 0.3 * (d$stage == "III")) + rnorm(n)
+covs <- c("marker", "age", "stage", "noise")
+res <- get_hte(d, "z", adj_var = covs, surv = "y", factor_encoding = "onehot",
+               grf_args = list(num.trees = 500, seed = 17, num.threads = 2))
+rng_before <- .Random.seed
+sv <- get_hte_shp(res, max_n = 400, seed = 123)
+stopifnot(inherits(sv, "shapviz"), ncol(sv$S) == length(covs),
+          identical(.Random.seed, rng_before), all(is.finite(sv$S)))
+attr(sv, "analysis")
+knitr::kable(data.frame(component = c("S", "X", "baseline"),
+                         size = c(paste(dim(sv$S), collapse = " x "),
+                                  paste(dim(sv$X), collapse = " x "), length(sv$baseline))))
+```
+
+R² 低于 0.9 时函数警告可能错误分配贡献。少于 10 人时没有留出集，`r2=NA` 并明确警告；
+NA 不能被解释为检查已通过。R² 评价的是代理复现森林输出，森林本身的校准和排序表现需另看
+[HTE 诊断](hte-diagnostics-guide.qmd)。
+
+## shapviz 图形：重要性、方向与患者分解 {#hte-shap-gallery}
+
+::: {.panel-tabset}
+
+### 平均绝对贡献
+
+```{r}
+#| label: fig-hte-shap-importance
+#| fig-width: 7
+#| fig-height: 4.5
+#| fig-cap: "解释患者中平均绝对 SHAP；正负贡献取绝对值后合并，因此柱高不表示效应方向。"
+sv_importance(sv, kind = "bar", show_numbers = TRUE)
+```
+
+### 蜂群分布
+
+```{r}
+#| label: fig-hte-shap-beeswarm
+#| fig-width: 8
+#| fig-height: 5
+#| fig-cap: "每个点是一名解释患者的代理模型 SHAP，横轴单位是预测治疗效应差；颜色是特征值。"
+sv_importance(sv, kind = "beeswarm")
+```
+
+### 依赖图
+
+```{r}
+#| label: fig-hte-shap-dependence
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-cap: "marker 对代理模型输出的贡献，按 age 着色；颜色趋势不等于已经计算 SHAP 交互值或完成交互检验。"
+sv_dependence(sv, v = "marker", color_var = "age")
+```
+
+### 患者瀑布图
+
+```{r}
+#| label: fig-hte-shap-waterfall
+#| fig-width: 8
+#| fig-height: 4.5
+#| fig-cap: "第 1 名解释患者：基线加各变量贡献重建代理预测。该预测不等于已观察到的个体反事实治疗效应。"
+sv_waterfall(sv, row_id = 1)
+```
+
+### 患者力图
+
+```{r}
+#| label: fig-hte-shap-force
+#| fig-width: 9
+#| fig-height: 3.5
+#| fig-cap: "同一患者贡献的另一种显示，正负方向都相对于解释基线；不是患者结局的风险分解。"
+sv_force(sv, row_id = 1)
+```
+
+:::
+
+这些图接受标准 `shapviz` 对象，更多布局可参考
+[MLR SHAP 图形指南](../mlr/shap-guide.qmd)。本页没有计算交互矩阵，不能直接使用要求
+`S_inter` 的交互视图。官方图形参数见 [shapviz 文档](https://cran.r-project.org/web/packages/shapviz/refman/shapviz.html)。
+
+## 重建预测与原森林的差别 {#hte-shap-fidelity}
+
+```{r}
+#| label: fig-hte-shap-fidelity
+#| fig-width: 6.5
+#| fig-height: 5
+#| fig-cap: "400 名解释患者的代理 SHAP 重建预测与原森林预测。此散点包含训练和留出患者，独立保真度仍按 analysis$r2 的留出结果报告。"
+rows <- unique(round(seq(1, nrow(res$fit$X.orig), length.out = nrow(sv$S))))
+forest_pred <- as.numeric(predict(res$fit, res$fit$X.orig[rows, , drop = FALSE])$predictions)
+reconstructed <- sv$baseline + rowSums(sv$S)
+ggplot(data.frame(forest = forest_pred, surrogate = reconstructed), aes(forest, surrogate)) +
+  geom_point(alpha = 0.45, color = "#347BA0") +
+  geom_abline(slope = 1, intercept = 0, linetype = 2) + coord_equal() +
+  labs(x = "Original forest CATE", y = "Surrogate SHAP reconstruction") +
+  theme_minimal(base_size = 12)
+```
+
+## method、背景样本与代理参数 {#hte-shap-comparison}
+
+::: {.panel-tabset}
+
+### 相同 40 名患者的两种方法
+
+```{r}
+#| label: hte-shap-two-methods
+sv_small <- get_hte_shp(res, method = "surrogate", max_n = 40, seed = 123)
+sv_kernel <- get_hte_shp(res, method = "kernel", max_n = 40, bg_n = 20, seed = 123)
+stopifnot(identical(sv_small$X, sv_kernel$X))
+knitr::kable(data.frame(variable = colnames(sv_small$S),
+                         surrogate_mean_abs = colMeans(abs(sv_small$S)),
+                         kernel_mean_abs = colMeans(abs(sv_kernel$S))), digits = 4)
+attr(sv_small, "analysis")
+attr(sv_kernel, "analysis")
+```
+
+比较使用同一批解释患者，但代理和背景积分的定义不同，不要求贡献逐项相等。
+本例 40 人的代理留出集很小，应同时查看其实际 R²。
+
+### bg_n 对照
+
+```{r}
+#| label: hte-shap-background
+k10 <- get_hte_shp(res, method = "kernel", max_n = 40, bg_n = 10, seed = 123)
+knitr::kable(data.frame(variable = colnames(k10$S),
+                         background_10 = colMeans(abs(k10$S)),
+                         background_20 = colMeans(abs(sv_kernel$S))), digits = 4)
+```
+
+改变背景患者会改变基线和贡献；更大的 `bg_n` 也增加原森林预测成本。
+
+### surrogate_args 对照
+
+```{r}
+#| label: hte-shap-surrogate-args
+shallow <- get_hte_shp(res, max_n = 400, seed = 123,
+                       surrogate_args = list(nrounds = 30, max_depth = 2))
+knitr::kable(data.frame(model = c("300 rounds, depth 6", "30 rounds, depth 2"),
+                         heldout_r2 = c(attr(sv, "analysis")$r2,
+                                        attr(shallow, "analysis")$r2)), digits = 4)
+```
+
+不根据 SHAP 排名选择“最好看”的代理；先检查预测保真度，再解释贡献。
+
+### 少于 10 人的警告
+
+```{r}
+#| label: hte-shap-small-warning
+small_warnings <- character()
+tiny <- withCallingHandlers(get_hte_shp(res, max_n = 5, seed = 123),
+  warning = function(w) {
+    small_warnings <<- c(small_warnings, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  })
+stopifnot(is.na(attr(tiny, "analysis")$r2), length(small_warnings) > 0)
+cat(small_warnings, sep = "\n")
+```
+
+:::
+
+## 预算、权重与复现记录 {#hte-shap-links}
+
+默认时间成本模型可能将大森林的 Kernel 解释压缩到少量患者；少于 10 人会警告。
+`max_n=Inf` 绕过抽样预算，应先估计规模。记录 `analysis$n/n_total`、方法、背景人数、
+种子和代理参数；20 秒预算是规模估算，实际耗时随机器变化。
+
+观察权重进入代理训练、留出 R² 和 Kernel 背景积分；`shapviz::sv_importance()` 等默认汇总
+仍等权平均解释患者。报告加权目标人群的全局汇总时应另行匹配其权重。
+
+参见 [PDP](pdp-guide.qmd)、[ALE](ale-guide.qmd)、[生存效应尺度](survival-estimands-guide.qmd)
+与 [causalR 总览](index.qmd)。源码：
+[hte-explain.R](https://github.com/HUI950319/causalR/blob/d4aeb785b9deff6b3f9144954b7716876a190a68/R/hte-explain.R)。
+
+```{r}
+args(get_hte_shp)
+packageVersion("shapviz")
+packageVersion("kernelshap")
+packageVersion("xgboost")
+sessionInfo()
+```
