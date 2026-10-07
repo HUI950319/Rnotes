@@ -1,0 +1,205 @@
+---
+title: "pak 下载慢：CRAN 代理与 Windows / WSL 排查"
+description: "排查 pak 安装时的下载与编译耗时，记录 Windows 和 WSL 的 CRAN 请求、TUN 代理出口，以及 Clash Verge Rev 全局 Merge 与 Script 的规则配置。"
+date: 2026-10-07
+execute:
+  eval: false
+---
+
+`pak::pak()` 安装很慢时，首先要确认耗时发生在仓库索引、依赖解析、包文件下载，还是编译安装。**R 的代理环境变量为空，不能据此判断请求没有经过代理。** 当 Clash / Mihomo 的 TUN 接管流量时，R 可以在没有显式代理变量的情况下走代理。
+
+本次检查了 Windows 和 WSL 的 RStudio 会话，并在独立 R 进程中复现其网络设置。观察到的 CRAN 索引请求均进入 `Tun`，出口链为 `GLOBAL → 中转代理`。因此，针对这些请求，“没有使用代理”不是已证实的原因；具体一次 `pak::pak()` 安装为什么慢，仍需结合包名和各阶段日志判断。
+
+## 先区分下载与安装 {#download-or-install}
+
+`pak::pak("包名")` 会解析依赖、取得需要的包，并完成安装；不传 `pkg` 时，`pak::pak()` 安装的是当前包的开发依赖，涉及的包可能更多。参数行为见 [pak 官方参考](https://pak.r-lib.org/reference/pak.html)，安装流程见 [pkg_install() 文档](https://pak.r-lib.org/reference/pkg_install.html)。
+
+| 慢的阶段 | 先看什么 | 代理是否能直接解决 |
+|:--|:--|:--|
+| 获取仓库索引、元数据 | 仓库地址、响应时间、重试、缓存是否可用 | 可能改善，需要测实际地址 |
+| 依赖解析 | 依赖数量、版本限制，以及是否同时请求多个仓库 | 网络只是其中一部分 |
+| 下载包文件 | 请求域名、最终出口、文件大小、吞吐量 | 取决于节点和仓库之间的线路 |
+| 编译、安装、加载检查 | 安装输出、CPU 使用、是否从源码安装 | 网络代理通常不能缩短本地编译 |
+
+`options(timeout = 300)` 主要延长等待上限；`options(Ncpus = ...)` 控制安装并行度。它们不能保证单个下载连接变快。pak 的 HTTP 请求由 pkgcache 处理；只设置 `download.file.method = "libcurl"`，也不能证明 pak 已使用代理。相关配置见 [pak 配置说明](https://pak.r-lib.org/reference/pak-config.html)。
+
+## 在实际使用的 R 会话里检查 {#inspect-r-session}
+
+在出现问题的 RStudio Console 中运行下面的代码。Windows RStudio 和 WSL RStudio 是不同环境，需要各查一次；一个终端进程中的设置，不能直接代表另一个已经运行的 R 会话。
+
+```r
+proxy_names <- c(
+  "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY",
+  "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY"
+)
+proxy_env <- Sys.getenv(proxy_names, unset = NA_character_)
+# 隐去 URL 中的代理用户名和密码，便于分享检查结果
+proxy_env <- sub("(://)[^/@]+@", "\\1***@", proxy_env)
+
+list(
+  R = R.version.string,
+  system = Sys.info()[["sysname"]],
+  pak = if (requireNamespace("pak", quietly = TRUE)) {
+    as.character(packageVersion("pak"))
+  } else {
+    "未安装"
+  },
+  repos = getOption("repos"),
+  download_method = getOption("download.file.method"),
+  timeout = getOption("timeout"),
+  Ncpus = getOption("Ncpus"),
+  proxy = proxy_env
+)
+```
+
+必要时再用 `pak::repo_get()` 查看 pak 使用的仓库信息。pak 可以在 `getOption("repos")` 的基础上加入适配当前 R 的 Bioconductor 仓库，不能只根据一个 CRAN 地址推断所有请求的去向。见 [repo_get() 文档](https://pak.r-lib.org/reference/repo_get.html)。
+
+本次会话检查结果如下；仓库和版本是 2026-10-07 的现场记录。
+
+| 项目 | Windows | WSL Ubuntu 22.04 |
+|:--|:--|:--|
+| R | 4.4.3，ucrt | 4.4.3 |
+| pak | 0.9.0 | 0.9.0 |
+| curl 包 | 7.1.0 | 7.0.0 |
+| CRAN 设置 | `https://cran.rstudio.com/` | `https://cloud.r-project.org` |
+| 其他已设置仓库 | — | `https://packagemanager.posit.co/cran/__linux__/jammy/latest` |
+| 显式代理环境变量 | 均未设置 | 均未设置 |
+| 下载方法 / 超时 | `libcurl` / 60 秒 | `libcurl` / 60 秒 |
+
+## 三种不同的网络路径 {#proxy-paths}
+
+| 路径 | R 中的表现 | 怎样确认 |
+|:--|:--|:--|
+| 显式 HTTP 代理 | 设置 `http_proxy`、`https_proxy` 等变量 | 检查环境变量，并查看代理客户端中的连接出口 |
+| TUN 接管 | 代理变量可以为空 | 查看实际连接是否进入 `Tun`，以及命中的规则和出口链 |
+| 直连 | 应用和系统层均未把这次请求转给代理节点 | 检查实际路由和连接；仅检查变量不够 |
+
+libcurl 支持按协议设置的代理变量、`ALL_PROXY` 和 `NO_PROXY`。在 Unix 环境中，`http_proxy` 的大小写规则与其他代理变量有所区别，排查时应同时检查；Windows 环境变量名不区分大小写。见 [libcurl 环境变量文档](https://curl.se/libcurl/c/libcurl-env.html)。
+
+`curl --noproxy "*"` 只能让 curl 绕过显式代理设置，不能让连接自动绕过系统层 TUN。因此，在 TUN 仍然开启时，不能把这条命令的耗时标记为“真正直连”的对照结果。
+
+## 本次 CRAN 请求实测 {#measured-download}
+
+为减少仓库地址与文件大小的差异，两个环境都请求同一个索引：
+
+```text
+https://cloud.r-project.org/src/contrib/PACKAGES.gz
+```
+
+在独立 R 进程中使用 curl 包，代理变量与所检查的 RStudio 会话一致，均未设置；没有安装 R 包。同时观察 Mihomo 的连接记录，确认这两个请求的入站与出口。
+
+| 环境 | HTTP 状态 | 下载字节数 | 耗时 | 平均吞吐量 | 观察到的路径 |
+|:--|--:|--:|--:|--:|:--|
+| Windows R 4.4.3 | 200 | 1,941,791 | 3.210 秒 | 0.6049 MB/s | `Tun → GLOBAL → 中转代理` |
+| WSL R 4.4.3 | 200 | 1,941,791 | 3.158 秒 | 0.6149 MB/s | `Tun → GLOBAL → 中转代理` |
+
+这里的 MB 按 1,000,000 字节计算。每个环境只测了一次，包含建连与获取索引的时间；未进行关闭 TUN 的直连对照，也未计时一次完整的 pak 安装。**这些数据确认了被测请求经过代理，不能证明配置后 pak 整体安装提速，也不能用来判定 Windows 与 WSL 的下载性能差异。**
+
+下面的代码可用于重新测同一个索引。它沿用当前 R 进程的网络设置，不修改代理变量；要判断实际出口，仍需同时看代理客户端的连接记录。
+
+```r
+url <- "https://cloud.r-project.org/src/contrib/PACKAGES.gz"
+handle <- curl::new_handle(connecttimeout = 8, timeout = 20)
+elapsed <- system.time(
+  response <- curl::curl_fetch_memory(url, handle = handle)
+)[["elapsed"]]
+
+data.frame(
+  status = response[["status_code"]],
+  bytes = length(response[["content"]]),
+  seconds = elapsed,
+  MB_per_second = length(response[["content"]]) / 1e6 / elapsed
+)
+```
+
+## 在全局 Merge 中配置 R 仓库规则 {#global-merge}
+
+本次使用 Clash Verge Rev 2.5.2 的“全局扩展覆写配置”。为保留原来的 DNS、TUN 和订阅规则，在 **Merge 中保存四条规则，由全局 Script 将它们放到规则列表最前面**。
+
+Clash Verge 的 Merge 对 `rules` 这样的列表进行整体替换。直接在全局 Merge 中写 `rules:`，可能覆盖订阅的完整分流规则。下面的 `prepend-rules` 是本例与 Script 约定的自定义字段，**不是 Merge 或 Mihomo 自动识别的规则前插功能**。合并顺序与列表行为见 [扩展配置文档](https://www.clashverge.dev/guide/extend.html)。
+
+### Merge：只追加这个字段 {#merge-yaml}
+
+保留 Merge 中已有的配置，将下面内容加入同一个 YAML 的顶层。如果已有 `prepend-rules`，应合并列表，不要重复定义同名键。
+
+```yaml
+# R package repositories
+prepend-rules:
+  - DOMAIN-SUFFIX,r-project.org,GLOBAL
+  - DOMAIN,cran.rstudio.com,GLOBAL
+  - DOMAIN,packagemanager.posit.co,GLOBAL
+  - DOMAIN-SUFFIX,bioconductor.org,GLOBAL
+```
+
+这里覆盖当前使用的 R 官方站点、CRAN RStudio 镜像、Posit Package Manager 和 Bioconductor。**其他 CRAN 镜像、GitHub 下载和重定向到其他域名的文件，不一定匹配这四条规则**；应根据实际连接中的域名补充规则。
+
+### Script：将规则前插 {#merge-script}
+
+如果全局 Script 仍是默认模板，可以使用下面的 `main()`。如果已有其他脚本逻辑，只把读取、前插和删除自定义字段的部分合并到原函数中，保留原有逻辑。
+
+```javascript
+function main(config, profileName) {
+  const prependRules = config["prepend-rules"] || [];
+  if (prependRules.length) {
+    config.rules = prependRules.concat(
+      (config.rules || []).filter(rule => !prependRules.includes(rule))
+    );
+  }
+  delete config["prepend-rules"];
+  return config;
+}
+```
+
+脚本读取 Merge 字段，前插这四条规则，并移除旧规则列表中完全相同的条目。其他规则保持原顺序；最后删除自定义字段，让内核收到正常的配置。脚本入口形式见 [Clash Verge Script 文档](https://www.clashverge.dev/guide/script.html)。
+
+本次生成配置通过了 Mihomo 配置校验；原有 121 条规则保留，最终为 125 条。内核运行时规则列表的前四项均为上述规则，目标为 `GLOBAL`。原始订阅文件没有改动。
+
+### 规则分流模式是否有效 {#rule-mode}
+
+**可以用于规则模式，但 `GLOBAL` 必须是存在且使用代理节点的策略组。** 规则按顺序匹配，将这四项放在前面，可使匹配的仓库请求先进入该组。规则顺序与目标含义见 [Mihomo 规则文档](https://wiki.metacubex.one/config/rules/)。
+
+这里有两个名称相似、作用不同的设置：
+
+| 名称 | 本例中的含义 |
+|:--|:--|
+| 运行模式 `global` | 全局模式，不能用它验证一条分流规则是否命中 |
+| 规则目标 `GLOBAL` | 策略组名称；规则模式下也可以选择这个组 |
+
+本机的 `GLOBAL` 是一个 Fallback 组，候选项为代理出口，当前使用“中转代理”。因此规则目标可用于规则分流。更换订阅后，应检查是否仍有同名组，以及它是否可能选中 `DIRECT`；也可以将四条规则的目标统一换成自己配置中已存在的代理组。
+
+本次下载实测时，客户端实际运行在全局模式，TUN 开启。**规则已加载，但没有切换到规则模式执行下载对照。** 规则模式下的结论来自规则顺序和策略组配置；正式验证时，应切换到规则模式，再查看新建连接命中的规则及出口。
+
+全局 Merge / Script 后面还可能执行订阅专属的 Merge / Script。如果后续逻辑再次替换 `rules`，前插规则可能被覆盖。保存后以最终生成配置和内核加载的规则为准，不能只看编辑框中的 YAML。
+
+## Windows 与 WSL 的代理地址区别 {#windows-wsl}
+
+本机 Windows 显式代理监听 `127.0.0.1:7897`，仅开放本机回环地址。Windows R 可以使用这个地址；本次 WSL 使用 NAT 网络，WSL 的 `127.0.0.1` 指向 Linux 自己，不能直接当成 Windows 的代理地址。
+
+实测 WSL 访问 `127.0.0.1:7897` 被拒绝，访问 Windows 网关地址的 7897 端口超时。不能据此认为 WSL 完全没有代理：上面的 R 请求仍被 Windows TUN 接管，并到达代理节点。其他 WSL 网络模式可能不同，应以实际监听地址和连通性为准。
+
+在这个环境中，保持 TUN 开启即可覆盖已验证的 Windows / WSL 请求。若选择让 **Windows R 使用显式 HTTP 代理**，可在首次调用 pak 前设置：
+
+```r
+Sys.setenv(
+  http_proxy = "http://127.0.0.1:7897",
+  https_proxy = "http://127.0.0.1:7897"
+)
+```
+
+若要对后续 Windows R 会话默认生效，可将下面两行合并到用户的 `.Renviron`，然后重启 R，再调用 pak。端口必须与自己的客户端一致；已经运行的会话及子进程可能保留旧环境。
+
+```text
+http_proxy=http://127.0.0.1:7897
+https_proxy=http://127.0.0.1:7897
+```
+
+`https_proxy` 这里仍使用 `http://`，表示通过本地 HTTP 代理访问 HTTPS 目标。若已有 `no_proxy` / `NO_PROXY`，还应检查是否把目标仓库排除；本地服务一般需要保留绕过代理的设置。上述回环地址配置只适用于本例 Windows 环境，不能原样搬到所测的 WSL NAT 环境。
+
+## 配置后怎样继续判断“慢” {#next-checks}
+
+1. **确认规则与出口。** 规则模式下检查新连接的目标域名、命中的规则和代理节点。若没命中，先检查重定向后的域名、策略组和后续覆写。
+2. **测实际下载文件。** 使用同一个 URL、同一个文件大小比较候选节点或镜像，重复测量，并记录状态码和耗时。索引下载顺利，不代表大包文件也顺利。
+3. **核对 pak 的安装阶段。** 保留包名、下载与构建输出。对于 Linux 源码编译，适配系统的 Posit Package Manager 二进制仓库可能减少编译成本；本机已配置 jammy 仓库，但包是否有匹配二进制仍需逐包确认。见 [pkgcache 的 PPM 说明](https://r-lib.github.io/pkgcache/articles/ppm.html)。
+4. **保留可用缓存。** pak 会缓存元数据与下载的包；清空缓存可能反而增加网络请求，不应当作默认的提速步骤。缓存与更新设置见 [pak 配置说明](https://pak.r-lib.org/reference/pak-config.html)。
+
+这份记录解决的是代理路径确认与仓库规则配置。若完整安装仍慢，下一步需要一次具体 `pak::pak("包名")` 的阶段日志和计时，才能把问题定位到下载线路、依赖解析或编译安装。
