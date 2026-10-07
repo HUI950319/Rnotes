@@ -8013,7 +8013,7 @@
     "href": "troubleshooting/index.html",
     "title": "R 问题排查",
     "section": "",
-    "text": "这里收录 R 与开发环境的排查记录，包含故障现象、受控对照、原因评估、修复或规避方法，以及尚待验证的问题。该栏目与各 R 包栏目并列。\n\n\n\n页面\n排查范围\n日期\n\n\n\n\nEdge + WSL RStudio 卡顿：R 诊断与大脚本实测\n升级后诊断开关对照、Ctrl+Enter 与输出计时、挂载盘与大脚本；另附 Windows Help 缓存修复记录\n2026-10-07\n\n\n\n模型拟合、重采样与解释方法的耗时比较见 跨包性能评估。",
+    "text": "这里收录 R 与开发环境的排查记录，包含故障现象、受控对照、原因评估、修复或规避方法，以及尚待验证的问题。该栏目与各 R 包栏目并列。\n\n\n\n页面\n排查范围\n日期\n\n\n\n\nEdge + WSL RStudio 卡顿：R 诊断与大脚本实测\n升级后诊断开关对照、Ctrl+Enter 与输出计时、挂载盘与大脚本；另附 Windows Help 缓存修复记录\n2026-10-07\n\n\nRStudio Help 缓存：更新包后帮助页报错\n触发条件、Windows／WSL 对照、四个包的缓存清理、R snippets 与公开案例\n2026-10-07\n\n\n\n模型拟合、重采样与解释方法的耗时比较见 跨包性能评估。",
     "crumbs": [
       "R 问题排查"
     ]
@@ -8111,7 +8111,7 @@
     "href": "troubleshooting/rstudio-wsl-diagnostics-20261007.html#windows-help-cache",
     "title": "Edge + WSL RStudio 卡顿：R 诊断与大脚本实测",
     "section": "另一个问题：Windows Help 显示 Internal Server Error",
-    "text": "另一个问题：Windows Help 显示 Internal Server Error\n2026-10-07 下午还检查了一次 Windows RStudio Desktop 的 Help 页面错误。这是独立于上述 WSL 大脚本等待的故障：打开 RegR::get_score 文档时，Help 只显示 Internal Server Error，日志与 R 控制台对应的错误是：\nlazy-load database '&lt;Windows R library&gt;/RegR/help/RegR.rdb' is corrupt\ninternal error 1 in R_decompress1 with libdeflate\n\n用同一帮助主题区分文件损坏与会话缓存\nWindows 使用 RStudio Desktop 2026.1.0.392、R 4.4.3 和 RegR 0.1.3。Windows 三个进程的对照使用同一个 Windows 包库；WSL 使用独立的 Linux 包库。读取帮助不执行文档中的模型示例。\n\n\n\n\n\n\n\n检查位置与操作\n实测结果\n\n\n\n\n出错的 Windows 旧会话：读取 base::mean 帮助\n正常，返回 12 个 Rd 顶层元素\n\n\n同一旧会话：读取 RegR::get_score 帮助\n复现上述数据库／解压错误\n\n\nWindows 全新 Rscript --vanilla：tools::Rd_db(\"RegR\")\n全部 126 个帮助主题读取成功\n\n\n另一个较晚启动的 Windows RStudio 会话：读取同一主题\n正常，返回 11 个 Rd 顶层元素\n\n\n当前 WSL RStudio 会话：同一主题及 tools::Rd_db(\"RegR\")\n同一主题读取成功，全部 126 个主题也读取成功；Edge 中对应 Help 页面显示完整说明与参数\n\n\n出错的 Windows 旧会话：仅刷新 RegR 帮助数据库缓存后重读\n同一主题立即读取成功；实际 Help 页面恢复说明与参数\n\n\n\n这里的 11／12 是帮助对象的结构检查值，不是性能计时，也不用于比较两个函数的复杂度。\nWindows 出错会话在 07:56:41 启动，RegR 的 .rdb／.rdx 帮助文件在 08:17:28 更新，正常的另一 Windows 会话在 09:16:57 启动（均为本地 UTC+8 时间）。文件大小约 936 KB。\n直接确认的是旧会话持有失配的帮助数据库缓存。 磁盘上的同一套文件能被全新 R 进程完整读取，且只刷新缓存就使原会话恢复，因此本次不需要重装 RegR。时间顺序进一步支持“会话运行期间更新了包，旧缓存未同步”的解释；没有记录到当时的安装命令，不能据此判断由哪个安装进程触发。\nR 4.4 的实现会按文件路径缓存部分 .rdb 内容；缓存命中时直接读取内存中的数据，lazyLoadDBflush 则释放指定路径对应的缓存。这为上述现象提供了机制解释。R 4.4 源码：serialize.c。\n\n\n本次如何修复，以及适用边界\n先用不启动文档示例的读取方式确认出错主题：\nutils:::.getHelpFile(utils::help(\"get_score\", package = \"RegR\"))\n本次在 原来出错的 Windows 会话 中执行了下面的定向处理，然后重新打开 Help。过程中没有重启 R、重装包或清空工作区；原有数据与未保存脚本仍在。\nlocal({\n  db &lt;- file.path(find.package(\"RegR\"), \"help\", \"RegR.rdb\")\n  .Internal(lazyLoadDBflush(db))\n  rd &lt;- utils:::.getHelpFile(utils::help(\"get_score\", package = \"RegR\"))\n  stopifnot(inherits(rd, \"Rd\"))\n})\n\nutils::help(\"get_score\", package = \"RegR\")\n这使用了 R 的内部接口，只记录为 R 4.4.3 下本案已验证的定向修复，不应放进通用启动脚本。它只刷新帮助数据库缓存，不会重新加载包函数。平时更新包后，应在保存脚本及需要保留的分析对象后重启使用该包的 R 会话；如果全新 R 进程也读不出帮助数据库，再检查安装完整性。\nWSL 当前没有复现这次 Help 错误，不等于 WSL 永远不会遇到旧缓存问题，也不等于前文的大脚本诊断等待已经解决。 Windows 的 Help 恢复只验证了帮助读取与页面显示，没有对旧会话中已加载函数的版本一致性作保证。",
+    "text": "另一个问题：Windows Help 显示 Internal Server Error\n触发条件、四个自研包的清理代码、R snippets 与公开案例已整理到 RStudio Help 缓存独立页面。本节保留最初的实测记录。\n2026-10-07 下午还检查了一次 Windows RStudio Desktop 的 Help 页面错误。这是独立于上述 WSL 大脚本等待的故障：打开 RegR::get_score 文档时，Help 只显示 Internal Server Error，日志与 R 控制台对应的错误是：\nlazy-load database '&lt;Windows R library&gt;/RegR/help/RegR.rdb' is corrupt\ninternal error 1 in R_decompress1 with libdeflate\n\n用同一帮助主题区分文件损坏与会话缓存\nWindows 使用 RStudio Desktop 2026.1.0.392、R 4.4.3 和 RegR 0.1.3。Windows 三个进程的对照使用同一个 Windows 包库；WSL 使用独立的 Linux 包库。读取帮助不执行文档中的模型示例。\n\n\n\n\n\n\n\n检查位置与操作\n实测结果\n\n\n\n\n出错的 Windows 旧会话：读取 base::mean 帮助\n正常，返回 12 个 Rd 顶层元素\n\n\n同一旧会话：读取 RegR::get_score 帮助\n复现上述数据库／解压错误\n\n\nWindows 全新 Rscript --vanilla：tools::Rd_db(\"RegR\")\n全部 126 个帮助主题读取成功\n\n\n另一个较晚启动的 Windows RStudio 会话：读取同一主题\n正常，返回 11 个 Rd 顶层元素\n\n\n当前 WSL RStudio 会话：同一主题及 tools::Rd_db(\"RegR\")\n同一主题读取成功，全部 126 个主题也读取成功；Edge 中对应 Help 页面显示完整说明与参数\n\n\n出错的 Windows 旧会话：仅刷新 RegR 帮助数据库缓存后重读\n同一主题立即读取成功；实际 Help 页面恢复说明与参数\n\n\n\n这里的 11／12 是帮助对象的结构检查值，不是性能计时，也不用于比较两个函数的复杂度。\nWindows 出错会话在 07:56:41 启动，RegR 的 .rdb／.rdx 帮助文件在 08:17:28 更新，正常的另一 Windows 会话在 09:16:57 启动（均为本地 UTC+8 时间）。文件大小约 936 KB。\n直接确认的是旧会话持有失配的帮助数据库缓存。 磁盘上的同一套文件能被全新 R 进程完整读取，且只刷新缓存就使原会话恢复，因此本次不需要重装 RegR。时间顺序进一步支持“会话运行期间更新了包，旧缓存未同步”的解释；没有记录到当时的安装命令，不能据此判断由哪个安装进程触发。\nR 4.4 的实现会按文件路径缓存部分 .rdb 内容；缓存命中时直接读取内存中的数据，lazyLoadDBflush 则释放指定路径对应的缓存。这为上述现象提供了机制解释。R 4.4 源码：serialize.c。\n\n\n本次如何修复，以及适用边界\n先用不启动文档示例的读取方式确认出错主题：\nutils:::.getHelpFile(utils::help(\"get_score\", package = \"RegR\"))\n本次在 原来出错的 Windows 会话 中执行了下面的定向处理，然后重新打开 Help。过程中没有重启 R、重装包或清空工作区；原有数据与未保存脚本仍在。\nlocal({\n  db &lt;- file.path(find.package(\"RegR\"), \"help\", \"RegR.rdb\")\n  .Internal(lazyLoadDBflush(db))\n  rd &lt;- utils:::.getHelpFile(utils::help(\"get_score\", package = \"RegR\"))\n  stopifnot(inherits(rd, \"Rd\"))\n})\n\nutils::help(\"get_score\", package = \"RegR\")\n这使用了 R 的内部接口，只记录为 R 4.4.3 下本案已验证的定向修复，不应放进通用启动脚本。它只刷新帮助数据库缓存，不会重新加载包函数。平时更新包后，应在保存脚本及需要保留的分析对象后重启使用该包的 R 会话；如果全新 R 进程也读不出帮助数据库，再检查安装完整性。\nWSL 当前没有复现这次 Help 错误，不等于 WSL 永远不会遇到旧缓存问题，也不等于前文的大脚本诊断等待已经解决。 Windows 的 Help 恢复只验证了帮助读取与页面显示，没有对旧会话中已加载函数的版本一致性作保证。",
     "crumbs": [
       "R 问题排查",
       "<span class='chapter-number'>79</span>  <span class='chapter-title'>Edge + WSL RStudio 卡顿：R 诊断与大脚本实测</span>"
@@ -8126,6 +8126,83 @@
     "crumbs": [
       "R 问题排查",
       "<span class='chapter-number'>79</span>  <span class='chapter-title'>Edge + WSL RStudio 卡顿：R 诊断与大脚本实测</span>"
+    ]
+  },
+  {
+    "objectID": "troubleshooting/rstudio-help-cache.html",
+    "href": "troubleshooting/rstudio-help-cache.html",
+    "title": "RStudio Help 缓存：更新包后帮助页报错",
+    "section": "",
+    "text": "一般在什么时候遇到？\nRStudio 的 Help 页面有时只显示 Internal Server Error，而控制台或日志提示某个包的 help/&lt;包名&gt;.rdb 损坏。如果同一份帮助文件能被全新 R 进程正常读取，原会话在清理缓存后也立即恢复，应优先考虑 当前 R 进程保留了更新前的帮助数据库缓存。\n本文记录的是 2026-10-07 在 R 4.4.3 下确认的 Help 缓存问题。关于编辑器点击 Run 后等待很久的另一个问题，见 Edge + WSL RStudio 卡顿实测。\n典型流程是：R 会话一直开着，已经查看过某个包的帮助，随后把该包重新安装到同一个库，最后在原会话再次打开 Help。 2015 年的 R-help 报告已描述过“更新已加载的自研包后，函数仍能运行，但文档报错”的情况。原始报告\n常见触发条件包括：\n这些是典型条件，并非每次安装都必然报错。关键操作是重新安装覆盖了已安装的帮助数据库；仅修改源码或 man/ 下的文档、尚未安装时，通常不会触发本文这类已安装数据库缓存问题。",
+    "crumbs": [
+      "R 问题排查",
+      "<span class='chapter-number'>80</span>  <span class='chapter-title'>RStudio Help 缓存：更新包后帮助页报错</span>"
+    ]
+  },
+  {
+    "objectID": "troubleshooting/rstudio-help-cache.html#when-it-happens",
+    "href": "troubleshooting/rstudio-help-cache.html#when-it-happens",
+    "title": "RStudio Help 缓存：更新包后帮助页报错",
+    "section": "",
+    "text": "频繁开发自己的包：修改 UtilsR、RegR、MLR、causalR 的函数或文档，重新安装后继续使用原 RStudio 会话。\n更新后只重新加载包：再次调用 library()，或卸载后重新加载，不保证所有 Help 缓存都已刷新；renv 为自身专门添加了清理代码。renv 源码\n多个会话共用同一个包库：一个会话重新安装包，其他会话仍保留旧缓存。根据下文的进程内缓存机制推断，这也可能触发同类错误。",
+    "crumbs": [
+      "R 问题排查",
+      "<span class='chapter-number'>80</span>  <span class='chapter-title'>RStudio Help 缓存：更新包后帮助页报错</span>"
+    ]
+  },
+  {
+    "objectID": "troubleshooting/rstudio-help-cache.html#cache-mechanism",
+    "href": "troubleshooting/rstudio-help-cache.html#cache-mechanism",
+    "title": "RStudio Help 缓存：更新包后帮助页报错",
+    "section": "为什么重新加载包仍可能报错？",
+    "text": "为什么重新加载包仍可能报错？\nR 的帮助文档安装后保存在 help/&lt;包名&gt;.rdb 与 .rdx 中，读取帮助也使用 lazy-load 数据库。R Internals：Help\nR 4.4 的实现按文件路径缓存部分 .rdb 内容。命中缓存时直接复制内存里的旧字节，没有在这一步检查文件修改时间；.Internal(lazyLoadDBflush(db)) 则释放指定路径对应的缓存。安装新版包改变了磁盘文件后，原会话可能仍使用旧内容，造成读取或解压错误。R 4.4 源码\n因此，Help 页面刷新、包函数重新加载、帮助数据库缓存刷新是不同的操作。函数能够调用，也不能据此证明当前 Help 数据库可正常读取。",
+    "crumbs": [
+      "R 问题排查",
+      "<span class='chapter-number'>80</span>  <span class='chapter-title'>RStudio Help 缓存：更新包后帮助页报错</span>"
+    ]
+  },
+  {
+    "objectID": "troubleshooting/rstudio-help-cache.html#verified-case",
+    "href": "troubleshooting/rstudio-help-cache.html#verified-case",
+    "title": "RStudio Help 缓存：更新包后帮助页报错",
+    "section": "本次实测：Windows 出错，WSL 对照正常",
+    "text": "本次实测：Windows 出错，WSL 对照正常\n本次 Windows 环境为 RStudio Desktop 2026.1.0.392、R 4.4.3、RegR 0.1.3。打开 RegR::get_score 的帮助时，页面显示 Internal Server Error，对应错误为：\nlazy-load database '&lt;Windows R library&gt;/RegR/help/RegR.rdb' is corrupt\ninternal error 1 in R_decompress1 with libdeflate\n\n\n\n\n\n\n\n检查位置与操作\n2026-10-07 的结果\n\n\n\n\n出错的 Windows 旧会话读取 base::mean 帮助\n正常\n\n\n同一旧会话读取 RegR::get_score 帮助\n复现数据库／解压错误\n\n\nWindows 全新 R 进程读取 tools::Rd_db(\"RegR\")\n全部 126 个帮助主题读取成功\n\n\n较晚启动的另一个 Windows RStudio 会话读取同一主题\n正常\n\n\nWSL RStudio 会话读取同一主题及全部 RegR 帮助主题\n正常；实际 Help 页面显示完整说明与参数\n\n\n原来出错的 Windows 会话仅清理 RegR Help 缓存\n同一主题立即恢复，实际 Help 页面恢复\n\n\n\n旧 Windows 会话在 07:56:41 启动，RegR 帮助文件在 08:17:28 更新，正常的另一个 Windows 会话在 09:16:57 启动，时间均为 UTC+8。\n直接确认的是旧会话的帮助缓存失配。 文件更新时间支持“会话运行期间更新了包”的解释，但当时的安装命令没有被记录，无法认定由哪个安装进程触发。WSL 对照没有复现这次错误，不代表 Linux 不会遇到同类缓存问题。完整检查过程见 原排查记录。",
+    "crumbs": [
+      "R 问题排查",
+      "<span class='chapter-number'>80</span>  <span class='chapter-title'>RStudio Help 缓存：更新包后帮助页报错</span>"
+    ]
+  },
+  {
+    "objectID": "troubleshooting/rstudio-help-cache.html#clear-help-cache",
+    "href": "troubleshooting/rstudio-help-cache.html#clear-help-cache",
+    "title": "RStudio Help 缓存：更新包后帮助页报错",
+    "section": "清理当前会话的 Help 缓存",
+    "text": "清理当前会话的 Help 缓存\n对于本例中已安装的四个包，可以在 出现问题的那个 RStudio Console 中运行：\nlocal({\n  pkgs &lt;- c(\"UtilsR\", \"RegR\", \"MLR\", \"causalR\")\n  for (pkg in pkgs) {\n    db &lt;- file.path(find.package(pkg), \"help\", paste0(pkg, \".rdb\"))\n    .Internal(lazyLoadDBflush(db))\n  }\n})\n如果当前环境未安装其中某个包，先从 pkgs 中去掉它。运行后重新打开出错主题，例如：\nutils::help(\"get_score\", package = \"RegR\")\n如需直接检查帮助内容能否读取，可以使用：\nlocal({\n  rd &lt;- utils:::.getHelpFile(\n    utils::help(\"get_score\", package = \"RegR\")\n  )\n  stopifnot(inherits(rd, \"Rd\"))\n})\n这段代码使用 R 内部接口，本案在 R 4.4.3 下已验证。它清理指定包的 帮助数据库内存缓存，不会删除 .rdb 文件、清空分析对象，也不会重新加载包函数。若还需要确认新函数已经生效，应另行处理包的加载状态；保存脚本及需要保留的对象后重启 R 会话，是更完整的刷新方式。\n对于反复安装自研包、又需要保留当前会话的情况，可在安装完成后、再次打开 Help 前手动执行清理。无需把它放进每次启动都执行的脚本。如果全新 R 进程也读不出帮助文件，应检查安装完整性，不能仅凭 Internal Server Error 就认定是缓存问题。\n\n可以并行清理吗？\n四个包在当前会话中顺序清理即可。这里操作的是 R 进程自己的缓存；另起并行子进程，只会清理那些子进程中的缓存，无法代替当前 RStudio 会话的清理。Windows 与 WSL 使用独立的 R 进程，需要在各自会话中分别执行。缓存实现依据",
+    "crumbs": [
+      "R 问题排查",
+      "<span class='chapter-number'>80</span>  <span class='chapter-title'>RStudio Help 缓存：更新包后帮助页报错</span>"
+    ]
+  },
+  {
+    "objectID": "troubleshooting/rstudio-help-cache.html#snippet",
+    "href": "troubleshooting/rstudio-help-cache.html#snippet",
+    "title": "RStudio Help 缓存：更新包后帮助页报错",
+    "section": "保存为 R snippet",
+    "text": "保存为 R snippet\n进入 Tools → Global Options → Code → Edit Snippets → R，加入以下定义，再点击 Save。snippet helpflush 下每一行的开头必须有一个真实的 Tab，不能全用空格替代。Posit snippets 官方说明\nsnippet helpflush\n\tlocal({\n\t  pkgs &lt;- c(\"UtilsR\", \"RegR\", \"MLR\", \"causalR\")\n\t  for (pkg in pkgs) {\n\t    db &lt;- file.path(find.package(pkg), \"help\", paste0(pkg, \".rdb\"))\n\t    .Internal(lazyLoadDBflush(db))\n\t  }\n\t})\n在 R 脚本中输入 helpflush，按 Shift+Tab 展开，再运行展开后的代码。展开 snippet 本身不执行清理。\nWindows Desktop 和 WSL Server 的 snippets 配置彼此独立，需要各自保存。本次还遇到过“文件已写入，但当前 Edit Snippets 仍显示旧内容”的情况；应以界面保存后能实际展开为准，不能只根据磁盘文件中存在定义就认定界面已经加载。",
+    "crumbs": [
+      "R 问题排查",
+      "<span class='chapter-number'>80</span>  <span class='chapter-title'>RStudio Help 缓存：更新包后帮助页报错</span>"
+    ]
+  },
+  {
+    "objectID": "troubleshooting/rstudio-help-cache.html#public-reports",
+    "href": "troubleshooting/rstudio-help-cache.html#public-reports",
+    "title": "RStudio Help 缓存：更新包后帮助页报错",
+    "section": "别人遇到过吗？",
+    "text": "别人遇到过吗？\n\n\n\n公开资料\n报告或实现的内容\n\n\n\n\nR-help，2015-06-05\n更新已加载的自研包后，函数仍能用，但查看文档报 lazy-load／解压错误；与本例的操作场景接近。\n\n\nrenv issue #1294，2023-05-19\nHadley 提出重新安装后重置 Help 数据库，并给出 lazyLoadDBflush() 调用。\n\n\nrenv 的 .onUnload() 实现\n卸载时清理自身的 help/renv.rdb 缓存，注释说明用于避免重新加载时报错。\n\n\nbipartite 维护记录\n记录 macOS 上安装包后 help/bipartite.rdb 报损坏，并建议重启 R。该记录未单独证明所有报错都由缓存引起。\n\n\n\n上述资料说明类似现象有长期的公开记录，定向清理也有现成项目实践。renv 的处理只覆盖它自身，不能据此认为所有自研包的帮助缓存都会自动清理。",
+    "crumbs": [
+      "R 问题排查",
+      "<span class='chapter-number'>80</span>  <span class='chapter-title'>RStudio Help 缓存：更新包后帮助页报错</span>"
     ]
   }
 ]
