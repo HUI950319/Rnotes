@@ -26,7 +26,7 @@ python scripts/check_site.py
 ```
 
 检查页底与 HTML 头部的上一页／下一页是否遵循 `_quarto.yml`，以及侧栏层级、
-站内链接与锚点、页面摘要、图片替代文本与懒加载、搜索索引和 sitemap。
+站内链接与锚点、页面摘要、图片替代文本与懒加载、全站图号唯一性、搜索索引和 sitemap。
 GitHub Actions 会在每次 push 和 pull request 中执行同一检查。
 
 ## 数据说明

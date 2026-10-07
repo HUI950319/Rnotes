@@ -1,6 +1,7 @@
 """Check the published book before committing docs/ (no R execution needed)."""
 
 import json
+import re
 import sys
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -26,6 +27,7 @@ def check(root):
     base = urlparse(config["book"]["site-url"])
     expected = [Path(p).with_suffix(".html").as_posix() for p in chapters(config["book"]["chapters"])]
     errors = []
+    figure_numbers = {}
 
     def resolve(page, url):
         parsed = urlparse(url)
@@ -58,6 +60,17 @@ def check(root):
             errors.append(f"Missing chapter source or output: {name}")
             continue
         soup = pages[page]
+        for caption in soup.select("main figcaption, main .figure-caption"):
+            match = re.match(r"图\s+(\d+\.\d+)(?:\s|:|：)", caption.get_text(" ", strip=True))
+            if not match:
+                continue
+            number = match[1]
+            if int(number.split(".")[0]) != i:
+                errors.append(f"{name}: figure {number} does not match chapter {i}")
+            if number in figure_numbers:
+                errors.append(f"Duplicate figure number {number}: {figure_numbers[number]} and {name}")
+            else:
+                figure_numbers[number] = name
         description = soup.select_one('head meta[name="description"]')
         if not description or not description.get("content", "").strip():
             errors.append(f"{name}: page description is missing")
