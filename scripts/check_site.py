@@ -65,11 +65,23 @@ def check(root):
             wanted = [docs / neighbor] if neighbor else []
             if actual != wanted:
                 errors.append(f"{name}: {direction} should be {neighbor}, got {[p.relative_to(docs).as_posix() for p in actual]}")
+            relation = "prev" if direction == "previous" else "next"
+            head_links = soup.select(f'head link[rel="{relation}"][href]')
+            if [resolve(page, a["href"])[0] for a in head_links] != wanted:
+                errors.append(f"{name}: head {relation} does not match chapter order")
         sidebar = {resolve(page, a["href"])[0] for a in soup.select("#quarto-sidebar a[href]")
                    if resolve(page, a["href"]) is not None}
         missing = {docs / p for p in expected} - sidebar
         if missing:
             errors.append(f"{name}: sidebar is missing {len(missing)} chapters")
+        for item in config["book"]["chapters"]:
+            if not isinstance(item, dict) or not str(item.get("part", "")).endswith(".qmd"):
+                continue
+            target = docs / Path(item["part"]).with_suffix(".html")
+            link = next((a for a in soup.select("#quarto-sidebar .sidebar-item a[href]")
+                         if resolve(page, a["href"]) and resolve(page, a["href"])[0] == target), None)
+            if link and "sidebar-section" in link.find_parent("li").find_parent("ul").get("class", []):
+                errors.append(f"{name}: top-level part is nested in sidebar: {item['part']}")
 
     for page, soup in pages.items():
         for img in soup.select("main img[src]"):
