@@ -58,6 +58,9 @@ def check(root):
             errors.append(f"Missing chapter source or output: {name}")
             continue
         soup = pages[page]
+        description = soup.select_one('head meta[name="description"]')
+        if not description or not description.get("content", "").strip():
+            errors.append(f"{name}: page description is missing")
         for direction, neighbor in (("previous", expected[i - 1] if i else None),
                                     ("next", expected[i + 1] if i + 1 < len(expected) else None)):
             links = soup.select(f"nav.page-navigation .nav-page-{direction} a[href]")
@@ -85,6 +88,8 @@ def check(root):
 
     for page, soup in pages.items():
         for img in soup.select("main img[src]"):
+            if not img.get("alt", "").strip():
+                errors.append(f"{page.relative_to(docs)}: body figure is missing alternative text")
             if img.get("loading") != "lazy":
                 errors.append(f"{page.relative_to(docs)}: body figure is missing lazy loading")
             for candidate in img.get("srcset", "").split(","):
@@ -119,7 +124,7 @@ def check(root):
         print("\n".join(errors))
         print(f"FAIL: {len(errors)} issues")
         return 1
-    print(f"PASS: {len(expected)} chapters; navigation, sidebar, local links, anchors, search and sitemap")
+    print(f"PASS: {len(expected)} chapters; navigation, sidebar, descriptions, figure alt/lazy loading, local links, anchors, search and sitemap")
     return 0
 
 
