@@ -8,11 +8,15 @@ pkgdown 站点；因果推断读书笔记另见 [causalR](https://hui950319.gith
 ## 本地渲染
 
 ```bash
+python -m pip install beautifulsoup4 PyYAML Pillow
 quarto render
 ```
 
 站点用 Quarto book 构建，输出到 `docs/`，GitHub Pages 从 `main` 分支的 `docs/` 发布。
 含 R 代码块的页面由 `execute: freeze: auto` 缓存在 `_freeze/`，只有源文件变动时才重跑。
+渲染后自动运行 `scripts/prepare_images.py`：正文图片使用懒加载、异步解码和原始宽高，
+PNG 同时提供更小的无损 WebP 预览。预览逐像素核验；原 PNG 与放大链接继续保留。
+已有预览按原 PNG 的内容哈希复用，无需重新编码。也可单独运行该脚本更新已生成页面。
 
 发布前检查已生成的站点（不执行 R 分析）：
 

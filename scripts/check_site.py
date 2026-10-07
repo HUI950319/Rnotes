@@ -72,6 +72,14 @@ def check(root):
             errors.append(f"{name}: sidebar is missing {len(missing)} chapters")
 
     for page, soup in pages.items():
+        for img in soup.select("main img[src]"):
+            if img.get("loading") != "lazy":
+                errors.append(f"{page.relative_to(docs)}: body figure is missing lazy loading")
+            for candidate in img.get("srcset", "").split(","):
+                if candidate.strip():
+                    result = resolve(page, candidate.strip().split()[0])
+                    if result and not result[0].is_file():
+                        errors.append(f"{page.relative_to(docs)}: missing figure preview {candidate}")
         for tag in soup.select("a[href], link[href], img[src], script[src], iframe[src], source[src], video[src], object[data]"):
             url = tag.get("href", tag.get("src", tag.get("data")))
             result = resolve(page, url)
