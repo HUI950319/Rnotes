@@ -8106,5 +8106,16 @@
       "跨包性能评估",
       "<span class='chapter-number'>28</span>  <span class='chapter-title'>Edge + WSL RStudio 卡顿：R 诊断与大脚本实测</span>"
     ]
+  },
+  {
+    "objectID": "regr/rstudio-wsl-diagnostics-20261007.html#windows-help-cache",
+    "href": "regr/rstudio-wsl-diagnostics-20261007.html#windows-help-cache",
+    "title": "Edge + WSL RStudio 卡顿：R 诊断与大脚本实测",
+    "section": "另一个问题：Windows Help 显示 Internal Server Error",
+    "text": "另一个问题：Windows Help 显示 Internal Server Error\n2026-10-07 下午还检查了一次 Windows RStudio Desktop 的 Help 页面错误。这是独立于上述 WSL 大脚本等待的故障：打开 RegR::get_score 文档时，Help 只显示 Internal Server Error，日志与 R 控制台对应的错误是：\nlazy-load database '&lt;Windows R library&gt;/RegR/help/RegR.rdb' is corrupt\ninternal error 1 in R_decompress1 with libdeflate\n\n用同一帮助主题区分文件损坏与会话缓存\nWindows 使用 RStudio Desktop 2026.1.0.392、R 4.4.3 和 RegR 0.1.3。Windows 三个进程的对照使用同一个 Windows 包库；WSL 使用独立的 Linux 包库。读取帮助不执行文档中的模型示例。\n\n\n\n\n\n\n\n检查位置与操作\n实测结果\n\n\n\n\n出错的 Windows 旧会话：读取 base::mean 帮助\n正常，返回 12 个 Rd 顶层元素\n\n\n同一旧会话：读取 RegR::get_score 帮助\n复现上述数据库／解压错误\n\n\nWindows 全新 Rscript --vanilla：tools::Rd_db(\"RegR\")\n全部 126 个帮助主题读取成功\n\n\n另一个较晚启动的 Windows RStudio 会话：读取同一主题\n正常，返回 11 个 Rd 顶层元素\n\n\n当前 WSL RStudio 会话：同一主题及 tools::Rd_db(\"RegR\")\n同一主题读取成功，全部 126 个主题也读取成功；Edge 中对应 Help 页面显示完整说明与参数\n\n\n出错的 Windows 旧会话：仅刷新 RegR 帮助数据库缓存后重读\n同一主题立即读取成功；实际 Help 页面恢复说明与参数\n\n\n\n这里的 11／12 是帮助对象的结构检查值，不是性能计时，也不用于比较两个函数的复杂度。\nWindows 出错会话在 07:56:41 启动，RegR 的 .rdb／.rdx 帮助文件在 08:17:28 更新，正常的另一 Windows 会话在 09:16:57 启动（均为本地 UTC+8 时间）。文件大小约 936 KB。\n直接确认的是旧会话持有失配的帮助数据库缓存。 磁盘上的同一套文件能被全新 R 进程完整读取，且只刷新缓存就使原会话恢复，因此本次不需要重装 RegR。时间顺序进一步支持“会话运行期间更新了包，旧缓存未同步”的解释；没有记录到当时的安装命令，不能据此判断由哪个安装进程触发。\nR 4.4 的实现会按文件路径缓存部分 .rdb 内容；缓存命中时直接读取内存中的数据，lazyLoadDBflush 则释放指定路径对应的缓存。这为上述现象提供了机制解释。R 4.4 源码：serialize.c。\n\n\n本次如何修复，以及适用边界\n先用不启动文档示例的读取方式确认出错主题：\nutils:::.getHelpFile(utils::help(\"get_score\", package = \"RegR\"))\n本次在 原来出错的 Windows 会话 中执行了下面的定向处理，然后重新打开 Help。过程中没有重启 R、重装包或清空工作区；原有数据与未保存脚本仍在。\nlocal({\n  db &lt;- file.path(find.package(\"RegR\"), \"help\", \"RegR.rdb\")\n  .Internal(lazyLoadDBflush(db))\n  rd &lt;- utils:::.getHelpFile(utils::help(\"get_score\", package = \"RegR\"))\n  stopifnot(inherits(rd, \"Rd\"))\n})\n\nutils::help(\"get_score\", package = \"RegR\")\n这使用了 R 的内部接口，只记录为 R 4.4.3 下本案已验证的定向修复，不应放进通用启动脚本。它只刷新帮助数据库缓存，不会重新加载包函数。平时更新包后，应在保存脚本及需要保留的分析对象后重启使用该包的 R 会话；如果全新 R 进程也读不出帮助数据库，再检查安装完整性。\nWSL 当前没有复现这次 Help 错误，不等于 WSL 永远不会遇到旧缓存问题，也不等于前文的大脚本诊断等待已经解决。 Windows 的 Help 恢复只验证了帮助读取与页面显示，没有对旧会话中已加载函数的版本一致性作保证。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>28</span>  <span class='chapter-title'>Edge + WSL RStudio 卡顿：R 诊断与大脚本实测</span>"
+    ]
   }
 ]

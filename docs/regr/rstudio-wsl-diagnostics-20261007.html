@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="RStudio Server 升级至 2026.09.0+174 后的大脚本诊断对照：准备阶段约 3 秒与 23 秒，Ctrl+Enter、控制台输出、Windows 挂载盘文件检查，以及诊断开关和脚本拆分建议。">
+<meta name="description" content="RStudio Server 升级后的大脚本诊断对照：准备阶段约 3 秒与 23 秒；另附 Windows Help 的 Internal Server Error、RegR 旧帮助缓存修复及 WSL 对照。">
 
 <title>Edge + WSL RStudio 卡顿：R 诊断与大脚本实测 – R 包开发笔记</title>
 <style>
@@ -847,6 +847,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   </ul></li>
   <li><a href="#related-reports" id="toc-related-reports" class="nav-link" data-scroll-target="#related-reports">别人遇到过类似问题吗</a></li>
   <li><a href="#recheck" id="toc-recheck" class="nav-link" data-scroll-target="#recheck">如何复核自己的情况</a></li>
+  <li><a href="#windows-help-cache" id="toc-windows-help-cache" class="nav-link" data-scroll-target="#windows-help-cache">另一个问题：Windows Help 显示 Internal Server Error</a>
+  <ul class="collapse">
+  <li><a href="#用同一帮助主题区分文件损坏与会话缓存" id="toc-用同一帮助主题区分文件损坏与会话缓存" class="nav-link" data-scroll-target="#用同一帮助主题区分文件损坏与会话缓存">用同一帮助主题区分文件损坏与会话缓存</a></li>
+  <li><a href="#本次如何修复以及适用边界" id="toc-本次如何修复以及适用边界" class="nav-link" data-scroll-target="#本次如何修复以及适用边界">本次如何修复，以及适用边界</a></li>
+  </ul></li>
   <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">资料与记录</a></li>
   </ul>
 <div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/rstudio-wsl-diagnostics-20261007.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
@@ -1257,6 +1262,74 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>rstudioapi<span class="sc">::</span><span class="fu">writeRStudioPreference</span>(<span class="st">"show_diagnostics_r"</span>, old_diagnostics)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>本次原输入包含私有分析代码，尚缺公开的最小复现；上面是计时方法，不能保证任意同样行数的脚本都会出现相同等待。</p>
 <p>进一步定位可以依次比较：全新单标签会话与原会话、相同脚本和工作目录的 <code>/mnt/...</code> 与 Linux 文件系统副本、诊断开关、折叠状态、脚本规模，以及另一个浏览器。每次只改一个条件，同时记录 R 端与显示端时间。上述进一步对照尚未完成，后续结果应单独补充。</p>
+</section>
+<section id="windows-help-cache" class="level2">
+<h2 class="anchored" data-anchor-id="windows-help-cache">另一个问题：Windows Help 显示 Internal Server Error</h2>
+<p>2026-10-07 下午还检查了一次 <strong>Windows RStudio Desktop 的 Help 页面错误</strong>。这是独立于上述 WSL 大脚本等待的故障：打开 <code>RegR::get_score</code> 文档时，Help 只显示 <code>Internal Server Error</code>，日志与 R 控制台对应的错误是：</p>
+<pre class="text"><code>lazy-load database '&lt;Windows R library&gt;/RegR/help/RegR.rdb' is corrupt
+internal error 1 in R_decompress1 with libdeflate</code></pre>
+<section id="用同一帮助主题区分文件损坏与会话缓存" class="level3">
+<h3 class="anchored" data-anchor-id="用同一帮助主题区分文件损坏与会话缓存">用同一帮助主题区分文件损坏与会话缓存</h3>
+<p>Windows 使用 RStudio Desktop 2026.1.0.392、R 4.4.3 和 RegR 0.1.3。Windows 三个进程的对照使用同一个 Windows 包库；WSL 使用独立的 Linux 包库。读取帮助不执行文档中的模型示例。</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">检查位置与操作</th>
+<th style="text-align: left;">实测结果</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">出错的 Windows 旧会话：读取 <code>base::mean</code> 帮助</td>
+<td style="text-align: left;">正常，返回 12 个 Rd 顶层元素</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">同一旧会话：读取 <code>RegR::get_score</code> 帮助</td>
+<td style="text-align: left;">复现上述数据库／解压错误</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">Windows 全新 <code>Rscript --vanilla</code>：<code>tools::Rd_db("RegR")</code></td>
+<td style="text-align: left;">全部 126 个帮助主题读取成功</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">另一个较晚启动的 Windows RStudio 会话：读取同一主题</td>
+<td style="text-align: left;">正常，返回 11 个 Rd 顶层元素</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">当前 WSL RStudio 会话：同一主题及 <code>tools::Rd_db("RegR")</code></td>
+<td style="text-align: left;">同一主题读取成功，全部 126 个主题也读取成功；Edge 中对应 Help 页面显示完整说明与参数</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">出错的 Windows 旧会话：仅刷新 RegR 帮助数据库缓存后重读</td>
+<td style="text-align: left;">同一主题立即读取成功；实际 Help 页面恢复说明与参数</td>
+</tr>
+</tbody>
+</table>
+<p>这里的 11／12 是帮助对象的结构检查值，不是性能计时，也不用于比较两个函数的复杂度。</p>
+<p>Windows 出错会话在 <strong>07:56:41</strong> 启动，RegR 的 <code>.rdb</code>／<code>.rdx</code> 帮助文件在 <strong>08:17:28</strong> 更新，正常的另一 Windows 会话在 <strong>09:16:57</strong> 启动（均为本地 UTC+8 时间）。文件大小约 936 KB。</p>
+<p><strong>直接确认的是旧会话持有失配的帮助数据库缓存。</strong> 磁盘上的同一套文件能被全新 R 进程完整读取，且只刷新缓存就使原会话恢复，因此本次不需要重装 RegR。时间顺序进一步支持“会话运行期间更新了包，旧缓存未同步”的解释；没有记录到当时的安装命令，不能据此判断由哪个安装进程触发。</p>
+<p>R 4.4 的实现会按文件路径缓存部分 <code>.rdb</code> 内容；缓存命中时直接读取内存中的数据，<code>lazyLoadDBflush</code> 则释放指定路径对应的缓存。这为上述现象提供了机制解释。<a href="https://raw.githubusercontent.com/wch/r-source/R-4-4-branch/src/main/serialize.c">R 4.4 源码：serialize.c</a>。</p>
+</section>
+<section id="本次如何修复以及适用边界" class="level3">
+<h3 class="anchored" data-anchor-id="本次如何修复以及适用边界">本次如何修复，以及适用边界</h3>
+<p>先用不启动文档示例的读取方式确认出错主题：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>utils<span class="sc">:::</span><span class="fu">.getHelpFile</span>(utils<span class="sc">::</span><span class="fu">help</span>(<span class="st">"get_score"</span>, <span class="at">package =</span> <span class="st">"RegR"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>本次在 <strong>原来出错的 Windows 会话</strong> 中执行了下面的定向处理，然后重新打开 Help。过程中没有重启 R、重装包或清空工作区；原有数据与未保存脚本仍在。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">local</span>({</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  db <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">find.package</span>(<span class="st">"RegR"</span>), <span class="st">"help"</span>, <span class="st">"RegR.rdb"</span>)</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">.Internal</span>(<span class="fu">lazyLoadDBflush</span>(db))</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  rd <span class="ot">&lt;-</span> utils<span class="sc">:::</span><span class="fu">.getHelpFile</span>(utils<span class="sc">::</span><span class="fu">help</span>(<span class="st">"get_score"</span>, <span class="at">package =</span> <span class="st">"RegR"</span>))</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">inherits</span>(rd, <span class="st">"Rd"</span>))</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>utils<span class="sc">::</span><span class="fu">help</span>(<span class="st">"get_score"</span>, <span class="at">package =</span> <span class="st">"RegR"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这使用了 R 的内部接口，只记录为 <strong>R 4.4.3 下本案已验证的定向修复</strong>，不应放进通用启动脚本。它只刷新帮助数据库缓存，不会重新加载包函数。平时更新包后，应在保存脚本及需要保留的分析对象后重启使用该包的 R 会话；如果全新 R 进程也读不出帮助数据库，再检查安装完整性。</p>
+<p><strong>WSL 当前没有复现这次 Help 错误，不等于 WSL 永远不会遇到旧缓存问题，也不等于前文的大脚本诊断等待已经解决。</strong> Windows 的 Help 恢复只验证了帮助读取与页面显示，没有对旧会话中已加载函数的版本一致性作保证。</p>
+</section>
 </section>
 <section id="references" class="level2">
 <h2 class="anchored" data-anchor-id="references">资料与记录</h2>

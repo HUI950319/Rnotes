@@ -1,6 +1,6 @@
 ---
 title: "Edge + WSL RStudio 卡顿：R 诊断与大脚本实测"
-description: "RStudio Server 升级至 2026.09.0+174 后的大脚本诊断对照：准备阶段约 3 秒与 23 秒，Ctrl+Enter、控制台输出、Windows 挂载盘文件检查，以及诊断开关和脚本拆分建议。"
+description: "RStudio Server 升级后的大脚本诊断对照：准备阶段约 3 秒与 23 秒；另附 Windows Help 的 Internal Server Error、RegR 旧帮助缓存修复及 WSL 对照。"
 date: 2026-10-07
 toc: true
 ---
@@ -219,6 +219,61 @@ rstudioapi::writeRStudioPreference("show_diagnostics_r", old_diagnostics)
 本次原输入包含私有分析代码，尚缺公开的最小复现；上面是计时方法，不能保证任意同样行数的脚本都会出现相同等待。
 
 进一步定位可以依次比较：全新单标签会话与原会话、相同脚本和工作目录的 `/mnt/...` 与 Linux 文件系统副本、诊断开关、折叠状态、脚本规模，以及另一个浏览器。每次只改一个条件，同时记录 R 端与显示端时间。上述进一步对照尚未完成，后续结果应单独补充。
+
+## 另一个问题：Windows Help 显示 Internal Server Error {#windows-help-cache}
+
+2026-10-07 下午还检查了一次 **Windows RStudio Desktop 的 Help 页面错误**。这是独立于上述 WSL 大脚本等待的故障：打开 `RegR::get_score` 文档时，Help 只显示 `Internal Server Error`，日志与 R 控制台对应的错误是：
+
+```text
+lazy-load database '<Windows R library>/RegR/help/RegR.rdb' is corrupt
+internal error 1 in R_decompress1 with libdeflate
+```
+
+### 用同一帮助主题区分文件损坏与会话缓存
+
+Windows 使用 RStudio Desktop 2026.1.0.392、R 4.4.3 和 RegR 0.1.3。Windows 三个进程的对照使用同一个 Windows 包库；WSL 使用独立的 Linux 包库。读取帮助不执行文档中的模型示例。
+
+| 检查位置与操作 | 实测结果 |
+|:--|:--|
+| 出错的 Windows 旧会话：读取 `base::mean` 帮助 | 正常，返回 12 个 Rd 顶层元素 |
+| 同一旧会话：读取 `RegR::get_score` 帮助 | 复现上述数据库／解压错误 |
+| Windows 全新 `Rscript --vanilla`：`tools::Rd_db("RegR")` | 全部 126 个帮助主题读取成功 |
+| 另一个较晚启动的 Windows RStudio 会话：读取同一主题 | 正常，返回 11 个 Rd 顶层元素 |
+| 当前 WSL RStudio 会话：同一主题及 `tools::Rd_db("RegR")` | 同一主题读取成功，全部 126 个主题也读取成功；Edge 中对应 Help 页面显示完整说明与参数 |
+| 出错的 Windows 旧会话：仅刷新 RegR 帮助数据库缓存后重读 | 同一主题立即读取成功；实际 Help 页面恢复说明与参数 |
+
+这里的 11／12 是帮助对象的结构检查值，不是性能计时，也不用于比较两个函数的复杂度。
+
+Windows 出错会话在 **07:56:41** 启动，RegR 的 `.rdb`／`.rdx` 帮助文件在 **08:17:28** 更新，正常的另一 Windows 会话在 **09:16:57** 启动（均为本地 UTC+8 时间）。文件大小约 936 KB。
+
+**直接确认的是旧会话持有失配的帮助数据库缓存。** 磁盘上的同一套文件能被全新 R 进程完整读取，且只刷新缓存就使原会话恢复，因此本次不需要重装 RegR。时间顺序进一步支持“会话运行期间更新了包，旧缓存未同步”的解释；没有记录到当时的安装命令，不能据此判断由哪个安装进程触发。
+
+R 4.4 的实现会按文件路径缓存部分 `.rdb` 内容；缓存命中时直接读取内存中的数据，`lazyLoadDBflush` 则释放指定路径对应的缓存。这为上述现象提供了机制解释。[R 4.4 源码：serialize.c](https://raw.githubusercontent.com/wch/r-source/R-4-4-branch/src/main/serialize.c)。
+
+### 本次如何修复，以及适用边界
+
+先用不启动文档示例的读取方式确认出错主题：
+
+```r
+utils:::.getHelpFile(utils::help("get_score", package = "RegR"))
+```
+
+本次在 **原来出错的 Windows 会话** 中执行了下面的定向处理，然后重新打开 Help。过程中没有重启 R、重装包或清空工作区；原有数据与未保存脚本仍在。
+
+```r
+local({
+  db <- file.path(find.package("RegR"), "help", "RegR.rdb")
+  .Internal(lazyLoadDBflush(db))
+  rd <- utils:::.getHelpFile(utils::help("get_score", package = "RegR"))
+  stopifnot(inherits(rd, "Rd"))
+})
+
+utils::help("get_score", package = "RegR")
+```
+
+这使用了 R 的内部接口，只记录为 **R 4.4.3 下本案已验证的定向修复**，不应放进通用启动脚本。它只刷新帮助数据库缓存，不会重新加载包函数。平时更新包后，应在保存脚本及需要保留的分析对象后重启使用该包的 R 会话；如果全新 R 进程也读不出帮助数据库，再检查安装完整性。
+
+**WSL 当前没有复现这次 Help 错误，不等于 WSL 永远不会遇到旧缓存问题，也不等于前文的大脚本诊断等待已经解决。** Windows 的 Help 恢复只验证了帮助读取与页面显示，没有对旧会话中已加载函数的版本一致性作保证。
 
 ## 资料与记录 {#references}
 
