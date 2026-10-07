@@ -4433,116 +4433,6 @@
     ]
   },
   {
-    "objectID": "regr/model-evaluation-guide.html",
-    "href": "regr/model-evaluation-guide.html",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "",
-    "text": "数据准备与复现\n模型区分度、概率误差和拟合优度不是同一个指标。下面将模型拟合、评价人群、时间网格和汇总方式明确分开，展示 RegR 两条评价路线，以及一个固定留出集的实际比较。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#数据准备与复现",
-    "href": "regr/model-evaluation-guide.html#数据准备与复现",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "",
-    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#共用计算与返回对象",
-    "href": "regr/model-evaluation-guide.html#共用计算与返回对象",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "共用计算与返回对象",
-    "text": "共用计算与返回对象\n所有 R=0 的 RegR 评价都在传入的同一数据上拟合和评价，属于表观性能。R=1 也走无重采样分支。最后的 score_test 则使用只在 train 拟合的 get_fit() 模型，由 riskRegression::Score 在 test 上计算；这一步没有调用会在 test 上重拟合的 get_score(test, …)。\nmodels &lt;- list(c(\"Age\", \"Sex\"), c(\"Age\", \"Tum\", \"Sex\", \"stage\"))\nscore_cox &lt;- run_quiet({get_score(d, vars = models,\n  timepoint = c(36, 60, 120), R = 0)})\nscore_log &lt;- run_quiet({get_score(d, vars = models, surv = \"DSS\", R = 0)})\nsingle_score &lt;- run_quiet({get_score(d, vars = c(\"Age\", \"Tum\", \"Sex\", \"stage\"),\n  timepoint = c(36, 60, 120), R = 0, metrics = c(\"AUC_score\", \"BS_score\", \"AIC\"))})\nmsr &lt;- run_quiet({get_msr(d, vars = models, R = 0)})\n\n# 候选变量预先指定；留出集未用于选择变量或调参。\nset.seed(20261001)\ntrain_id &lt;- sample.int(nrow(d), floor(0.7 * nrow(d)))\ntrain &lt;- d[train_id, ]\ntest &lt;- d[-train_id, ]\nfit_train &lt;- get_fit(train, co_var = c(\"Age\", \"Tum\", \"Sex\", \"stage\"))\nscore_test &lt;- riskRegression::Score(\n  object = list(Full = fit_train), formula = Surv(time, DSS) ~ 1,\n  data = test, metrics = c(\"AUC\", \"Brier\"), times = c(36, 60, 120),\n  plots = \"ROC\", null.model = FALSE, contrasts = FALSE, split.method = \"none\")",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#函数与估计对象对应",
-    "href": "regr/model-evaluation-guide.html#函数与估计对象对应",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "函数与估计对象对应",
-    "text": "函数与估计对象对应\n\n\n\n\n\n\n\n\n接口\n主要行为\n输出\n\n\n\n\nget_fit\n给定变量集合拟合一个模型；time=NULL 是 Logistic\nCox / crr / FGR / glm 对象\n\n\nget_msr\nmlr3 路线的 C-index/Brier；拟合优度另用 get_fit_stats\n汇总数据框\n\n\nget_score\nriskRegression 路线的时点 AUC/Brier（AUC_score/BS_score），可加同一拟合的 AUC/BS/AIC/BIC/PVE\nScore 对象、AUC.BS.AIC、plt.AUC/BS/combined/ROC\n\n\nget_score_summary\n从 Score 跨时间网格汇总\n格式化数据框\n\n\nplt_score\nScore 的时间曲线或 Logistic ROC\npatchwork / ggplot\n\n\n\nget_score 的 vars 为 list 时每个元素是一个联合模型，为选列向量时每列一个单变量模型；single_score 分别拟合 Age、Tum、Sex、stage 四个单变量模型，不能把它的输出误认成四变量联合模型。get_msr 和 get_score 的 TRUE/FALSE 分别为 Cox/Fine–Gray，字符结局列为 Logistic；get_msr 的 cause 可选择竞争事件编码。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#生存时间网格auc-与-brier",
-    "href": "regr/model-evaluation-guide.html#生存时间网格auc-与-brier",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "生存时间网格：AUC 与 Brier",
-    "text": "生存时间网格：AUC 与 Brier\n时点 AUC 衡量该时点的风险排序；Brier 是概率预测平方误差，并处理删失。plt_score() 生存图上使用 C-index 字样，但底层 AUC 列是 riskRegression 的时点 AUC，不能解释成 Harrell C。timepoint 变化会改变评价问题，也会改变跨时点平均值。\n\n表观时间曲线AUC 原始汇总Brier 原始汇总\n\n\n两个预先指定变量集合在完整演示队列上的时点 AUC/Brier。\nplt_score(score_cox)\n\n\n\n两个预先指定变量集合在完整演示队列上的时点 AUC/Brier。\n\n\n\n\n直接读 AUC$score，保留时点与该时点的不确定性列。\nas.data.frame(score_cox[[\"AUC\"]][[\"score\"]])\n\n\n\n\nmodel\ntimes\nAUC\nse\nlower\nupper\n\n\n\n\nAge_Sex\n36\n0.5954\n0.05042\n0.4966\n0.6942\n\n\nAge_Sex\n60\n0.6531\n0.04691\n0.5611\n0.745\n\n\nAge_Sex\n120\n0.6683\n0.03746\n0.5949\n0.7417\n\n\nAge_Tum_Sex_stage\n36\n0.7278\n0.04482\n0.64\n0.8157\n\n\nAge_Tum_Sex_stage\n60\n0.7621\n0.03468\n0.6941\n0.83\n\n\nAge_Tum_Sex_stage\n120\n0.7899\n0.02945\n0.7322\n0.8476\n\n\n\n\n\n\n直接读 Brier$score；较小通常表示该评价人群上的概率误差较小。\nas.data.frame(score_cox[[\"Brier\"]][[\"score\"]])\n\n\n\n\nmodel\ntimes\nBrier\nse\nlower\nupper\n\n\n\n\nAge_Sex\n36\n0.04273\n0.007005\n0.029\n0.05646\n\n\nAge_Sex\n60\n0.06054\n0.008071\n0.04472\n0.07636\n\n\nAge_Sex\n120\n0.1142\n0.01089\n0.09282\n0.1355\n\n\nAge_Tum_Sex_stage\n36\n0.04082\n0.006512\n0.02806\n0.05358\n\n\nAge_Tum_Sex_stage\n60\n0.0571\n0.007414\n0.04257\n0.07163\n\n\nAge_Tum_Sex_stage\n120\n0.1024\n0.01015\n0.08248\n0.1223",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#get_score_summary-的平均值边界",
-    "href": "regr/model-evaluation-guide.html#get_score_summary-的平均值边界",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "get_score_summary 的平均值边界",
-    "text": "get_score_summary 的平均值边界\n当前实现把选定网格上的 AUC/Brier 做等权平均，用跨时点 SD/sqrt(时点数) 构造正态区间。时点并非独立患者，且没有处理它们的相关性；此区间不能当作外部验证或标准的综合 AUC/IBS 置信区间。表中 C.index 名称沿用接口，实际含义需按来源说明。\n\n网格平均摘要mlr3 路线\n\n\n36/60/120 月等权平均，展示当前函数的实际返回。\nget_score_summary(score_cox)\n\n\n\n\nmodel\nC.index\nBrier.score\n\n\n\n\nAge_Sex\n0.639 (0.595, 0.682)\n0.0725 (0.0304, 0.1146)\n\n\nAge_Tum_Sex_stage\n0.760 (0.725, 0.795)\n0.0668 (0.0307, 0.1029)\n\n\n\n\n\n\nget_msr 的 C-index、Brier 类指标；AIC/PVE 已从此接口移出，改用 get_fit_stats。不能与前表的网格平均不加区分地互换。\nmsr\n\n\n\n\nvars\nsurv.cindex\nsurv.graf\n\n\n\n\nAge_Sex\n0.636\n0.102\n\n\nAge_Tum_Sex_stage\n0.764\n0.088",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#二分类-logistic-roc",
-    "href": "regr/model-evaluation-guide.html#二分类-logistic-roc",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "二分类 Logistic ROC",
-    "text": "二分类 Logistic ROC\n二分类评价只使用 DSS 的记录状态，不处理随访时间。ROC/AUC 衡量排序，不能单独证明概率校准，也不能自动回答 60 月 DSS 风险。\n\n表观 ROC二分类指标表\n\n\n训练内 Logistic ROC；两个联合变量集合的比较。\nplt_score(score_log)\n\n\n\n训练内 Logistic ROC；两个联合变量集合的比较。\n\n\n\n\nLogistic 分支使用 Score 对应指标的区间，没有跨时间平均。\nget_score_summary(score_log)\n\n\n\n\nmodel\nAUC_score\nBS_score\n\n\n\n\nAge_Sex\n0.618 (0.555, 0.682)\n0.095 (0.079, 0.111)\n\n\nAge_Tum_Sex_stage\n0.779 (0.729, 0.828)\n0.085 (0.071, 0.100)",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#固定留出集评价",
-    "href": "regr/model-evaluation-guide.html#固定留出集评价",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "固定留出集评价",
-    "text": "固定留出集评价\n560 人用于拟合，240 人用于评价。这个随机留出划分只是演示，少量事件会造成不稳定，不能替代充分的内部重采样或真正外部队列。所有训练步骤应只在训练数据内完成；若再按测试表现选择模型，测试集会失去独立评价作用。\n\n留出集曲线留出集 AUC 表\n\n\ntrain 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。\nplt_score(score_test)\n\n\n\ntrain 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。\n\n\n\n\n保留测试人群中各时点 AUC 和区间，便于与表观结果区分。\nas.data.frame(score_test[[\"AUC\"]][[\"score\"]])\n\n\n\n\n\n\nmodel\n\n\ntimes\n\n\nAUC\n\n\nse\n\n\nlower\n\n\nupper\n\n\n\n\n\n\nFull\n\n\n36\n\n\n0.7485965\n\n\n0.08043781\n\n\n0.5909413\n\n\n0.9062518\n\n\n\n\nFull\n\n\n60\n\n\n0.7180315\n\n\n0.07037987\n\n\n0.5800895\n\n\n0.8559735\n\n\n\n\nFull\n\n\n120\n\n\n0.7659545\n\n\n0.06361266\n\n\n0.6412760\n\n\n0.8906330",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#使用边界保存与复现记录",
-    "href": "regr/model-evaluation-guide.html#使用边界保存与复现记录",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "使用边界、保存与复现记录",
-    "text": "使用边界、保存与复现记录\nR&gt;=2 时 get_score 的 AUC_score/BS_score 使用 bootcv，而 get_msr 使用它自身的 bootstrap 路线；两者不是相同的验证协议。重采样次数、失败拟合、删失处理和预处理位置应明确报告。AUC 高不代表校准良好，Brier 受事件率影响，AIC/PVE 不能替代验证性能。评价多模型时应固定评价队列、终点和时点；本页未计算决策曲线，也未得出临床获益结论。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#相关页面与源码",
-    "href": "regr/model-evaluation-guide.html#相关页面与源码",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "相关页面与源码",
-    "text": "相关页面与源码\n\nMLR 模型评价\nMLR 校准与决策曲线\n单多因素分析\nRegR 函数参考\nmsr-riskRegression.R\nmsr-get.R\nutils-export.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
     "objectID": "regr/nomogram-guide.html",
     "href": "regr/nomogram-guide.html",
     "title": "列线图、ROC、校准与决策曲线：Cox 和 Logistic",
@@ -5621,72 +5511,6 @@
     ]
   },
   {
-    "objectID": "regr/function-modules.html",
-    "href": "regr/function-modules.html",
-    "title": "RegR 功能模块图",
-    "section": "",
-    "text": "功能总览\n临床回归工具箱：队列筛选、基线表、效应估计、生存曲线、变量选择、交互与非线性展示。\n本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。点击图片可放大查看，也可下载图源继续编辑。\n下载 draw.io 图源 下载三页 PDF\n图谱快照：2026-09-13。对应包版本：0.1.3。具体参数和返回值以当前安装版本的帮助页为准。\n函数示例：队列筛选与流程图：plt_flo / plt_flo2 · 效应估计与森林图 · KM/CIF 组合图：get_cat 与 plt_cat1/2/3 · 交互分析、绝对风险与 Word 表格导出。各页均提供参数标签页、实际图形与可复现代码。\n查看原尺寸 PNG",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
-    ]
-  },
-  {
-    "objectID": "regr/function-modules.html#功能总览",
-    "href": "regr/function-modules.html#功能总览",
-    "title": "RegR 功能模块图",
-    "section": "",
-    "text": "RegR：功能总览",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
-    ]
-  },
-  {
-    "objectID": "regr/function-modules.html#完整函数索引",
-    "href": "regr/function-modules.html#完整函数索引",
-    "title": "RegR 功能模块图",
-    "section": "完整函数索引",
-    "text": "完整函数索引\n\n\n\nRegR：完整函数索引\n\n\n查看原尺寸 PNG",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
-    ]
-  },
-  {
-    "objectID": "regr/function-modules.html#分析流程与对象流",
-    "href": "regr/function-modules.html#分析流程与对象流",
-    "title": "RegR 功能模块图",
-    "section": "分析流程与对象流",
-    "text": "分析流程与对象流\n\n\n\nRegR：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
-    ]
-  },
-  {
-    "objectID": "regr/function-modules.html#rcs-与切点分析教程",
-    "href": "regr/function-modules.html#rcs-与切点分析教程",
-    "title": "RegR 功能模块图",
-    "section": "RCS 与切点分析教程",
-    "text": "RCS 与切点分析教程\n\nRCS 组合图：get_rcs_all 的 7 种模式，16 张实际图形\nget_cut、get_cut_ci 与 get_cut_plot：两段模型、曲线切点与 bootstrap 区间",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
-    ]
-  },
-  {
-    "objectID": "regr/function-modules.html#新增教程目录",
-    "href": "regr/function-modules.html#新增教程目录",
-    "title": "RegR 功能模块图",
-    "section": "新增教程目录",
-    "text": "新增教程目录\n以下页面按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行示例。沿用 SHAP 页的参数标签页、代码与实际结果展示方式；表格页面直接嵌入汇总表。\n\n\n\n分析任务\n页面与主要入口\n\n\n\n\n计算性能评估\n性能评估目录：FGR/CSC、RPA 生存路径与 Windows/Linux Cox/CIF 优化\n\n\n完整评分性能\nget_score：R=0与100次bootstrap，1万到10万行实测\n\n\n递归分区与节点结局\nRPA：get_rpa、树图、节点曲线与汇总\n\n\n倾向评分、匹配与加权\nPS：get_psm、get_iptw、get_ps 与平衡诊断\n\n\n变量筛选\n筛选、LASSO、Boruta、相关性与 VIF\n\n\n描述性与模型表格\n基线表、回归表与生存汇总\n\n\n单因素与多因素模型\nget_um 的变量选择、比值与绝对效应\n\n\n同一暴露的多个模型\nget_eff_cat：调整集合、结局与分层\n\n\n模型评价\nAUC、Brier、AIC 与独立留出样本\n\n\n预测模型可视化\nCox/Logistic 列线图、ROC、校准与 DCA\n\n\n条件生存\nget_cs、get_cs_time 与 KM 比值\n\n\n瞬时风险\nget_hzd、get_hzd_group 与协变量标准化\n\n\n纵向分组轨迹\nGBTM：拟合、组数比较与后验分类\n\n\n组间特征差异\nSMD、Cohen’s d、点图、雷达图与类别格图\n\n\n\n三个原有页面同时补充了森林图的 set_eff、亚组效应与交互合并表和分面概率差曲线。各页单独说明参考水平、估计量、时间单位及当前实现的限制。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
-    ]
-  },
-  {
     "objectID": "causalr/tree-stability-guide.html",
     "href": "causalr/tree-stability-guide.html",
     "title": "亚组树的稳定性与新样本分组",
@@ -6633,36 +6457,6 @@
     ]
   },
   {
-    "objectID": "regr/performance-evaluation.html",
-    "href": "regr/performance-evaluation.html",
-    "title": "跨包性能评估",
-    "section": "",
-    "text": "RegR 与运行环境\n这里汇总 RegR、MLR 与 WSL 运行环境的性能评估，比较函数耗时、内存、优化前后的数值结果及适用边界。左侧“跨包性能评估”是独立入口；下方汇总九篇记录，也可从 MLR 概览 进入模型解释的性能评估。\nRStudio、浏览器及开发环境的故障记录已单独收录在 R 问题排查。",
-    "crumbs": [
-      "跨包性能评估"
-    ]
-  },
-  {
-    "objectID": "regr/performance-evaluation.html#regr-与运行环境",
-    "href": "regr/performance-evaluation.html#regr-与运行环境",
-    "title": "跨包性能评估",
-    "section": "",
-    "text": "页面\n评估范围\n日期\n\n\n\n\n竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异\nget_eff()、get_cat()、get_facet() 的后端比较与 show_surdiff 开销\n2026-09-29\n\n\nRPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率\nget_rpa() → get_cat() 的步骤耗时、内存与优化前后比较\n2026-10-02\n\n\nCox / CIF 优化：Windows 与 Linux 五档样本量实测\n双系统、五档样本量的函数耗时、数值核对与推断边界\n2026-10-02\n\n\nLogistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端\n3万/5万/10万行 Logistic；FGR 方差 TRUE/FALSE 与 mets；AIC/BIC/PVE 及后端替换评估\n2026-10-03\n\n\nget_score：大样本与100次 bootstrap 耗时\n1万/3万/5万/10万行；R=0与R=100；三种指标组合、阶段耗时与30分钟停止进度\n2026-10-03\n\n\nWSL 下 R 的 OpenBLAS 线程与多核并行\nWSL 多线程 BLAS 在小矩阵、fork 并行与负载下变慢的外部报告，线程设置位置的本机验证与推荐做法\n2026-10-04",
-    "crumbs": [
-      "跨包性能评估"
-    ]
-  },
-  {
-    "objectID": "regr/performance-evaluation.html#mlr-performance",
-    "href": "regr/performance-evaluation.html#mlr-performance",
-    "title": "跨包性能评估",
-    "section": "MLR 模型解释",
-    "text": "MLR 模型解释\n\n\n\n页面\n评估范围\n日期\n\n\n\n\nMLR：get_vpd / get_ale / get_ale2 提速策略与实测\nMLR 的 PD、ALE 与 get_exp() 的 16 项优化；1万/5万/10万行六种模型的优化前后实测；随机生存森林的预测开销、树数量与 C-index、GC\n2026-10-06\n\n\nMLR：get_imp 提速策略与实测\nget_imp() 的 4 项优化（多进程 TreeSHAP、置换重要性线程、按需加载 mlr3 包、复用 impurity 森林）；SEER 4387 行的优化前后实测、耗时拆分、内部抽样与尚未处理的开销\n2026-10-06\n\n\nMLR：get_shp 提速策略与实测\nget_shp() 的 6 项改动（生存森林多线程、森林转换、连续变量分箱、CPU 上的 SHAP 多进程、精简加载）；1 万行训练在 Linux（Python SHAP，GPU/CPU）与 Windows（treeshap）上的优化前后实测；ranger 生存分裂、Python TreeSHAP 与子进程启动的专项剖析\n2026-10-06\n\n\n\n各页的结果对应其记录的源码快照、硬件环境、样本量和统计设置；比较耗时时需同时核对模型、置信区间和重采样配置。\n\n本轮拟合比较的完整内容、耗时图与原始记录下载已整理到 Logistic 与 Fine–Gray 拟合评估子页面。评估支持以 FGR(FALSE) 计算 AIC/BIC/PVE；与 mets 相比，统一似然口径的价值比已证实的性能收益更明确。\n\n\n完整评分及100次bootstrap实测已整理到 get_score 大样本性能专页：R=100的36个条件中30个完成、6个按30分钟上限停止，页面保留停止进度、数值核验及下载证据。",
-    "crumbs": [
-      "跨包性能评估"
-    ]
-  },
-  {
     "objectID": "regr/scoring-fit-benchmark-20261003.html",
     "href": "regr/scoring-fit-benchmark-20261003.html",
     "title": "Logistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端",
@@ -6751,116 +6545,6 @@
     ]
   },
   {
-    "objectID": "regr/get-score-benchmark-20261003.html",
-    "href": "regr/get-score-benchmark-20261003.html",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "",
-    "text": "主要结果\n本页属于 跨包性能评估，补充 Logistic 与 Fine–Gray 拟合评估 之后的完整 get_score() 实测。这里的计时包括拟合、评分和结果对象构造，范围大于单次 glm()、coxph() 或 FGR()。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#get-score-bootstrap-20261003",
-    "href": "regr/get-score-benchmark-20261003.html#get-score-bootstrap-20261003",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "",
-    "text": "不重采样（R=0）：10万行默认 AUC/BS 调用中位数为 Logistic 0.270秒、Cox 22.486秒、Fine–Gray 24.817秒。\n100次 bootstrap（R=100）：1万行默认调用为 3.721 / 219.249 / 530.509秒；3万行为 9.367 / 681.876 / 1608.497秒，顺序同上。\n36个 R=100 条件中30个完整完成、6个超过30分钟后停止。5万 Fine–Gray 的默认/全部指标、10万 Cox 与 Fine–Gray 的默认/全部指标均为超时记录。\n仅计算 AIC/BIC/PVE 的100次 bootstrap，10万行为 Logistic 75.285秒、Cox 48.996秒、Fine–Gray 251.173秒。\n\n\n\n\n\n\n\n重要超时不是完成100次评估\n\n\n\n超时条件均完成了1次原始拟合、100次重拟合和100次预测，但验证集指标计算尚未全部完成。表中的 &gt;30分钟 是实测下界，不是完整调用耗时，也没有用于推算最终运行时间。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#耗时图",
-    "href": "regr/get-score-benchmark-20261003.html#耗时图",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "耗时图",
-    "text": "耗时图\n\n\n\n\n\n\n图 75.1: 完整 get_score 调用耗时。上排为 R=0 的三次中位数及最小—最大范围；下排为 R=100 的一次保留测量。纵轴为秒的对数刻度，三角形和向上箭头表示超过30分钟后停止，只表示下界；连线仅连接已完成条件。\n\n\n\n下载耗时图 PDF。误差线是 R=0 三次计时的最小—最大值，不是统计置信区间；R=100 没有重复运行完整100次矩阵，因此不展示计时误差线。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#测试口径",
-    "href": "regr/get-score-benchmark-20261003.html#测试口径",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "测试口径",
-    "text": "测试口径\n\n\n\n\n\n\n\n项目\n设置\n\n\n\n\n日期、环境\n2026-10-03；WSL Ubuntu-22.04；R 4.4.3；Intel Core Ultra 9 275HX；WSL总内存约117 GiB\n\n\n依赖版本\nRegR 0.1.3；riskRegression 2026.3.11；cmprsk 2.2.12；survival 3.8.12；prodlim 2026.3.11\n\n\n原始数据\nseer_thyroid_mtc_2026；time/DSS/event/Age/Sex/Race 共同完整且 time &gt; 0，4387行\n\n\n扩样\n数据种子20261003；有放回抽取10万行，再取1万、3万、5万、10万行嵌套前缀；保留原始月份与并列时间\n\n\n模型\n一个 Age + Sex + Race 联合模型；vars = list(full = c(\"Age\", \"Sex\", \"Race\"))\n\n\n分支\nLogistic：surv = \"DSS\"；Cox：surv = TRUE（time/DSS）；Fine–Gray：surv = FALSE（time/event，cause=1），FGR(variance = FALSE)\n\n\n生存时间网格\ntimepoint = seq(2, 200, 2)，100个时点；Logistic是二分类终点评估，不使用时间网格\n\n\n评分输出\nscore_args = list(plots = \"auto\", n_cores = 1L)；保留原生指标标准误和区间计算\n\n\n单次调用线程\nBLAS / OpenMP / MKL均1线程；R=100另设 mc.cores = 1、data.table 1线程\n\n\nR=0运行安排\n样本量/模型独立进程；1000行预热；三种指标配置轮换顺序，每格3次；108次正式调用全部完成\n\n\nR=100运行安排\nbootstrap种子20261004；每格保留一次正式测量；最多4个独立条件并发，10万条件最多2个；补测对5万及以上高内存条件合计限制为2个\n\n\n计时边界\n包含原始拟合、重采样、预测、指标计算、表格整理和ggplot对象构造；排除加载包/数据、预热、计时前GC与实际图形渲染\n\n\n\n扩展到10万行不等于增加到10万名独立患者。 本页用于计算性能评估，不用于估计扩大队列后的统计精度或泛化能力。参数维数、事件时间、时间网格、缺失情况和硬件变化都可能改变耗时。\nR=0记录的源码提交为 535c303a75763a4a399ac33587772f5ce3b421e5；R=100记录为 851b40f4eafa0dc5abc3d5b6bffd100a16d22ba8。两轮的目标文件 R/msr-riskRegression.R、R/msr-fit-stats.R MD5相同，R=100结束时源码/数据哈希及依赖版本核对一致；完整记录见证据包。源码入口为 get_score() 的模型分派、riskRegression::Score() 调用和 .fit_stats_result() 似然指标提取。\n\n\n\n\n\n\n注记两轮不能计算严格的速度倍数\n\n\n\nR=0为各条件独立运行3次的中位数，R=100为一次保留测量且存在条件间并发。R=100的预测指标使用bootcv验证集，R=0未重采样；评估方式也不同。本页不将两轮差异解释为严格加速比，也不把指标数值差异当作后端误差。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#完整调用耗时",
-    "href": "regr/get-score-benchmark-20261003.html#完整调用耗时",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "完整调用耗时",
-    "text": "完整调用耗时\n\nR=0：不重采样R=100：100次 bootstrap\n\n\n单位为秒，格式为 中位数 [最小–最大]；每格3次。\n\n\n\n\n\n\n\n\n\n\n\n模型\n指标\n1万\n3万\n5万\n10万\n\n\n\n\nLogistic\n默认 AUC/BS\n0.058 [0.051–0.064]\n0.110 [0.103–0.119]\n0.171 [0.150–0.347]\n0.270 [0.239–0.794]\n\n\nLogistic\n仅 AIC/BIC/PVE\n0.020 [0.013–0.029]\n0.049 [0.038–0.058]\n0.068 [0.053–0.372]\n0.147 [0.142–0.508]\n\n\nLogistic\n全部五项\n0.061 [0.061–0.066]\n0.111 [0.103–0.118]\n0.174 [0.147–0.415]\n0.517 [0.284–0.616]\n\n\nCox\n默认 AUC/BS\n2.855 [2.573–4.170]\n6.934 [6.662–9.902]\n11.125 [10.879–14.701]\n22.486 [21.945–26.608]\n\n\nCox\n仅 AIC/BIC/PVE\n0.018 [0.018–0.245]\n0.043 [0.043–0.285]\n0.067 [0.066–0.327]\n0.138 [0.134–0.360]\n\n\nCox\n全部五项\n3.028 [2.693–3.053]\n7.411 [6.372–7.575]\n11.225 [10.928–12.604]\n22.887 [22.473–23.167]\n\n\nFine–Gray\n默认 AUC/BS\n3.114 [2.812–4.338]\n6.988 [6.945–11.463]\n11.790 [11.161–15.076]\n24.817 [24.697–29.910]\n\n\nFine–Gray\n仅 AIC/BIC/PVE\n0.153 [0.147–0.173]\n0.466 [0.443–0.468]\n0.735 [0.734–0.742]\n1.660 [1.631–1.692]\n\n\nFine–Gray\n全部五项\n3.815 [2.944–3.950]\n7.856 [6.282–8.389]\n12.351 [11.794–12.578]\n25.498 [25.408–26.053]\n\n\n\n\n\n单位为秒；完成条件是一次保留的完整调用，超时条件按30分钟预算停止。\n\n\n\n\n\n\n\n\n\n\n\n模型\n指标\n1万\n3万\n5万\n10万\n\n\n\n\nLogistic\n默认 AUC/BS\n3.721\n9.367\n16.690\n43.599\n\n\nLogistic\n仅 AIC/BIC/PVE\n2.728\n11.077\n23.598\n75.285\n\n\nLogistic\n全部五项\n5.470\n12.275\n19.880\n43.178\n\n\nCox\n默认 AUC/BS\n219.249\n681.876\n1202.621\n&gt;30分钟，已停止\n\n\nCox\n仅 AIC/BIC/PVE\n2.666\n11.324\n19.784\n48.996\n\n\nCox\n全部五项\n216.430\n775.923\n1102.536\n&gt;30分钟，已停止\n\n\nFine–Gray\n默认 AUC/BS\n530.509\n1608.497\n&gt;30分钟，已停止\n&gt;30分钟，已停止\n\n\nFine–Gray\n仅 AIC/BIC/PVE\n17.539\n58.472\n118.455\n251.173\n\n\nFine–Gray\n全部五项\n503.733\n1531.875\n&gt;30分钟，已停止\n&gt;30分钟，已停止\n\n\n\n仅似然指标与全部指标耗时不必单调增加：两者采用的重采样/评估方式不同，还混合了进程运行波动。不能由 Logistic 的43.178秒与75.285秒推断“多计算指标反而更快”。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#bootstrap-timeouts",
-    "href": "regr/get-score-benchmark-20261003.html#bootstrap-timeouts",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "30分钟停止记录",
-    "text": "30分钟停止记录\n监控以调用开始的墙钟时间判断1800秒预算，另预留10秒用于计时前GC和轮询。stopped_elapsed_wall_s 保存实际停止时间；它不是已完成的调用耗时。进度每10次写入，因此验证集数量是停止前最近快照的下界。RSS也是快照值，不是峰值内存。\n\n\n\n\n\n\n\n\n\n\n\n\n样本量\n模型\n指标\n已完成拟合\n已完成预测\n验证集计算至少\n最近RSS（GiB）\n\n\n\n\n50,000\nFine–Gray\n全部五项\n101/101\n100/100\n≥60/100\n25.27\n\n\n100,000\nCox\n全部五项\n101/101\n100/100\n≥80/100\n45.15\n\n\n100,000\nFine–Gray\n全部五项\n101/101\n100/100\n≥20/100\n56.55\n\n\n50,000\nFine–Gray\n默认 AUC/BS\n101/101\n100/100\n≥60/100\n25.72\n\n\n100,000\nCox\n默认 AUC/BS\n101/101\n100/100\n≥90/100\n45.13\n\n\n100,000\nFine–Gray\n默认 AUC/BS\n101/101\n100/100\n≥30/100\n50.00\n\n\n\n两个10万生存模型的进程内存曾达到约45–57 GiB，这也是补测限制高内存条件并发数的原因。这里没有完整测量峰值，也不能将快照内存当作所有场景的最低内存要求。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#阶段耗时与结果核验",
-    "href": "regr/get-score-benchmark-20261003.html#阶段耗时与结果核验",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "阶段耗时与结果核验",
-    "text": "阶段耗时与结果核验\n本轮完成的生存预测评估中，大部分耗时在 Score() 及其内部验证计算。例如3万行 Fine–Gray 默认调用为 1608.497秒：原始拟合 0.560秒，100次重拟合合计 65.832秒，Score() 1607.844秒。\n\n\n\n\n\n\n警告阶段计时不能直接相加\n\n\n\nScore() 包含它内部的100次重拟合，不能再把100次拟合合计加到Score上。仅似然指标的普通bootstrap没有Score阶段。各列用于定位耗时范围，不是互斥的分解。\n\n\n\n\n展开30个完整条件的阶段计时（秒）\n\n\n\n\n\n\n\n\n\n\n\n\n\n样本量\n模型\n指标\n总秒数\n原始拟合\n100次重拟合合计\nScore\n\n\n\n\n10,000\nLogistic\n默认 AUC/BS\n3.721\n0.009\n1.567\n3.687\n\n\n30,000\nLogistic\n默认 AUC/BS\n9.367\n0.027\n5.396\n9.320\n\n\n50,000\nLogistic\n默认 AUC/BS\n16.690\n0.067\n12.205\n16.601\n\n\n100,000\nLogistic\n默认 AUC/BS\n43.599\n0.192\n33.695\n43.375\n\n\n10,000\nLogistic\n仅 AIC/BIC/PVE\n2.728\n0.010\n2.123\n0.000\n\n\n30,000\nLogistic\n仅 AIC/BIC/PVE\n11.077\n0.054\n9.511\n0.000\n\n\n50,000\nLogistic\n仅 AIC/BIC/PVE\n23.598\n0.096\n20.096\n0.000\n\n\n100,000\nLogistic\n仅 AIC/BIC/PVE\n75.285\n0.965\n60.784\n0.000\n\n\n10,000\nLogistic\n全部五项\n5.470\n0.009\n3.418\n5.437\n\n\n30,000\nLogistic\n全部五项\n12.275\n0.053\n8.649\n12.197\n\n\n50,000\nLogistic\n全部五项\n19.880\n0.087\n14.903\n19.762\n\n\n100,000\nLogistic\n全部五项\n43.178\n0.187\n31.955\n42.951\n\n\n10,000\nCox\n默认 AUC/BS\n219.249\n0.016\n1.631\n219.132\n\n\n30,000\nCox\n默认 AUC/BS\n681.876\n0.067\n6.147\n681.734\n\n\n50,000\nCox\n默认 AUC/BS\n1202.621\n0.111\n10.418\n1202.372\n\n\n10,000\nCox\n仅 AIC/BIC/PVE\n2.666\n0.015\n1.839\n0.000\n\n\n30,000\nCox\n仅 AIC/BIC/PVE\n11.324\n0.053\n7.841\n0.000\n\n\n50,000\nCox\n仅 AIC/BIC/PVE\n19.784\n0.093\n14.321\n0.000\n\n\n100,000\nCox\n仅 AIC/BIC/PVE\n48.996\n0.567\n37.074\n0.000\n\n\n10,000\nCox\n全部五项\n216.430\n0.013\n1.389\n216.332\n\n\n30,000\nCox\n全部五项\n775.923\n0.056\n6.908\n775.800\n\n\n50,000\nCox\n全部五项\n1102.536\n0.110\n12.262\n1102.283\n\n\n10,000\nFine–Gray\n默认 AUC/BS\n530.509\n0.178\n19.976\n530.277\n\n\n30,000\nFine–Gray\n默认 AUC/BS\n1608.497\n0.560\n65.832\n1607.844\n\n\n10,000\nFine–Gray\n仅 AIC/BIC/PVE\n17.539\n0.138\n15.787\n0.000\n\n\n30,000\nFine–Gray\n仅 AIC/BIC/PVE\n58.472\n0.446\n53.523\n0.000\n\n\n50,000\nFine–Gray\n仅 AIC/BIC/PVE\n118.455\n1.442\n111.232\n0.000\n\n\n100,000\nFine–Gray\n仅 AIC/BIC/PVE\n251.173\n2.822\n233.225\n0.000\n\n\n10,000\nFine–Gray\n全部五项\n503.733\n0.139\n16.617\n503.510\n\n\n30,000\nFine–Gray\n全部五项\n1531.875\n0.434\n51.166\n1531.266\n\n\n\n\n\nR=0的108次正式调用均成功，警告总数为0；每次一个原始拟合。12组模型/样本量中，全部指标与对应子集的AUC/Brier、标准误/区间及似然指标在1e-10容差内一致。\nR=100的30个完成条件均确认 101次拟合；预测条件确认100次预测和100次验证集计算；含似然指标的完成条件确认 R_success = 100，完成调用没有警告。\nR=100具有完整对照结果的9组中，默认与全部指标的AUC/Brier、SE、CI和最终随机数状态一致（容差1e-10）；全部与仅似然的原始AIC/BIC/PVE点估计也一致。\n超时条件没有最终评分区间，不能据此验证尚未完成的全部指标与默认指标是否一致。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#三种指标配置的含义",
-    "href": "regr/get-score-benchmark-20261003.html#三种指标配置的含义",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "三种指标配置的含义",
-    "text": "三种指标配置的含义\n\n\n\n\n\n\n\n\n配置\nR=100时的评估对象\n适用问题\n\n\n\n\nAUC/BS\nbootcv训练模型的验证集预测性能\n判别与预测误差\n\n\nAIC/BIC/PVE\n原始模型点估计，以及普通受试者bootstrap的似然指标区间\n使用同一后端和分析样本比较拟合/模型选择指标\n\n\n全部五项\n预测指标为bootcv；似然指标复用对应训练模型，不再另拟合100次\n同时获得预测与似然指标\n\n\n\n全部与仅似然使用的重采样方式不同，似然区间不要求数值相同；原始模型的AIC/BIC/PVE点估计已核对一致。Fine–Gray使用 variance = FALSE 保留本轮需要的拟合/预测信息，Score的指标区间和bootstrap工作仍存在；它不能消除本页实测的验证计算耗时。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#复现调用与返回对象",
-    "href": "regr/get-score-benchmark-20261003.html#复现调用与返回对象",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "复现调用与返回对象",
-    "text": "复现调用与返回对象\n以下为可复制的调用示例；网页构建只整理既有实测，不重新运行大样本100次bootstrap矩阵。\nlibrary(RegR)\ndata(seer_thyroid_mtc_2026, package = \"RegR\")\nraw &lt;- as.data.frame(seer_thyroid_mtc_2026)\nneed &lt;- c(\"time\", \"DSS\", \"event\", \"Age\", \"Sex\", \"Race\")\nsource &lt;- droplevels(raw[complete.cases(raw[need]) & raw[[\"time\"]] &gt; 0, need])\nset.seed(20261003)\nbig &lt;- source[sample.int(nrow(source), 100000L, replace = TRUE), ]\nrownames(big) &lt;- NULL\nd &lt;- big[seq_len(10000L), ]  # 改为30000、50000或100000需保留同一big\n\n# 控制单个调用的线程；基准驱动还会在每个子进程设置data.table/BLAS线程\noptions(mc.cores = 1L)\nRhpcBLASctl::blas_set_num_threads(1L)\nRhpcBLASctl::omp_set_num_threads(1L)\ndata.table::setDTthreads(1L)\nset.seed(20261004)\nres &lt;- RegR::get_score(\n  d, vars = list(full = c(\"Age\", \"Sex\", \"Race\")),\n  surv = FALSE,  # \"DSS\"：Logistic；TRUE：Cox；FALSE：Fine–Gray\n  timepoint = seq(2, 200, 2), R = 100,\n  metrics = c(\"AUC\", \"BS\", \"AIC\", \"BIC\", \"PVE\"),\n  score_args = list(plots = \"auto\", n_cores = 1L)\n)\nres[[\"AUC.BS.AIC\"]]       # 汇总表\nres[[\"fit.stats\"]][[\"stats\"]]  # 似然点估计及区间\nres[[\"fit.stats\"]][[\"info\"]]   # 包括R_success\nres[[\"plt.combined\"]]    # 本轮计时构造对象，实际渲染排除在计时外\n只需似然指标时，改为 metrics = c(\"AIC\", \"BIC\", \"PVE\")；这不提供AUC/Brier评估。仅似然调用返回列表，包含 fit.stats 和汇总表，预测绘图对象为空；预测调用保留Score结构，选择似然指标时另带 fit.stats。用字符向量 vars = c(\"Age\", \"Sex\", \"Race\") 会分别拟合多个模型，不能直接套用本页的联合模型耗时。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
-    "objectID": "regr/get-score-benchmark-20261003.html#证据下载与审计记录",
-    "href": "regr/get-score-benchmark-20261003.html#证据下载与审计记录",
-    "title": "get_score：大样本与100次 bootstrap 耗时",
-    "section": "证据下载与审计记录",
-    "text": "证据下载与审计记录\n下载完整证据包（CSV、逐次拟合耗时、环境、校验和与脚本）。其中不包含患者原始数据；README.md说明每类文件、源码快照、失败/重跑记录与复现步骤。\n\nR=0：36格汇总与108次原始计时、阶段耗时、环境/源码哈希。\nR=100：36格状态、30次完成计时、3030条原始/重拟合计时、6次超时进度、9组完整对照核验及元数据。\nget-score-bootstrap-run.R是按条件限时、跳过已有完成/超时记录的驱动；与get-score-bootstrap-benchmark.R一起复制到已存在的新输出目录，再执行。最初脚本的旧控制器预算不能单独代表运行中追加的30分钟限制。\n\n# 具备相同WSL依赖；将上述两份脚本复制到新的输出目录\nRscript /absolute/output/get-score-bootstrap-run.R /absolute/output\n\n\n展开预热、调度中断和补测说明\n\n3万Cox的1000行、R=2预热出现区间格式化错误，正式R=100计时尚未开始；补测采用R=0预热，正式评估仍为R=100。补测调度曾短暂重复启动5万Fine–Gray默认与10万Cox全指标条件，已停止并排除重复调用；原10万Cox全指标曾短暂增加并发负载，限制了其精细计时/进度比较。\n5万Fine–Gray默认条件达到预算后，调度器读取已关闭日志连接时退出，连带中断了未超时的10万Cox默认调用。修正日志读取后重新运行该条件；被中断调用不计入正式结果。关闭日志处理已做聚焦验证，最终两个超时条件处理后驱动正常结束。原始status中的进程error包含这些人为终止和预热失败；最终条件状态以 get-score-bootstrap-summary.csv 为准。\n这些是基准执行过程记录，不是将超时误报为模型拟合失败。本页没有把超时调用当作100次完整评估，也没有修改包默认参数来降低本轮工作量。",
-    "crumbs": [
-      "跨包性能评估",
-      "<span class='chapter-number'>75</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
-    ]
-  },
-  {
     "objectID": "regr/scoring-fit-benchmark-20261003.html#完整评分补充评估",
     "href": "regr/scoring-fit-benchmark-20261003.html#完整评分补充评估",
     "title": "Logistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端",
@@ -6869,17 +6553,6 @@
     "crumbs": [
       "跨包性能评估",
       "<span class='chapter-number'>74</span>  <span class='chapter-title'>Logistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#单变量比较的-get_score-打包结果",
-    "href": "regr/model-evaluation-guide.html#单变量比较的-get_score-打包结果",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "单变量比较的 get_score 打包结果",
-    "text": "单变量比较的 get_score 打包结果\n可直接使用保留的 obj 再分析，或取图与 AUC.BS.AIC 表。表中 AUC_score/BS_score 是 timepoint 各时点值的等权平均；当前 Cox/Fine–Gray 无重采样结果在与 get_fit_stats 的点估计一致时提供影响函数 Wald 区间。若含 0 时点导致平均口径不一致，仍只保留点估计。AIC 评价同一结局/同一人群下的相对拟合与复杂度，不是概率校准指标；本例未以 AIC 最优作为独立验证。\n\n两面板时间曲线打包汇总表\n\n\n四个单变量模型的时点 AUC 与 Brier。\nplt_score(single_score)\n\n\n\n四个单变量模型的时点 AUC 与 Brier。\n\n\n\n\n包含当前配置下的 AUC/Brier 汇总及 AIC。\nsingle_score[[\"AUC.BS.AIC\"]]\n\n\n\n\nmodel\nAUC_score\nBS_score\nAIC\n\n\n\n\nAge\n0.632 (0.561, 0.703)\n0.074 (0.059, 0.088)\n1063\n\n\nTum\n0.719 (0.657, 0.782)\n0.070 (0.056, 0.084)\n1012\n\n\nSex\n0.570 (0.504, 0.636)\n0.074 (0.059, 0.089)\n1056\n\n\nstage\n0.693 (0.630, 0.757)\n0.069 (0.056, 0.082)\n1006",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
     ]
   },
   {
@@ -7037,50 +6710,6 @@
     ]
   },
   {
-    "objectID": "regr/model-evaluation-guide.html#get-score-current",
-    "href": "regr/model-evaluation-guide.html#get-score-current",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "get_score()：指标、单时点列与双面板",
-    "text": "get_score()：指标、单时点列与双面板\n本节使用 2026-10-05 源码 3411eb0。vars = c(\"Age\", \"Sex\") 是两个单变量模型；vars = list(Basic = c(\"Age\", \"Sex\")) 才是一个联合模型。list 名称会成为模型标签。\n\n\n\n\n\n\n\n指标\n含义与评价数据\n\n\n\n\nAUC_score / BS_score\nriskRegression 的时点 AUC / Brier；R≥2 用 bootcv 袋外预测\n\n\nAUC / BS\n同一拟合在训练样本上的表观指标；不是袋外评价\n\n\nAUC_mlr / BS_mlr\nget_msr 的 mlr3 指标；Cox 的 AUC_mlr 实际为 Harrell C-index\n\n\nAIC / BIC / PVE\n拟合优度；PVE 为 Cox–Snell 型似然伪 R²\n\n\n\ntimepoint 决定时间平均的网格；times 添加具名单时点列。Score 实际计算两者并集，但平均仅使用 timepoint。超出随访而被跳过的时点返回 NA。全队列时间平均区间采用 get_fit_stats 的平均影响函数标准误近似并截断至 [0,1]，未显式估计所有时点间协方差；它不等于按时间积分的 AUC/IBS，也不同于上节 get_score_summary 的跨时点离散度区间。\n\n单时点列全队列与 bootstrap只计算 Brier\n\n\nmodels_named &lt;- list(Basic = c(\"Age\", \"Sex\"),\n  Extended = c(\"Age\", \"Tum\", \"Sex\", \"stage\"))\nscore_times &lt;- run_quiet(get_score(d, vars = models_named,\n  timepoint = c(36, 60, 120), times = c(\"5-year\" = 60), R = 0,\n  metrics = c(\"AUC_score\", \"BS_score\", \"AIC\", \"BIC\", \"PVE\"),\n  score_args = list(plots = \"none\", n_cores = 1L)))\nscore_times[[\"AUC.BS.AIC\"]]\nscore_times[[\"ft\"]]\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nmodel\nAUC_score\nAUC_score_60\nBS_score\nBS_score_60\nAIC\nBIC\nPVE\n\n\n\n\nBasic\n0.639 (0.564, 0.714)\n0.653 (0.561, 0.745)\n0.072 (0.058, 0.087)\n0.061 (0.045, 0.076)\n1050\n1055\n0.03\n\n\nExtended\n0.760 (0.698, 0.822)\n0.762 (0.694, 0.830)\n0.067 (0.053, 0.080)\n0.057 (0.043, 0.072)\n989.4\n999.3\n0.105\n\n\n\n\n\n\nset.seed(20261005)\nscore_both &lt;- run_quiet(get_score(d, vars = models_named,\n  timepoint = c(36, 60, 120), times = c(\"5-year\" = 60), R = c(0, 20),\n  metrics = c(\"AUC_score\", \"BS_score\", \"PVE\"),\n  score_args = list(n_cores = 1L)))\nscore_both[[\"AUC.BS.AIC\"]]\nscore_both[[\"ft\"]]\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nmodel\nAUC_score\nAUC_score_60\nBS_score\nBS_score_60\nPVE\nAUC_score*\nAUC_score_60*\nBS_score*\nBS_score_60*\nPVE*\n\n\n\n\nBasic\n0.639 (0.564, 0.714)\n0.653 (0.561, 0.745)\n0.072 (0.058, 0.087)\n0.061 (0.045, 0.076)\n0.03\n0.624 (0.557, 0.690)\n0.633 (0.569, 0.700)\n0.071 (0.057, 0.094)\n0.058 (0.046, 0.079)\n0.030 (0.018, 0.062)\n\n\nExtended\n0.760 (0.698, 0.822)\n0.762 (0.694, 0.830)\n0.067 (0.053, 0.080)\n0.057 (0.043, 0.072)\n0.105\n0.752 (0.702, 0.829)\n0.755 (0.684, 0.864)\n0.067 (0.055, 0.087)\n0.056 (0.046, 0.076)\n0.105 (0.068, 0.139)\n\n\n\n\n星号后缀列来自 bootstrap 面板。20 次仅演示接口，报告区间应增加重复数并检查有效重复与收敛。AUC_score/BS_score 的跨时点 bootstrap 区间为有效袋外重复平均值的 2.5%/97.5% 分位数；PVE 区间描述重采样训练拟合。它们评价的数据不同。\n\n\nonly_bs &lt;- run_quiet(get_score(d, vars = list(Basic = c(\"Age\", \"Sex\")),\n  timepoint = c(36, 60, 120), metrics = \"BS\",\n  score_args = list(n_cores = 1L)))\nonly_bs[[\"fit.stats\"]][[\"stats\"]]\n\n\n\nmodel\nmetric\nestimate\nSE\nlower\nupper\n\n\n\n\nBasic\nBS\n0.07248\n0.007359\n0.05806\n0.0869\n\n\n\n\n\n\n只选所需指标会省去未请求的计算；只选 BS 不要求 AUC 可定义。score_args$plots = \"none\" 跳过辅助 ROC 数据，保留生存 AUC/Brier 曲线；Logistic 的 plt.ROC 此时为 NULL。n_cores = 1L 明确串行，NULL 使用自适应策略；并行上限也受 options(mc.cores = k) 约束。所有调用都增加 ft（缺 flextable 时为 NULL），get_score() 本身不提供 save 参数，可用 save_tb(score_both[[\"ft\"]], path = tempdir()) 导出。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#get-msr-current",
-    "href": "regr/model-evaluation-guide.html#get-msr-current",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "get_msr()：当前 mlr3 路线",
-    "text": "get_msr()：当前 mlr3 路线\nget_msr(data, vars, surv = TRUE, R = 0,\n        timepoint = seq(2, 200, 2), cause = 1L)\n\nmlr_score &lt;- run_quiet(get_score(d, vars = models, R = 0,\n  metrics = c(\"AUC_mlr\", \"BS_mlr\")))\nmlr_score[[\"AUC.BS.AIC\"]]\n\n\n\nmodel\nAUC_mlr\nBS_mlr\n\n\n\n\nAge_Sex\n0.636\n0.102\n\n\nAge_Tum_Sex_stage\n0.764\n0.088\n\n\n\n.addAIC / .addPVE 已移除；把它们保留在旧脚本中会报 unused argument。surv = TRUE 为 Cox，FALSE 为竞争风险，字符列为二分类；cause = 1L 仅作用于竞争风险路径。Cox 返回 surv.cindex 与 surv.graf，分别为 Harrell C 和该后端的 Brier 指标，不等于 riskRegression 的时间 AUC。\nset.seed() 控制 Cox/Logistic bootstrap。R≥2 时，结果中的区间为实际重复指标的 2.5%/97.5% 分位数，不能解释成独立外部验证。get_rpa_mp1() 已弃用，建议迁移到 get_score 的 AUC_mlr/BS_mlr 或 AUC_score/BS_score，并用 R = c(0, n) 对照两个面板。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#get-fit-stats",
-    "href": "regr/model-evaluation-guide.html#get-fit-stats",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "get_fit_stats()：数值表与训练拟合区间",
-    "text": "get_fit_stats()：数值表与训练拟合区间\nfit_stats &lt;- get_fit_stats(d, vars = models_named,\n  timepoint = c(36, 60, 120), R = 0,\n  metrics = c(\"AUC\", \"BS\", \"AIC\", \"BIC\", \"PVE\"))\nfit_stats[[\"stats\"]]\n\n\n\nmodel\nmetric\nestimate\nSE\nlower\nupper\n\n\n\n\nBasic\nAUC\n0.6389\n0.03809\n0.5643\n0.7136\n\n\nBasic\nBS\n0.07248\n0.007359\n0.05806\n0.0869\n\n\nBasic\nAIC\n1050\n\n\n\n\n\nBasic\nBIC\n1055\n\n\n\n\n\nBasic\nPVE\n0.02958\n\n\n\n\n\nExtended\nAUC\n0.7599\n0.03149\n0.6982\n0.8217\n\n\nExtended\nBS\n0.06677\n0.006785\n0.05347\n0.08006\n\n\nExtended\nAIC\n989.4\n\n\n\n\n\nExtended\nBIC\n999.3\n\n\n\n\n\nExtended\nPVE\n0.1047\n\n\n\n\n\n\n返回 obj（拟合模型）、stats（model/metric/estimate/SE/lower/upper 数值长表）、boot（逐模型逐重复及 error）和 info（样本、事件、参数量、似然与重复成功数）。stats 的点估计来自原始分析样本；没有 bootstrap 时，AUC/BS 有影响函数 Wald 区间，AIC/BIC/PVE 没有区间。\nset.seed(20261005)\nfit_boot &lt;- get_fit_stats(d, vars = list(Basic = c(\"Age\", \"Sex\")),\n  timepoint = c(36, 60, 120), metrics = c(\"BS\", \"AIC\", \"PVE\"), R = 20)\nfit_boot[[\"stats\"]]\nfit_boot[[\"info\"]]\n\n\n\nmodel\nmetric\nestimate\nSE\nlower\nupper\n\n\n\n\nBasic\nBS\n0.07248\n0.007099\n0.05917\n0.08443\n\n\nBasic\nAIC\n1050\n103.6\n906.2\n1234\n\n\nBasic\nPVE\n0.02958\n0.009612\n0.0163\n0.04392\n\n\n\nR≥2 是普通受试者 bootstrap，所有候选模型共用抽样行；区间为百分位区间，SE 为 bootstrap 标准差。它描述训练拟合的变化，不执行 get_score 的 bootcv 袋外评价。示例 20 次仅作接口演示。\nAIC = -2LL + 2k，BIC = -2LL + log(bic_n)k；Logistic 的 bic_n 为人数，Cox/Fine–Gray 为目标事件数。PVE = 1 - exp(-2(LL - LL_null)/n)，不是标准化的 Nagelkerke R²。Fine–Gray 采用 FGR(variance = FALSE) 的似然约定，不能拿不同模型或不同样本的 AIC 直接混排。save = list(path = tempdir(), title = \"Fit statistics\") 可以把 stats 导出 Word。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
-    "objectID": "regr/model-evaluation-guide.html#get-score-stage",
-    "href": "regr/model-evaluation-guide.html#get-score-stage",
-    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "get_score_stage()：分期方案评价",
-    "text": "get_score_stage()：分期方案评价\nget_rpa_mp2() 的新入口是 get_score_stage()，旧名作为弃用别名保留。它比较分期结构，不计算时间 AUC 或 Brier。下面完全使用模拟队列，六个基础组分别合并为三期和四期，两套方案都嵌套于基础分组。\nset.seed(20261005)\nds &lt;- data.frame(Age = runif(600, 30, 80),\n                 group = factor(rep(1:6, each = 100)))\nds[[\"DSS\"]] &lt;- rbinom(600, 1, 0.75)\nds[[\"time\"]] &lt;- rexp(600,\n  rate = 0.02 * exp(0.35 * (as.integer(ds[[\"group\"]]) - 1))) + 1\nds[[\"Stage_A\"]] &lt;- factor(ceiling(as.integer(ds[[\"group\"]]) / 2), levels = 1:3)\nds[[\"Stage_B\"]] &lt;- factor(c(1, 2, 2, 3, 3, 4)[as.integer(ds[[\"group\"]])], levels = 1:4)\nset.seed(20261005)\nstage_res &lt;- get_score_stage(ds, cat_groups = c(\"Stage_A\", \"Stage_B\"),\n  adj_var = \"Age\", R = c(0, 20),\n  name_map = c(Stage_A = \"Three stages\", Stage_B = \"Four stages\"))\nstage_res[[\"ft\"]]\nstage_res[[\"ft_total\"]]\n下表展示实际返回 ft 的数值；* 后缀列为 20 次 bootstrap 均值面板，前两列为全队列。ft_total 另外显示各标准的原始 Total score。\n\n\n\nmeasures\nStage_A\nStage_B\nStage_A*\nStage_B*\n\n\n\n\nHazard Consistency\n\n\n\n\n\n\nStandardized Score\n0\n1\n0\n1\n\n\nRank\n1\n2\n1\n2\n\n\nHazard Discrimination\n\n\n\n\n\n\nStandardized Score\n0\n1\n1\n0\n\n\nRank\n1\n2\n2\n1\n\n\nLikelihood Difference\n\n\n\n\n\n\nStandardized Score\n0\n1\n0\n1\n\n\nRank\n1\n2\n1\n2\n\n\nExplained Variance\n\n\n\n\n\n\nStandardized score\n0\n1\n0\n1\n\n\nRank\n1\n2\n1\n2\n\n\nSample Size Balance\n\n\n\n\n\n\nStandardized Score\n0\n1\n0\n1\n\n\nRank\n1\n2\n1\n2\n\n\nOverall Rank\n\n\n\n\n\n\nOverall Score\n0\n4\n0.85\n3.15\n\n\nRank\n1\n2\n1\n2\n\n\n\n\n\n\n\n\n\n\n标准\n越优的方向\n\n\n\n\nHazard Consistency\n合并基础组损失的似然/自由度越小越好\n\n\nHazard Discrimination\n分期线性趋势的失拟合/自由度越小越好\n\n\nLikelihood Difference\n相对仅协变量模型的似然比统计量/自由度越大越好\n\n\nExplained Variance\nSchemper–Henderson 解释变异越大越好\n\n\nSample Size Balance\n分期人数偏离等人数的程度越小越好\n\n\nOverall Rank\n前五项标准化分数权重 1、1、0.5、0.5、1；越小越好\n\n\n\n每项 Standardized Score 在当前比较的方案间缩放为 0（最佳）至 1（最差），因此增删候选方案可能改变标准化总分。Rank 1 为最佳；总分不是准确率。Bootstrap Overall Score 是每次抽样总分的平均，通常不能从展示的各项 bootstrap 标准化均值重新加权得到。\n输入必须有 time、0/1 的 DSS、基础分组 group、调整变量和全部方案列。方案列必须为按分期顺序设置水平的因子，每套至少三期且少于基础 group 的组数；嵌套关系由使用者核对，函数未自动验证。R=0/1/NULL 拟合一次，R≥2 仅显示 bootstrap 均值，R = c(0, n) 显示两面板，不返回分数置信区间。\nget_score_stage(ds, cat_groups = c(\"Stage_A\", \"Stage_B\"), adj_var = \"Age\",\n  save = list(path = tempdir(), title = \"Comparison of staging schemes\"))\n新实现直接计算标准并向量化解释变异。与旧 remss 参考实现相比，死亡与删失同时间时的顺序约定，以及重采样后缺少阶段时的实际自由度处理，会引起部分数值差异；不能声称全部数值逐位不变。并行依据测得的全队列计算成本自适应选择，并遵守 options(mc.cores = k)。历史计时不代表当前所有数据的性能。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
-    ]
-  },
-  {
     "objectID": "regr/cat-guide.html#get-cat-multiple",
     "href": "regr/cat-guide.html#get-cat-multiple",
     "title": "KM/CIF 组合图：get_cat 与 3 个绘图函数",
@@ -7122,28 +6751,6 @@
     "crumbs": [
       "RegR · 临床回归与可视化",
       "<span class='chapter-number'>12</span>  <span class='chapter-title'>临床表格：基线、分层、事件构成与生存摘要</span>"
-    ]
-  },
-  {
-    "objectID": "regr/function-modules.html#get-all-partial",
-    "href": "regr/function-modules.html#get-all-partial",
-    "title": "RegR 功能模块图",
-    "section": "get_all()：保留成功层并报告失败层",
-    "text": "get_all()：保留成功层并报告失败层\n当前 get_all() 在递归分层分析中隔离层内失败。下面复用森林图补充例子的 800 人 d_scheme，把一层的 Age 人为设为常量，演示 RCS 无法取得足够节点时的行为。\nd_all &lt;- d_scheme\nd_all[[\"demo_stratum\"]] &lt;- factor(rep(c(\"Good\", \"Constant\"), each = 400L))\nd_all[[\"Age\"]][d_all[[\"demo_stratum\"]] == \"Constant\"] &lt;- 50\nall_res &lt;- get_all(\n  com.args = list(data = d_all, adj_var = \"Sex\", split_var = \"demo_stratum\", time = 60),\n  rcs.args = list(rcs_var = \"Age\", n = 3L, panel_show = \"haz_poi\"))\nnames(all_res)                    # \"rcs\"\nall_res[[\"rcs\"]]                 # 保留 Good 层图形\n本次实际运行的摘要保留 Completed 1 analyses: rcs，并明确输出 Failed strata: 1: rcs.args [Constant]；同时发出层内失败警告。Constant 层缺失不是“效应为零”，应随报告说明失败原因。\n未传入的分析块默认跳过，不能因为 formals() 显示完整 list 模板就认为它们自动执行。各块未全部成功时，也不能把返回对象解释为全队列完整结果。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
-    ]
-  },
-  {
-    "objectID": "regr/function-modules.html#latest-functions",
-    "href": "regr/function-modules.html#latest-functions",
-    "title": "RegR 功能模块图",
-    "section": "2026-10-05 接口更新目录",
-    "text": "2026-10-05 接口更新目录\n\n\n\n更新功能\n当前示例\n\n\n\n\n建树、规则与三种节点图、节点对比\nget_rpa、plt_rpa、plt_rpa_km、plt_rpa_tab、get_rpa_pair\n\n\n指标、bootstrap 与分期评分\nget_score、get_msr、get_fit_stats、get_score_stage\n\n\n多暴露曲线、曲线网格与 ATE\nget_cat、plt_cat1\n\n\n独立分期模型、森林图缺失区间\nget_eff、plt_eff\n\n\nPS 相对效应的方差口径\nget_eff_cat\n\n\nWord 整数计数格式\nsave_tb\n\n\n\n以上是当前教程入口；三张模块图仍保留其标明的历史快照，不把旧图当作最新导出清单。",
-    "crumbs": [
-      "RegR · 临床回归与可视化",
-      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
     ]
   },
   {
@@ -7873,76 +7480,6 @@
     ]
   },
   {
-    "objectID": "index.html",
-    "href": "index.html",
-    "title": "R 包开发笔记",
-    "section": "",
-    "text": "关于这份笔记\n这里收集我自己开发的几个 R 包的笔记：函数为什么这样设计、参数怎么选、 不同实现的耗时与结果差异，以及使用中踩过的坑。每个包一个分区， R 与开发环境的故障记录单独收录在 R 问题排查。函数的参考文档仍以各包的 pkgdown 站点为准。\n每个包分区的第一页是功能模块图，包含功能总览、完整接口索引和流程展示。点击图片可放大，也可下载可编辑的 draw.io 文件和 PDF。\ncausalR 的功能模块图收录在本站；因果推断读书笔记见 causalR。",
-    "crumbs": [
-      "关于这份笔记"
-    ]
-  },
-  {
-    "objectID": "index.html#start-here",
-    "href": "index.html#start-here",
-    "title": "R 包开发笔记",
-    "section": "按任务开始",
-    "text": "按任务开始\n\n\n临床队列与回归\n队列筛选 · KM / CIF · 亚组与交互\n\n\n机器学习与模型解释\nSHAP · PDP · ALE 接口\n\n\n因果推断与效应异质性\nHTE 诊断 · 生存效应尺度 · E-value\n\n\n计算性能与数值核验\nRegR / MLR 评估目录 · WSL 线程设置\n\n\nR 问题排查\nRStudio 卡顿与大脚本实测 · pak 下载与代理",
-    "crumbs": [
-      "关于这份笔记"
-    ]
-  },
-  {
-    "objectID": "index.html#recent-updates",
-    "href": "index.html#recent-updates",
-    "title": "R 包开发笔记",
-    "section": "近期更新",
-    "text": "近期更新\n\n2026-10-07：pak 下载慢：CRAN 代理与 Windows / WSL 排查，记录 TUN 出口、全局 Merge / Script 配置和规则分流的验证方法。\n2026-10-07：R 问题排查 独立栏目，收录 RStudio 卡顿与大脚本实测及 Windows Help 缓存修复记录。\n2026-10-07：MLR 函数索引与模块图，收录 72 个导出接口及 PDP / ALE。\n2026-10-07：SHAP 数值变量分箱说明，说明拟合输入与绘图值的变化。\n2026-10-07：causalR 包概览，森林解释、E-value、加权 PDP 与二维分位数热图。\n2026-10-07：跨包性能评估，汇总 RegR / MLR 与 WSL 运行环境的九篇记录。\n2026-10-06：MLR SHAP 性能实测，Linux / Windows 计算后端与耗时拆分。",
-    "crumbs": [
-      "关于这份笔记"
-    ]
-  },
-  {
-    "objectID": "index.html#包一览",
-    "href": "index.html#包一览",
-    "title": "R 包开发笔记",
-    "section": "包一览",
-    "text": "包一览\n\n\n\n\n包\n用途\n功能模块图\n参考文档\n\n\n\n\nRegR\n临床回归分析：效应估计、亚组与交互、RCS、竞争风险，森林图等可视化\n查看图谱\npkgdown\n\n\nMLR\n机器学习特征重要性、SHAP、PDP 与变量交互（VIVI）\n查看图谱\npkgdown\n\n\nUtilsR\n通用绘图、格式化与数据探索工具\n查看图谱\npkgdown\n\n\nseerR\nSEER 肿瘤登记数据的 ETL 流程与队列构建\n查看图谱\n—\n\n\nLabR\nCCK-8、Western blot、qPCR 等基础实验作图\n查看图谱\npkgdown\n\n\nscMMR\n单细胞多任务深度学习模型（reticulate + PyTorch）\n查看图谱\npkgdown\n\n\nToyData\n各包共享的示例数据集\n查看图谱\n—\n\n\ncausalR\n倾向评分设计、异质性效应与未测量混杂敏感性分析\n查看图谱\n因果推断笔记",
-    "crumbs": [
-      "关于这份笔记"
-    ]
-  },
-  {
-    "objectID": "index.html#包之间的依赖",
-    "href": "index.html#包之间的依赖",
-    "title": "R 包开发笔记",
-    "section": "包之间的依赖",
-    "text": "包之间的依赖\n分析流程的数据从下往上流动，包依赖只指向下层：\nL4  MLR    Imports  -&gt; RegR, UtilsR    Suggests -&gt; ToyData\nL3  RegR   Suggests -&gt; UtilsR, seerR, MLR\nL2  seerR  Imports  -&gt; UtilsR\nL1  UtilsR Suggests -&gt; RegR, scMMR, ToyData\nL0  ToyData（不依赖任何内部包）\n\nscMMR   Suggests -&gt; UtilsR\nLabR    Suggests -&gt; UtilsR",
-    "crumbs": [
-      "关于这份笔记"
-    ]
-  },
-  {
-    "objectID": "index.html#笔记目录",
-    "href": "index.html#笔记目录",
-    "title": "R 包开发笔记",
-    "section": "笔记目录",
-    "text": "笔记目录\n按包、主题或关键词缩小目录；多个条件同时生效，关键词可输入函数名或空格分隔的词。\n\n  \n    包\n    全部包\n  \n  \n    主题\n    全部主题\n  \n  \n    关键词或函数名\n    \n  \n  重置筛选\n  \n\n没有匹配的笔记，请调整条件或重置筛选。\n\n\n\n\n包\n页面\n主题\n日期\n\n\n\n\nR 问题排查\nR 问题排查目录：RStudio、浏览器与 WSL 的故障记录\n问题排查\n2026-10-07\n\n\nR 问题排查\nEdge + WSL RStudio 卡顿：升级后 R 诊断对照与大脚本问题\n问题排查\n2026-10-07\n\n\nR 问题排查\npak 下载慢：CRAN 代理与 Windows / WSL 排查\n问题排查\n2026-10-07\n\n\ncausalR\n模块图更新：24 个导出函数、森林解释、树稳定性与 E-value\n包概览与数据\n2026-10-07\n\n\ncausalR\n包总览更新：森林解释、E-value、加权 PDP 与二维分位数热图\n包概览与数据\n2026-10-07\n\n\ncausalR\nHTE SHAP：代理模型、Kernel、保真度与六种图形展示\n因果推断与 HTE\n2026-10-07\n\n\ncausalR\nHTE ALE：相关协变量、分箱、分类水平排序与空水平\n因果推断与 HTE\n2026-10-07\n\n\ncausalR\nHTE PDP：分位数网格、分类变量、抽样预算与森林权重\n因果推断与 HTE\n2026-10-07\n\n\ncausalR\nE-value：已发表比值与 Cox / Logistic 模型、rare 假设与区间解释\n因果推断与 HTE\n2026-10-07\n\n\nMLR\nget_shp 提速：生存森林多线程、连续变量分箱、CPU 多进程 SHAP，Linux 与 Windows 1 万行实测\n性能评估\n2026-10-06\n\n\nMLR\nget_imp 提速：多进程 TreeSHAP、置换重要性线程、按需加载 mlr3 包与复用森林，SEER 4387 行实测\n性能评估\n2026-10-06\n\n\nMLR\nget_vpd / get_ale / get_ale2 提速：16 项优化、1 万到 10 万行实测与随机生存森林剖析\n性能评估\n2026-10-06\n\n\nRegR\nWSL 下 R 的 OpenBLAS 线程与多核并行：外部报告、设置位置验证与推荐做法\n性能评估\n2026-10-04\n\n\n跨包\n跨包性能评估：RegR / MLR 与 WSL 九篇记录\n性能评估\n2026-10-07\n\n\nRegR\nget_score：大样本与100次 bootstrap 耗时，含30分钟停止进度\n性能评估\n2026-10-03\n\n\nRegR\nCox / CIF 优化：Windows 与 Linux、5 千到 10 万行的完整函数实测\n性能评估\n2026-10-02\n\n\nRegR\nRPA 建树时要不要调整协变量：ctree 与 mob 的文献检索与 partykit 验证\n回归与生存分析\n2026-10-02\n\n\nRegR\nRPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率，4387 到 100000 例\n性能评估\n2026-10-02\n\n\nRegR\n组间特征比较：SMD、Cohen’s d、点图与雷达图\n回归与生存分析\n2026-10-01\n\n\nRegR\n分组轨迹模型：拟合、组数比较与后验分类\n回归与生存分析\n2026-10-01\n\n\nRegR\n瞬时风险：平滑方法、分组与协变量标准化\n回归与生存分析\n2026-10-01\n\n\nRegR\n条件生存：已存活多久、再存活多久与固定终点\n回归与生存分析\n2026-10-01\n\n\nRegR\n列线图、ROC、校准与决策曲线：Cox 和 Logistic\n模型评估与验证\n2026-10-01\n\n\nRegR\n模型评价：C-index、时点 AUC、Brier 与验证人群\n模型评估与验证\n2026-10-01\n\n\nRegR\n同一暴露的效应比较：调整模型、结局与分层\n回归与生存分析\n2026-10-01\n\n\nRegR\n单多因素分析：手工模型、自动筛选与绝对效应\n回归与生存分析\n2026-10-01\n\n\nRegR\n临床表格：基线、分层、事件构成与生存摘要\n临床表格\n2026-10-01\n\n\nRegR\n变量筛选：策略比较、LASSO 路径与共线性\n回归与生存分析\n2026-10-01\n\n\nRegR\n倾向评分：PSM、IPTW 与平衡诊断\n回归与生存分析\n2026-10-01\n\n\nRegR\nRPA：建树、终末节点与生存和二分类输出\n回归与生存分析\n2026-10-01\n\n\nRegR\n队列筛选与流程图：get_flt、plt_flo、plt_flo2，20 个参数对照示例\n数据准备与筛选\n2026-10-01\n\n\nRegR\nKM/CIF 组合图：get_cat、plt_cat1/2/3，20 个参数对照示例\n回归与生存分析\n2026-10-01\n\n\nRegR\n交互分析：get_inter、绝对风险与表格导出，7 个函数、21 张参数对照图\n回归与生存分析\n2026-10-01\n\n\nRegR\nRCS 组合图：get_rcs_all，7 种模式与 16 个实际图形示例\n回归与生存分析\n2026-10-01\n\n\nRegR\n切点分析：get_cut、get_cut_ci 与 get_cut_plot，实际表格与 bootstrap 区间\n回归与生存分析\n2026-10-01\n\n\nRegR\n效应估计与森林图：get_eff、4 个绘图函数，24 个参数对照示例\n回归与生存分析\n2026-10-01\n\n\nRegR\n分面生存曲线：get_facet，22 个可视化与参数对照示例\n回归与生存分析\n2026-10-01\n\n\nRegR\n竞争风险 CIF 的 FGR 与 CSC：get_eff、get_cat、get_facet 的耗时和结果差异\n性能评估\n2026-09-29\n\n\nToyData\n14 个示例数据对象：临床队列、模型解释与单细胞数据\n包概览与数据\n2026-09-30\n\n\nMLR\nSHAP：get_shp 与 14 个绘图函数，34 个参数对照示例\n模型解释\n2026-09-30\n\n\nMLR\n特征重要性：get_imp 与 9 个绘图函数，25 张参数对照图\n模型解释\n2026-10-01\n\n\nUtilsR\n分类变量：plt_cat 的 11 种图形与重要参数，31 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n变量分布与 PDP：解释器、分组和预测时间，12 张参数对照图\n模型解释\n2026-10-01\n\n\nUtilsR\n连续变量：分布、统计比较与多面板布局，23 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n变量交互：H 统计量、paired-VIMP 与 VIV 图谱，12 张参数对照图\n模型解释\n2026-10-01\n\n\nMLR\nSHAP 聚类：选 K、解释分组与固定中心分配，15 张参数对照图\n模型解释\n2026-10-01\n\n\nUtilsR\nggplot 格式化：主题、坐标、图例、条带与面板标签，31 个参数示例\n绘图与格式化\n2026-10-01\n\n\nUtilsR\n配色系统：检索、颜色映射与离散和连续色阶，21 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n生存 PDP 图谱：时间、分箱与二维交互面，16 张参数对照图\n模型解释\n2026-10-01\n\n\nMLR\n模型筛选：学习器 × 缺失处理的重采样比较，11 张参数对照图\n建模与调参\n2026-10-01\n\n\nUtilsR\n数据检视与缺失：摘要、缺失模式和 KNN 插补，23 个参数示例\n数据准备与筛选\n2026-10-01\n\n\nMLR\n超参数调优：搜索预算、配置图与嵌套验证，11 张参数对照图\n建模与调参\n2026-10-01\n\n\nMLR\n特征筛选：搜索路径、候选规模与选择稳定性，9 张参数对照图\n建模与调参\n2026-10-01\n\n\nUtilsR\n组合散点图：边际分布、双分组与配对差值，23 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n模型评估：时间 ROC、概率误差与分类阈值，13 张参数对照图\n模型评估与验证\n2026-10-01\n\n\nUtilsR\n分类分布与流向：堆积柱、Alluvial 和 Sankey，21 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n校准与 DCA：概率方向、重采样范围与阈值，14 张参数对照图\n模型评估与验证\n2026-10-01\n\n\nUtilsR\n集合比较：Venn、UpSet、成员分组与 Jaccard 热图，22 个参数示例\n绘图与格式化\n2026-10-01\n\n\nUtilsR\n双侧比较图：Butterfly、分布镜像与 Dumbbell，21 个参数示例\n绘图与格式化\n2026-10-01\n\n\nUtilsR\n排名与共享特征：Rank、方法一致性和圆形棒棒糖，28 个参数示例\n绘图与格式化\n2026-10-01\n\n\nUtilsR\n因子与统计文本：排序、合并、分箱和区间格式化，33 个参数示例\n数据准备与筛选\n2026-10-01\n\n\nUtilsR\n图形组合与导出：展平、grob、插图和栅格化，28 个参数示例\n绘图与格式化\n2026-10-01",
-    "crumbs": [
-      "关于这份笔记"
-    ]
-  },
-  {
-    "objectID": "index.html#数据说明",
-    "href": "index.html#数据说明",
-    "title": "R 包开发笔记",
-    "section": "数据说明",
-    "text": "数据说明\n本站公开。涉及 SEER 等登记数据的笔记展示汇总统计量、模型解释图和方法示例， 不提供患者级原始数据表或数据文件下载。",
-    "crumbs": [
-      "关于这份笔记"
-    ]
-  },
-  {
     "objectID": "causalr/function-modules.html",
     "href": "causalr/function-modules.html",
     "title": "causalR 功能模块图",
@@ -8291,6 +7828,579 @@
     "crumbs": [
       "R 问题排查",
       "<span class='chapter-number'>81</span>  <span class='chapter-title'>pak 下载慢：CRAN 代理与 Windows / WSL 排查</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html",
+    "href": "regr/get-score-optimization-20261007.html",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "",
+    "text": "主要结果\n本页属于 跨包性能评估，记录 RegR::get_score() 在同一台机器上的 Windows / WSL 比较，以及随后四项优化的端到端计时。当前实现对应 RegR 0.1.3 的提交 b8a3337。接口与返回对象见模型评价教程。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#主要结果",
+    "href": "regr/get-score-optimization-20261007.html#主要结果",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "",
+    "text": "单模型、1 万行、100 个时间点、R=0： 时间网格分块后，Cox 中位耗时在 WSL 为 4.032 → 2.483 秒，Windows 为 4.220 → 3.070 秒；Fine–Gray 分别为 4.313 → 2.976 秒、4.690 → 3.440 秒。\nCox、1000 行、R=100、4 个工作进程： 将拟合、预测与评分放在同一 bootstrap 任务内，WSL 为 5.015 → 3.963 秒，Windows 为 24.090 → 15.230 秒。\nWindows worker 环境精简： 配对中位耗时为 20.860 → 17.390 秒；任务序列化体积减少约 51%。同配置的 WSL 耗时为 3.603 → 3.757 秒，没有显示提速。\n混合请求直接 AUC/BS 与 AUC_score/BS_score 时，复用已有结果与删失预处理。两模型 Cox 的 WSL / Windows 配对中位耗时分别下降 11.0% / 4.2%。\n\n\n\n\n\n\n\n重要每项都有自己的前一版本基线\n\n\n\n下表按同一系统、同一数据、同一参数的 before/after 各三次交替测量，报告中位数与范围。四项并非同一个累计对照，降幅不能相加；尤其不能将 Windows 的 24.090 → 15.230 与另一轮的 20.860 → 17.390 串成一条计时序列。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#优化前后耗时图",
+    "href": "regr/get-score-optimization-20261007.html#优化前后耗时图",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "优化前后耗时图",
+    "text": "优化前后耗时图\n\n\n\n\n\n\n图 80.1: 五种代表配置的独立配对结果。点为中位数，线段为三次测量的最小–最大范围；上下两点分别是该项优化前后。WSL worker 环境精简未显示收益。\n\n\n\n下载耗时图 PDF",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#三次配对的完整结果",
+    "href": "regr/get-score-optimization-20261007.html#三次配对的完整结果",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "三次配对的完整结果",
+    "text": "三次配对的完整结果\n单位为秒，格式为 中位数 [最小–最大]。时间网格均为 seq(2, 200, 2)；默认预测指标是 AUC_score/BS_score。\n\n单模型大时间网格bootstrap 与 worker 环境混合指标复用\n\n\n配置：1 万行、R=0、一个 Age + Sex + Race 联合模型、1 个进程；两边都先以完整代表规模预热。\n\n\n\n\n\n\n\n\n\n\n模型\n系统\n优化前\n优化后\n中位耗时下降\n\n\n\n\nCox\nWSL\n4.032 [3.169–4.056]\n2.483 [2.272–2.722]\n38.4%\n\n\nCox\nWindows\n4.220 [4.080–4.870]\n3.070 [2.970–4.000]\n27.3%\n\n\nFine–Gray\nWSL\n4.313 [3.445–4.937]\n2.976 [2.566–3.227]\n31.0%\n\n\nFine–Gray\nWindows\n4.690 [4.250–5.220]\n3.440 [3.380–3.470]\n26.7%\n\n\n\n完整原生 Score 返回对象、点估计、SE/CI、ROC 数据及最终 RNG 状态一致。分块只改变中间计算规模，100 个时间点全部保留。\n\n\n配置：Cox、1000 行、R=100、一个联合模型、默认预测指标。\n\n\n\n\n\n\n\n\n\n\n优化项\n系统\n进程数\n优化前\n优化后\n\n\n\n\n合并拟合、预测、评分任务\nWSL\n2\n6.235 [5.576–9.208]\n4.976 [4.373–5.115]\n\n\n合并拟合、预测、评分任务\nWSL\n4\n5.015 [4.055–8.095]\n3.963 [3.792–4.094]\n\n\n合并拟合、预测、评分任务\nWindows\n4\n24.090 [21.750–25.270]\n15.230 [15.190–16.880]\n\n\n精简 worker 环境\nWSL\n2\n4.402 [4.091–4.582]\n4.436 [4.435–4.659]\n\n\n精简 worker 环境\nWSL\n4\n3.603 [3.586–3.674]\n3.757 [3.449–4.004]\n\n\n精简 worker 环境\nWindows\n4\n20.860 [17.920–23.180]\n17.390 [15.210–18.520]\n\n\n\n合并任务采用 300 行、R=4、同核数预热；环境精简的最终测量采用完整 1000 行、R=100 预热。WSL 环境精简的中位耗时略增，不能描述成跨平台普遍提速。\n\n\n配置：Cox、1 万行、R=0、1 个进程；两个联合模型 Basic = Age + Sex、Full = Age + Sex + Race。同时请求 AUC_score/BS_score/AUC/BS/AIC/BIC/PVE，先以 300 行预热。\n\n\n\n系统\n优化前\n优化后\n中位耗时下降\n\n\n\n\nWSL\n7.454 [7.367–9.236]\n6.634 [6.496–7.858]\n11.0%\n\n\nWindows\n9.830 [9.500–12.900]\n9.420 [8.890–9.590]\n4.2%\n\n\n\n同一分析样本和时间网格下复用已计算的直接指标及 SE，只补缺少的指标。跨模型共用删失预处理；新抽样仍需重新准备，不能跨 bootstrap 使用旧缓存。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#implementation-boundaries",
+    "href": "regr/get-score-optimization-20261007.html#implementation-boundaries",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "四项实现与适用边界",
+    "text": "四项实现与适用边界\n\n\n\n提交\n改动\n保留的计算与回退\n\n\n\n\nd2c1d9a\n复用直接 AUC/BS 与公共预处理\n样本和时间网格必须一致；只请求 BS 不要求 AUC 可定义；均值不匹配时仍不展示补算区间。\n\n\n7aee186\n每个并行 bootstrap 任务预测后立即评分\n原生训练/验证划分、删失权重、配对失败剔除与百分位区间保留；第二轮指标循环复用结果；未知上游循环形状回退原路径。\n\n\n5cc7e6c\n缩小闭包和 worker 输入\n只传表达式实际引用的绑定；仅在请求拟合指标时携带其回调；索引函数和随机种子调用保持。基础 PSOCK 包装器不会仅因父环境加载整个 RegR。\n\n\nb8a3337\n单模型大时间网格分块\n仅用于无重采样的完整生存数据；行数 × 时间点数 &gt; 500000，时点为正数、递增、无重复且在随访内。每块目标约 100000 个体×时间行，仍只拟合一次。多模型与不规则网格保留原路径。\n\n\n\nWindows 的任务序列化诊断为 670937 → 329442 bytes，减少 50.9%。这衡量发送任务的体积。bootstrap 仍保留原生全量预测验证表，本轮没有测得整次调用的峰值内存降幅。\n时间网格分块保留原生逐时点推断。汇总列的时间平均区间继续采用现有直接评分近似，含义见时间平均的区间说明；这项性能优化没有新增跨时点协方差估计，也没有把简单时间平均改为 IBS。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#cross-platform-baseline",
+    "href": "regr/get-score-optimization-20261007.html#cross-platform-baseline",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "Windows 与 WSL 的优化前基准",
+    "text": "Windows 与 WSL 的优化前基准\n这组基准使用同一个源码提交 0af26ef 与固定输入，共 54 次正式调用。它是实施上述四项优化之前的环境比较，与后续独立 A/B 表分开。\n\nR=0：1 万行、1 个进程\n\n\n\n模型\nWSL\nWindows\nWindows / WSL\n\n\n\n\nLogistic\n0.115 [0.104–0.121]\n0.150 [0.140–0.190]\n1.30×\n\n\nCox\n5.575 [5.479–6.051]\n6.050 [6.030–6.360]\n1.09×\n\n\nFine–Gray\n6.153 [6.028–6.589]\n6.990 [6.930–7.200]\n1.14×\n\n\n\n\n\nR=100：1000 行\n\n\n\n\n\n\n\n\n\n\n模型\n进程数\nWSL\nWindows\nWindows / WSL\n\n\n\n\nLogistic\n1\n1.031 [1.001–1.068]\n1.370 [1.230–1.390]\n1.33×\n\n\nLogistic\n4\n1.150 [1.056–1.182]\n19.010 [18.890–19.170]\n16.53×\n\n\nCox\n1\n10.154 [9.699–11.020]\n11.780 [11.000–12.700]\n1.16×\n\n\nCox\n4\n8.056 [7.792–8.101]\n28.850 [28.240–30.280]\n3.58×\n\n\nFine–Gray\n1\n11.733 [11.508–12.020]\n16.200 [14.860–16.530]\n1.38×\n\n\nFine–Gray\n4\n8.753 [8.669–9.099]\n30.570 [29.810–32.440]\n3.49×\n\n\n\nWindows 强制 4 个进程在这份优化前基准中更慢。后续融合任务和缩小闭包确实降低该路径耗时，但没有重新完成最终版本的三模式 1/2/4 进程矩阵，因此不能据此宣布 Windows 并行已全面超过串行。\n54 次调用全部成功、无评分警告，R=100 均保留 100 个有效重复。45 组跨系统及同系统串行/4 进程比较通过，AUC/Brier、SE/CI 最大绝对差为 8.3266727e-17，格式化摘要、返回字段/类别及 RNG 状态一致。图形字体与实际渲染差异未纳入数值对照。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#未采用的候选与核数选择",
+    "href": "regr/get-score-optimization-20261007.html#未采用的候选与核数选择",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "未采用的候选与核数选择",
+    "text": "未采用的候选与核数选择\n\n小 Logistic bootstrap 强制串行： 新的 WSL 三次核数对照，1000 行、R=100 的 1/2/4 进程中位数为 0.774 / 0.743 / 0.554 秒；1 万行为 3.354 / 1.578 / 1.429 秒。新证据不支持收紧该配置的自动并行阈值；优化前基准的一次环境结果不能作为固定阈值。\n原生 Score iid 复用平均指标 SE： 1 万行 Cox 的直接 CI 补算与 keep=\"iid\" 路径分别为 2.794 / 3.086 秒。结果一致，但没有性能收益，未合入。\n多模型并行时间分块： WSL 两模型、2 进程、混合指标为 6.090 → 6.328 秒，没有显示收益。最终实现限定为单模型。\n\nscore_args$n_cores = NULL 继续使用自适应策略：Windows 的 Score bootstrap 默认串行，WSL 在工作量足够时最多用 4 个工作进程；显式核数优先，仍受可用核数和 options(mc.cores) 上限限制。本页计时固定 BLAS/OpenMP/data.table 为 1 线程，工作进程数与数值库线程数应分别设置。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#可复制调用",
+    "href": "regr/get-score-optimization-20261007.html#可复制调用",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "可复制调用",
+    "text": "可复制调用\n以下调用复用本轮输入准备方式。网页仅展示已有测量，不在构建时重跑 R=100 矩阵。复制后会实际运行对应规模。\nlibrary(RegR)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nrequired &lt;- c(\"time\", \"DSS\", \"event\", \"Age\", \"Sex\", \"Race\")\nraw &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd &lt;- droplevels(raw[complete.cases(raw[required]) & raw[[\"time\"]] &gt; 0,\n                   required])\nset.seed(20261007)\nbench &lt;- d[sample.int(nrow(d), 10000L, replace = TRUE), , drop = FALSE]\nrownames(bench) &lt;- NULL\nmodels &lt;- list(full = c(\"Age\", \"Sex\", \"Race\"))\noptions(mc.cores = 4L)\n\nset.seed(20261008)\nscore_full &lt;- run_quiet(get_score(\n  bench, vars = models, surv = TRUE, R = 0,\n  timepoint = seq(2, 200, 2), score_args = list(n_cores = 1L)))\nscore_full[[\"AUC.BS.AIC\"]]\n\nset.seed(20261008)\nscore_boot &lt;- run_quiet(get_score(\n  bench[1:1000, ], vars = models, surv = TRUE, R = 100,\n  timepoint = seq(2, 200, 2), score_args = list(n_cores = 1L)))\nscore_boot[[\"AUC.BS.AIC\"]]\nattr(score_boot[[\"AUC.BS.AIC\"]], \"valid_reps\")\n要对照 4 个进程，应在相同输入和种子下只将 n_cores 改为 4L。Fine–Gray 改为 surv = FALSE，Logistic 为 surv = \"DSS\"。R=0/1 是传入队列的表观评价；R≥2 的 Score 指标是原生 bootcv 验证评价。直接 AUC/BS/AIC/BIC/PVE 复用的是训练拟合，不能与袋外指标混同。扩展输入行数只用于性能测试，不代表新增独立患者。\n严格复现计时还需按下载脚本将 BLAS/OpenMP/MKL/data.table 线程设为 1，预热后交替重复三次；只调用一次 system.time() 不等同于本页协议。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#环境版本与验证",
+    "href": "regr/get-score-optimization-20261007.html#环境版本与验证",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "环境、版本与验证",
+    "text": "环境、版本与验证\n\n\n\n\n\n\n\n项目\n本轮设置\n\n\n\n\n硬件与系统\n同机 Intel Core Ultra 9 275HX，24 个逻辑 CPU；WSL2 Ubuntu 22.04 / Linux 6.6.87.2，Windows 11 build 26200；均 R 4.4.3。\n\n\n相同主要依赖\nriskRegression 2026.3.11、survival 3.8.12、prodlim 2026.3.11、cmprsk 2.2.12、mets 1.3.13、ggplot2 4.0.3。\n\n\n仍有环境差异\nWSL 为 OpenBLAS，Windows 为该 R 发行版的 BLAS；data.table 1.17.8 / 1.18.2.1、parallelly 1.38.0 / 1.47.0 等版本不同。完整 sessionInfo 与环境记录见证据包。\n\n\n输入与种子\n自带 SEER 数据共同完整且 time&gt;0 的 4387 行，种子 20261007 扩展到 1 万行；bootstrap 取前 1000 行；计时种子 20261008；整数月时间保留。\n\n\n配对协议\n端到端耗时含拟合、评分和返回对象构造；不含提前加载、数据准备、预热、计时前 GC 和文件保存。每格三次，before/after 顺序交替，重型调用串行安排。\n\n\n保护上限\n单次计时 180 秒；独立子进程另有总上限。正式表中条件均完成，没有用失败/超时调用计算中位数。\n\n\n\n这比较的是当前两套实际环境，不能将所有差异归因于操作系统。正式分块计时在增加“仅单模型”的限制前完成；限制只改变多模型分支，单模型执行体未变，已有四格单模型证据继续有效，并通过最终定向检查。\n优化配对调用核对估计、SE/CI、摘要、拟合统计、bootstrap 记录、有效重复与最终 RNG，容差 1e-10；分块独立原生 Score 参考与早期无事件时点、BS 单指标、额外 times 列等边界对照使用 1e-12。最终 Windows 相关检查通过 166 条断言；WSL 新增分块与原模型调度检查通过 38 条断言。\n共享并行包装器修改后运行全包检查一次：93 个测试文件、2 个文件调度进程、759.41 秒，90 个文件通过。test-get-eff-helpers.R、test-get-rpa-mp1.R、test-get-score-stage.R 的 13 个失败断言与 2 个错误，在关闭本轮评分和并行优化后完全复现，记录为已有基线失败；不能将全包检查描述为全绿。get_score 主测试及并行工具测试通过，最终分块补做受影响用例。\n10 月 3 日的 1 万到 10 万行、30 分钟停止记录 保留其原始版本和统计状态。本轮没有补完旧矩阵的超时条件，也不把这里的降幅外推到其他样本量。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-optimization-20261007.html#下载与复现证据",
+    "href": "regr/get-score-optimization-20261007.html#下载与复现证据",
+    "title": "get_score：Windows / WSL 实测与四项优化",
+    "section": "下载与复现证据",
+    "text": "下载与复现证据\n\n四项优化的 72 次正式配对耗时 CSV 与逐格中位数和范围 CSV。\n耗时图 PNG 与矢量 PDF。\n证据与复现脚本 ZIP：优化前跨系统 CSV/一致性结果、正式与否定候选的逐次计时、逐项源码快照、环境/哈希、复现脚本与基线失败记录。只提供汇总和复现来源，不附队列逐行输入。\n\n证据中的 compare-step.R 以源码快照和当前源码做独立 A/B；固定输入可用 prepare.R 从包内数据再生成。现有脚本沿用 E:/Rpackage/RegR 或 /mnt/e/Rpackage/RegR，其他目录需要修改 root；全量复现的计算成本高于构建此网页。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>79</span>  <span class='chapter-title'>get_score：Windows / WSL 实测与四项优化</span>"
+    ]
+  },
+  {
+    "objectID": "index.html",
+    "href": "index.html",
+    "title": "R 包开发笔记",
+    "section": "",
+    "text": "关于这份笔记\n这里收集我自己开发的几个 R 包的笔记：函数为什么这样设计、参数怎么选、 不同实现的耗时与结果差异，以及使用中踩过的坑。每个包一个分区， R 与开发环境的故障记录单独收录在 R 问题排查。函数的参考文档仍以各包的 pkgdown 站点为准。\n每个包分区的第一页是功能模块图，包含功能总览、完整接口索引和流程展示。点击图片可放大，也可下载可编辑的 draw.io 文件和 PDF。\ncausalR 的功能模块图收录在本站；因果推断读书笔记见 causalR。",
+    "crumbs": [
+      "关于这份笔记"
+    ]
+  },
+  {
+    "objectID": "index.html#start-here",
+    "href": "index.html#start-here",
+    "title": "R 包开发笔记",
+    "section": "按任务开始",
+    "text": "按任务开始\n\n\n临床队列与回归\n队列筛选 · KM / CIF · 亚组与交互\n\n\n机器学习与模型解释\nSHAP · PDP · ALE 接口\n\n\n因果推断与效应异质性\nHTE 诊断 · 生存效应尺度 · E-value\n\n\n计算性能与数值核验\nRegR / MLR 评估目录 · WSL 线程设置\n\n\nR 问题排查\nRStudio 卡顿与大脚本实测 · pak 下载与代理",
+    "crumbs": [
+      "关于这份笔记"
+    ]
+  },
+  {
+    "objectID": "index.html#recent-updates",
+    "href": "index.html#recent-updates",
+    "title": "R 包开发笔记",
+    "section": "近期更新",
+    "text": "近期更新\n\n2026-10-07：pak 下载慢：CRAN 代理与 Windows / WSL 排查，记录 TUN 出口、全局 Merge / Script 配置和规则分流的验证方法。\n2026-10-07：R 问题排查 独立栏目，收录 RStudio 卡顿与大脚本实测及 Windows Help 缓存修复记录。\n2026-10-07：MLR 函数索引与模块图，收录 72 个导出接口及 PDP / ALE。\n2026-10-07：SHAP 数值变量分箱说明，说明拟合输入与绘图值的变化。\n2026-10-07：causalR 包概览，森林解释、E-value、加权 PDP 与二维分位数热图。\n2026-10-07：get_score 的 Windows / WSL 实测与四项优化，含三次配对耗时、bootstrap 并行及单模型时间网格边界。\n2026-10-07：跨包性能评估，汇总 RegR / MLR 与 WSL 运行环境的十篇记录。\n2026-10-06：MLR SHAP 性能实测，Linux / Windows 计算后端与耗时拆分。",
+    "crumbs": [
+      "关于这份笔记"
+    ]
+  },
+  {
+    "objectID": "index.html#包一览",
+    "href": "index.html#包一览",
+    "title": "R 包开发笔记",
+    "section": "包一览",
+    "text": "包一览\n\n\n\n\n包\n用途\n功能模块图\n参考文档\n\n\n\n\nRegR\n临床回归分析：效应估计、亚组与交互、RCS、竞争风险，森林图等可视化\n查看图谱\npkgdown\n\n\nMLR\n机器学习特征重要性、SHAP、PDP 与变量交互（VIVI）\n查看图谱\npkgdown\n\n\nUtilsR\n通用绘图、格式化与数据探索工具\n查看图谱\npkgdown\n\n\nseerR\nSEER 肿瘤登记数据的 ETL 流程与队列构建\n查看图谱\n—\n\n\nLabR\nCCK-8、Western blot、qPCR 等基础实验作图\n查看图谱\npkgdown\n\n\nscMMR\n单细胞多任务深度学习模型（reticulate + PyTorch）\n查看图谱\npkgdown\n\n\nToyData\n各包共享的示例数据集\n查看图谱\n—\n\n\ncausalR\n倾向评分设计、异质性效应与未测量混杂敏感性分析\n查看图谱\n因果推断笔记",
+    "crumbs": [
+      "关于这份笔记"
+    ]
+  },
+  {
+    "objectID": "index.html#包之间的依赖",
+    "href": "index.html#包之间的依赖",
+    "title": "R 包开发笔记",
+    "section": "包之间的依赖",
+    "text": "包之间的依赖\n分析流程的数据从下往上流动，包依赖只指向下层：\nL4  MLR    Imports  -&gt; RegR, UtilsR    Suggests -&gt; ToyData\nL3  RegR   Suggests -&gt; UtilsR, seerR, MLR\nL2  seerR  Imports  -&gt; UtilsR\nL1  UtilsR Suggests -&gt; RegR, scMMR, ToyData\nL0  ToyData（不依赖任何内部包）\n\nscMMR   Suggests -&gt; UtilsR\nLabR    Suggests -&gt; UtilsR",
+    "crumbs": [
+      "关于这份笔记"
+    ]
+  },
+  {
+    "objectID": "index.html#笔记目录",
+    "href": "index.html#笔记目录",
+    "title": "R 包开发笔记",
+    "section": "笔记目录",
+    "text": "笔记目录\n按包、主题或关键词缩小目录；多个条件同时生效，关键词可输入函数名或空格分隔的词。\n\n  \n    包\n    全部包\n  \n  \n    主题\n    全部主题\n  \n  \n    关键词或函数名\n    \n  \n  重置筛选\n  \n\n没有匹配的笔记，请调整条件或重置筛选。\n\n\n\n\n包\n页面\n主题\n日期\n\n\n\n\nR 问题排查\nR 问题排查目录：RStudio、浏览器与 WSL 的故障记录\n问题排查\n2026-10-07\n\n\nR 问题排查\nEdge + WSL RStudio 卡顿：升级后 R 诊断对照与大脚本问题\n问题排查\n2026-10-07\n\n\nR 问题排查\npak 下载慢：CRAN 代理与 Windows / WSL 排查\n问题排查\n2026-10-07\n\n\ncausalR\n模块图更新：24 个导出函数、森林解释、树稳定性与 E-value\n包概览与数据\n2026-10-07\n\n\ncausalR\n包总览更新：森林解释、E-value、加权 PDP 与二维分位数热图\n包概览与数据\n2026-10-07\n\n\ncausalR\nHTE SHAP：代理模型、Kernel、保真度与六种图形展示\n因果推断与 HTE\n2026-10-07\n\n\ncausalR\nHTE ALE：相关协变量、分箱、分类水平排序与空水平\n因果推断与 HTE\n2026-10-07\n\n\ncausalR\nHTE PDP：分位数网格、分类变量、抽样预算与森林权重\n因果推断与 HTE\n2026-10-07\n\n\ncausalR\nE-value：已发表比值与 Cox / Logistic 模型、rare 假设与区间解释\n因果推断与 HTE\n2026-10-07\n\n\nMLR\nget_shp 提速：生存森林多线程、连续变量分箱、CPU 多进程 SHAP，Linux 与 Windows 1 万行实测\n性能评估\n2026-10-06\n\n\nMLR\nget_imp 提速：多进程 TreeSHAP、置换重要性线程、按需加载 mlr3 包与复用森林，SEER 4387 行实测\n性能评估\n2026-10-06\n\n\nMLR\nget_vpd / get_ale / get_ale2 提速：16 项优化、1 万到 10 万行实测与随机生存森林剖析\n性能评估\n2026-10-06\n\n\nRegR\nWSL 下 R 的 OpenBLAS 线程与多核并行：外部报告、设置位置验证与推荐做法\n性能评估\n2026-10-04\n\n\n跨包\n跨包性能评估：RegR / MLR 与 WSL 十篇记录\n性能评估\n2026-10-07\n\n\nRegR\nget_score：Windows / WSL 实测、四项优化与 SE/CI/RNG 核验\n性能评估\n2026-10-07\n\n\nRegR\nget_score：大样本与100次 bootstrap 耗时，含30分钟停止进度\n性能评估\n2026-10-03\n\n\nRegR\nCox / CIF 优化：Windows 与 Linux、5 千到 10 万行的完整函数实测\n性能评估\n2026-10-02\n\n\nRegR\nRPA 建树时要不要调整协变量：ctree 与 mob 的文献检索与 partykit 验证\n回归与生存分析\n2026-10-02\n\n\nRegR\nRPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率，4387 到 100000 例\n性能评估\n2026-10-02\n\n\nRegR\n组间特征比较：SMD、Cohen’s d、点图与雷达图\n回归与生存分析\n2026-10-01\n\n\nRegR\n分组轨迹模型：拟合、组数比较与后验分类\n回归与生存分析\n2026-10-01\n\n\nRegR\n瞬时风险：平滑方法、分组与协变量标准化\n回归与生存分析\n2026-10-01\n\n\nRegR\n条件生存：已存活多久、再存活多久与固定终点\n回归与生存分析\n2026-10-01\n\n\nRegR\n列线图、ROC、校准与决策曲线：Cox 和 Logistic\n模型评估与验证\n2026-10-01\n\n\nRegR\n模型评价：C-index、时点 AUC、Brier 与验证人群\n模型评估与验证\n2026-10-01\n\n\nRegR\n同一暴露的效应比较：调整模型、结局与分层\n回归与生存分析\n2026-10-01\n\n\nRegR\n单多因素分析：手工模型、自动筛选与绝对效应\n回归与生存分析\n2026-10-01\n\n\nRegR\n临床表格：基线、分层、事件构成与生存摘要\n临床表格\n2026-10-01\n\n\nRegR\n变量筛选：策略比较、LASSO 路径与共线性\n回归与生存分析\n2026-10-01\n\n\nRegR\n倾向评分：PSM、IPTW 与平衡诊断\n回归与生存分析\n2026-10-01\n\n\nRegR\nRPA：建树、终末节点与生存和二分类输出\n回归与生存分析\n2026-10-01\n\n\nRegR\n队列筛选与流程图：get_flt、plt_flo、plt_flo2，20 个参数对照示例\n数据准备与筛选\n2026-10-01\n\n\nRegR\nKM/CIF 组合图：get_cat、plt_cat1/2/3，20 个参数对照示例\n回归与生存分析\n2026-10-01\n\n\nRegR\n交互分析：get_inter、绝对风险与表格导出，7 个函数、21 张参数对照图\n回归与生存分析\n2026-10-01\n\n\nRegR\nRCS 组合图：get_rcs_all，7 种模式与 16 个实际图形示例\n回归与生存分析\n2026-10-01\n\n\nRegR\n切点分析：get_cut、get_cut_ci 与 get_cut_plot，实际表格与 bootstrap 区间\n回归与生存分析\n2026-10-01\n\n\nRegR\n效应估计与森林图：get_eff、4 个绘图函数，24 个参数对照示例\n回归与生存分析\n2026-10-01\n\n\nRegR\n分面生存曲线：get_facet，22 个可视化与参数对照示例\n回归与生存分析\n2026-10-01\n\n\nRegR\n竞争风险 CIF 的 FGR 与 CSC：get_eff、get_cat、get_facet 的耗时和结果差异\n性能评估\n2026-09-29\n\n\nToyData\n14 个示例数据对象：临床队列、模型解释与单细胞数据\n包概览与数据\n2026-09-30\n\n\nMLR\nSHAP：get_shp 与 14 个绘图函数，34 个参数对照示例\n模型解释\n2026-09-30\n\n\nMLR\n特征重要性：get_imp 与 9 个绘图函数，25 张参数对照图\n模型解释\n2026-10-01\n\n\nUtilsR\n分类变量：plt_cat 的 11 种图形与重要参数，31 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n变量分布与 PDP：解释器、分组和预测时间，12 张参数对照图\n模型解释\n2026-10-01\n\n\nUtilsR\n连续变量：分布、统计比较与多面板布局，23 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n变量交互：H 统计量、paired-VIMP 与 VIV 图谱，12 张参数对照图\n模型解释\n2026-10-01\n\n\nMLR\nSHAP 聚类：选 K、解释分组与固定中心分配，15 张参数对照图\n模型解释\n2026-10-01\n\n\nUtilsR\nggplot 格式化：主题、坐标、图例、条带与面板标签，31 个参数示例\n绘图与格式化\n2026-10-01\n\n\nUtilsR\n配色系统：检索、颜色映射与离散和连续色阶，21 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n生存 PDP 图谱：时间、分箱与二维交互面，16 张参数对照图\n模型解释\n2026-10-01\n\n\nMLR\n模型筛选：学习器 × 缺失处理的重采样比较，11 张参数对照图\n建模与调参\n2026-10-01\n\n\nUtilsR\n数据检视与缺失：摘要、缺失模式和 KNN 插补，23 个参数示例\n数据准备与筛选\n2026-10-01\n\n\nMLR\n超参数调优：搜索预算、配置图与嵌套验证，11 张参数对照图\n建模与调参\n2026-10-01\n\n\nMLR\n特征筛选：搜索路径、候选规模与选择稳定性，9 张参数对照图\n建模与调参\n2026-10-01\n\n\nUtilsR\n组合散点图：边际分布、双分组与配对差值，23 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n模型评估：时间 ROC、概率误差与分类阈值，13 张参数对照图\n模型评估与验证\n2026-10-01\n\n\nUtilsR\n分类分布与流向：堆积柱、Alluvial 和 Sankey，21 个参数示例\n绘图与格式化\n2026-10-01\n\n\nMLR\n校准与 DCA：概率方向、重采样范围与阈值，14 张参数对照图\n模型评估与验证\n2026-10-01\n\n\nUtilsR\n集合比较：Venn、UpSet、成员分组与 Jaccard 热图，22 个参数示例\n绘图与格式化\n2026-10-01\n\n\nUtilsR\n双侧比较图：Butterfly、分布镜像与 Dumbbell，21 个参数示例\n绘图与格式化\n2026-10-01\n\n\nUtilsR\n排名与共享特征：Rank、方法一致性和圆形棒棒糖，28 个参数示例\n绘图与格式化\n2026-10-01\n\n\nUtilsR\n因子与统计文本：排序、合并、分箱和区间格式化，33 个参数示例\n数据准备与筛选\n2026-10-01\n\n\nUtilsR\n图形组合与导出：展平、grob、插图和栅格化，28 个参数示例\n绘图与格式化\n2026-10-01",
+    "crumbs": [
+      "关于这份笔记"
+    ]
+  },
+  {
+    "objectID": "index.html#数据说明",
+    "href": "index.html#数据说明",
+    "title": "R 包开发笔记",
+    "section": "数据说明",
+    "text": "数据说明\n本站公开。涉及 SEER 等登记数据的笔记展示汇总统计量、模型解释图和方法示例， 不提供患者级原始数据表或数据文件下载。",
+    "crumbs": [
+      "关于这份笔记"
+    ]
+  },
+  {
+    "objectID": "regr/performance-evaluation.html",
+    "href": "regr/performance-evaluation.html",
+    "title": "跨包性能评估",
+    "section": "",
+    "text": "RegR 与运行环境\n这里汇总 RegR、MLR 与 WSL 运行环境的性能评估，比较函数耗时、内存、优化前后的数值结果及适用边界。左侧“跨包性能评估”是独立入口；下方汇总十篇记录，也可从 MLR 概览 进入模型解释的性能评估。\nRStudio、浏览器及开发环境的故障记录已单独收录在 R 问题排查。",
+    "crumbs": [
+      "跨包性能评估"
+    ]
+  },
+  {
+    "objectID": "regr/performance-evaluation.html#regr-与运行环境",
+    "href": "regr/performance-evaluation.html#regr-与运行环境",
+    "title": "跨包性能评估",
+    "section": "",
+    "text": "页面\n评估范围\n日期\n\n\n\n\n竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异\nget_eff()、get_cat()、get_facet() 的后端比较与 show_surdiff 开销\n2026-09-29\n\n\nRPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率\nget_rpa() → get_cat() 的步骤耗时、内存与优化前后比较\n2026-10-02\n\n\nCox / CIF 优化：Windows 与 Linux 五档样本量实测\n双系统、五档样本量的函数耗时、数值核对与推断边界\n2026-10-02\n\n\nLogistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端\n3万/5万/10万行 Logistic；FGR 方差 TRUE/FALSE 与 mets；AIC/BIC/PVE 及后端替换评估\n2026-10-03\n\n\nget_score：大样本与100次 bootstrap 耗时\n1万/3万/5万/10万行；R=0与R=100；三种指标组合、阶段耗时与30分钟停止进度\n2026-10-03\n\n\nget_score：Windows / WSL 实测与四项优化\n同源跨系统基准；四项优化的三次配对耗时、SE/CI/RNG 核验、单模型时间网格与 bootstrap worker 边界\n2026-10-07\n\n\nWSL 下 R 的 OpenBLAS 线程与多核并行\nWSL 多线程 BLAS 在小矩阵、fork 并行与负载下变慢的外部报告，线程设置位置的本机验证与推荐做法\n2026-10-04",
+    "crumbs": [
+      "跨包性能评估"
+    ]
+  },
+  {
+    "objectID": "regr/performance-evaluation.html#mlr-performance",
+    "href": "regr/performance-evaluation.html#mlr-performance",
+    "title": "跨包性能评估",
+    "section": "MLR 模型解释",
+    "text": "MLR 模型解释\n\n\n\n页面\n评估范围\n日期\n\n\n\n\nMLR：get_vpd / get_ale / get_ale2 提速策略与实测\nMLR 的 PD、ALE 与 get_exp() 的 16 项优化；1万/5万/10万行六种模型的优化前后实测；随机生存森林的预测开销、树数量与 C-index、GC\n2026-10-06\n\n\nMLR：get_imp 提速策略与实测\nget_imp() 的 4 项优化（多进程 TreeSHAP、置换重要性线程、按需加载 mlr3 包、复用 impurity 森林）；SEER 4387 行的优化前后实测、耗时拆分、内部抽样与尚未处理的开销\n2026-10-06\n\n\nMLR：get_shp 提速策略与实测\nget_shp() 的 6 项改动（生存森林多线程、森林转换、连续变量分箱、CPU 上的 SHAP 多进程、精简加载）；1 万行训练在 Linux（Python SHAP，GPU/CPU）与 Windows（treeshap）上的优化前后实测；ranger 生存分裂、Python TreeSHAP 与子进程启动的专项剖析\n2026-10-06\n\n\n\n各页的结果对应其记录的源码快照、硬件环境、样本量和统计设置；比较耗时时需同时核对模型、置信区间和重采样配置。\n\n本轮拟合比较的完整内容、耗时图与原始记录下载已整理到 Logistic 与 Fine–Gray 拟合评估子页面。评估支持以 FGR(FALSE) 计算 AIC/BIC/PVE；与 mets 相比，统一似然口径的价值比已证实的性能收益更明确。\n\n\n完整评分及100次bootstrap实测已整理到 get_score 大样本性能专页：R=100的36个条件中30个完成、6个按30分钟上限停止，页面保留停止进度、数值核验及下载证据。",
+    "crumbs": [
+      "跨包性能评估"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html",
+    "href": "regr/get-score-benchmark-20261003.html",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "",
+    "text": "主要结果\n本页属于 跨包性能评估，补充 Logistic 与 Fine–Gray 拟合评估 之后的完整 get_score() 实测。这里的计时包括拟合、评分和结果对象构造，范围大于单次 glm()、coxph() 或 FGR()。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#get-score-bootstrap-20261003",
+    "href": "regr/get-score-benchmark-20261003.html#get-score-bootstrap-20261003",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "",
+    "text": "不重采样（R=0）：10万行默认 AUC/BS 调用中位数为 Logistic 0.270秒、Cox 22.486秒、Fine–Gray 24.817秒。\n100次 bootstrap（R=100）：1万行默认调用为 3.721 / 219.249 / 530.509秒；3万行为 9.367 / 681.876 / 1608.497秒，顺序同上。\n36个 R=100 条件中30个完整完成、6个超过30分钟后停止。5万 Fine–Gray 的默认/全部指标、10万 Cox 与 Fine–Gray 的默认/全部指标均为超时记录。\n仅计算 AIC/BIC/PVE 的100次 bootstrap，10万行为 Logistic 75.285秒、Cox 48.996秒、Fine–Gray 251.173秒。\n\n\n\n\n\n\n\n重要超时不是完成100次评估\n\n\n\n超时条件均完成了1次原始拟合、100次重拟合和100次预测，但验证集指标计算尚未全部完成。表中的 &gt;30分钟 是实测下界，不是完整调用耗时，也没有用于推算最终运行时间。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#耗时图",
+    "href": "regr/get-score-benchmark-20261003.html#耗时图",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "耗时图",
+    "text": "耗时图\n\n\n\n\n\n\n图 75.1: 完整 get_score 调用耗时。上排为 R=0 的三次中位数及最小—最大范围；下排为 R=100 的一次保留测量。纵轴为秒的对数刻度，三角形和向上箭头表示超过30分钟后停止，只表示下界；连线仅连接已完成条件。\n\n\n\n下载耗时图 PDF。误差线是 R=0 三次计时的最小—最大值，不是统计置信区间；R=100 没有重复运行完整100次矩阵，因此不展示计时误差线。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#测试口径",
+    "href": "regr/get-score-benchmark-20261003.html#测试口径",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "测试口径",
+    "text": "测试口径\n\n\n\n\n\n\n\n项目\n设置\n\n\n\n\n日期、环境\n2026-10-03；WSL Ubuntu-22.04；R 4.4.3；Intel Core Ultra 9 275HX；WSL总内存约117 GiB\n\n\n依赖版本\nRegR 0.1.3；riskRegression 2026.3.11；cmprsk 2.2.12；survival 3.8.12；prodlim 2026.3.11\n\n\n原始数据\nseer_thyroid_mtc_2026；time/DSS/event/Age/Sex/Race 共同完整且 time &gt; 0，4387行\n\n\n扩样\n数据种子20261003；有放回抽取10万行，再取1万、3万、5万、10万行嵌套前缀；保留原始月份与并列时间\n\n\n模型\n一个 Age + Sex + Race 联合模型；vars = list(full = c(\"Age\", \"Sex\", \"Race\"))\n\n\n分支\nLogistic：surv = \"DSS\"；Cox：surv = TRUE（time/DSS）；Fine–Gray：surv = FALSE（time/event，cause=1），FGR(variance = FALSE)\n\n\n生存时间网格\ntimepoint = seq(2, 200, 2)，100个时点；Logistic是二分类终点评估，不使用时间网格\n\n\n评分输出\nscore_args = list(plots = \"auto\", n_cores = 1L)；保留原生指标标准误和区间计算\n\n\n单次调用线程\nBLAS / OpenMP / MKL均1线程；R=100另设 mc.cores = 1、data.table 1线程\n\n\nR=0运行安排\n样本量/模型独立进程；1000行预热；三种指标配置轮换顺序，每格3次；108次正式调用全部完成\n\n\nR=100运行安排\nbootstrap种子20261004；每格保留一次正式测量；最多4个独立条件并发，10万条件最多2个；补测对5万及以上高内存条件合计限制为2个\n\n\n计时边界\n包含原始拟合、重采样、预测、指标计算、表格整理和ggplot对象构造；排除加载包/数据、预热、计时前GC与实际图形渲染\n\n\n\n扩展到10万行不等于增加到10万名独立患者。 本页用于计算性能评估，不用于估计扩大队列后的统计精度或泛化能力。参数维数、事件时间、时间网格、缺失情况和硬件变化都可能改变耗时。\nR=0记录的源码提交为 535c303a75763a4a399ac33587772f5ce3b421e5；R=100记录为 851b40f4eafa0dc5abc3d5b6bffd100a16d22ba8。两轮的目标文件 R/msr-riskRegression.R、R/msr-fit-stats.R MD5相同，R=100结束时源码/数据哈希及依赖版本核对一致；完整记录见证据包。源码入口为 get_score() 的模型分派、riskRegression::Score() 调用和 .fit_stats_result() 似然指标提取。\n\n\n\n\n\n\n注记两轮不能计算严格的速度倍数\n\n\n\nR=0为各条件独立运行3次的中位数，R=100为一次保留测量且存在条件间并发。R=100的预测指标使用bootcv验证集，R=0未重采样；评估方式也不同。本页不将两轮差异解释为严格加速比，也不把指标数值差异当作后端误差。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#完整调用耗时",
+    "href": "regr/get-score-benchmark-20261003.html#完整调用耗时",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "完整调用耗时",
+    "text": "完整调用耗时\n\nR=0：不重采样R=100：100次 bootstrap\n\n\n单位为秒，格式为 中位数 [最小–最大]；每格3次。\n\n\n\n\n\n\n\n\n\n\n\n模型\n指标\n1万\n3万\n5万\n10万\n\n\n\n\nLogistic\n默认 AUC/BS\n0.058 [0.051–0.064]\n0.110 [0.103–0.119]\n0.171 [0.150–0.347]\n0.270 [0.239–0.794]\n\n\nLogistic\n仅 AIC/BIC/PVE\n0.020 [0.013–0.029]\n0.049 [0.038–0.058]\n0.068 [0.053–0.372]\n0.147 [0.142–0.508]\n\n\nLogistic\n全部五项\n0.061 [0.061–0.066]\n0.111 [0.103–0.118]\n0.174 [0.147–0.415]\n0.517 [0.284–0.616]\n\n\nCox\n默认 AUC/BS\n2.855 [2.573–4.170]\n6.934 [6.662–9.902]\n11.125 [10.879–14.701]\n22.486 [21.945–26.608]\n\n\nCox\n仅 AIC/BIC/PVE\n0.018 [0.018–0.245]\n0.043 [0.043–0.285]\n0.067 [0.066–0.327]\n0.138 [0.134–0.360]\n\n\nCox\n全部五项\n3.028 [2.693–3.053]\n7.411 [6.372–7.575]\n11.225 [10.928–12.604]\n22.887 [22.473–23.167]\n\n\nFine–Gray\n默认 AUC/BS\n3.114 [2.812–4.338]\n6.988 [6.945–11.463]\n11.790 [11.161–15.076]\n24.817 [24.697–29.910]\n\n\nFine–Gray\n仅 AIC/BIC/PVE\n0.153 [0.147–0.173]\n0.466 [0.443–0.468]\n0.735 [0.734–0.742]\n1.660 [1.631–1.692]\n\n\nFine–Gray\n全部五项\n3.815 [2.944–3.950]\n7.856 [6.282–8.389]\n12.351 [11.794–12.578]\n25.498 [25.408–26.053]\n\n\n\n\n\n单位为秒；完成条件是一次保留的完整调用，超时条件按30分钟预算停止。\n\n\n\n\n\n\n\n\n\n\n\n模型\n指标\n1万\n3万\n5万\n10万\n\n\n\n\nLogistic\n默认 AUC/BS\n3.721\n9.367\n16.690\n43.599\n\n\nLogistic\n仅 AIC/BIC/PVE\n2.728\n11.077\n23.598\n75.285\n\n\nLogistic\n全部五项\n5.470\n12.275\n19.880\n43.178\n\n\nCox\n默认 AUC/BS\n219.249\n681.876\n1202.621\n&gt;30分钟，已停止\n\n\nCox\n仅 AIC/BIC/PVE\n2.666\n11.324\n19.784\n48.996\n\n\nCox\n全部五项\n216.430\n775.923\n1102.536\n&gt;30分钟，已停止\n\n\nFine–Gray\n默认 AUC/BS\n530.509\n1608.497\n&gt;30分钟，已停止\n&gt;30分钟，已停止\n\n\nFine–Gray\n仅 AIC/BIC/PVE\n17.539\n58.472\n118.455\n251.173\n\n\nFine–Gray\n全部五项\n503.733\n1531.875\n&gt;30分钟，已停止\n&gt;30分钟，已停止\n\n\n\n仅似然指标与全部指标耗时不必单调增加：两者采用的重采样/评估方式不同，还混合了进程运行波动。不能由 Logistic 的43.178秒与75.285秒推断“多计算指标反而更快”。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#bootstrap-timeouts",
+    "href": "regr/get-score-benchmark-20261003.html#bootstrap-timeouts",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "30分钟停止记录",
+    "text": "30分钟停止记录\n监控以调用开始的墙钟时间判断1800秒预算，另预留10秒用于计时前GC和轮询。stopped_elapsed_wall_s 保存实际停止时间；它不是已完成的调用耗时。进度每10次写入，因此验证集数量是停止前最近快照的下界。RSS也是快照值，不是峰值内存。\n\n\n\n\n\n\n\n\n\n\n\n\n样本量\n模型\n指标\n已完成拟合\n已完成预测\n验证集计算至少\n最近RSS（GiB）\n\n\n\n\n50,000\nFine–Gray\n全部五项\n101/101\n100/100\n≥60/100\n25.27\n\n\n100,000\nCox\n全部五项\n101/101\n100/100\n≥80/100\n45.15\n\n\n100,000\nFine–Gray\n全部五项\n101/101\n100/100\n≥20/100\n56.55\n\n\n50,000\nFine–Gray\n默认 AUC/BS\n101/101\n100/100\n≥60/100\n25.72\n\n\n100,000\nCox\n默认 AUC/BS\n101/101\n100/100\n≥90/100\n45.13\n\n\n100,000\nFine–Gray\n默认 AUC/BS\n101/101\n100/100\n≥30/100\n50.00\n\n\n\n两个10万生存模型的进程内存曾达到约45–57 GiB，这也是补测限制高内存条件并发数的原因。这里没有完整测量峰值，也不能将快照内存当作所有场景的最低内存要求。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#阶段耗时与结果核验",
+    "href": "regr/get-score-benchmark-20261003.html#阶段耗时与结果核验",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "阶段耗时与结果核验",
+    "text": "阶段耗时与结果核验\n本轮完成的生存预测评估中，大部分耗时在 Score() 及其内部验证计算。例如3万行 Fine–Gray 默认调用为 1608.497秒：原始拟合 0.560秒，100次重拟合合计 65.832秒，Score() 1607.844秒。\n\n\n\n\n\n\n警告阶段计时不能直接相加\n\n\n\nScore() 包含它内部的100次重拟合，不能再把100次拟合合计加到Score上。仅似然指标的普通bootstrap没有Score阶段。各列用于定位耗时范围，不是互斥的分解。\n\n\n\n\n展开30个完整条件的阶段计时（秒）\n\n\n\n\n\n\n\n\n\n\n\n\n\n样本量\n模型\n指标\n总秒数\n原始拟合\n100次重拟合合计\nScore\n\n\n\n\n10,000\nLogistic\n默认 AUC/BS\n3.721\n0.009\n1.567\n3.687\n\n\n30,000\nLogistic\n默认 AUC/BS\n9.367\n0.027\n5.396\n9.320\n\n\n50,000\nLogistic\n默认 AUC/BS\n16.690\n0.067\n12.205\n16.601\n\n\n100,000\nLogistic\n默认 AUC/BS\n43.599\n0.192\n33.695\n43.375\n\n\n10,000\nLogistic\n仅 AIC/BIC/PVE\n2.728\n0.010\n2.123\n0.000\n\n\n30,000\nLogistic\n仅 AIC/BIC/PVE\n11.077\n0.054\n9.511\n0.000\n\n\n50,000\nLogistic\n仅 AIC/BIC/PVE\n23.598\n0.096\n20.096\n0.000\n\n\n100,000\nLogistic\n仅 AIC/BIC/PVE\n75.285\n0.965\n60.784\n0.000\n\n\n10,000\nLogistic\n全部五项\n5.470\n0.009\n3.418\n5.437\n\n\n30,000\nLogistic\n全部五项\n12.275\n0.053\n8.649\n12.197\n\n\n50,000\nLogistic\n全部五项\n19.880\n0.087\n14.903\n19.762\n\n\n100,000\nLogistic\n全部五项\n43.178\n0.187\n31.955\n42.951\n\n\n10,000\nCox\n默认 AUC/BS\n219.249\n0.016\n1.631\n219.132\n\n\n30,000\nCox\n默认 AUC/BS\n681.876\n0.067\n6.147\n681.734\n\n\n50,000\nCox\n默认 AUC/BS\n1202.621\n0.111\n10.418\n1202.372\n\n\n10,000\nCox\n仅 AIC/BIC/PVE\n2.666\n0.015\n1.839\n0.000\n\n\n30,000\nCox\n仅 AIC/BIC/PVE\n11.324\n0.053\n7.841\n0.000\n\n\n50,000\nCox\n仅 AIC/BIC/PVE\n19.784\n0.093\n14.321\n0.000\n\n\n100,000\nCox\n仅 AIC/BIC/PVE\n48.996\n0.567\n37.074\n0.000\n\n\n10,000\nCox\n全部五项\n216.430\n0.013\n1.389\n216.332\n\n\n30,000\nCox\n全部五项\n775.923\n0.056\n6.908\n775.800\n\n\n50,000\nCox\n全部五项\n1102.536\n0.110\n12.262\n1102.283\n\n\n10,000\nFine–Gray\n默认 AUC/BS\n530.509\n0.178\n19.976\n530.277\n\n\n30,000\nFine–Gray\n默认 AUC/BS\n1608.497\n0.560\n65.832\n1607.844\n\n\n10,000\nFine–Gray\n仅 AIC/BIC/PVE\n17.539\n0.138\n15.787\n0.000\n\n\n30,000\nFine–Gray\n仅 AIC/BIC/PVE\n58.472\n0.446\n53.523\n0.000\n\n\n50,000\nFine–Gray\n仅 AIC/BIC/PVE\n118.455\n1.442\n111.232\n0.000\n\n\n100,000\nFine–Gray\n仅 AIC/BIC/PVE\n251.173\n2.822\n233.225\n0.000\n\n\n10,000\nFine–Gray\n全部五项\n503.733\n0.139\n16.617\n503.510\n\n\n30,000\nFine–Gray\n全部五项\n1531.875\n0.434\n51.166\n1531.266\n\n\n\n\n\nR=0的108次正式调用均成功，警告总数为0；每次一个原始拟合。12组模型/样本量中，全部指标与对应子集的AUC/Brier、标准误/区间及似然指标在1e-10容差内一致。\nR=100的30个完成条件均确认 101次拟合；预测条件确认100次预测和100次验证集计算；含似然指标的完成条件确认 R_success = 100，完成调用没有警告。\nR=100具有完整对照结果的9组中，默认与全部指标的AUC/Brier、SE、CI和最终随机数状态一致（容差1e-10）；全部与仅似然的原始AIC/BIC/PVE点估计也一致。\n超时条件没有最终评分区间，不能据此验证尚未完成的全部指标与默认指标是否一致。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#三种指标配置的含义",
+    "href": "regr/get-score-benchmark-20261003.html#三种指标配置的含义",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "三种指标配置的含义",
+    "text": "三种指标配置的含义\n\n\n\n\n\n\n\n\n配置\nR=100时的评估对象\n适用问题\n\n\n\n\nAUC/BS\nbootcv训练模型的验证集预测性能\n判别与预测误差\n\n\nAIC/BIC/PVE\n原始模型点估计，以及普通受试者bootstrap的似然指标区间\n使用同一后端和分析样本比较拟合/模型选择指标\n\n\n全部五项\n预测指标为bootcv；似然指标复用对应训练模型，不再另拟合100次\n同时获得预测与似然指标\n\n\n\n全部与仅似然使用的重采样方式不同，似然区间不要求数值相同；原始模型的AIC/BIC/PVE点估计已核对一致。Fine–Gray使用 variance = FALSE 保留本轮需要的拟合/预测信息，Score的指标区间和bootstrap工作仍存在；它不能消除本页实测的验证计算耗时。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#复现调用与返回对象",
+    "href": "regr/get-score-benchmark-20261003.html#复现调用与返回对象",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "复现调用与返回对象",
+    "text": "复现调用与返回对象\n以下为可复制的调用示例；网页构建只整理既有实测，不重新运行大样本100次bootstrap矩阵。\nlibrary(RegR)\ndata(seer_thyroid_mtc_2026, package = \"RegR\")\nraw &lt;- as.data.frame(seer_thyroid_mtc_2026)\nneed &lt;- c(\"time\", \"DSS\", \"event\", \"Age\", \"Sex\", \"Race\")\nsource &lt;- droplevels(raw[complete.cases(raw[need]) & raw[[\"time\"]] &gt; 0, need])\nset.seed(20261003)\nbig &lt;- source[sample.int(nrow(source), 100000L, replace = TRUE), ]\nrownames(big) &lt;- NULL\nd &lt;- big[seq_len(10000L), ]  # 改为30000、50000或100000需保留同一big\n\n# 控制单个调用的线程；基准驱动还会在每个子进程设置data.table/BLAS线程\noptions(mc.cores = 1L)\nRhpcBLASctl::blas_set_num_threads(1L)\nRhpcBLASctl::omp_set_num_threads(1L)\ndata.table::setDTthreads(1L)\nset.seed(20261004)\nres &lt;- RegR::get_score(\n  d, vars = list(full = c(\"Age\", \"Sex\", \"Race\")),\n  surv = FALSE,  # \"DSS\"：Logistic；TRUE：Cox；FALSE：Fine–Gray\n  timepoint = seq(2, 200, 2), R = 100,\n  metrics = c(\"AUC\", \"BS\", \"AIC\", \"BIC\", \"PVE\"),\n  score_args = list(plots = \"auto\", n_cores = 1L)\n)\nres[[\"AUC.BS.AIC\"]]       # 汇总表\nres[[\"fit.stats\"]][[\"stats\"]]  # 似然点估计及区间\nres[[\"fit.stats\"]][[\"info\"]]   # 包括R_success\nres[[\"plt.combined\"]]    # 本轮计时构造对象，实际渲染排除在计时外\n只需似然指标时，改为 metrics = c(\"AIC\", \"BIC\", \"PVE\")；这不提供AUC/Brier评估。仅似然调用返回列表，包含 fit.stats 和汇总表，预测绘图对象为空；预测调用保留Score结构，选择似然指标时另带 fit.stats。用字符向量 vars = c(\"Age\", \"Sex\", \"Race\") 会分别拟合多个模型，不能直接套用本页的联合模型耗时。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/get-score-benchmark-20261003.html#证据下载与审计记录",
+    "href": "regr/get-score-benchmark-20261003.html#证据下载与审计记录",
+    "title": "get_score：大样本与100次 bootstrap 耗时",
+    "section": "证据下载与审计记录",
+    "text": "证据下载与审计记录\n下载完整证据包（CSV、逐次拟合耗时、环境、校验和与脚本）。其中不包含患者原始数据；README.md说明每类文件、源码快照、失败/重跑记录与复现步骤。\n\nR=0：36格汇总与108次原始计时、阶段耗时、环境/源码哈希。\nR=100：36格状态、30次完成计时、3030条原始/重拟合计时、6次超时进度、9组完整对照核验及元数据。\nget-score-bootstrap-run.R是按条件限时、跳过已有完成/超时记录的驱动；与get-score-bootstrap-benchmark.R一起复制到已存在的新输出目录，再执行。最初脚本的旧控制器预算不能单独代表运行中追加的30分钟限制。\n\n# 具备相同WSL依赖；将上述两份脚本复制到新的输出目录\nRscript /absolute/output/get-score-bootstrap-run.R /absolute/output\n\n\n展开预热、调度中断和补测说明\n\n3万Cox的1000行、R=2预热出现区间格式化错误，正式R=100计时尚未开始；补测采用R=0预热，正式评估仍为R=100。补测调度曾短暂重复启动5万Fine–Gray默认与10万Cox全指标条件，已停止并排除重复调用；原10万Cox全指标曾短暂增加并发负载，限制了其精细计时/进度比较。\n5万Fine–Gray默认条件达到预算后，调度器读取已关闭日志连接时退出，连带中断了未超时的10万Cox默认调用。修正日志读取后重新运行该条件；被中断调用不计入正式结果。关闭日志处理已做聚焦验证，最终两个超时条件处理后驱动正常结束。原始status中的进程error包含这些人为终止和预热失败；最终条件状态以 get-score-bootstrap-summary.csv 为准。\n这些是基准执行过程记录，不是将超时误报为模型拟合失败。本页没有把超时调用当作100次完整评估，也没有修改包默认参数来降低本轮工作量。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>74</span>  <span class='chapter-title'>get_score：大样本与100次 bootstrap 耗时</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html",
+    "href": "regr/model-evaluation-guide.html",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "",
+    "text": "数据准备与复现\n模型区分度、概率误差和拟合优度不是同一个指标。下面将模型拟合、评价人群、时间网格和汇总方式明确分开，展示 RegR 两条评价路线，以及一个固定留出集的实际比较。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#数据准备与复现",
+    "href": "regr/model-evaluation-guide.html#数据准备与复现",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "",
+    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#共用计算与返回对象",
+    "href": "regr/model-evaluation-guide.html#共用计算与返回对象",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "共用计算与返回对象",
+    "text": "共用计算与返回对象\n所有 R=0 的 RegR 评价都在传入的同一数据上拟合和评价，属于表观性能。R=1 也走无重采样分支。最后的 score_test 则使用只在 train 拟合的 get_fit() 模型，由 riskRegression::Score 在 test 上计算；这一步没有调用会在 test 上重拟合的 get_score(test, …)。\nmodels &lt;- list(c(\"Age\", \"Sex\"), c(\"Age\", \"Tum\", \"Sex\", \"stage\"))\nscore_cox &lt;- run_quiet({get_score(d, vars = models,\n  timepoint = c(36, 60, 120), R = 0)})\nscore_log &lt;- run_quiet({get_score(d, vars = models, surv = \"DSS\", R = 0)})\nsingle_score &lt;- run_quiet({get_score(d, vars = c(\"Age\", \"Tum\", \"Sex\", \"stage\"),\n  timepoint = c(36, 60, 120), R = 0, metrics = c(\"AUC_score\", \"BS_score\", \"AIC\"))})\nmsr &lt;- run_quiet({get_msr(d, vars = models, R = 0)})\n\n# 候选变量预先指定；留出集未用于选择变量或调参。\nset.seed(20261001)\ntrain_id &lt;- sample.int(nrow(d), floor(0.7 * nrow(d)))\ntrain &lt;- d[train_id, ]\ntest &lt;- d[-train_id, ]\nfit_train &lt;- get_fit(train, co_var = c(\"Age\", \"Tum\", \"Sex\", \"stage\"))\nscore_test &lt;- riskRegression::Score(\n  object = list(Full = fit_train), formula = Surv(time, DSS) ~ 1,\n  data = test, metrics = c(\"AUC\", \"Brier\"), times = c(36, 60, 120),\n  plots = \"ROC\", null.model = FALSE, contrasts = FALSE, split.method = \"none\")",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#函数与估计对象对应",
+    "href": "regr/model-evaluation-guide.html#函数与估计对象对应",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "函数与估计对象对应",
+    "text": "函数与估计对象对应\n\n\n\n\n\n\n\n\n接口\n主要行为\n输出\n\n\n\n\nget_fit\n给定变量集合拟合一个模型；time=NULL 是 Logistic\nCox / crr / FGR / glm 对象\n\n\nget_msr\nmlr3 路线的 C-index/Brier；拟合优度另用 get_fit_stats\n汇总数据框\n\n\nget_score\nriskRegression 路线的时点 AUC/Brier（AUC_score/BS_score），可加同一拟合的 AUC/BS/AIC/BIC/PVE\nScore 对象、AUC.BS.AIC、plt.AUC/BS/combined/ROC\n\n\nget_score_summary\n从 Score 跨时间网格汇总\n格式化数据框\n\n\nplt_score\nScore 的时间曲线或 Logistic ROC\npatchwork / ggplot\n\n\n\nget_score 的 vars 为 list 时每个元素是一个联合模型，为选列向量时每列一个单变量模型；single_score 分别拟合 Age、Tum、Sex、stage 四个单变量模型，不能把它的输出误认成四变量联合模型。get_msr 和 get_score 的 TRUE/FALSE 分别为 Cox/Fine–Gray，字符结局列为 Logistic；get_msr 的 cause 可选择竞争事件编码。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#生存时间网格auc-与-brier",
+    "href": "regr/model-evaluation-guide.html#生存时间网格auc-与-brier",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "生存时间网格：AUC 与 Brier",
+    "text": "生存时间网格：AUC 与 Brier\n时点 AUC 衡量该时点的风险排序；Brier 是概率预测平方误差，并处理删失。plt_score() 生存图上使用 C-index 字样，但底层 AUC 列是 riskRegression 的时点 AUC，不能解释成 Harrell C。timepoint 变化会改变评价问题，也会改变跨时点平均值。\n\n表观时间曲线AUC 原始汇总Brier 原始汇总\n\n\n两个预先指定变量集合在完整演示队列上的时点 AUC/Brier。\nplt_score(score_cox)\n\n\n\n两个预先指定变量集合在完整演示队列上的时点 AUC/Brier。\n\n\n\n\n直接读 AUC$score，保留时点与该时点的不确定性列。\nas.data.frame(score_cox[[\"AUC\"]][[\"score\"]])\n\n\n\n\nmodel\ntimes\nAUC\nse\nlower\nupper\n\n\n\n\nAge_Sex\n36\n0.5954\n0.05042\n0.4966\n0.6942\n\n\nAge_Sex\n60\n0.6531\n0.04691\n0.5611\n0.745\n\n\nAge_Sex\n120\n0.6683\n0.03746\n0.5949\n0.7417\n\n\nAge_Tum_Sex_stage\n36\n0.7278\n0.04482\n0.64\n0.8157\n\n\nAge_Tum_Sex_stage\n60\n0.7621\n0.03468\n0.6941\n0.83\n\n\nAge_Tum_Sex_stage\n120\n0.7899\n0.02945\n0.7322\n0.8476\n\n\n\n\n\n\n直接读 Brier$score；较小通常表示该评价人群上的概率误差较小。\nas.data.frame(score_cox[[\"Brier\"]][[\"score\"]])\n\n\n\n\nmodel\ntimes\nBrier\nse\nlower\nupper\n\n\n\n\nAge_Sex\n36\n0.04273\n0.007005\n0.029\n0.05646\n\n\nAge_Sex\n60\n0.06054\n0.008071\n0.04472\n0.07636\n\n\nAge_Sex\n120\n0.1142\n0.01089\n0.09282\n0.1355\n\n\nAge_Tum_Sex_stage\n36\n0.04082\n0.006512\n0.02806\n0.05358\n\n\nAge_Tum_Sex_stage\n60\n0.0571\n0.007414\n0.04257\n0.07163\n\n\nAge_Tum_Sex_stage\n120\n0.1024\n0.01015\n0.08248\n0.1223",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#get_score_summary-的平均值边界",
+    "href": "regr/model-evaluation-guide.html#get_score_summary-的平均值边界",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "get_score_summary 的平均值边界",
+    "text": "get_score_summary 的平均值边界\n当前实现把选定网格上的 AUC/Brier 做等权平均，用跨时点 SD/sqrt(时点数) 构造正态区间。时点并非独立患者，且没有处理它们的相关性；此区间不能当作外部验证或标准的综合 AUC/IBS 置信区间。表中 C.index 名称沿用接口，实际含义需按来源说明。\n\n网格平均摘要mlr3 路线\n\n\n36/60/120 月等权平均，展示当前函数的实际返回。\nget_score_summary(score_cox)\n\n\n\n\nmodel\nC.index\nBrier.score\n\n\n\n\nAge_Sex\n0.639 (0.595, 0.682)\n0.0725 (0.0304, 0.1146)\n\n\nAge_Tum_Sex_stage\n0.760 (0.725, 0.795)\n0.0668 (0.0307, 0.1029)\n\n\n\n\n\n\nget_msr 的 C-index、Brier 类指标；AIC/PVE 已从此接口移出，改用 get_fit_stats。不能与前表的网格平均不加区分地互换。\nmsr\n\n\n\n\nvars\nsurv.cindex\nsurv.graf\n\n\n\n\nAge_Sex\n0.636\n0.102\n\n\nAge_Tum_Sex_stage\n0.764\n0.088",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#get-msr-current",
+    "href": "regr/model-evaluation-guide.html#get-msr-current",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "get_msr()：当前 mlr3 路线",
+    "text": "get_msr()：当前 mlr3 路线\nget_msr(data, vars, surv = TRUE, R = 0,\n        timepoint = seq(2, 200, 2), cause = 1L)\n\nmlr_score &lt;- run_quiet(get_score(d, vars = models, R = 0,\n  metrics = c(\"AUC_mlr\", \"BS_mlr\")))\nmlr_score[[\"AUC.BS.AIC\"]]\n\n\n\nmodel\nAUC_mlr\nBS_mlr\n\n\n\n\nAge_Sex\n0.636\n0.102\n\n\nAge_Tum_Sex_stage\n0.764\n0.088\n\n\n\n.addAIC / .addPVE 已移除；把它们保留在旧脚本中会报 unused argument。surv = TRUE 为 Cox，FALSE 为竞争风险，字符列为二分类；cause = 1L 仅作用于竞争风险路径。Cox 返回 surv.cindex 与 surv.graf，分别为 Harrell C 和该后端的 Brier 指标，不等于 riskRegression 的时间 AUC。\nset.seed() 控制 Cox/Logistic bootstrap。R≥2 时，结果中的区间为实际重复指标的 2.5%/97.5% 分位数，不能解释成独立外部验证。get_rpa_mp1() 已弃用，建议迁移到 get_score 的 AUC_mlr/BS_mlr 或 AUC_score/BS_score，并用 R = c(0, n) 对照两个面板。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#单变量比较的-get_score-打包结果",
+    "href": "regr/model-evaluation-guide.html#单变量比较的-get_score-打包结果",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "单变量比较的 get_score 打包结果",
+    "text": "单变量比较的 get_score 打包结果\n可直接使用保留的 obj 再分析，或取图与 AUC.BS.AIC 表。表中 AUC_score/BS_score 是 timepoint 各时点值的等权平均；当前 Cox/Fine–Gray 无重采样结果在与 get_fit_stats 的点估计一致时提供影响函数 Wald 区间。若含 0 时点导致平均口径不一致，仍只保留点估计。AIC 评价同一结局/同一人群下的相对拟合与复杂度，不是概率校准指标；本例未以 AIC 最优作为独立验证。\n\n两面板时间曲线打包汇总表\n\n\n四个单变量模型的时点 AUC 与 Brier。\nplt_score(single_score)\n\n\n\n四个单变量模型的时点 AUC 与 Brier。\n\n\n\n\n包含当前配置下的 AUC/Brier 汇总及 AIC。\nsingle_score[[\"AUC.BS.AIC\"]]\n\n\n\n\nmodel\nAUC_score\nBS_score\nAIC\n\n\n\n\nAge\n0.632 (0.561, 0.703)\n0.074 (0.059, 0.088)\n1063\n\n\nTum\n0.719 (0.657, 0.782)\n0.070 (0.056, 0.084)\n1012\n\n\nSex\n0.570 (0.504, 0.636)\n0.074 (0.059, 0.089)\n1056\n\n\nstage\n0.693 (0.630, 0.757)\n0.069 (0.056, 0.082)\n1006",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#二分类-logistic-roc",
+    "href": "regr/model-evaluation-guide.html#二分类-logistic-roc",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "二分类 Logistic ROC",
+    "text": "二分类 Logistic ROC\n二分类评价只使用 DSS 的记录状态，不处理随访时间。ROC/AUC 衡量排序，不能单独证明概率校准，也不能自动回答 60 月 DSS 风险。\n\n表观 ROC二分类指标表\n\n\n训练内 Logistic ROC；两个联合变量集合的比较。\nplt_score(score_log)\n\n\n\n训练内 Logistic ROC；两个联合变量集合的比较。\n\n\n\n\nLogistic 分支使用 Score 对应指标的区间，没有跨时间平均。\nget_score_summary(score_log)\n\n\n\n\nmodel\nAUC_score\nBS_score\n\n\n\n\nAge_Sex\n0.618 (0.555, 0.682)\n0.095 (0.079, 0.111)\n\n\nAge_Tum_Sex_stage\n0.779 (0.729, 0.828)\n0.085 (0.071, 0.100)",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#get-score-current",
+    "href": "regr/model-evaluation-guide.html#get-score-current",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "get_score()：指标、单时点列与双面板",
+    "text": "get_score()：指标、单时点列与双面板\n本节使用 2026-10-05 源码 3411eb0。vars = c(\"Age\", \"Sex\") 是两个单变量模型；vars = list(Basic = c(\"Age\", \"Sex\")) 才是一个联合模型。list 名称会成为模型标签。\n\n\n\n\n\n\n\n指标\n含义与评价数据\n\n\n\n\nAUC_score / BS_score\nriskRegression 的时点 AUC / Brier；R≥2 用 bootcv 袋外预测\n\n\nAUC / BS\n同一拟合在训练样本上的表观指标；不是袋外评价\n\n\nAUC_mlr / BS_mlr\nget_msr 的 mlr3 指标；Cox 的 AUC_mlr 实际为 Harrell C-index\n\n\nAIC / BIC / PVE\n拟合优度；PVE 为 Cox–Snell 型似然伪 R²\n\n\n\ntimepoint 决定时间平均的网格；times 添加具名单时点列。Score 实际计算两者并集，但平均仅使用 timepoint。超出随访而被跳过的时点返回 NA。全队列时间平均区间采用 get_fit_stats 的平均影响函数标准误近似并截断至 [0,1]，未显式估计所有时点间协方差；它不等于按时间积分的 AUC/IBS，也不同于上节 get_score_summary 的跨时点离散度区间。\n\n单时点列全队列与 bootstrap只计算 Brier\n\n\nmodels_named &lt;- list(Basic = c(\"Age\", \"Sex\"),\n  Extended = c(\"Age\", \"Tum\", \"Sex\", \"stage\"))\nscore_times &lt;- run_quiet(get_score(d, vars = models_named,\n  timepoint = c(36, 60, 120), times = c(\"5-year\" = 60), R = 0,\n  metrics = c(\"AUC_score\", \"BS_score\", \"AIC\", \"BIC\", \"PVE\"),\n  score_args = list(plots = \"none\", n_cores = 1L)))\nscore_times[[\"AUC.BS.AIC\"]]\nscore_times[[\"ft\"]]\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nmodel\nAUC_score\nAUC_score_60\nBS_score\nBS_score_60\nAIC\nBIC\nPVE\n\n\n\n\nBasic\n0.639 (0.564, 0.714)\n0.653 (0.561, 0.745)\n0.072 (0.058, 0.087)\n0.061 (0.045, 0.076)\n1050\n1055\n0.03\n\n\nExtended\n0.760 (0.698, 0.822)\n0.762 (0.694, 0.830)\n0.067 (0.053, 0.080)\n0.057 (0.043, 0.072)\n989.4\n999.3\n0.105\n\n\n\n\n\n\nset.seed(20261005)\nscore_both &lt;- run_quiet(get_score(d, vars = models_named,\n  timepoint = c(36, 60, 120), times = c(\"5-year\" = 60), R = c(0, 20),\n  metrics = c(\"AUC_score\", \"BS_score\", \"PVE\"),\n  score_args = list(n_cores = 1L)))\nscore_both[[\"AUC.BS.AIC\"]]\nscore_both[[\"ft\"]]\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nmodel\nAUC_score\nAUC_score_60\nBS_score\nBS_score_60\nPVE\nAUC_score*\nAUC_score_60*\nBS_score*\nBS_score_60*\nPVE*\n\n\n\n\nBasic\n0.639 (0.564, 0.714)\n0.653 (0.561, 0.745)\n0.072 (0.058, 0.087)\n0.061 (0.045, 0.076)\n0.03\n0.624 (0.557, 0.690)\n0.633 (0.569, 0.700)\n0.071 (0.057, 0.094)\n0.058 (0.046, 0.079)\n0.030 (0.018, 0.062)\n\n\nExtended\n0.760 (0.698, 0.822)\n0.762 (0.694, 0.830)\n0.067 (0.053, 0.080)\n0.057 (0.043, 0.072)\n0.105\n0.752 (0.702, 0.829)\n0.755 (0.684, 0.864)\n0.067 (0.055, 0.087)\n0.056 (0.046, 0.076)\n0.105 (0.068, 0.139)\n\n\n\n\n星号后缀列来自 bootstrap 面板。20 次仅演示接口，报告区间应增加重复数并检查有效重复与收敛。AUC_score/BS_score 的跨时点 bootstrap 区间为有效袋外重复平均值的 2.5%/97.5% 分位数；PVE 区间描述重采样训练拟合。它们评价的数据不同。\n\n\nonly_bs &lt;- run_quiet(get_score(d, vars = list(Basic = c(\"Age\", \"Sex\")),\n  timepoint = c(36, 60, 120), metrics = \"BS\",\n  score_args = list(n_cores = 1L)))\nonly_bs[[\"fit.stats\"]][[\"stats\"]]\n\n\n\nmodel\nmetric\nestimate\nSE\nlower\nupper\n\n\n\n\nBasic\nBS\n0.07248\n0.007359\n0.05806\n0.0869\n\n\n\n\n\n\n只选所需指标会省去未请求的计算；只选 BS 不要求 AUC 可定义。score_args$plots = \"none\" 跳过辅助 ROC 数据，保留生存 AUC/Brier 曲线；Logistic 的 plt.ROC 此时为 NULL。n_cores = 1L 明确串行，NULL 使用自适应策略；并行上限也受 options(mc.cores = k) 约束。所有调用都增加 ft（缺 flextable 时为 NULL），get_score() 本身不提供 save 参数，可用 save_tb(score_both[[\"ft\"]], path = tempdir()) 导出。\n\n2026-10-07：性能与并行设置\nget_score() 的 Windows / WSL 实测与四项优化 已同步。相同完整样本和时间网格下，直接 AUC/BS 可供 Score 的时间平均区间补算复用；并行 bootstrap 在同一任务内完成拟合、预测和原生评分。单模型无重采样生存路径在 行数 × 时间点数 &gt; 500000 且网格为正数、递增、去重并位于随访内时，自动分块计算，仍保留全部时点与原生逐时点 SE/CI。\nWindows 的 Score bootstrap 默认继续串行；显式 n_cores 仍优先。本轮没有显示多模型并行分块的稳定收益，因此该分块只启用单模型。估计、区间与 RNG 已做配对核验；平均区间仍采用前述现有近似，统计口径没有随性能优化改变。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#get-fit-stats",
+    "href": "regr/model-evaluation-guide.html#get-fit-stats",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "get_fit_stats()：数值表与训练拟合区间",
+    "text": "get_fit_stats()：数值表与训练拟合区间\nfit_stats &lt;- get_fit_stats(d, vars = models_named,\n  timepoint = c(36, 60, 120), R = 0,\n  metrics = c(\"AUC\", \"BS\", \"AIC\", \"BIC\", \"PVE\"))\nfit_stats[[\"stats\"]]\n\n\n\nmodel\nmetric\nestimate\nSE\nlower\nupper\n\n\n\n\nBasic\nAUC\n0.6389\n0.03809\n0.5643\n0.7136\n\n\nBasic\nBS\n0.07248\n0.007359\n0.05806\n0.0869\n\n\nBasic\nAIC\n1050\n\n\n\n\n\nBasic\nBIC\n1055\n\n\n\n\n\nBasic\nPVE\n0.02958\n\n\n\n\n\nExtended\nAUC\n0.7599\n0.03149\n0.6982\n0.8217\n\n\nExtended\nBS\n0.06677\n0.006785\n0.05347\n0.08006\n\n\nExtended\nAIC\n989.4\n\n\n\n\n\nExtended\nBIC\n999.3\n\n\n\n\n\nExtended\nPVE\n0.1047\n\n\n\n\n\n\n返回 obj（拟合模型）、stats（model/metric/estimate/SE/lower/upper 数值长表）、boot（逐模型逐重复及 error）和 info（样本、事件、参数量、似然与重复成功数）。stats 的点估计来自原始分析样本；没有 bootstrap 时，AUC/BS 有影响函数 Wald 区间，AIC/BIC/PVE 没有区间。\nset.seed(20261005)\nfit_boot &lt;- get_fit_stats(d, vars = list(Basic = c(\"Age\", \"Sex\")),\n  timepoint = c(36, 60, 120), metrics = c(\"BS\", \"AIC\", \"PVE\"), R = 20)\nfit_boot[[\"stats\"]]\nfit_boot[[\"info\"]]\n\n\n\nmodel\nmetric\nestimate\nSE\nlower\nupper\n\n\n\n\nBasic\nBS\n0.07248\n0.007099\n0.05917\n0.08443\n\n\nBasic\nAIC\n1050\n103.6\n906.2\n1234\n\n\nBasic\nPVE\n0.02958\n0.009612\n0.0163\n0.04392\n\n\n\nR≥2 是普通受试者 bootstrap，所有候选模型共用抽样行；区间为百分位区间，SE 为 bootstrap 标准差。它描述训练拟合的变化，不执行 get_score 的 bootcv 袋外评价。示例 20 次仅作接口演示。\nAIC = -2LL + 2k，BIC = -2LL + log(bic_n)k；Logistic 的 bic_n 为人数，Cox/Fine–Gray 为目标事件数。PVE = 1 - exp(-2(LL - LL_null)/n)，不是标准化的 Nagelkerke R²。Fine–Gray 采用 FGR(variance = FALSE) 的似然约定，不能拿不同模型或不同样本的 AIC 直接混排。save = list(path = tempdir(), title = \"Fit statistics\") 可以把 stats 导出 Word。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#get-score-stage",
+    "href": "regr/model-evaluation-guide.html#get-score-stage",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "get_score_stage()：分期方案评价",
+    "text": "get_score_stage()：分期方案评价\nget_rpa_mp2() 的新入口是 get_score_stage()，旧名作为弃用别名保留。它比较分期结构，不计算时间 AUC 或 Brier。下面完全使用模拟队列，六个基础组分别合并为三期和四期，两套方案都嵌套于基础分组。\nset.seed(20261005)\nds &lt;- data.frame(Age = runif(600, 30, 80),\n                 group = factor(rep(1:6, each = 100)))\nds[[\"DSS\"]] &lt;- rbinom(600, 1, 0.75)\nds[[\"time\"]] &lt;- rexp(600,\n  rate = 0.02 * exp(0.35 * (as.integer(ds[[\"group\"]]) - 1))) + 1\nds[[\"Stage_A\"]] &lt;- factor(ceiling(as.integer(ds[[\"group\"]]) / 2), levels = 1:3)\nds[[\"Stage_B\"]] &lt;- factor(c(1, 2, 2, 3, 3, 4)[as.integer(ds[[\"group\"]])], levels = 1:4)\nset.seed(20261005)\nstage_res &lt;- get_score_stage(ds, cat_groups = c(\"Stage_A\", \"Stage_B\"),\n  adj_var = \"Age\", R = c(0, 20),\n  name_map = c(Stage_A = \"Three stages\", Stage_B = \"Four stages\"))\nstage_res[[\"ft\"]]\nstage_res[[\"ft_total\"]]\n下表展示实际返回 ft 的数值；* 后缀列为 20 次 bootstrap 均值面板，前两列为全队列。ft_total 另外显示各标准的原始 Total score。\n\n\n\nmeasures\nStage_A\nStage_B\nStage_A*\nStage_B*\n\n\n\n\nHazard Consistency\n\n\n\n\n\n\nStandardized Score\n0\n1\n0\n1\n\n\nRank\n1\n2\n1\n2\n\n\nHazard Discrimination\n\n\n\n\n\n\nStandardized Score\n0\n1\n1\n0\n\n\nRank\n1\n2\n2\n1\n\n\nLikelihood Difference\n\n\n\n\n\n\nStandardized Score\n0\n1\n0\n1\n\n\nRank\n1\n2\n1\n2\n\n\nExplained Variance\n\n\n\n\n\n\nStandardized score\n0\n1\n0\n1\n\n\nRank\n1\n2\n1\n2\n\n\nSample Size Balance\n\n\n\n\n\n\nStandardized Score\n0\n1\n0\n1\n\n\nRank\n1\n2\n1\n2\n\n\nOverall Rank\n\n\n\n\n\n\nOverall Score\n0\n4\n0.85\n3.15\n\n\nRank\n1\n2\n1\n2\n\n\n\n\n\n\n\n\n\n\n标准\n越优的方向\n\n\n\n\nHazard Consistency\n合并基础组损失的似然/自由度越小越好\n\n\nHazard Discrimination\n分期线性趋势的失拟合/自由度越小越好\n\n\nLikelihood Difference\n相对仅协变量模型的似然比统计量/自由度越大越好\n\n\nExplained Variance\nSchemper–Henderson 解释变异越大越好\n\n\nSample Size Balance\n分期人数偏离等人数的程度越小越好\n\n\nOverall Rank\n前五项标准化分数权重 1、1、0.5、0.5、1；越小越好\n\n\n\n每项 Standardized Score 在当前比较的方案间缩放为 0（最佳）至 1（最差），因此增删候选方案可能改变标准化总分。Rank 1 为最佳；总分不是准确率。Bootstrap Overall Score 是每次抽样总分的平均，通常不能从展示的各项 bootstrap 标准化均值重新加权得到。\n输入必须有 time、0/1 的 DSS、基础分组 group、调整变量和全部方案列。方案列必须为按分期顺序设置水平的因子，每套至少三期且少于基础 group 的组数；嵌套关系由使用者核对，函数未自动验证。R=0/1/NULL 拟合一次，R≥2 仅显示 bootstrap 均值，R = c(0, n) 显示两面板，不返回分数置信区间。\nget_score_stage(ds, cat_groups = c(\"Stage_A\", \"Stage_B\"), adj_var = \"Age\",\n  save = list(path = tempdir(), title = \"Comparison of staging schemes\"))\n新实现直接计算标准并向量化解释变异。与旧 remss 参考实现相比，死亡与删失同时间时的顺序约定，以及重采样后缺少阶段时的实际自由度处理，会引起部分数值差异；不能声称全部数值逐位不变。并行依据测得的全队列计算成本自适应选择，并遵守 options(mc.cores = k)。历史计时不代表当前所有数据的性能。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#固定留出集评价",
+    "href": "regr/model-evaluation-guide.html#固定留出集评价",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "固定留出集评价",
+    "text": "固定留出集评价\n560 人用于拟合，240 人用于评价。这个随机留出划分只是演示，少量事件会造成不稳定，不能替代充分的内部重采样或真正外部队列。所有训练步骤应只在训练数据内完成；若再按测试表现选择模型，测试集会失去独立评价作用。\n\n留出集曲线留出集 AUC 表\n\n\ntrain 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。\nplt_score(score_test)\n\n\n\ntrain 拟合的 Full Cox 模型，在 test 上评价，未重新拟合。\n\n\n\n\n保留测试人群中各时点 AUC 和区间，便于与表观结果区分。\nas.data.frame(score_test[[\"AUC\"]][[\"score\"]])\n\n\n\n\n\n\nmodel\n\n\ntimes\n\n\nAUC\n\n\nse\n\n\nlower\n\n\nupper\n\n\n\n\n\n\nFull\n\n\n36\n\n\n0.7485965\n\n\n0.08043781\n\n\n0.5909413\n\n\n0.9062518\n\n\n\n\nFull\n\n\n60\n\n\n0.7180315\n\n\n0.07037987\n\n\n0.5800895\n\n\n0.8559735\n\n\n\n\nFull\n\n\n120\n\n\n0.7659545\n\n\n0.06361266\n\n\n0.6412760\n\n\n0.8906330",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#使用边界保存与复现记录",
+    "href": "regr/model-evaluation-guide.html#使用边界保存与复现记录",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "使用边界、保存与复现记录",
+    "text": "使用边界、保存与复现记录\nR&gt;=2 时 get_score 的 AUC_score/BS_score 使用 bootcv，而 get_msr 使用它自身的 bootstrap 路线；两者不是相同的验证协议。重采样次数、失败拟合、删失处理和预处理位置应明确报告。AUC 高不代表校准良好，Brier 受事件率影响，AIC/PVE 不能替代验证性能。评价多模型时应固定评价队列、终点和时点；本页未计算决策曲线，也未得出临床获益结论。\n绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 save 的接口按帮助页传入保存配置；其余返回图可用 ggplot2::ggsave() 或 RegR::save_plt()，表格按返回类型使用 save_tb() / save_gt()。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/model-evaluation-guide.html#相关页面与源码",
+    "href": "regr/model-evaluation-guide.html#相关页面与源码",
+    "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
+    "section": "相关页面与源码",
+    "text": "相关页面与源码\n\nMLR 模型评价\nMLR 校准与决策曲线\n单多因素分析\nRegR 函数参考\nmsr-riskRegression.R\nmsr-get.R\nutils-export.R\n\npackageVersion(\"RegR\")\nsessionInfo()",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>15</span>  <span class='chapter-title'>模型评价：C-index、时点 AUC、Brier 与验证人群</span>"
+    ]
+  },
+  {
+    "objectID": "regr/function-modules.html",
+    "href": "regr/function-modules.html",
+    "title": "RegR 功能模块图",
+    "section": "",
+    "text": "功能总览\n临床回归工具箱：队列筛选、基线表、效应估计、生存曲线、变量选择、交互与非线性展示。\n本页集中展示三张图：先看功能总览，再查接口索引，最后看处理流程与返回对象。点击图片可放大查看，也可下载图源继续编辑。\n下载 draw.io 图源 下载三页 PDF\n图谱快照：2026-09-13。对应包版本：0.1.3。具体参数和返回值以当前安装版本的帮助页为准。\n函数示例：队列筛选与流程图：plt_flo / plt_flo2 · 效应估计与森林图 · KM/CIF 组合图：get_cat 与 plt_cat1/2/3 · 交互分析、绝对风险与 Word 表格导出。各页均提供参数标签页、实际图形与可复现代码。\n查看原尺寸 PNG",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
+    ]
+  },
+  {
+    "objectID": "regr/function-modules.html#功能总览",
+    "href": "regr/function-modules.html#功能总览",
+    "title": "RegR 功能模块图",
+    "section": "",
+    "text": "RegR：功能总览",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
+    ]
+  },
+  {
+    "objectID": "regr/function-modules.html#完整函数索引",
+    "href": "regr/function-modules.html#完整函数索引",
+    "title": "RegR 功能模块图",
+    "section": "完整函数索引",
+    "text": "完整函数索引\n\n\n\nRegR：完整函数索引\n\n\n查看原尺寸 PNG",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
+    ]
+  },
+  {
+    "objectID": "regr/function-modules.html#分析流程与对象流",
+    "href": "regr/function-modules.html#分析流程与对象流",
+    "title": "RegR 功能模块图",
+    "section": "分析流程与对象流",
+    "text": "分析流程与对象流\n\n\n\nRegR：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
+    ]
+  },
+  {
+    "objectID": "regr/function-modules.html#get-all-partial",
+    "href": "regr/function-modules.html#get-all-partial",
+    "title": "RegR 功能模块图",
+    "section": "get_all()：保留成功层并报告失败层",
+    "text": "get_all()：保留成功层并报告失败层\n当前 get_all() 在递归分层分析中隔离层内失败。下面复用森林图补充例子的 800 人 d_scheme，把一层的 Age 人为设为常量，演示 RCS 无法取得足够节点时的行为。\nd_all &lt;- d_scheme\nd_all[[\"demo_stratum\"]] &lt;- factor(rep(c(\"Good\", \"Constant\"), each = 400L))\nd_all[[\"Age\"]][d_all[[\"demo_stratum\"]] == \"Constant\"] &lt;- 50\nall_res &lt;- get_all(\n  com.args = list(data = d_all, adj_var = \"Sex\", split_var = \"demo_stratum\", time = 60),\n  rcs.args = list(rcs_var = \"Age\", n = 3L, panel_show = \"haz_poi\"))\nnames(all_res)                    # \"rcs\"\nall_res[[\"rcs\"]]                 # 保留 Good 层图形\n本次实际运行的摘要保留 Completed 1 analyses: rcs，并明确输出 Failed strata: 1: rcs.args [Constant]；同时发出层内失败警告。Constant 层缺失不是“效应为零”，应随报告说明失败原因。\n未传入的分析块默认跳过，不能因为 formals() 显示完整 list 模板就认为它们自动执行。各块未全部成功时，也不能把返回对象解释为全队列完整结果。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
+    ]
+  },
+  {
+    "objectID": "regr/function-modules.html#latest-functions",
+    "href": "regr/function-modules.html#latest-functions",
+    "title": "RegR 功能模块图",
+    "section": "2026-10-05 接口更新目录",
+    "text": "2026-10-05 接口更新目录\n\n\n\n更新功能\n当前示例\n\n\n\n\n建树、规则与三种节点图、节点对比\nget_rpa、plt_rpa、plt_rpa_km、plt_rpa_tab、get_rpa_pair\n\n\n指标、bootstrap 与分期评分\nget_score、get_msr、get_fit_stats、get_score_stage\n\n\n多暴露曲线、曲线网格与 ATE\nget_cat、plt_cat1\n\n\n独立分期模型、森林图缺失区间\nget_eff、plt_eff\n\n\nPS 相对效应的方差口径\nget_eff_cat\n\n\nWord 整数计数格式\nsave_tb\n\n\n\n以上是当前教程入口；三张模块图仍保留其标明的历史快照，不把旧图当作最新导出清单。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
+    ]
+  },
+  {
+    "objectID": "regr/function-modules.html#rcs-与切点分析教程",
+    "href": "regr/function-modules.html#rcs-与切点分析教程",
+    "title": "RegR 功能模块图",
+    "section": "RCS 与切点分析教程",
+    "text": "RCS 与切点分析教程\n\nRCS 组合图：get_rcs_all 的 7 种模式，16 张实际图形\nget_cut、get_cut_ci 与 get_cut_plot：两段模型、曲线切点与 bootstrap 区间",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
+    ]
+  },
+  {
+    "objectID": "regr/function-modules.html#新增教程目录",
+    "href": "regr/function-modules.html#新增教程目录",
+    "title": "RegR 功能模块图",
+    "section": "新增教程目录",
+    "text": "新增教程目录\n以下页面按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行示例。沿用 SHAP 页的参数标签页、代码与实际结果展示方式；表格页面直接嵌入汇总表。\n\n\n\n分析任务\n页面与主要入口\n\n\n\n\n计算性能评估\n性能评估目录：FGR/CSC、RPA 生存路径与 Windows/Linux Cox/CIF 优化；get_score 的 Windows/WSL 对照与四项优化\n\n\n完整评分性能\nget_score：R=0与100次bootstrap，1万到10万行实测\n\n\n递归分区与节点结局\nRPA：get_rpa、树图、节点曲线与汇总\n\n\n倾向评分、匹配与加权\nPS：get_psm、get_iptw、get_ps 与平衡诊断\n\n\n变量筛选\n筛选、LASSO、Boruta、相关性与 VIF\n\n\n描述性与模型表格\n基线表、回归表与生存汇总\n\n\n单因素与多因素模型\nget_um 的变量选择、比值与绝对效应\n\n\n同一暴露的多个模型\nget_eff_cat：调整集合、结局与分层\n\n\n模型评价\nAUC、Brier、AIC 与独立留出样本\n\n\n预测模型可视化\nCox/Logistic 列线图、ROC、校准与 DCA\n\n\n条件生存\nget_cs、get_cs_time 与 KM 比值\n\n\n瞬时风险\nget_hzd、get_hzd_group 与协变量标准化\n\n\n纵向分组轨迹\nGBTM：拟合、组数比较与后验分类\n\n\n组间特征差异\nSMD、Cohen’s d、点图、雷达图与类别格图\n\n\n\n三个原有页面同时补充了森林图的 set_eff、亚组效应与交互合并表和分面概率差曲线。各页单独说明参考水平、估计量、时间单位及当前实现的限制。",
+    "crumbs": [
+      "RegR · 临床回归与可视化",
+      "<span class='chapter-number'>1</span>  <span class='chapter-title'>RegR 功能模块图</span>"
     ]
   }
 ]
