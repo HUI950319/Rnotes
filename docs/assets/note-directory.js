@@ -13,7 +13,7 @@
     row,
     package: row.cells[0].textContent.trim(),
     topic: row.cells[2].textContent.trim(),
-    text: row.textContent.toLocaleLowerCase(),
+    text: `${row.textContent} ${row.dataset.keywords || ""}`.toLocaleLowerCase(),
   }));
 
   for (const [select, field] of [[packageSelect, "package"], [topicSelect, "topic"]]) {
