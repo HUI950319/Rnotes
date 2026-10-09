@@ -1,7 +1,7 @@
 ---
 title: "生存 PDP 图谱：时间、分箱与二维交互面"
 description: "8 个公开 PDP 绘图入口的参数比较，包含 6 个可旋转的三维交互实例。"
-date: 2026-10-01
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
@@ -52,6 +52,46 @@ sort(unique(pdp[["result"]][["_times_"]]))
 sort(unique(pdp[["result"]][["_x_"]]))
 ```
 
+
+## get_pdp2()：两列同时替换的联合响应 {#get-pdp2}
+
+本节按 MLR 0.1.13 源码 `95d3204` 核对，以下合成二分类示例在 WSL R 4.4.3 中实际执行。
+
+`get_pdp2()` 同时将两列设为每个网格组合，再对同一批背景患者平均预测。它同时包含主效应和交互，不能把二维表面本身当作“纯交互”。与本页之前基于 survex 的多时间绘图对象不同，这个入口直接返回 ggplot。
+
+```r
+get_pdp2(EXP.obj, exp_var, N = 1000, scale = c("prob", "link"),
+  engine = c("iml", "pdp"), cores = NULL, save = list())
+```
+
+```r
+library(MLR)
+library(ggplot2)
+set.seed(246)
+n <- 300L
+dc <- data.frame(Age = runif(n, 20, 85),
+  Sex = factor(sample(c("Female", "Male"), n, TRUE)),
+  Marker = rnorm(n), Group = factor(sample(c("A", "B"), n, TRUE)))
+prob <- plogis(-0.4 + (dc[["Age"]] - 50) / 20 +
+  0.5 * (dc[["Sex"]] == "Male") + 0.8 * dc[["Marker"]] +
+  0.7 * dc[["Marker"]] * (dc[["Group"]] == "B"))
+dc[["Outcome"]] <- factor(ifelse(runif(n) < prob, "Yes", "No"),
+  levels = c("No", "Yes"))
+cvars <- c("Age", "Sex", "Marker", "Group")
+
+ec_joint <- get_exp(dc, vars = cvars, surv = "Outcome", model = "ranger", cores = 1)
+joint_pd <- get_pdp2(ec_joint, c("Marker", "Group"), N = 300, scale = "prob", cores = 1)
+joint_pd
+head(joint_pd$data)   # x1、x2、pd；data 属性还记录 vars 和 kind
+```
+
+![同时替换 Marker 和 Group 后，平均预测事件概率。](images/pdp-guide/joint-pdp2.png){fig-alt="ranger 分类模型的 Marker 与 Group 二维 PDP，纵轴为平均预测事件概率，包括两列主效应与交互。"}
+
+默认 `N=1000`；超过 N 时使用当前行顺序上的等间隔背景行，所有网格共享这些行，不消耗随机数。这里的 MLR 抽样规则与 causalR 的固定种子随机抽样不同。`N=NULL` 使用全部背景行，预测成本随网格大小乘背景人数增长。
+
+`scale="prob"` 显示 S(t) 或事件概率；`"link"` 是 log 累积风险或 logit，对 Cox、Logistic 等对应工作模型有明确解释。随机森林建议显式使用概率尺度。`engine="iml"` 是本例执行后端；另一后端须满足当前帮助中的 pdp 版本要求。
+
+若要去除主效应观察二阶交互，使用 [get_ale2 的同模型对照](vpd-guide.qmd)。它依然是模型解释，不是正式交互显著性检验。
 
 ## 接口、返回对象与分析流程 {#interface}
 
