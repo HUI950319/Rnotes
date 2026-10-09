@@ -1,7 +1,7 @@
 ---
 title: "KM/CIF 组合图：get_cat 与 3 个绘图函数"
 description: "get_cat 的数据、方法和返回对象详解；用 RegR 自带 MTC 队列比较 plt_cat1、plt_cat2、plt_cat3 的 20 个实际图形示例。"
-date: 2026-10-05
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
@@ -9,6 +9,16 @@ toc-depth: 2
 先用 `get_cat()` 计算曲线和效应表，再用 `plt_cat1()`、`plt_cat2()` 或 `plt_cat3()` 选择布局。本页参照 [MLR 的 SHAP 页面](../mlr/shap-guide.qmd)：**每个参数选项配可复制代码与实绘图片，在标签页中切换比较，点击图片可放大。**
 
 **版本与执行范围：** 接口按 RegR **0.1.3**（本机源码 `0add2bb`）核对，使用 WSL R **4.4.3** 实际拟合并绘制 **20 张图**。执行了未调整分析、`direct` 标准化、多分类暴露，以及 CIF 的 `CSC` 标准化；IPTW、PSM 和 FGR 标准化只说明接口。本页显示保存的汇总图形，不提供患者级数据下载。
+
+## 2026-10-09：当前推断与结果更新 {#current-inference}
+
+本节按 RegR 0.1.3 源码 `40515e1` 核对；下方 Cox 和 CSC 主示例的曲线、单时点表、多时点差值图已重新拟合与导出。
+
+`direct` 的 Cox / CSC 概率差采用 `riskRegression::ate()` 的联合推断，差值区间包含组间估计的协方差。不能用两个单独组别区间或独立标准误拼成差值区间；点估计不变也可能伴随区间和 P 值更新。`plt_cat2()` 应读取同一次拟合产生的多时点结果，不能另用历史表替换。
+
+竞争风险 `cif_args = list(model = "FGR")` 的默认标准化由 mets 的解析推断完成；只有失败时才回退。`"CSC"` 切换标准化概率模型，但 sHR 列仍来自 Fine–Gray 模型。当前与历史版本的区别见 [CIF 后端比较](get-eff-cif-benchmark.qmd#current-backend)。
+
+同一次调用中的倾向评分拟合和直接 Cox 曲线区间可以复用，避免重复计算；这些优化不改变权重的 ATE 目标、匹配的 ATT 目标或差值方向。跨调用、跨队列或不同协变量设置仍需重新分析。
 
 ## 示例准备与读图规则 {#data}
 
@@ -298,7 +308,7 @@ plt_cat1(cat_multi, plot.margin = 12, display = "sur", max_t = 180,
 
 ## plt_cat1()：多个 cat_res 合并成图 {#plt-cat1-multiple}
 
-直接传入上节的 `cat_multi`，每个暴露仍有自己的未调整与调整面板。`display = "v"` / `"sur"` 将暴露左右排列，`"h"` / `"s+f"` 将暴露上下排列；面板标签连续编号。多个暴露的组别含义不同，不应跨暴露将曲线编号当成相同患者。
+将上节的 `cat_fit` 与 `cat_multi` 放进命名 list `cat_many`，每个暴露仍有自己的未调整与调整面板。`display = "v"` / `"sur"` 将暴露左右排列，`"h"` / `"s+f"` 将暴露上下排列；面板标签连续编号。多个暴露的组别含义不同，不应跨暴露将曲线编号当成相同患者。
 
 ::: {.panel-tabset}
 
@@ -307,16 +317,17 @@ plt_cat1(cat_multi, plot.margin = 12, display = "sur", max_t = 180,
 并排示例使用 `sur` 省去内嵌表；带表的上下布局使用 30 × 16 英寸画布，并减小 `core_size` 单元格留白。导出图与页面代码采用相同参数。
 
 ```r
-plt_cat1(cat_multi, plot.margin = 12, display = "sur", max_t = 180,
+cat_many <- list(Sex = cat_fit, Race = cat_multi)
+plt_cat1(cat_many, plot.margin = 12, display = "sur", max_t = 180,
   xbreaks = seq(0, 180, 36),
   strip_arg = list(strip_label = list(
     c("Sex: unadjusted", "Sex: adjusted"),
-    c("Stage: unadjusted", "Stage: adjusted"))))
+    c("Race: unadjusted", "Race: adjusted"))))
 ```
 
-![两个暴露左右排列，各自保留未调整与调整曲线。](images/cat-guide/multi-v.png){fig-alt="Sex 和演示分期两个独立暴露的四面板曲线。"}
+![两个暴露左右排列，各自保留未调整与调整曲线。](images/cat-guide/multi-v.png){fig-alt="Sex 和 Race 两个独立暴露的四面板曲线。"}
 
-### 上下排列
+### 单个三分类暴露的横向对照
 
 ```r
 plt_cat1(cat_multi, plot.margin = 12, display = "h", core_size = c(0.5, 1), max_t = 180,
