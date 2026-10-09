@@ -1,7 +1,7 @@
 ---
 title: "HTE PDP：因果森林效应的部分依赖"
 description: "get_hte_pdp 的返回表、分位数网格、分类变量、抽样预算与森林权重；同一森林上的参数对照和实际曲线。"
-date: 2026-10-07
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
@@ -18,7 +18,15 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
 
 `get_hte_pdp()` 复用 `get_hte()` 保存的森林，返回每个协变量取值下的平均预测效应。
 它不重新拟合因果森林；返回表可以保存或自行画图，现有 `plt_hte_dep(display="pdp")`
-使用同一部分依赖引擎。接口按提交 `d4aeb78` 核对，下面实际拟合森林并计算全部曲线。
+使用同一部分依赖引擎。接口按提交 `b8add77` 核对，下面实际拟合森林并计算全部曲线。
+
+## 2026-10-09：解释样本与随机数 {#sampling-update}
+
+本次按 causalR 源码 `b8add77` 核对并重新执行本页。PDP / ALE 的解释患者由固定内部种子随机无放回抽样，随后按原行号排序；不是等间隔抽取。显式 `max_n = Inf` 使用全体，`max_n = NULL` 按成本模型选择人数，时间预算不是强制超时。
+
+同一份输入与同一人数下，PDP 和 ALE 的默认解释样本一致，便于比较。抽样函数在退出时恢复调用者的随机数状态；调用前单独 `set.seed()` 不会改变其固定内部种子。若行顺序或人数改变，样本也可能改变，分类水平的覆盖必须以本次输出为准。
+
+SHAP 使用其公开 `seed` 控制解释患者和背景患者的抽样，以及代理留出切分或联盟抽样，并在退出时恢复 RNG。代理 SHAP 与原森林的 Kernel SHAP 仍解释不同对象，不能因共用患者就把两者视为同一结果。
 
 ## PDP 解释的是什么 {#pdp-meaning}
 
@@ -162,10 +170,10 @@ ggplot(positions, aes(value, grid)) + geom_point(size = 2, color = "#347BA0") +
 
 ```{r}
 #| label: fig-pdp-budget
-#| fig-alt: "全体、显式 100 人和成本模型预算的曲线对照。抽样均匀取行，能复现，但减少患者可能改变平均曲线。"
+#| fig-alt: "全体、显式 100 人和成本模型预算的曲线对照。固定种子随机抽样，能复现，但减少患者可能改变平均曲线。"
 #| fig-width: 8
 #| fig-height: 4.5
-#| fig-cap: "全体、显式 100 人和成本模型预算的曲线对照。抽样均匀取行，能复现，但减少患者可能改变平均曲线。"
+#| fig-cap: "全体、显式 100 人和成本模型预算的曲线对照。固定种子随机抽样，能复现，但减少患者可能改变平均曲线。"
 p100 <- get_hte_pdp(res, "marker", max_n = 100)
 pauto <- get_hte_pdp(res, "marker", time_budget = 0.05)
 pauto2 <- get_hte_pdp(res, "marker", time_budget = 0.05)
@@ -179,7 +187,7 @@ ggplot(budget_compare, aes(value, estimate, color = sample)) + geom_line() + geo
 ```
 
 成本模型控制抽样规模，**不是计时器强制中断**，默认 20 秒也不是每台机器的完成承诺。
-同一森林和参数会选同一批均匀间隔行，实际耗时随机器变化。本页 0.05 秒设置用于演示抽样机制；
+同一森林和参数会选同一批固定种子随机抽取的行，实际耗时随机器变化。本页 0.05 秒设置用于演示抽样机制；
 实际分析应检查 `analysis$n` 与曲线稳定性。显式 `max_n` 后 `time_budget` 被忽略。
 
 ## 森林观察权重 {#pdp-weights}
