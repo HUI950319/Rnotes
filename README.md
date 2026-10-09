@@ -5,6 +5,11 @@
 每个包一个分区，记录函数设计、性能评估和使用经验。函数参考文档见各包自己的
 pkgdown 站点；因果推断读书笔记另见 [causalR](https://hui950319.github.io/causalR/)。
 
+侧栏在 `_quarto.yml` 中用 `href` 与 `text` 分别设置页面路径和导航短标题，文章保留完整标题。
+RegR、MLR、UtilsR、causalR 按主题使用嵌套 `part` 分组；其余四个包保留两级目录。
+分组时保持章节顺序，以免改变正文图号；当前页面的祖先目录自动展开。
+侧栏分组支持鼠标点击，以及 Tab 聚焦后用 Enter 或空格展开、折叠。
+
 ## 本地渲染
 
 ```bash
@@ -28,7 +33,7 @@ python -m pip install beautifulsoup4 PyYAML
 python scripts/check_site.py
 ```
 
-检查页底与 HTML 头部的上一页／下一页是否遵循 `_quarto.yml`，以及侧栏层级、
+检查页底与 HTML 头部的上一页／下一页是否遵循 `_quarto.yml`，以及侧栏层级、短标题、当前页展开状态、面包屑、
 站内链接与锚点、页面摘要、图片替代文本与懒加载、全站图号唯一性、搜索索引和 sitemap。
 GitHub Actions 会在每次 push 和 pull request 中执行同一检查。
 

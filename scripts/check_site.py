@@ -16,6 +16,8 @@ def chapters(items):
         if isinstance(item, str):
             yield item
         elif isinstance(item, dict):
+            if "href" in item:
+                yield item["href"]
             if str(item.get("part", "")).endswith(".qmd"):
                 yield item["part"]
             yield from chapters(item.get("chapters", []))
@@ -53,6 +55,38 @@ def check(root):
     }
     ids = {p: {t["id"] for t in soup.select("[id]")} | {t["name"] for t in soup.select("a[name]")}
            for p, soup in pages.items()}
+    expected_crumbs = {}
+
+    def check_sidebar(items, container, page):
+        children = container.select(":scope > li") if container else []
+        name = page.relative_to(docs).as_posix()
+        if len(children) != len(items):
+            errors.append(f"{name}: sidebar level has {len(children)} items, expected {len(items)}")
+        for item, child in zip(items, children):
+            data = {"href": item} if isinstance(item, str) else item
+            target = data.get("href", data.get("part", ""))
+            path = docs / Path(target).with_suffix(".html") if target.endswith(".qmd") else None
+            link = child.select_one(":scope > .sidebar-item-container > .sidebar-item-text")
+            if path:
+                title = pages.get(path).select_one("h1.title") if path in pages else None
+                if path == docs / "index.html" and path in pages:
+                    title = pages[path].select_one("main > section.level1 > h1") or title
+                label = data.get("text") or (title.get_text(" ", strip=True) if title else target)
+            else:
+                label = data.get("text", target)
+            if not link or link.get_text(" ", strip=True) != label:
+                errors.append(f"{name}: sidebar label does not match {label}")
+            if path and (not link or resolve(page, link.get("href", ""))[0] != path):
+                errors.append(f"{name}: sidebar target does not match {target}")
+            if "chapters" in data:
+                section = child.select_one(":scope > ul.sidebar-section")
+                check_sidebar(data["chapters"], section, page)
+                for toggle in child.select(":scope > .sidebar-item-container > [data-bs-toggle='collapse']"):
+                    expanded = section is not None and "show" in section.get("class", [])
+                    if toggle.get("aria-expanded") != str(expanded).lower():
+                        errors.append(f"{name}: inconsistent collapse state for {label}")
+            elif child.select_one(":scope > ul"):
+                errors.append(f"{name}: page {target} unexpectedly contains a sidebar section")
 
     for i, name in enumerate(expected):
         page = docs / name
@@ -90,14 +124,21 @@ def check(root):
         missing = {docs / p for p in expected} - sidebar
         if missing:
             errors.append(f"{name}: sidebar is missing {len(missing)} chapters")
-        for item in config["book"]["chapters"]:
-            if not isinstance(item, dict) or not str(item.get("part", "")).endswith(".qmd"):
-                continue
-            target = docs / Path(item["part"]).with_suffix(".html")
-            link = next((a for a in soup.select("#quarto-sidebar .sidebar-item a[href]")
-                         if resolve(page, a["href"]) and resolve(page, a["href"])[0] == target), None)
-            if link and "sidebar-section" in link.find_parent("li").find_parent("ul").get("class", []):
-                errors.append(f"{name}: top-level part is nested in sidebar: {item['part']}")
+        check_sidebar(config["book"]["chapters"], soup.select_one("#quarto-sidebar .sidebar-menu-container > ul"), page)
+        active = soup.select("#quarto-sidebar .sidebar-item-text.active[href]")
+        if [resolve(page, a["href"])[0] for a in active] != [page]:
+            errors.append(f"{name}: sidebar active item does not match the current page")
+        if len(active) == 1:
+            ancestors = [p for p in active[0].parents if p.name == "ul" and "sidebar-section" in p.get("class", [])]
+            if any("show" not in p.get("class", []) for p in ancestors):
+                errors.append(f"{name}: current page is hidden in a collapsed sidebar section")
+            labels = [p.parent.select_one(":scope > .sidebar-item-container > .sidebar-item-text").get_text(" ", strip=True)
+                      for p in reversed(ancestors)]
+            labels.append(active[0].get_text(" ", strip=True))
+            expected_crumbs[name] = labels
+            for breadcrumb in soup.select(".quarto-page-breadcrumbs"):
+                if [li.get_text(" ", strip=True) for li in breadcrumb.select("li")] != labels:
+                    errors.append(f"{name}: breadcrumbs do not match sidebar ancestry")
 
     for page, soup in pages.items():
         for img in soup.select("main img[src]"):
@@ -125,6 +166,18 @@ def check(root):
                 errors.append(f"{label}: missing anchor {url}")
 
     search = json.loads((docs / "search.json").read_text(encoding="utf-8-sig"))
+    for item in search:
+        name = unquote(urlparse(item["href"]).path)
+        if name not in expected_crumbs:
+            continue
+        crumbs = []
+        for crumb in item.get("crumbs", []):
+            label = BeautifulSoup(crumb, "html.parser")
+            for number in label.select(".chapter-number"):
+                number.decompose()
+            crumbs.append(label.get_text(" ", strip=True))
+        if crumbs != expected_crumbs[name]:
+            errors.append(f"{item['href']}: search breadcrumbs do not match sidebar ancestry")
     search_pages = {unquote(urlparse(item["href"]).path) for item in search}
     sitemap = ET.parse(docs / "sitemap.xml")
     sitemap_pages = {urlparse(loc.text).path[len(base.path):]
