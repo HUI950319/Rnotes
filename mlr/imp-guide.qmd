@@ -1,7 +1,7 @@
 ---
 title: "特征重要性：get_imp 与 9 个绘图函数"
 description: "比较 SHAP、impurity/Gain 与 permutation；用实际图形对照组合模式、排序、百分比、环形、网络及雷达图参数。"
-date: 2026-10-01
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
@@ -37,6 +37,37 @@ shap_vars <- imp[["var"]][imp[["imp_type"]] == "mean.SHAP"]
 imp8 <- imp[imp[["var"]] %in% head(shap_vars, 8), ]
 ```
 
+
+## 2026-10-09：当前默认森林与重新计算示例 {#current-importance}
+
+按 MLR 0.1.13 源码 `95d3204` 核对，`get_imp()` 的 ranger 路径现在使用 **300 棵树**，此前为 500 棵。减少树数会影响随机森林近似和重要性排序，不能当成只改变运行时间。这个数量是内部设置，不是当前 `get_imp()` 的公开参数。
+
+缺少 Python SHAP 后端时，treeshap 路径可复用已训练的 impurity 森林；置换重要性仍使用相应模型设置。按工作量选择线程和保留调用者 RNG 的加载处理属于计算优化，不改变各重要性的定义。
+
+原有图使用 `ToyData::toy_imp` 的保存表，展示布局与绘图参数；它们不代表当前默认森林重新拟合的结果。下面另用 300 行合成二分类数据实际运行当前 `get_imp()`，在 WSL R 4.4.3 中计算并导出图形。
+
+```r
+library(MLR)
+library(ggplot2)
+set.seed(246)
+n <- 300L
+dc <- data.frame(Age = runif(n, 20, 85),
+  Sex = factor(sample(c("Female", "Male"), n, TRUE)),
+  Marker = rnorm(n), Group = factor(sample(c("A", "B"), n, TRUE)))
+prob <- plogis(-0.4 + (dc[["Age"]] - 50) / 20 +
+  0.5 * (dc[["Sex"]] == "Male") + 0.8 * dc[["Marker"]] +
+  0.7 * dc[["Marker"]] * (dc[["Group"]] == "B"))
+dc[["Outcome"]] <- factor(ifelse(runif(n) < prob, "Yes", "No"),
+  levels = c("No", "Yes"))
+cvars <- c("Age", "Sex", "Marker", "Group")
+
+imp_current <- get_imp(dc, vars = cvars, surv = "Outcome", model = "ranger")
+plt_imp_bar(imp_current, display = "b")
+```
+
+![当前 300 棵 ranger 森林的三类变量重要性。](images/imp-guide/current-300.png){fig-alt="合成二分类队列的当前 ranger 重要性，分别显示平均绝对 SHAP、impurity 和 permutation，使用当前 300 棵树设置。"}
+
+`yhat_raw` 保留各方法的原始值，`yhat` 在每个类型内缩放。不同方法的单位与定义不同，不能把缩放后的大小当成同一统计量，也不能据此确定变量的因果作用。旧版本的计时见 [2026-10-06 性能记录](../regr/mlr-imp-speedup-20261006.qmd)。
 
 ## 接口、返回对象与分析流程 {#interface}
 
