@@ -1,7 +1,7 @@
 ---
 title: "HTE ALE：相关协变量与分类水平的局部效应"
 description: "get_hte_ale 的中心化效应、n_bins 对照、无序因子相似性排序、抽样后空水平和实际曲线。"
-date: 2026-10-07
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
@@ -19,6 +19,14 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
 `get_hte_ale()` 查看森林 CATE 随某个协变量的局部变化。对连续变量，在分位数区间两端预测，
 在区间内平均变化，再累积并中心化；它复用已拟合的森林。接口按 causalR 提交 `d4aeb78`
 核对，本页全部结果来自合成数据的实际计算。
+
+## 2026-10-09：解释样本与随机数 {#sampling-update}
+
+本次按 causalR 源码 `b8add77` 核对并重新执行本页。PDP / ALE 的解释患者由固定内部种子随机无放回抽样，随后按原行号排序；不是等间隔抽取。显式 `max_n = Inf` 使用全体，`max_n = NULL` 按成本模型选择人数，时间预算不是强制超时。
+
+同一份输入与同一人数下，PDP 和 ALE 的默认解释样本一致，便于比较。抽样函数在退出时恢复调用者的随机数状态；调用前单独 `set.seed()` 不会改变其固定内部种子。若行顺序或人数改变，样本也可能改变，分类水平的覆盖必须以本次输出为准。
+
+SHAP 使用其公开 `seed` 控制解释患者和背景患者的抽样，以及代理留出切分或联盟抽样，并在退出时恢复 RNG。代理 SHAP 与原森林的 Kernel SHAP 仍解释不同对象，不能因共用患者就把两者视为同一结果。
 
 ## ALE 与 PDP 的问题不同 {#ale-meaning}
 
@@ -171,7 +179,7 @@ stopifnot(nrow(rare_row) == 1, rare_row$n == 0, is.na(rare_row$ale))
 knitr::kable(small, digits = 3)
 ```
 
-`Rare` 只有原数据第 2 行，均匀取 40 行没有选中它。当前实现跳过此水平并连接两侧有支持
+`Rare` 在原数据中只出现一次；随机取 40 行可能没有选中它，应以本次返回的水平、NA 和提示判断覆盖，不能从原始行号推断。当前实现跳过此水平并连接两侧有支持
 的水平，保留 `ale=NA,n=0`，不会让后续水平全部变成 NA。它没有估计该空水平的效应。
 
 ### 解释患者数
@@ -211,4 +219,22 @@ ggplot(sample_compare, aes(value, ale, color = sample)) + geom_line() + geom_poi
 args(get_hte_ale)
 packageVersion("grf")
 sessionInfo()
+```
+
+## 恒定数值变量的 ALE 边界 {#constant-ale}
+
+数值变量不足两个有效不同值或全缺失时，ALE 没有可累积的局部区间；函数返回 NA 并提示，其余可解释变量继续计算。NA 不能读作效应为零。
+
+下面用同一合成样本将 `noise` 设为常量，重新拟合演示森林；这不是修改已有森林的训练矩阵。
+
+```{r}
+#| label: ale-constant
+d_constant <- d
+d_constant$noise <- 1
+res_constant <- get_hte(d_constant, "z", adj_var = c("x1", "x2", "region", "noise"), surv = "y",
+  grf_args = list(num.trees = 500, seed = 17, num.threads = 2))
+ale_constant <- get_hte_ale(res_constant, x_var = c("noise", "x1"), max_n = Inf)
+stopifnot(all(is.na(ale_constant$ale[ale_constant$variable == "noise"])),
+  all(is.finite(ale_constant$ale[ale_constant$variable == "x1"])))
+knitr::kable(subset(ale_constant, variable == "noise"), digits = 3)
 ```
