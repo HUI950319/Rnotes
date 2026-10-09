@@ -1,7 +1,7 @@
 ---
 title: "HTE SHAP：代理模型、Kernel SHAP 与保真度"
 description: "get_hte_shp 的两种方法、shapviz 返回对象、代理模型验证 R²、背景样本和计算预算；六张实际解释图。"
-date: 2026-10-07
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
@@ -20,7 +20,15 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
 `get_hte_shp()` 将模型预测的治疗效应分解为协变量贡献。**默认会新拟合一个 xgboost 代理模型，
 返回这个代理模型的 TreeSHAP。** 它对原森林是近似解释。`method="kernel"` 则直接调用
 原森林计算 Kernel SHAP。这两个方法都复用原因果森林，但解释路线不同。
-接口按提交 `d4aeb78` 核对，以下森林、SHAP 和全部图形实际计算。
+接口按提交 `b8add77` 核对，以下森林、SHAP 和全部图形实际计算。
+
+## 2026-10-09：解释样本与随机数 {#sampling-update}
+
+本次按 causalR 源码 `b8add77` 核对并重新执行本页。PDP / ALE 的解释患者由固定内部种子随机无放回抽样，随后按原行号排序；不是等间隔抽取。显式 `max_n = Inf` 使用全体，`max_n = NULL` 按成本模型选择人数，时间预算不是强制超时。
+
+同一份输入与同一人数下，PDP 和 ALE 的默认解释样本一致，便于比较。抽样函数在退出时恢复调用者的随机数状态；调用前单独 `set.seed()` 不会改变其固定内部种子。若行顺序或人数改变，样本也可能改变，分类水平的覆盖必须以本次输出为准。
+
+SHAP 使用其公开 `seed` 控制解释患者和背景患者的抽样，以及代理留出切分或联盟抽样，并在退出时恢复 RNG。代理 SHAP 与原森林的 Kernel SHAP 仍解释不同对象，不能因共用患者就把两者视为同一结果。
 
 ## 方法和解释对象 {#hte-shap-methods}
 
@@ -44,10 +52,10 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
 | `x` | 完整 `hte_res` | 复用森林、协变量数据和训练编码 |
 | `method` | `"surrogate"` | 可选 `"kernel"` |
 | `max_n` | `NULL` | 由成本模型选解释人数；正整数或 `Inf` 显式指定 |
-| `bg_n` | `50` | 仅 Kernel 的背景人数，均匀取行；代理路线不要显式传此项 |
+| `bg_n` | `50` | 仅 Kernel 的背景人数，按 seed 随机无放回抽样；代理路线不要显式传此项 |
 | `surrogate_args` | `list(nrounds=300,max_depth=6,learning_rate=0.1)` | 仅代理路线；部分覆盖按默认合并；Kernel 路线不要显式传此项 |
 | `time_budget` | `20` | `max_n=NULL` 时按估算成本选择人数，不强制计时中断 |
-| `seed` | `123` | 留出切分或联盟抽样种子；函数退出恢复原 RNG 状态 |
+| `seed` | `123` | 解释/背景样本、留出切分或联盟抽样种子；函数退出恢复原 RNG 状态 |
 | `verbose` | `FALSE` | 输出估计与实际耗时 |
 
 返回标准 `shapviz` 对象：`S` 是患者 × 原协变量贡献矩阵，`X` 保留原协变量值，`baseline`
@@ -152,11 +160,12 @@ sv_force(sv, row_id = 1)
 
 ```{r}
 #| label: fig-hte-shap-fidelity
-#| fig-alt: "400 名解释患者的代理 SHAP 重建预测与原森林预测。此散点包含训练和留出患者，独立保真度仍按 analysis$r2 的留出结果报告。"
+#| fig-alt: "400 名解释患者的代理 SHAP 重建预测与原森林预测。此散点包含训练和留出患者，独立保真度仍按 analysis 中的留出 R² 报告。"
 #| fig-width: 6.5
 #| fig-height: 5
-#| fig-cap: "400 名解释患者的代理 SHAP 重建预测与原森林预测。此散点包含训练和留出患者，独立保真度仍按 analysis$r2 的留出结果报告。"
-rows <- unique(round(seq(1, nrow(res$fit$X.orig), length.out = nrow(sv$S))))
+#| fig-cap: "400 名解释患者的代理 SHAP 重建预测与原森林预测。此散点包含训练和留出患者，独立保真度仍按 analysis 中的留出 R² 报告。"
+rows <- attr(sv, "analysis")[["rows"]]
+stopifnot(length(rows) == nrow(sv$S))
 forest_pred <- as.numeric(predict(res$fit, res$fit$X.orig[rows, , drop = FALSE])$predictions)
 reconstructed <- sv$baseline + rowSums(sv$S)
 ggplot(data.frame(forest = forest_pred, surrogate = reconstructed), aes(forest, surrogate)) +
@@ -239,7 +248,7 @@ cat(small_warnings, sep = "\n")
 
 参见 [PDP](pdp-guide.qmd)、[ALE](ale-guide.qmd)、[生存效应尺度](survival-estimands-guide.qmd)
 与 [causalR 总览](index.qmd)。源码：
-[hte-explain.R](https://github.com/HUI950319/causalR/blob/d4aeb785b9deff6b3f9144954b7716876a190a68/R/hte-explain.R)。
+[hte-explain.R](https://github.com/HUI950319/causalR/blob/b8add77/R/hte-explain.R)。
 
 ```{r}
 args(get_hte_shp)
