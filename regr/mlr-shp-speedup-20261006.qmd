@@ -1,12 +1,20 @@
 ---
 title: "MLR：get_shp 提速策略与实测"
 description: "MLR 的 get_shp() 在 2026-10-06 的 6 项改动：生存森林多线程、森林转换、连续变量分箱、CPU 上的 SHAP 多进程、精简加载；1 万行训练在 Linux（Python SHAP，GPU/CPU）与 Windows（treeshap）上的优化前后实测，以及 ranger 生存分裂、Python TreeSHAP 与子进程启动的专项剖析。"
-date: 2026-10-06
+date: 2026-10-09
 toc: true
 lightbox: true
 ---
 
 本页属于 [跨包性能评估](performance-evaluation.qmd)，评估对象是 MLR（[pkgdown 站点](https://hui950319.github.io/MLR/)）的 `get_shp()`。它先训练一个树模型（ranger、XGBoost 或 LightGBM，生存或二分类），再用 Python `shap`（GPU 或 CPU）或 R 的 treeshap 计算 SHAP 值和交互值，最后预渲染 6 张图。[get_imp 提速页](mlr-imp-speedup-20261006.qmd)的多进程 TreeSHAP 复用了本页第 4 项的函数。
+
+## 2026-10-09：后续版本变化 {#subsequent-changes}
+
+本次按 MLR 0.1.13 源码 `95d3204` 核对，仅补充版本说明，没有重跑下方历史基准。
+
+共享 SHAP 行解释的并行判断已调整：先以最多 20 行试运行估算剩余行的计算时间，再与一次 worker 启动成本比较，原先使用两次成本阈值。是否启动 worker 仍取决于工作量，不能把“当前会并行”推广到所有样本。
+
+下方原始源码版本、树数、机器、后端、耗时和倍数均保留。新默认与新阈值的端到端收益需在当前版本下重新计时；不将不同阶段的局部加速相加，也不把历史值推算为当前实测。
 
 ## 主要结果
 
