@@ -1,7 +1,7 @@
 ---
 title: "变量分布与 PDP：解释器、分组和预测时间"
 description: "get_exp、get_vpd 和 get_vpd_pnl 的完整工作流；比较生存与二分类的变量组合、预测时间和模型后端。"
-date: 2026-10-01
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
@@ -53,6 +53,49 @@ set.seed(246)
 erf <- get_exp(d, vars = vars, surv = 60, model = "ranger")
 ```
 
+
+## get_ale2()：去除主效应后的二阶 ALE {#get-ale2}
+
+本节按 MLR 0.1.13 源码 `95d3204` 核对；复用 [二维 PDP 页的 300 行合成数据与 cvars](pdp-guide.qmd#get-pdp2)，在 WSL R 4.4.3 中实际执行。
+
+原有 `get_vpd(exp_var=c("Group","Marker"))` 是按组展示的一维响应曲线。`get_ale2()` 计算两个变量的局部二阶变化、累积并去除低阶项，用于观察模型中的二阶交互；它与包含主效应的 `get_pdp2()` 有不同含义。
+
+```r
+get_ale2(EXP.obj, exp_var, N = 10000, scale = c("link", "prob"),
+  engine = c("iml", "ale"), cores = NULL, save = list())
+```
+
+::: {.panel-tabset}
+
+### 随机森林的概率尺度
+
+```r
+ec_joint <- get_exp(dc, vars = cvars, surv = "Outcome", model = "ranger", cores = 1)
+interaction_ale <- get_ale2(ec_joint, c("Marker", "Group"),
+  N = 300, scale = "prob", cores = 1)
+interaction_ale
+```
+
+![ranger 模型中 Marker 与 Group 的二阶概率尺度 ALE。](images/vpd-guide/interaction-ale2.png){fig-alt="同一合成队列的 ranger 二阶 ALE，去除低阶项后展示 Marker 与 Group 的预测事件概率变化。"}
+
+### 加性 Logistic 的 link 尺度
+
+```r
+ec_linear <- get_exp(dc, vars = cvars, surv = "Outcome", model = "default")
+linear_ale <- get_ale2(ec_linear, c("Marker", "Group"),
+  N = 300, scale = "link", cores = 1)
+linear_ale
+```
+
+![没有显式乘积项的 Logistic 工作模型，link 尺度二阶 ALE 接近零。](images/vpd-guide/additive-link-ale2.png){fig-alt="只含主效应的 Logistic 模型在 logit 尺度上的二阶 ALE 接近数值零，反映所拟合模型而不是生成数据的交互。"}
+
+:::
+
+模拟数据含有 Marker × Group，但默认 Logistic 工作模型只拟合主效应，所以第二张图的 link 尺度交互应接近零。图解释的是实际拟合模型；不能据此否定真实数据生成过程中的交互。概率尺度与 link 尺度的交互含义也不同。
+
+默认 `N=10000`，`N=NULL` 使用全部数据；超过 N 时等间隔取行，不消耗 RNG。二阶 ALE 的成本主要是每个有效局部区间四角预测。随机森林没有对应的拟合 link，显式使用 `scale="prob"`；Cox / Logistic 的 link 则对应模型工作尺度。
+
+本例执行默认 `engine="iml"`；其他引擎和分类水平排序应按当前帮助选择。二阶 ALE 是模型解释图，不提供交互 P 值，也不能替代临床效应修饰检验。
 
 ## 接口、返回对象与分析流程 {#interface}
 
