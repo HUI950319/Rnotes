@@ -1,7 +1,7 @@
 ---
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；补充 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
-date: 2026-10-02
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 format:
@@ -77,6 +77,48 @@ HR、sHR、OR 是三个不同的比值尺度。由它们计算的 RERI / AP / SI
 
 本页用于说明观察性队列的模型与接口行为。模型交互依赖参考组、调整项与所选尺度，不自动建立因果识别；“一组显著、另一组不显著”不能替代交互检验。
 :::
+
+## get_fit_ms()：保留完整编码的整体乘法交互检验 {#get-fit-ms}
+
+本节按 RegR 0.1.3 源码 `40515e1` 核对，复用本页完整案例队列，在 WSL R 4.4.3 中实际执行。`get_fit_ms()` 不把多分类变量拆成多次二分类比较，而是为每个“暴露 × 修饰变量”拟合嵌套模型，检验全部交互项。
+
+```r
+get_fit_ms(data, exposure_names, adj_var = NULL, surv = TRUE,
+  test = c("LRT", "Wald"))
+```
+
+`exposure_names` 的第一个变量是暴露，其余变量按顺序逐一作为修饰变量。二分类、多分类、连续 × 分类、连续 × 连续均保留完整编码；数字编码的分类变量应先转为 factor，否则按线性连续项建模。
+
+Cox / Logistic 默认使用 LRT；Fine–Gray 使用联合 Wald 检验，显式要求 LRT 会提示并改用 Wald。输出给出实际使用的 `test`、`statistic`、`df`、`p.value`、`n` 与 `events`。同一变量对的未调整和调整模型使用同一批完整案例，保证差异来自调整设置。
+
+```r
+ms_cox <- get_fit_ms(inter_data, exposure_names = c("Sex", "Race", "Age"),
+  adj_var = "Age", surv = TRUE)
+inter_data[["status"]] <- factor(inter_data[["event"]], levels = 0:2)
+ms_fg <- get_fit_ms(inter_data, exposure_names = c("Age", "Race"),
+  adj_var = "Sex", surv = FALSE, test = "Wald")
+```
+
+### Cox：二分类 × 三分类 / 连续变量
+
+|exposure |modifier |model |type           |    n| events|test | statistic| df| p.value|
+|:--------|:--------|:-----|:--------------|----:|------:|:----|---------:|--:|-------:|
+|Sex      |Race     |Unadj |2 x 3          | 4387|    597|LRT  |     0.960|  2|   0.619|
+|Sex      |Race     |Adjus |2 x 3          | 4387|    597|LRT  |     1.198|  2|   0.549|
+|Sex      |Age      |Unadj |2 x continuous | 4387|    597|LRT  |     0.416|  1|   0.519|
+
+
+### Fine–Gray：连续变量 × 三分类
+
+|exposure |modifier |model |type           |    n| events|test | statistic| df| p.value|
+|:--------|:--------|:-----|:--------------|----:|------:|:----|---------:|--:|-------:|
+|Age      |Race     |Unadj |continuous x 3 | 4387|    597|Wald |     1.212|  2|   0.546|
+|Age      |Race     |Adjus |continuous x 3 | 4387|    597|Wald |     0.825|  2|   0.662|
+
+
+这是模型比值尺度上的整体交互检验，不给出 RERI、AP、SI，也不等于绝对风险差的交互检验。若要展示每个组合的效应和加法指标，继续使用本页的 `get_inter()` / `get_inter_abs()`；若要判断保留完整编码后的整体乘法交互，使用 `get_fit_ms()`。
+
+空组合会导致不可估计项被剔除并减少实际 df；分类组合内无事件或无非事件会使 Wald 统计量和 P 值成为 NA 并给出提示。不能把 NA 当作“不存在交互”。
 
 ## 函数与结果对象总览 {#workflow}
 
