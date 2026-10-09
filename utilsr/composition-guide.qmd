@@ -1,12 +1,12 @@
 ---
 title: "图形组合与导出：展平、grob、插图和栅格化"
-description: "嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、两种 raster 后端、面板尺寸和真实 PDF 比较；28 个实际参数示例。"
-date: 2026-10-01
+description: "嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较；实际参数对照与递归栅格化示例。"
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
 
-嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、两种 raster 后端、面板尺寸和真实 PDF 比较。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
+嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；28 个示例已在 WSL R 4.4.3 中实际执行，其中 22 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
@@ -57,7 +57,7 @@ dense <- ggplot(dat, aes(x, y, color = group)) + geom_point(size = 0.8, alpha = 
 | 插图基准 | `align_to="panel"/"plot"/"full"` | panel 对齐面板区域；plot 使用背景区域；full 使用整个 gtable，本例后两者可重合 |
 | 插图叠放 | `on_top=TRUE/clip=TRUE` | on_top 控制 z 顺序，clip 控制区域裁剪；关闭上层不保证不被面板背景遮挡 |
 | 包装成 ggplot | `grob_to_gg(grob)` | 用 annotation_custom 绘制完整 grob；适合保存与组合，不能再直接修改内部原图尺度 |
-| 栅格化后端 | `fmt_raster(method="ggrastr"/"ragg")` | ggrastr 标记支持的 geom 层；ragg 把检测到的面板转成位图再保留部分文字组件 |
+| 栅格化后端 | `fmt_raster(method="ggrastr"/"ragg"/"image")` | ggrastr 标记支持的 geom 层；ragg 把检测到的面板转成位图再保留部分文字组件 |
 | 解析度 | `dpi=300` | 影响位图清晰度和文件大小；网页 PNG 只检查外观，PDF 才展示混合矢量输出 |
 | ragg 面板尺寸 | `width/height=NULL`、`units="in"/"cm"/"mm"` | 固定的是面板，非整张图；可以为 1 或面板数长度，优先显式设值避免设备推算 |
 | ragg 返回尺寸 | `attr(result,"size")` | 包含整张图 width/height/units，可用于导出，防止固定面板被小画布裁剪 |
@@ -433,21 +433,56 @@ function (input, ..., layers = c("Point", "Tile"), dpi = NULL,
 NULL
 ```
 
-### 两种列表边界 {.unnumbered}
+### 展平输入与栅格化输入 {.unnumbered}
 
-当前 flatten_patchwork 的递归入口和 ragg 后端不能直接处理普通 list；使用 wrap_plots 或逐图调用，再按需要组合。
+`flatten_patchwork()` 的入口仍要求组合图；普通 list 可先用 `wrap_plots()` 组合。`fmt_raster()` 的三种后端则直接支持 list，示例见下方“递归输入”一节。此前 ragg 的 list 报错属于旧实现，不再代表当前行为。
+
+:::
+
+## 三种栅格化后端与递归输入 {#current-raster}
+
+本节按 UtilsR 0.6.8 源码 `6b498cc` 核对，三组新增示例和既有 ragg 示例已在 WSL R 4.4.3 中执行。其他组合图及 PDF 字节表保留 2026-10-01 的记录。
+
+| 后端 | 栅格化范围 | 选择与边界 |
+|:--|:--|:--|
+| `ggrastr` | 支持的 geom 层 | 保留其他层和图形文字；适合密集点层的混合矢量导出 |
+| `ragg` | 检测到的面板，递归处理嵌套 gtable | 保留检测到的文字组件；宽高指定面板尺寸，导出按返回的 `size` 设置画布 |
+| `image` | 整张图一次绘制后捕获 | 标题、图例和文字一起变成位图；适合交互预览，宽高指定整图尺寸 |
+
+三种方法都可递归处理普通 list，并保留名称。嵌套布局若无法满足显式面板尺寸，应省略 width/height，让函数按当前布局推算，不能强行指定互相冲突的尺寸。`ragg` 和 `image` 通过内存捕获，不需要中转 PNG。栅格化后的图不能继续编辑已经转换的内部图层；完整矢量交付仍应保存原图。
+
+::: {.panel-tabset}
+
+### 命名 list 的 ragg 结果
 
 ```r
-messages <- c(
-  tryCatch(flatten_patchwork(list(p1, p2)), error = conditionMessage),
-  tryCatch(fmt_raster(list(p1, p2), method = "ragg", width = 3, height = 3), error = conditionMessage))
-cat(paste(seq_along(messages), messages, sep = ". ", collapse = "\n"))
+raster_list <- fmt_raster(list(scatter = p1, dense = dense),
+  method = "ragg", dpi = 150, width = 4, height = 3)
+stopifnot(identical(names(raster_list), c("scatter", "dense")))
+wrap_plots(raster_list, ncol = 2)
 ```
 
-```text
-1. Only know how to add <ggplot> and/or <grob> objects
-2. Cannot convert input to a gtable.
+![普通命名 list 的两张图分别栅格化后组合，名称保持。](images/composition-guide/ragg-named-list.png){fig-alt="命名 list 中的散点图和密集点图分别经过 ragg 处理后并排显示。"}
+
+### 嵌套组合
+
+```r
+nested_raster <- fmt_raster(nested, method = "ragg", dpi = 150)
+nested_raster
+# 导出时读取 attr(nested_raster, "size") 的整图宽高。
 ```
+
+![嵌套 patchwork 的四个面板及外层标题保留。](images/composition-guide/ragg-nested.png){fig-alt="两层嵌套 patchwork 在 ragg 栅格化后保留四个面板、外层标题和标签。"}
+
+### 整图预览
+
+```r
+image_preview <- fmt_raster(nested, method = "image", dpi = 150,
+  width = 9, height = 6)
+image_preview
+```
+
+![image 后端将整个组合图捕获为一张位图。](images/composition-guide/image-preview.png){fig-alt="整图 image 捕获包含四个面板、标题、图例及所有文字，适合固定尺寸预览。"}
 
 :::
 
@@ -492,7 +527,7 @@ function (grob, ...)
 NULL
 
 fmt_raster <-
-function (plot, method = c("ggrastr", "ragg"), dpi = 300, width = NULL, height = NULL, units = c("in",
+function (plot, method = c("ggrastr", "ragg", "image"), dpi = 300, width = NULL, height = NULL, units = c("in",
     "cm", "mm"), dev = "ragg", bg = "transparent")
 NULL
 
@@ -502,7 +537,7 @@ NULL
 
 ## 验证范围与参考 {#references}
 
-全部代码在 WSL R 中实际运行，展示图完成构建或设备绘制与 PNG 导出；另外核对展平顺序、索引选择、grob 返回类型、两后端输入边界及真实临时 PDF 的尺寸和字节。未修改 UtilsR 源码。
+全部代码在 WSL R 中实际运行，展示图完成构建或设备绘制与 PNG 导出；另外核对展平顺序、索引选择、grob 返回类型、三后端输入边界及真实临时 PDF 的尺寸和字节。未修改 UtilsR 源码。
 
 本次绘制出现的提示记录如下；对应示例仍通过实际构建和导出检查。
 
