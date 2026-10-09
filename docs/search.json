@@ -7370,7 +7370,7 @@
     "href": "regr/mlr-imp-speedup-20261006.html",
     "title": "MLR：get_imp 提速策略与实测",
     "section": "",
-    "text": "主要结果\n本页属于 跨包性能评估，评估对象是 MLR（pkgdown 站点）的 get_imp()。它在同一类树模型上算三种变量重要性：mean.SHAP、impurity 和 permutation（XGBoost 为 mean.SHAP、gain 和 permutation），各自归一化到 [0, 1] 后放在一起比较，并打印三张图。本轮优化只涉及默认的 ranger 后端。",
+    "text": "2026-10-09：后续版本变化\n本页属于 跨包性能评估，评估对象是 MLR（pkgdown 站点）的 get_imp()。它在同一类树模型上算三种变量重要性：mean.SHAP、impurity 和 permutation（XGBoost 为 mean.SHAP、gain 和 permutation），各自归一化到 [0, 1] 后放在一起比较，并打印三张图。本轮优化只涉及默认的 ranger 后端。\n本次按 MLR 0.1.13 源码 95d3204 核对，仅补充版本说明，没有重跑下方历史基准。\n2026-10-07 以后 get_imp() 的 ranger 默认树数已从 500 改为 300；这会影响训练工作量和数值近似。下方以 500 棵树测得的数字仍是旧版本测量，不能直接标为当前 300 棵树的耗时。当前计算示例见 重要性教程。\n共享 SHAP 行解释的并行判断已调整：先以最多 20 行试运行估算剩余行的计算时间，再与一次 worker 启动成本比较，原先使用两次成本阈值。是否启动 worker 仍取决于工作量，不能把“当前会并行”推广到所有样本。\n下方原始源码版本、树数、机器、后端、耗时和倍数均保留。新默认与新阈值的端到端收益需在当前版本下重新计时；不将不同阶段的局部加速相加，也不把历史值推算为当前实测。",
     "crumbs": [
       "跨包性能评估",
       "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
@@ -7380,8 +7380,8 @@
     "objectID": "regr/mlr-imp-speedup-20261006.html#主要结果",
     "href": "regr/mlr-imp-speedup-20261006.html#主要结果",
     "title": "MLR：get_imp 提速策略与实测",
-    "section": "",
-    "text": "同一会话里的生存调用 22.2 → 10.2 s，分类调用 14.1 → 6.8 s（WSL，SEER 甲状腺数据 seer_thyroid_mtc_2026 4387 行、7 个变量）。新会话的第一次生存调用 34.1 → 18.8 s。\n最大的一块是 TreeSHAP。600 行 SHAP 原来单进程算 9.0 s，改成按行分给多个进程后是 3.2 s，结果与单进程逐位相同。\nWindows 上优化后的耗时与 Linux 接近：同一会话的生存调用 12.3 s、分类 7.3 s；新会话第一次生存调用 28.3 s，比 Linux 多出的部分来自加载包和启动工作进程，没有逐项拆开。\n剩下约 10 s 里仍有约 2.5 s 是白花的：本机没有装 shap 的 Python 环境，每次调用先启动 Python、失败后才回落到 TreeSHAP。\n\n\n\n\n调用\nWSL 优化前\nWSL 优化后\nWindows 优化后\n\n\n\n\n生存，新会话第一次\n34.1 s\n18.8 s\n28.3 s\n\n\n生存，同一会话再调\n22.2 s\n10.2 s\n12.3 s\n\n\n分类\n14.1 s\n6.8 s\n7.3 s\n\n\n\n\n\n\n\n\n\n注记只有一项会改变数值\n\n\n\n4 项里 3 项只改实现方式：多进程 TreeSHAP 与单进程逐位相同；不加载 mlr3verse 不影响模型；置换重要性换线程数后森林不变，只是重要性值的末位可能随线程数变化（以前样本量不同时线程数也会变，这一点并不新）。会改变数值的是第 4 项：没有 Python SHAP 时，生存分支的 mean.SHAP 改为解释 impurity 森林，不再另训一片同样设置的森林，差别相当于换一个随机种子。设了 set.seed() 时，同一会话里第一次与后续调用的结果仍然一致。",
+    "section": "主要结果",
+    "text": "主要结果\n\n同一会话里的生存调用 22.2 → 10.2 s，分类调用 14.1 → 6.8 s（WSL，SEER 甲状腺数据 seer_thyroid_mtc_2026 4387 行、7 个变量）。新会话的第一次生存调用 34.1 → 18.8 s。\n最大的一块是 TreeSHAP。600 行 SHAP 原来单进程算 9.0 s，改成按行分给多个进程后是 3.2 s，结果与单进程逐位相同。\nWindows 上优化后的耗时与 Linux 接近：同一会话的生存调用 12.3 s、分类 7.3 s；新会话第一次生存调用 28.3 s，比 Linux 多出的部分来自加载包和启动工作进程，没有逐项拆开。\n剩下约 10 s 里仍有约 2.5 s 是白花的：本机没有装 shap 的 Python 环境，每次调用先启动 Python、失败后才回落到 TreeSHAP。\n\n\n\n\n调用\nWSL 优化前\nWSL 优化后\nWindows 优化后\n\n\n\n\n生存，新会话第一次\n34.1 s\n18.8 s\n28.3 s\n\n\n生存，同一会话再调\n22.2 s\n10.2 s\n12.3 s\n\n\n分类\n14.1 s\n6.8 s\n7.3 s\n\n\n\n\n\n\n\n\n\n注记只有一项会改变数值\n\n\n\n4 项里 3 项只改实现方式：多进程 TreeSHAP 与单进程逐位相同；不加载 mlr3verse 不影响模型；置换重要性换线程数后森林不变，只是重要性值的末位可能随线程数变化（以前样本量不同时线程数也会变，这一点并不新）。会改变数值的是第 4 项：没有 Python SHAP 时，生存分支的 mean.SHAP 改为解释 impurity 森林，不再另训一片同样设置的森林，差别相当于换一个随机种子。设了 set.seed() 时，同一会话里第一次与后续调用的结果仍然一致。",
     "crumbs": [
       "跨包性能评估",
       "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"

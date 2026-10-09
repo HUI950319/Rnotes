@@ -1,11 +1,21 @@
 ---
 title: "MLR：get_imp 提速策略与实测"
 description: "MLR 的 get_imp() 在 2026-10-06 的 4 项性能优化：TreeSHAP 多进程、置换重要性线程、按需加载 mlr3 包、复用 impurity 森林；SEER 4387 行的优化前后实测、耗时拆分与尚未处理的开销。"
-date: 2026-10-06
+date: 2026-10-09
 toc: true
 ---
 
 本页属于 [跨包性能评估](performance-evaluation.qmd)，评估对象是 MLR（[pkgdown 站点](https://hui950319.github.io/MLR/)）的 `get_imp()`。它在同一类树模型上算三种变量重要性：mean.SHAP、impurity 和 permutation（XGBoost 为 mean.SHAP、gain 和 permutation），各自归一化到 [0, 1] 后放在一起比较，并打印三张图。本轮优化只涉及默认的 ranger 后端。
+
+## 2026-10-09：后续版本变化 {#subsequent-changes}
+
+本次按 MLR 0.1.13 源码 `95d3204` 核对，仅补充版本说明，没有重跑下方历史基准。
+
+2026-10-07 以后 `get_imp()` 的 ranger 默认树数已从 500 改为 300；这会影响训练工作量和数值近似。下方以 500 棵树测得的数字仍是旧版本测量，不能直接标为当前 300 棵树的耗时。当前计算示例见 [重要性教程](../mlr/imp-guide.qmd#current-importance)。
+
+共享 SHAP 行解释的并行判断已调整：先以最多 20 行试运行估算剩余行的计算时间，再与一次 worker 启动成本比较，原先使用两次成本阈值。是否启动 worker 仍取决于工作量，不能把“当前会并行”推广到所有样本。
+
+下方原始源码版本、树数、机器、后端、耗时和倍数均保留。新默认与新阈值的端到端收益需在当前版本下重新计时；不将不同阶段的局部加速相加，也不把历史值推算为当前实测。
 
 ## 主要结果
 
