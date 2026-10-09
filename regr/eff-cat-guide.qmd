@@ -490,18 +490,35 @@ scenario_fit <- get_eff_cat(d, cat_var = "Sex", surv = TRUE,
       adj_var = c("Age", "Tum", "stage"),
       ps_methods = list(IPTW = list(design = "weighting", method = "glm", estimand = "ATE")))
   ))
-scenario_table <- scenario_fit[["haz_cox_DSS"]]
-scenario_view <- scenario_table[, intersect(c("model_label", "level", "reference",
-  "estimate", "conf.low", "conf.high", "p_value", "status"), names(scenario_table))]
+scenario_tables <- lapply(names(scenario_fit), function(panel) {
+  tab <- as.data.frame(scenario_fit[[panel]])
+  tab <- tab[tab[["status"]] != "header", , drop = FALSE]
+  tab[["panel"]] <- panel
+  tab[, intersect(c("panel", "label", "model_label", "level", "reference", "estimate",
+    "conf.low", "conf.high", "p_value", "status"), names(tab)), drop = FALSE]
+})
+scenario_view <- do.call(rbind, scenario_tables)
+stopifnot(nrow(scenario_view) == 6L,
+  all(c("haz_models_Unadjusted", "haz_models_Adjusted") %in% names(scenario_fit)),
+  sum(scenario_view[["status"]] == "not_estimable") == 1L)
 ```
 
-每个场景始终拟合未调整模型；省略 `adj_var` 就不拟合调整模型，省略 `ps_methods` 就不拟合倾向评分模型。场景名称进入森林图的模型标签。
+每个场景始终拟合未调整模型；省略 `adj_var` 就不拟合调整模型，省略 `ps_methods` 就不拟合倾向评分模型。返回表按模型分组，例如 `haz_models_Unadjusted`、`haz_models_Adjusted`；每张表中，场景名称进入 `label` 并成为行标签，`model_label` 保留模型名称。森林图以模型为面板、场景为行；下面的汇总移除了仅用于显示对照名称的 header 行。
 
 启用此参数时，顶层 `adj_var`、`ps_methods` 必须为 NULL；`ps_var`、`ps_robust`、`surv`、`conf_level` 等设置由场景共享。只有 PS 而没有调整项的场景需要顶层 `ps_var`。不能同时使用 `sub_var` / `split_var`，未知场景字段会报错。
 
 ### 实际结果
 
+|panel                 |label        |model_label |level |reference | estimate| conf.low| conf.high| p_value|status        |
+|:---------------------|:------------|:-----------|:-----|:---------|--------:|--------:|---------:|-------:|:-------------|
+|haz_models_Unadjusted |Full_cohort  |Unadjusted  |Male  |Female    |    2.357|    1.531|     3.629|   0.000|estimated     |
+|haz_models_Unadjusted |Older_cohort |Unadjusted  |Male  |Female    |    2.619|    1.461|     4.695|   0.001|estimated     |
+|haz_models_Adjusted   |Full_cohort  |Adjusted    |Male  |Female    |    1.692|    1.090|     2.627|   0.019|estimated     |
+|haz_models_Adjusted   |Older_cohort |Adjusted    |Male  |Female    |    2.100|    1.161|     3.799|   0.014|estimated     |
+|haz_models_IPTW       |Full_cohort  |IPTW        |Male  |Female    |       NA|       NA|        NA|      NA|not_estimable |
+|haz_models_IPTW       |Older_cohort |IPTW        |Male  |Female    |    1.848|    1.005|     3.396|   0.048|estimated     |
 
+Older_cohort 提供了 IPTW 设置；Full_cohort 没有该设置，所以 IPTW 面板中保留一行 `status="not_estimable"`，效应与区间为 NA。这一行表示该场景未拟合此模型，不能解读成效应为零。
 
 ```r
 plt_eff(scenario_fit, show_pinter = "none", fixed_size = FALSE, base_size = 10)
