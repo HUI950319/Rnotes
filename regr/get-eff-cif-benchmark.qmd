@@ -2,7 +2,7 @@
 description: "RegR 的 FGR / CSC 竞争风险后端比较，记录 get_eff、get_cat、get_facet 的耗时、区间构造与 CIF 结果差异。"
 title: "竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异"
 subtitle: "get_eff · get_cat · get_facet 中 cif_args 与 show_surdiff 在不同样本量下的基准评估"
-date: 2026-09-29
+date: 2026-10-09
 ---
 
 ```{r}
@@ -17,12 +17,20 @@ n_lab <- ifelse(w$n > 4387, paste0(w$n, "\\*"), w$n)
 f2 <- function(x) ifelse(x < 10, sprintf("%.2f", x), sprintf("%.1f", x))
 ```
 
-评估对象是 RegR 0.1.3（commit `7f2aced`）的 `get_eff()`、`get_cat()` 和 `get_facet()`，在竞争风险分析（`surv = FALSE`）中比较两个设置：
+## 当前实现与历史记录的区别 {#current-backend}
 
-- `cif_args = list(model = c("FGR", "CSC"))`：调整后 CIF（`method = "direct"`）的工作模型。`"FGR"`（默认）是 Fine-Gray 模型，只能用 50 次 bootstrap 求 CI；`"CSC"` 是各原因 Cox 模型，用 `riskRegression::ate()` 的解析方差。三个函数的 sHR/HR 列都固定来自 `tidycmprsk::crr`，不受 `cif_args` 影响。
+截至 2026-10-09，RegR 0.1.3（源码 `40515e1`）的默认 FGR 标准化使用 `mets::cifregFG()` / `mets::survivalG()`，由影响函数标准误构造 Wald 区间。失败时才进入兼容后端和 bootstrap 回退；sHR 拟合也优先使用 mets，失败后使用 `tidycmprsk::crr()`。因此，下方“50 次 bootstrap”“固定 crr 后端”及相应倍数属于 `7f2aced` 的历史记录，不能直接用来预测当前运行速度或结果。
+
+CSC 仍通过各原因 Cox 模型标准化；直接概率差已使用 `riskRegression::ate()` 的联合方差，包含组间协方差。默认 FGR 和 CSC 的工作模型假设不同，解析推断并不保证两种模型产生完全相同的数值。
+
+当前调用和 `fit_info` 的检查方法见 [效应估计教程](forest-guide.qmd#current-inference)。本次只核对源码与文档，没有重做下方性能矩阵；历史输入、重复次数、区间、P 值和耗时均保留原始记录。需要当前耗时比较时，应在当前源码与固定依赖下重新执行两种配置，分别记录正常解析路径与回退路径。
+
+本页历史评估对象是 RegR 0.1.3（commit `7f2aced`）的 `get_eff()`、`get_cat()` 和 `get_facet()`，在竞争风险分析（`surv = FALSE`）中比较两个设置：
+
+- `cif_args = list(model = c("FGR", "CSC"))`：调整后 CIF（`method = "direct"`）的工作模型。`"FGR"`（默认）是 Fine-Gray 模型，在该历史版本中使用 50 次 bootstrap 求 CI；`"CSC"` 是各原因 Cox 模型，用 `riskRegression::ate()` 的解析方差。三个函数的 sHR/HR 列都固定来自 `tidycmprsk::crr`，不受 `cif_args` 影响。
 - `show_surdiff = TRUE / FALSE`：是否生成 CIF / ΔCIF 表（`get_eff` 的 `sur_*`，`get_facet` 内嵌表的 SP/SD 列）。`get_cat()` 固定生成，没有这个开关。
 
-## 结论
+## 历史版本的测量结论
 
 1. **CSC 比 FGR 快得多，而且样本越大差距越大。**单看 CIF 表新增的耗时，FGR 是 CSC 的 5 倍（n = 500）、10 倍（n = 4387，完整真实数据）、约 96 倍（n = 35096）。整次调用的总耗时差距是 4–8 倍，因为 sHR 表两个后端都要算，把差距摊薄了。
 2. **FGR 的耗时几乎全花在 50 次 bootstrap 上。**它随 n 近似按 n^1.7^ 增长，5 个 fork worker 一起跑：n = 35096 时墙钟 211 s，CPU 时间 929 s。CSC 的 CIF 部分在 n = 35096 时也只多 2 s 左右。
