@@ -1,7 +1,7 @@
 ---
 title: "RegR 功能模块图"
 description: "临床回归工具箱：队列筛选、基线表、效应估计、生存曲线、变量选择、交互与非线性展示。"
-date: 2026-10-05
+date: 2026-10-09
 lightbox: true
 format:
   html:
@@ -108,3 +108,50 @@ all_res[["rcs"]]                 # 保留 Good 层图形
 | 组间特征差异 | [SMD、Cohen's d、点图、雷达图与类别格图](effect-comparison-guide.qmd) |
 
 三个原有页面同时补充了[森林图的 set_eff](forest-guide.qmd#set-eff)、[亚组效应与交互合并表](interaction-guide.qmd#get-eff-inter)和[分面概率差曲线](facet-guide.qmd#facet-diff)。各页单独说明参考水平、估计量、时间单位及当前实现的限制。
+
+## get_all()：评分入口、返回值与 Quarto 输出 {#get-all-current}
+
+2026-10-09 按 RegR 0.1.3 源码 `40515e1` 核对，下面的评分块在 WSL R 4.4.3 中实际执行。
+
+`msr.args` 现在调用 `get_score()`；当前返回值是 `res[["msr"]][["AUC.BS.AIC"]]` 和 `res[["msr"]][["ft"]]`，不能继续按旧 `get_msr()` 结构取值。默认指标使用 Score 路径，其他指标可通过 `metrics` 显式选择；不支持的参数如 `cause` 会在拟合前报错。
+
+```r
+library(RegR)
+library(ToyData)
+d_score <- as.data.frame(ToyData::toy_ptc_m1_cnd)
+all_score <- get_all(
+  com.args = list(data = d_score, surv = TRUE, time = 60),
+  msr.args = list(vars = c("Age", "Sex"), R = 0,
+    metrics = c("AUC_score", "BS_score", "AIC")))
+names(all_score)
+all_score[["msr"]][["AUC.BS.AIC"]]
+```
+
+|model |AUC_score            |AUC_score_60         |BS_score             |BS_score_60          |AIC     |
+|:-----|:--------------------|:--------------------|:--------------------|:--------------------|:-------|
+|Age   |0.744 (0.701, 0.788) |0.659 (0.600, 0.719) |0.156 (0.144, 0.169) |0.158 (0.137, 0.179) |1938.19 |
+|Sex   |0.549 (0.500, 0.598) |0.538 (0.481, 0.594) |0.189 (0.180, 0.199) |0.165 (0.144, 0.187) |1984.39 |
+
+
+上例未显式设置 `msr.args$times`，因此公共 `time = 60` 在随访范围内时会加入一个命名评分时间列；显式 `times = NULL` 则不追加。公共块和各分析块的未知参数、矛盾分层设置会先检查。分层内恒定调整变量的处理可读 `attr(res, "adj_var_dropped")`，应随分析报告说明实际调整集合。
+
+`get_all()` 在各分析完成时打印主要结果一次，赋值不阻止这一输出，返回对象本身为 invisible。Quarto 中表格不要在函数内部反复打印；将返回表放进单独代码块，例如：
+
+```r
+# Quarto 文档中的独立表格代码块
+all_score[["msr"]][["ft"]]
+# 开启其他模块时，分别使用 res$cat_gt 或 fmt_inter_gt(res$interTable)。
+```
+
+交互会话里耗时超过 0.5 秒的图会显示 150 dpi 整图预览；返回对象仍是原始图，可用于矢量保存。该显示路径与 knitr 的输出处理分开，详情见 [三种栅格化后端](../utilsr/composition-guide.qmd#current-raster)。
+
+## 2026-10-09 新增与修正入口 {#current-functions}
+
+| 功能 | 当前教程 |
+|:--|:--|
+| 保留多分类/连续编码的整体交互检验 | [get_fit_ms](interaction-guide.qmd#get-fit-ms) |
+| 各队列分别调整、匹配或加权的敏感性场景 | [get_eff_cat 的 dat_adj_ps](eff-cat-guide.qmd#dat-adj-ps) |
+| 联合区间、实际样本与后端记录 | [get_eff 与 fit_info](forest-guide.qmd#current-inference) |
+| 层内恒定协变量及概率差 | [get_facet / get_facet_diff](facet-guide.qmd#current-strata) |
+
+三张模块图是注明日期的历史快照；最新新增入口以本节和当前包导出为准。
