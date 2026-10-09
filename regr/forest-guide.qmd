@@ -1,16 +1,16 @@
 ---
 title: "效应估计与森林图：get_eff 和 4 个绘图函数"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的参数示例，并补充 set_eff 的数值与区间对照。"
-date: 2026-10-05
+date: 2026-10-09
 lightbox: true
 toc-depth: 2
 ---
 
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
 
-**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际拟合模型并绘制 **24 张原有图**；本次另运行并增加 set_eff 的三张图与一张数值表。页面显示已保存的结果；代码可在装有 RegR、ToyData 及相关依赖的 R 环境中复现。
+**版本与执行范围：** 接口按 RegR **0.1.3**（2026-10-09 源码 `40515e1`）核对，使用 WSL R **4.4.3** 重新拟合并绘制下方 **24 张主教程图**；set_eff 与分期方案补充图保留各自注明的执行记录。页面显示已保存的结果；代码可在装有 RegR、ToyData 及相关依赖的 R 环境中复现。
 
-原有图和数值保留 2026-10-01 的执行记录。下方 `cat_var_rpa` 补充示例按 2026-10-05 源码 `3411eb0` 实际运行，使用另外的 800 人 MTC 演示样本。
+24 张主教程图已于 2026-10-09 更新；此前执行记录不再用于说明当前默认后端或区间。下方 `cat_var_rpa` 补充示例按 2026-10-05 源码 `3411eb0` 实际运行，使用另外的 800 人 MTC 演示样本。
 
 ## 示例数据与读图规则 {#data}
 
@@ -114,7 +114,26 @@ get_eff(
 
 `methods` 是两个结果家族的默认方法列表。若只要比值，使用 `show_surdiff = FALSE`；若只要概率结果，使用 `methods_haz = character()` 并指定 `methods_sur`。本页实际比较 **unadj 与 direct**；加权 / 匹配示例还需要完成相应设计和诊断。
 
-`cif_args` 仅控制 **竞争风险的 direct 概率路径**：`FGR` 使用 Fine–Gray 标准化，并在当前实现中采用 bootstrap（50 次）；`CSC` 使用各原因 Cox 模型的标准化与解析方差。这不把 `haz_direct` 的 sHR 改成原因特异 HR。后端、耗时与区间的详细比较见 [CIF 的 FGR 与 CSC](get-eff-cif-benchmark.qmd)。本页竞争风险概率图实际使用未调整的 Aalen–Johansen 结果。
+`cif_args` 仅控制 **竞争风险的 direct 概率路径**：`FGR` 默认用 `mets::cifregFG()` 拟合、`mets::survivalG()` 标准化，使用影响函数标准误构造 Wald 区间；只有该路径失败时才尝试兼容后端及 bootstrap。`CSC` 使用各原因 Cox 模型标准化和 `riskRegression::ate()` 的解析方差。这不把 `haz_direct` 的 sHR 改成原因特异 HR。后端、耗时与区间的详细比较见 [CIF 的 FGR 与 CSC](get-eff-cif-benchmark.qmd)。本页竞争风险概率图实际使用未调整的 Aalen–Johansen 结果。
+
+### 区间、拟合信息与输入边界 {#current-inference}
+
+直接标准化的 Cox / CSC 组间概率差使用 `riskRegression::ate()` 的联合推断：差值方差包含两个组估计之间的协方差，不能把两组标准误平方直接相加。更新前后的点估计可以相同，但置信区间和 P 值会改变；本页主教程图已按当前实现重绘。
+
+每张效应表的 `fit_info` 属性记录实际模型、公式、估计目标、完整案例样本量和事件数；匹配/加权路径还记录匹配人数、ESS 或权重摘要，以及发生的后端回退。`subgroup_model = "interaction"` 的亚组行来自共享交互模型，当前不会逐行登记；不要把缺少记录解释成没有拟合。检查这些信息时应读取结果属性，不能把原始队列人数直接当成每个模型的分析人数。
+
+```r
+info <- attr(eff_um[["haz_direct"]], "fit_info")
+str(info, max.level = 2)
+# 各表独立保存记录，批量读取时保留表名。
+fit_records <- lapply(eff_um, attr, which = "fit_info")
+```
+
+当前输入检查按 `surv` 明确选择 Cox、竞争风险或 Logistic；结局编码、目标事件、正时间点、方法名称和 `conf_level` 必须有效。无目标事件的分析层，以及无非事件的 Logistic 分析层，会明确报错。非标准列名应先整理为合法列名再调用。
+
+HR/OR 为 0 或无限大等不可估计结果显示为 `Not estimable`，对应数值字段置为 `NA`；图上缺少点或区间不应解释为“没有效应”。生存表的原始 Wald P 值保存在 `p.value_0.95`，非 95% 显示区间下的 `p_value` 仍沿用本页下方解释的兼容合同。
+
+倾向评分模型只在同一次调用内复用；对比不同数据、调整项或分析设计时仍会分别拟合。性能复用不改变 ATE/ATT 的定义，也不能代替平衡与重叠诊断。
 
 ### 亚组模型、交互与外层分层
 
@@ -273,7 +292,7 @@ eff_split <- get_eff(
   show_surdiff = FALSE, subgroup_model = "interaction"
 )
 
-# Fine–Gray 比值；不调用调整 CIF 的 bootstrap。
+# Fine–Gray 比值；本调用关闭调整后的 CIF 概率表。
 eff_cif <- get_eff(
   d, cat_var = "N_4", sub_var = c("Sex", "age_55"), adj_var = adj,
   surv = FALSE, methods = c("unadj", "direct"), show_surdiff = FALSE,
