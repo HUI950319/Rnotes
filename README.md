@@ -26,16 +26,22 @@ PNG 同时提供更小的无损 WebP 预览。预览逐像素核验；原 PNG �
 新增教程或更新函数后，正常渲染即可同步；也可单独运行该脚本更新已有目录。
 窄屏下正文行内代码允许换行；多行代码块和宽表继续在各自区域内横向滚动。
 
-发布前检查已生成的站点（不执行 R 分析）：
+发布前检查已生成的站点（不重跑模型分析；R 检查只解析代码并执行小型基础示例）：
 
 ```bash
-python -m pip install beautifulsoup4 PyYAML
+python -m pip install beautifulsoup4==4.14.3 PyYAML==6.0.3 playwright==1.63.0
+python -m playwright install --with-deps chromium --only-shell
 python scripts/check_site.py
+Rscript scripts/check_examples.R
+python scripts/check_browser.py
 ```
 
 检查页底与 HTML 头部的上一页／下一页是否遵循 `_quarto.yml`，以及侧栏层级、短标题、当前页展开状态、面包屑、
-站内链接与锚点、页面摘要、图片替代文本与懒加载、全站图号唯一性、搜索索引和 sitemap。
-GitHub Actions 会在每次 push 和 pull request 中执行同一检查。
+站内链接与锚点、页面摘要、图片替代文本与懒加载、全站图号唯一性、MLR 总览图数、搜索索引和 sitemap。
+R 检查解析教程代码，并实际验证 SHAP 分箱边界、分层示例数据构造与 RPA 时间换算。
+Chromium 检查 11 个代表页面在桌面及手机宽度下的溢出、亮色／暗色切换、标签页显示、
+首页筛选与 JavaScript 错误；只访问本地 `docs/`，使用备用字体。R 需 4.4.3；各检查失败均返回非零状态。
+GitHub Actions 会在每次 push 和 pull request 中执行这三项检查。
 
 ## 数据说明
 

@@ -165,6 +165,18 @@ def check(root):
             elif fragment and not fragment.startswith(":~:") and target in ids and fragment not in ids[target]:
                 errors.append(f"{label}: missing anchor {url}")
 
+    # Overview counts must track the rendered tutorials, including new examples.
+    overview = pages.get(docs / "mlr/index.html")
+    if overview:
+        for row in overview.select("main table tbody tr"):
+            cells = row.select("td")
+            link = cells[0].select_one("a[href]") if len(cells) == 2 else None
+            count = re.fullmatch(r"(\d+)\s*张", cells[1].get_text(strip=True)) if len(cells) == 2 else None
+            if link and count:
+                target = resolve(docs / "mlr/index.html", link["href"])[0]
+                if target in pages and int(count[1]) != len(pages[target].select("main figure")):
+                    errors.append(f"mlr/index.html: outdated figure count for {link['href']}")
+
     search = json.loads((docs / "search.json").read_text(encoding="utf-8-sig"))
     for item in search:
         name = unquote(urlparse(item["href"]).path)
