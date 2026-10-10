@@ -1,5 +1,6 @@
-"""Verify published HUI950319 package-source links using GitHub CLI."""
+"""Verify HUI950319 package-source links within the caller's GitHub access."""
 
+import os
 import re
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from check_site import chapters
 
 
 REPOS = {"RegR", "MLR", "UtilsR", "seerR", "LabR", "scMMR", "ToyData", "causalR", "Rnotes"}
+# Verified private repositories. The Rnotes Actions token cannot read them.
+PRIVATE_REPOS = {"RegR", "MLR"}
 
 
 def endpoint(url):
@@ -65,17 +68,31 @@ def check(root):
             if api_path:
                 links.setdefault(api_path, set()).add((a["href"], chapter))
     failures = 0
+    unavailable = set()
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        for repo in PRIVATE_REPOS:
+            error = verify(f"repos/HUI950319/{repo}")
+            if error and "HTTP 404" in error:
+                unavailable.add(repo)
+    checked = {}
+    for api_path, sources in links.items():
+        repo = api_path.split("/")[2]
+        if repo not in unavailable:
+            checked[api_path] = sources
+    for repo in sorted(unavailable):
+        count = sum(path.split("/")[2] == repo for path in links)
+        print(f"SKIP: {repo}, {count} targets; private repository unavailable to the CI token")
     with ThreadPoolExecutor(max_workers=4) as pool:
-        for api_path, error in zip(links, pool.map(verify, links)):
+        for api_path, error in zip(checked, pool.map(verify, checked)):
             if error:
                 failures += 1
-                for url, chapter in sorted(links[api_path]):
+                for url, chapter in sorted(checked[api_path]):
                     print(f"FAIL {chapter}: {url}")
                 print(error)
     if failures:
-        print(f"FAIL: {failures} unavailable source targets out of {len(links)}")
+        print(f"FAIL: {failures} unavailable source targets out of {len(checked)} checked")
         return 1
-    print(f"PASS: {len(links)} public package-source targets; files, directories and commit snapshots")
+    print(f"PASS: {len(checked)} accessible source targets; {len(links) - len(checked)} private targets skipped")
     return 0
 
 
