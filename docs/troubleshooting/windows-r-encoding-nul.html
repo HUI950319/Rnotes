@@ -1,0 +1,1832 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="zh-Hans" xml:lang="zh-Hans"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.8.25">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="description" content="RegR 的 embedded nul 报错、C.UTF-8 环境变量来源、Windows UTF-8 安装流程，以及 UtilsR、MLR、causalR 的检查和保留 RStudio 数据与未保存脚本的方法。">
+
+<title>Windows R：字符串里嵌入了 NUL、安装编码与旧缓存 – R 包开发笔记</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<link href="../troubleshooting/rstudio-wsl-diagnostics-20261007.html" rel="next">
+<link href="../troubleshooting/index.html" rel="prev">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/axe/axe-check.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-dark-4571e413af9019dfdcc70175faf53a1f.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-5974fafaa78df73e29b0e498382124b0.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-a4a95df4aca8b33ad274a8e51ad5c933.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="../site_libs/bootstrap/bootstrap-dark-6fc446cc4552bd2e3e155a0941df412a.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="../site_libs/bootstrap/bootstrap-a4a95df4aca8b33ad274a8e51ad5c933.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "没有结果",
+    "search-matching-documents-text": "匹配的文档",
+    "search-copy-link-title": "复制搜索链接",
+    "search-hide-matches-text": "隐藏其它匹配结果",
+    "search-more-match-text": "更多匹配结果",
+    "search-more-matches-text": "更多匹配结果",
+    "search-clear-button-title": "清除",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "取消",
+    "search-submit-button-title": "提交",
+    "search-label": "搜索"
+  }
+}</script>
+
+
+</head>
+
+<body class="nav-sidebar docked quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../troubleshooting/index.html">R 问题排查</a></li><li class="breadcrumb-item"><a href="../troubleshooting/windows-r-encoding-nul.html"><span class="chapter-title">Windows R 编码与旧缓存</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="展开或折叠侧边栏导航" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="搜索" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation docked overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header sidebar-header-stacked">
+      <a href="../index.html" class="sidebar-logo-link">
+      </a>
+    <div class="sidebar-title mb-0 py-0">
+      <a href="../">R 包开发笔记</a>
+        <div class="sidebar-tools-main">
+    <a href="https://github.com/HUI950319/Rnotes" title="源代码" class="quarto-navigation-tool px-1" aria-label="源代码"><i class="bi bi-github"></i></a>
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="切换深色模式"><i class="bi"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="搜索"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container">
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">关于这份笔记</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false">
+ <span class="menu-text">RegR · 临床回归</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/flow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">队列筛选与流程图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false">
+ <span class="menu-text">效应估计与生存曲线</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/forest-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">效应估计与森林图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/cat-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">KM / CIF 组合图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/facet-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分面生存曲线</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false">
+ <span class="menu-text">交互与风险分层</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">交互分析</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/rcs-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RCS 非线性曲线</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/cut-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">切点分析</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/rpa-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA 递归分区</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false">
+ <span class="menu-text">混杂控制与回归汇总</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-4" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-4" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/ps-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">倾向评分与平衡诊断</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/variable-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量筛选与共线性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/table-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">临床表格</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/um-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">单多因素分析</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/eff-cat-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">同一暴露的效应比较</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false">
+ <span class="menu-text">模型评价与预测</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-5" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-5" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型性能评价</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/nomogram-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">列线图与预测验证</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false">
+ <span class="menu-text">生存与轨迹分析</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-6" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-6" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/conditional-survival-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">条件生存</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/hazard-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">瞬时风险</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/gbtm-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分组轨迹模型</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false">
+ <span class="menu-text">比较分析与方法文献</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-7" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-7" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/effect-comparison-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">组间特征比较</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/rpa-adjust-literature.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA 协变量调整文献</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false">
+ <span class="menu-text">MLR · 机器学习解释</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-8" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-8" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">包概览</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false">
+ <span class="menu-text">模型解释与可视化</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-9" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-9" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/shap-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP 解释与绘图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/imp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征重要性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/vpd-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量分布与 PDP</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/interaction-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">变量交互</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/shap-clust-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SHAP 聚类</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/pdp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">生存 PDP 图谱</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/couple-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">相关热图与组间连线</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false">
+ <span class="menu-text">模型与特征选择</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-10" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-10" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/model-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型筛选</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/hyper-tuning-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">超参数调优</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/feature-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">特征筛选</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false">
+ <span class="menu-text">模型评价与临床应用</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-11" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-11" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/model-evaluation-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">模型性能评估</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../mlr/calibration-dca-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">校准与决策曲线</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false">
+ <span class="menu-text">UtilsR · 通用工具</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-12" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-12" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">包概览</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false">
+ <span class="menu-text">变量分布</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-13" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-13" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/categorical-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分类变量</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/continuous-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">连续变量</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="false">
+ <span class="menu-text">格式与配色</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-14" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-14" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/format-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">ggplot 格式化</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/palette-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">配色系统</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="false">
+ <span class="menu-text">数据检视与关系图</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-15" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-15" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/missing-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">数据检视与缺失</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/scatter-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">组合散点图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/flow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">分类分布与流向</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/sets-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">集合比较</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="false">
+ <span class="menu-text">比较与排名</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-16" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-16" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/comparison-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">双侧比较图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/rank-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">排名与共享特征</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="false">
+ <span class="menu-text">数据整理与图形导出</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-17" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-17" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/factor-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">因子与统计文本</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../utilsr/composition-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">图形组合与导出</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="false">
+ <span class="menu-text">seerR · SEER 数据处理</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-18" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-18" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../seerr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../seerr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">SEER 数据处理概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-19" role="navigation" aria-expanded="false">
+ <span class="menu-text">LabR · 基础实验作图</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-19" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-19" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../labr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../labr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">基础实验作图概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-20" role="navigation" aria-expanded="false">
+ <span class="menu-text">scMMR · 单细胞建模</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-20" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-20" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../scmmr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../scmmr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">单细胞模型概览</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="false">
+ <span class="menu-text">ToyData · 示例数据</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-21" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-21" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../toydata/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../toydata/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">示例数据目录</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-22" role="navigation" aria-expanded="false">
+ <span class="menu-text">causalR · 因果推断</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-22" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-22" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/function-modules.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">功能模块图</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/index.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">包概览</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/evalue-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">E-value 敏感性分析</span></a>
+  </div>
+</li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-23" role="navigation" aria-expanded="false">
+ <span class="menu-text">异质性效应解释</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-23" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-23" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/pdp-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE 部分依赖（PDP）</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/ale-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE 局部效应（ALE）</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/shap-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE SHAP 解释</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-24" role="navigation" aria-expanded="false">
+ <span class="menu-text">亚组与模型诊断</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-24" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-24" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/tree-stability-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">亚组树稳定性</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/icf-plot-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">iCF 亚组树可视化</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/hte-diagnostics-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE 模型诊断</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+          <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a class="sidebar-item-text sidebar-link text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-25" role="navigation" aria-expanded="false">
+ <span class="menu-text">方法选择与分析实践</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-25" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-25" class="collapse list-unstyled sidebar-section depth2 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/method-selection-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">HTE 方法选择</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/survival-estimands-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">生存效应尺度</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/clinical-workflow-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">观察性研究工作流</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../causalr/computation-reuse-guide.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">计算与缓存复用</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a href="../regr/performance-evaluation.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">跨包性能评估</span></a>
+          <a class="sidebar-item-toggle text-start collapsed" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-26" role="navigation" aria-expanded="false" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-26" class="collapse list-unstyled sidebar-section depth1 ">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/get-eff-cif-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/rpa-cox-benchmark.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/cox-cif-optimization-20261002.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Cox / CIF 优化：Windows 与 Linux 五档样本量实测</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/scoring-fit-benchmark-20261003.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Logistic 与 Fine–Gray 拟合：耗时、方差开关与指标后端</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/get-score-benchmark-20261003.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">get_score：大样本与100次 bootstrap 耗时</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/wsl-openblas-threads-20261004.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">WSL 下 R 的 OpenBLAS 线程与多核并行</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/mlr-vpd-ale-speedup-20261006.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR：get_vpd / get_ale / get_ale2 提速策略与实测</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/mlr-imp-speedup-20261006.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR：get_imp 提速策略与实测</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/mlr-shp-speedup-20261006.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">MLR：get_shp 提速策略与实测</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../regr/get-score-optimization-20261007.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">get_score：Windows / WSL 实测与四项优化</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container">
+            <a href="../troubleshooting/index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">R 问题排查</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-27" role="navigation" aria-expanded="true" aria-label="展开或折叠此栏">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a>
+      </div>
+      <ul id="quarto-sidebar-section-27" class="collapse list-unstyled sidebar-section depth1 show">
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../troubleshooting/windows-r-encoding-nul.html" class="sidebar-item-text sidebar-link active"><span class="chapter-title">Windows R 编码与旧缓存</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../troubleshooting/rstudio-wsl-diagnostics-20261007.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">Edge + WSL RStudio 卡顿：R 诊断与大脚本实测</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../troubleshooting/rstudio-help-cache.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">RStudio Help 缓存：更新包后帮助页报错</span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container">
+  <a href="../troubleshooting/pak-download-proxy.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">pak 下载慢：CRAN 代理与 Windows / WSL 排查</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
+
+  <ul>
+  <li><a href="#diagnosis" id="toc-diagnosis" class="nav-link active" data-scroll-target="#diagnosis">先判断：安装编码，还是旧会话缓存？</a></li>
+  <li><a href="#regr-case" id="toc-regr-case" class="nav-link" data-scroll-target="#regr-case">RegR 的最小复现与原因</a>
+  <ul class="collapse">
+  <li><a href="#不依赖分析数据的复现" id="toc-不依赖分析数据的复现" class="nav-link" data-scroll-target="#不依赖分析数据的复现">不依赖分析数据的复现</a></li>
+  <li><a href="#安装进程和-rstudio-使用了不同编码" id="toc-安装进程和-rstudio-使用了不同编码" class="nav-link" data-scroll-target="#安装进程和-rstudio-使用了不同编码">安装进程和 RStudio 使用了不同编码</a></li>
+  </ul></li>
+  <li><a href="#environment-source" id="toc-environment-source" class="nav-link" data-scroll-target="#environment-source">C.UTF-8 是在哪里设置的？</a></li>
+  <li><a href="#windows-install" id="toc-windows-install" class="nav-link" data-scroll-target="#windows-install">新的 Windows R 安装流程</a>
+  <ul class="collapse">
+  <li><a href="#先保留-rstudio-数据和未保存脚本" id="toc-先保留-rstudio-数据和未保存脚本" class="nav-link" data-scroll-target="#先保留-rstudio-数据和未保存脚本">1. 先保留 RStudio 数据和未保存脚本</a></li>
+  <li><a href="#明确-windows-r-和目标库" id="toc-明确-windows-r-和目标库" class="nav-link" data-scroll-target="#明确-windows-r-和目标库">2. 明确 Windows R 和目标库</a></li>
+  <li><a href="#补一次真正的失败路径验证" id="toc-补一次真正的失败路径验证" class="nav-link" data-scroll-target="#补一次真正的失败路径验证">3. 补一次真正的失败路径验证</a></li>
+  </ul></li>
+  <li><a href="#refresh-session" id="toc-refresh-session" class="nav-link" data-scroll-target="#refresh-session">磁盘已正常，RStudio 仍报错怎么办？</a>
+  <ul class="collapse">
+  <li><a href="#全新进程检查与原会话检查分开做" id="toc-全新进程检查与原会话检查分开做" class="nav-link" data-scroll-target="#全新进程检查与原会话检查分开做">全新进程检查与原会话检查分开做</a></li>
+  <li><a href="#安全刷新目标包" id="toc-安全刷新目标包" class="nav-link" data-scroll-target="#安全刷新目标包">安全刷新目标包</a></li>
+  </ul></li>
+  <li><a href="#verified-results" id="toc-verified-results" class="nav-link" data-scroll-target="#verified-results">四个包的最终核验结果</a></li>
+  <li><a href="#checklist" id="toc-checklist" class="nav-link" data-scroll-target="#checklist">以后安装时的检查清单</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/troubleshooting/windows-r-encoding-nul.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../troubleshooting/index.html">R 问题排查</a></li><li class="breadcrumb-item"><a href="../troubleshooting/windows-r-encoding-nul.html"><span class="chapter-title">Windows R 编码与旧缓存</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span class="chapter-title">Windows R：字符串里嵌入了 NUL、安装编码与旧缓存</span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+
+    <div>
+    <div class="quarto-title-meta-heading">发布于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">2026年10月11日</p>
+    </div>
+  </div>
+
+
+  </div>
+
+
+
+</header>
+
+
+<p>Windows RStudio 调用自研包时出现“字符串里嵌入了 nul”，不一定来自输入数据。本次 RegR 的错误在<strong>仅提取函数、尚未传入数据</strong>时就能复现：安装进程在 ASCII 环境下生成了延迟加载数据库，UTF-8 的 RStudio 随后读取其中的非 ASCII 字符串失败。</p>
+<p>修复后又发现了另一个容易混淆的问题：UtilsR 的磁盘安装已是 UTF-8，但当前 RStudio 保留了旧的函数索引与缓存，提示 <code>lazy-load database ... is corrupt</code>。这类情况可以通过安全卸载、定向清理缓存和重新加载解决。</p>
+<p>本文记录 2026-10-11 在 <strong>Windows R 4.4.3</strong> 下的排查与修复。安装脚本只调整 Windows R 子进程的环境；WSL 的环境和独立包库继续使用原流程。</p>
+<section id="diagnosis" class="level2">
+<h2 class="anchored" data-anchor-id="diagnosis">先判断：安装编码，还是旧会话缓存？</h2>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">现象与对照</th>
+<th style="text-align: left;">本次原因判断</th>
+<th style="text-align: left;">对应处理</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">UTF-8 的全新 Windows R 进程也无法提取目标函数，出现 <code>embedded nul in string</code>；旧安装记录的 native encoding 为 ASCII</td>
+<td style="text-align: left;">安装时编码环境不正确</td>
+<td style="text-align: left;">在已验证的 Windows UTF-8 子进程中重装，再检查实际函数</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">全新进程可读取全部函数，原 RStudio 报 <code>.rdb is corrupt</code> 或解压错误</td>
+<td style="text-align: left;">原会话的加载状态／缓存与磁盘安装失配</td>
+<td style="text-align: left;">卸载目标包、清理该包缓存、重新加载</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">全新进程和原会话都能读取函数，但读取某个外部文件才报 NUL</td>
+<td style="text-align: left;">需要继续检查外部文件及读入方式</td>
+<td style="text-align: left;">本文的安装修复不能直接证明该类问题已解决</td>
+</tr>
+</tbody>
+</table>
+<p><strong>是否需要重装，以全新 UTF-8 进程的检查结果为准。</strong> <code>library()</code> 成功、安装日志出现 <code>* DONE</code>，都不足以证明延迟加载的函数可以读取。</p>
+<p>如果只有 Help 页面报 <code>Internal Server Error</code>，可另见 <a href="../troubleshooting/rstudio-help-cache.html">RStudio Help 缓存：更新包后帮助页报错</a>。函数数据库、数据数据库和帮助数据库都可能使用 <code>.rdb</code>，但报错位置和需要刷新的状态不同。</p>
+</section>
+<section id="regr-case" class="level2">
+<h2 class="anchored" data-anchor-id="regr-case">RegR 的最小复现与原因</h2>
+<section id="不依赖分析数据的复现" class="level3">
+<h3 class="anchored" data-anchor-id="不依赖分析数据的复现">不依赖分析数据的复现</h3>
+<p>原 Windows RStudio Console 的错误为：</p>
+<pre class="text"><code>字符串里嵌入了nul：'%.2f (%.2fb\0\023%.2f)'</code></pre>
+<p>有时还伴随“重新评估被中断的许诺”。在出错的会话中，以下调用即可复现，不需要拟合模型：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get</span>(<span class="st">"get_rpa_pair"</span>, <span class="at">envir =</span> <span class="fu">asNamespace</span>(<span class="st">"RegR"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>源码中的格式字符串实际是：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sprintf</span>(<span class="st">"%.2f (%.2f–%.2f)"</span>, estimate, lower, upper)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>其中 <code>–</code> 是 en dash（U+2013），UTF-8 字节为 <code>E2 80 93</code>。源码没有 NUL 字节；错误发生在读取安装后的函数时。</p>
+</section>
+<section id="安装进程和-rstudio-使用了不同编码" class="level3">
+<h3 class="anchored" data-anchor-id="安装进程和-rstudio-使用了不同编码">安装进程和 RStudio 使用了不同编码</h3>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 50%">
+<col style="width: 50%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">检查项目</th>
+<th style="text-align: left;">原安装／读取结果</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Windows 安装进程继承的环境变量</td>
+<td style="text-align: left;"><code>LANG</code>、<code>LC_ALL</code>、<code>LC_CTYPE</code> 均为 <code>C.UTF-8</code></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">本机 Windows R 4.4.3 的实际安装 locale</td>
+<td style="text-align: left;">无法使用该 locale，回退到 <code>C</code>／ASCII</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">旧 RegR 函数序列化记录的 native encoding</td>
+<td style="text-align: left;"><code>ASCII</code></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Windows RStudio 的 <code>LC_CTYPE</code></td>
+<td style="text-align: left;"><code>Chinese (Simplified)_China.utf8</code></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">在 ASCII 进程中提取原函数</td>
+<td style="text-align: left;">可以成功</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">在 UTF-8 进程中提取同一安装的函数</td>
+<td style="text-align: left;">复现 NUL 错误</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">用正确 UTF-8 环境重装后</td>
+<td style="text-align: left;">记录变为 UTF-8，函数提取和实际调用通过</td>
+</tr>
+</tbody>
+</table>
+<p>R 的版本 3 序列化格式会记录写入时的 native encoding，以便读入时转换未标记编码的字符串。因此，安装时的编码信息会影响以后读取对象；仅在 RStudio 中调整当前 locale，无法修正已经生成的安装记录。<a href="https://stat.ethz.ch/R-manual/R-devel/doc/manual/R-ints.html#Serialization-Formats">R Internals：Serialization Formats</a></p>
+<p>本机还做了字节转换对照：把 en dash 的 <code>E2 80 93</code> 字节误当成 ASCII 后转换，得到 <code>62 00 13</code>，与错误里的 <code>b\0\023</code> 一致。这是本次 Windows R 4.4.3 的实测结果，不应假定其他平台或转换库版本也会产生相同字节。</p>
+<p>这里的 <code>ASCII</code> 是序列化记录中的 <strong>native encoding</strong>，并不表示 <code>.rdb</code> 是文本文件，也不表示源码文件本身应改成 ASCII。</p>
+</section>
+</section>
+<section id="environment-source" class="level2">
+<h2 class="anchored" data-anchor-id="environment-source">C.UTF-8 是在哪里设置的？</h2>
+<p>本次核对了 Windows 的 Process、User、Machine 三个环境作用域：只有启动命令的<strong>进程环境</strong>有这三个变量，用户与机器级配置均未设置它们；PowerShell profiles 也没有相应设置。关闭 shell profile 后启动的命令仍继承这些值。</p>
+<p>进程来源追溯到 Codex 的命令执行器。其官方源码在 <code>UNIFIED_EXEC_ENV</code> 中设置 <code>LANG</code>、<code>LC_CTYPE</code>、<code>LC_ALL</code> 为 <code>C.UTF-8</code>，并在创建执行环境时插入这些值。该行为与本机进程环境和可执行文件中的常量相符。<a href="https://github.com/openai/codex/blob/main/codex-rs/core/src/unified_exec/process_manager.rs">Codex 官方源码</a></p>
+<p>可以在 <strong>PowerShell 7</strong> 中检查自己的作用域；只读取相关变量即可：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode powershell code-with-copy"><code class="sourceCode powershell"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="cf">foreach</span> <span class="op">(</span><span class="va">$name</span> <span class="kw">in</span> <span class="st">'LANG'</span><span class="op">,</span> <span class="st">'LC_ALL'</span><span class="op">,</span> <span class="st">'LC_CTYPE'</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="op">[</span>pscustomobject<span class="op">]</span>@<span class="op">{</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>        Name    <span class="op">=</span> <span class="va">$name</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>        <span class="cf">Process</span> <span class="op">=</span> <span class="op">[</span>Environment<span class="op">]::</span>GetEnvironmentVariable<span class="op">(</span><span class="va">$name</span><span class="op">,</span> <span class="st">'Process'</span><span class="op">)</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        User    <span class="op">=</span> <span class="op">[</span>Environment<span class="op">]::</span>GetEnvironmentVariable<span class="op">(</span><span class="va">$name</span><span class="op">,</span> <span class="st">'User'</span><span class="op">)</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        Machine <span class="op">=</span> <span class="op">[</span>Environment<span class="op">]::</span>GetEnvironmentVariable<span class="op">(</span><span class="va">$name</span><span class="op">,</span> <span class="st">'Machine'</span><span class="op">)</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>R 侧应检查<strong>实际 locale 和编码能力</strong>，不能只看环境变量名：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">list</span>(</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">os =</span> <span class="fu">Sys.info</span>()[[<span class="st">"sysname"</span>]],</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">locale =</span> <span class="fu">Sys.getlocale</span>(<span class="st">"LC_CTYPE"</span>),</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">encoding =</span> <span class="fu">l10n_info</span>(),</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">env =</span> <span class="fu">Sys.getenv</span>(<span class="fu">c</span>(<span class="st">"LANG"</span>, <span class="st">"LC_ALL"</span>, <span class="st">"LC_CTYPE"</span>)),</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">library =</span> <span class="fu">.libPaths</span>()</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>WSL Ubuntu 中的 <code>C.UTF-8</code> 正常可用，本次也确认其实际编码为 UTF-8。解决 Windows 安装问题时，应保留 WSL 的 locale 和启动配置，只处理要启动的 Windows R 子进程。</p>
+</section>
+<section id="windows-install" class="level2">
+<h2 class="anchored" data-anchor-id="windows-install">新的 Windows R 安装流程</h2>
+<section id="先保留-rstudio-数据和未保存脚本" class="level3">
+<h3 class="anchored" data-anchor-id="先保留-rstudio-数据和未保存脚本">1. 先保留 RStudio 数据和未保存脚本</h3>
+<p>安装前确认正在操作的 RStudio 项目、R 版本和包加载路径。将未保存脚本保存为副本；工作区可单独备份到新的时间戳目录：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">local</span>({</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  dest <span class="ot">&lt;-</span> <span class="fu">file.path</span>(</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">Sys.getenv</span>(<span class="st">"USERPROFILE"</span>), <span class="st">"Documents"</span>, <span class="st">"RStudio-backups"</span>,</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">format</span>(<span class="fu">Sys.time</span>(), <span class="st">"%Y%m%d-%H%M%S"</span>)</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="sc">!</span><span class="fu">dir.exists</span>(dest))</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">dir.create</span>(dest, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">save</span>(</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">list =</span> <span class="fu">ls</span>(.GlobalEnv, <span class="at">all.names =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    <span class="at">file =</span> <span class="fu">file.path</span>(dest, <span class="st">"workspace.RData"</span>),</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">envir =</span> .GlobalEnv, <span class="at">compress =</span> <span class="cn">FALSE</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  dest</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>.RData</code> 保存分析对象，不保存未命名脚本或编辑器里尚未写入磁盘的修改。脚本必须另行备份；本次通过 RStudio API 备份了全部 9 个编辑器缓冲区，并为未命名脚本导出独立 <code>.R</code> 副本。备份文件也应保存在公开站点仓库之外。</p>
+</section>
+<section id="明确-windows-r-和目标库" class="level3">
+<h3 class="anchored" data-anchor-id="明确-windows-r-和目标库">2. 明确 Windows R 和目标库</h3>
+<p>使用 <a href="install-r-windows.ps1" download="install-r-windows.ps1">下载 Windows UTF-8 安装脚本</a>。该文件与本次验证的 <code>E:/Rpackage/tools/install-r-windows.ps1</code> 内容一致，需要 PowerShell 7。</p>
+<p>在 Windows RStudio 中先核对：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">R.home</span>()</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">getNamespaceInfo</span>(<span class="st">"RegR"</span>, <span class="st">"path"</span>)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="fu">.libPaths</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>确认目标包能够安全卸载时，在<strong>原 RStudio</strong> 中卸载后再安装；判断和刷新代码见<a href="#refresh-session">下一节</a>。如果其他命名空间正在使用它，应先处理依赖和备份，避免强制卸载。安装来源使用经过验证的源码目录；开发目录含临时文件时，使用干净的 Git 导出目录。</p>
+<p>在 <strong>PowerShell 7</strong> 中运行以下命令。<code>-PackagePath</code> 是包含 <code>DESCRIPTION</code> 的源码目录；<code>-Library</code> 必须是已经存在的 Windows 包库。示例中的 R 安装路径按自己的机器修改：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode powershell code-with-copy"><code class="sourceCode powershell"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="op">&amp;</span> <span class="st">'./install-r-windows.ps1'</span> `</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>PackagePath <span class="st">'E:/Rpackage/RegR'</span> `</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>Library <span class="st">"</span><span class="va">$env</span><span class="op">:</span><span class="va">LOCALAPPDATA</span><span class="st">/R/win-library/4.4"</span> `</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>RHome <span class="st">'D:/software/R/R-4.4.3'</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>脚本依次执行：</p>
+<ol type="1">
+<li>创建 Windows R 子进程，删除该子进程环境中的 <code>LANG</code> 和 <code>LC_*</code>。</li>
+<li>启动全新 R 进程，要求 Windows 且 <code>l10n_info()[["UTF-8"]]</code> 为 <code>TRUE</code>，否则立即停止。</li>
+<li>对指定源码目录执行 <code>R CMD INSTALL --no-multiarch -l &lt;目标库&gt;</code>。</li>
+<li>在另一个全新 UTF-8 进程中加载安装结果，核对实际路径，并逐个读取全部导出对象。</li>
+</ol>
+<p>脚本不会自动安装依赖，也不会处理当前 RStudio 的包加载状态。只有安装成功且最后出现如下验证行，才完成这一步：</p>
+<pre class="text"><code>Verified &lt;包名&gt; &lt;版本&gt;: UTF-8; &lt;数量&gt; exports loaded; &lt;实际安装路径&gt;</code></pre>
+<p>本次用含 en dash 的最小包做了对照：受污染环境直接安装时，安装可以显示成功，但 UTF-8 进程读取导出函数失败；经新脚本安装后读取成功。安装失败或后置验证失败都会返回错误，父进程中的 locale 变量保持原值。</p>
+</section>
+<section id="补一次真正的失败路径验证" class="level3">
+<h3 class="anchored" data-anchor-id="补一次真正的失败路径验证">3. 补一次真正的失败路径验证</h3>
+<p>全导出对象检查能发现本次 RegR 的函数加载问题，但不会执行所有函数或覆盖包内每一种数据与帮助对象。因此还需要重新运行最初失败的接口。</p>
+<p>本次 RegR 0.1.3 在重装后，使用包内示例数据完成了 <code>get_rpa_pair()</code> 的未调整和调整 Cox 调用，置信区间中的 en dash 正常显示，例如：</p>
+<pre class="text"><code>5.67 (3.95–8.14)
+4.92 (3.42–7.06)</code></pre>
+<p>这些是特定示例数据和调用下的验证输出，不能作为其他分析应得到的数值。</p>
+</section>
+</section>
+<section id="refresh-session" class="level2">
+<h2 class="anchored" data-anchor-id="refresh-session">磁盘已正常，RStudio 仍报错怎么办？</h2>
+<section id="全新进程检查与原会话检查分开做" class="level3">
+<h3 class="anchored" data-anchor-id="全新进程检查与原会话检查分开做">全新进程检查与原会话检查分开做</h3>
+<p>在编码已经确认正常的<strong>全新 Windows R 进程</strong>中，可以用以下代码检查全部命名空间对象，包括内部函数。将 <code>lib</code> 改为实际目标库；检查原会话时，另外核对它已加载的路径。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">local</span>({</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(.Platform[[<span class="st">"OS.type"</span>]] <span class="sc">==</span> <span class="st">"windows"</span>)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">l10n_info</span>()[[<span class="st">"UTF-8"</span>]]))</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  lib <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">Sys.getenv</span>(<span class="st">"LOCALAPPDATA"</span>), <span class="st">"R"</span>, <span class="st">"win-library"</span>, <span class="st">"4.4"</span>)</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  pkgs <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"UtilsR"</span>, <span class="st">"MLR"</span>, <span class="st">"causalR"</span>)</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">lapply</span>(<span class="fu">setNames</span>(pkgs, pkgs), <span class="cf">function</span>(pkg) {</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>    ns <span class="ot">&lt;-</span> <span class="fu">loadNamespace</span>(pkg, <span class="at">lib.loc =</span> lib)</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>    expected <span class="ot">&lt;-</span> <span class="fu">normalizePath</span>(<span class="fu">file.path</span>(lib, pkg), <span class="at">winslash =</span> <span class="st">"/"</span>)</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>    actual <span class="ot">&lt;-</span> <span class="fu">normalizePath</span>(<span class="fu">getNamespaceInfo</span>(ns, <span class="st">"path"</span>), <span class="at">winslash =</span> <span class="st">"/"</span>)</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stopifnot</span>(<span class="fu">identical</span>(actual, expected))</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>    symbols <span class="ot">&lt;-</span> <span class="fu">ls</span>(ns, <span class="at">all.names =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (name <span class="cf">in</span> symbols) <span class="fu">invisible</span>(<span class="fu">get</span>(name, ns, <span class="at">inherits =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">list</span>(<span class="at">path =</span> actual, <span class="at">bindings =</span> <span class="fu">length</span>(symbols),</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>         <span class="at">exports =</span> <span class="fu">length</span>(<span class="fu">getNamespaceExports</span>(ns)))</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>不要在仍继承错误 locale 的命令执行环境里直接启动 <code>Rscript</code> 作为“UTF-8 对照”。前面的安装脚本已为其检查子进程隔离环境并设置了 UTF-8 前置断言。</p>
+</section>
+<section id="安全刷新目标包" class="level3">
+<h3 class="anchored" data-anchor-id="安全刷新目标包">安全刷新目标包</h3>
+<p>本次 UtilsR 的磁盘数据库包含 163 个 UTF-8 记录，全新进程全部读取成功；旧 RStudio 仍有 161 个命名空间对象，许多未求值的函数提示：</p>
+<pre class="text"><code>lazy-load database '&lt;Windows R library&gt;/UtilsR/R/UtilsR.rdb' is corrupt
+internal error 1 in R_decompress1 with libdeflate</code></pre>
+<p>这种旧会话与新进程的对照支持加载状态／缓存失配的判断。R 4.4 的延迟加载实现会按文件路径缓存数据库字节；覆盖磁盘安装后，原进程可能继续持有旧内容。<code>.Internal(lazyLoadDBflush(...))</code> 可以释放指定路径的缓存。<a href="https://github.com/wch/r-source/blob/R-4-4-branch/src/main/serialize.c">R 4.4 源码</a></p>
+<p>在已经完成备份、确认目标包没有其他命名空间使用者的<strong>原 RStudio Console</strong> 中执行：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">local</span>({</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  pkg <span class="ot">&lt;-</span> <span class="st">"UtilsR"</span>  <span class="co"># 按实际需要改为 RegR、MLR 或 causalR</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(pkg <span class="sc">%in%</span> <span class="fu">loadedNamespaces</span>())</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  users <span class="ot">&lt;-</span> <span class="fu">getNamespaceUsers</span>(pkg)</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(users)) {</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"其他命名空间仍使用该包："</span>, <span class="fu">paste</span>(users, <span class="at">collapse =</span> <span class="st">", "</span>))</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  path <span class="ot">&lt;-</span> <span class="fu">getNamespaceInfo</span>(pkg, <span class="st">"path"</span>)</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  pos <span class="ot">&lt;-</span> <span class="fu">match</span>(<span class="fu">paste0</span>(<span class="st">"package:"</span>, pkg), <span class="fu">search</span>())</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  db <span class="ot">&lt;-</span> <span class="fu">list.files</span>(path, <span class="at">pattern =</span> <span class="st">"[.]rdb$"</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>                   <span class="at">full.names =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">unloadNamespace</span>(pkg)</span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (file <span class="cf">in</span> db) <span class="fu">.Internal</span>(<span class="fu">lazyLoadDBflush</span>(file))</span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.na</span>(pos)) {</span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">loadNamespace</span>(pkg, <span class="at">lib.loc =</span> <span class="fu">dirname</span>(path))</span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>    <span class="fu">library</span>(pkg, <span class="at">lib.loc =</span> <span class="fu">dirname</span>(path), <span class="at">character.only =</span> <span class="cn">TRUE</span>, <span class="at">pos =</span> pos)</span>
+<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>  ns <span class="ot">&lt;-</span> <span class="fu">asNamespace</span>(pkg)</span>
+<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (name <span class="cf">in</span> <span class="fu">ls</span>(ns, <span class="at">all.names =</span> <span class="cn">TRUE</span>)) {</span>
+<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a>    <span class="fu">invisible</span>(<span class="fu">get</span>(name, ns, <span class="at">inherits =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>这里保留目标包原来的安装库和搜索位置，只清理它自己的 <code>.rdb</code> 内存缓存，不删除安装文件。该代码使用 R 内部接口，本次在 R 4.4.3 下验证；含复杂卸载钩子、动态库或仍被其他包引用的包，需要先评估能否安全卸载。</p>
+<p>本次 UtilsR 刷新后，163 个对象和 92 个导出接口全部读取成功，中文输入的代表调用也通过，因此没有再次安装。已有对象若保存了旧版函数闭包或外部资源引用，重新加载包也不能保证这些引用自动更新；必要时应重新创建对应对象或在备份后重启会话。</p>
+</section>
+</section>
+<section id="verified-results" class="level2">
+<h2 class="anchored" data-anchor-id="verified-results">四个包的最终核验结果</h2>
+<p>以下是 2026-10-11 的快照，检查范围为本机 Windows R 4.4 用户库：</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">包与版本</th>
+<th style="text-align: left;">磁盘编码／全新进程</th>
+<th style="text-align: left;">原 RStudio 与处理</th>
+<th style="text-align: left;">结果</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">RegR 0.1.3</td>
+<td style="text-align: left;">原记录为 ASCII，UTF-8 读取复现 NUL；新流程重装后为 UTF-8</td>
+<td style="text-align: left;">清理重装后的旧缓存，重新加载</td>
+<td style="text-align: left;">函数提取和实际 Cox 调用通过</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">UtilsR 0.6.8</td>
+<td style="text-align: left;">163 个记录均为 UTF-8；163 个命名空间对象、92 个导出接口加载通过</td>
+<td style="text-align: left;">旧缓存报解压错误；安全刷新，无需重装</td>
+<td style="text-align: left;">原会话全部对象读取通过</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">MLR 0.1.13</td>
+<td style="text-align: left;">510 个记录均为 UTF-8；510 个对象、72 个导出接口加载通过</td>
+<td style="text-align: left;">原会话检查正常，无需重装</td>
+<td style="text-align: left;">未发现本次同类编码问题</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">causalR 0.0.0.9000</td>
+<td style="text-align: left;">168 个记录均为 UTF-8；168 个对象、24 个导出接口加载通过</td>
+<td style="text-align: left;">原会话检查正常，无需重装</td>
+<td style="text-align: left;">未发现本次同类编码问题</td>
+</tr>
+</tbody>
+</table>
+<p>UtilsR、MLR、causalR 检查及刷新前后，RStudio 保持同一 PID，91 个工作区对象保留；90 个非随机种子对象内容核对一致，当前随机数状态也予以保留。9 个编辑器缓冲区仍在，未命名脚本内容不变；检查期间用户对另一个脚本的新编辑保持在当前编辑器中，没有从备份覆盖回去。</p>
+<p>Windows 安装和缓存操作没有写入 WSL 包库。WSL 前后均为 <code>C.UTF-8</code>、实际 UTF-8，<code>LANG=C.UTF-8</code>，<code>LC_ALL</code> 与 <code>LC_CTYPE</code> 未设置。</p>
+</section>
+<section id="checklist" class="level2">
+<h2 class="anchored" data-anchor-id="checklist">以后安装时的检查清单</h2>
+<ul>
+<li>确认 Windows R 可执行文件、目标库和源码目录；Windows 与 WSL 分别验证。</li>
+<li>安装已加载的包前，备份数据与未保存脚本，并确认包能否安全卸载。</li>
+<li>通过 Windows 子进程隔离 locale，要求实际 UTF-8 后再安装。</li>
+<li>安装完成后核对加载路径、全部导出对象及最初失败的实际调用。</li>
+<li>新进程正常而旧会话失败时，按目标包刷新加载状态和缓存。</li>
+</ul>
+<p>相关记录：<a href="../troubleshooting/rstudio-help-cache.html">RStudio Help 缓存</a>、<a href="../troubleshooting/pak-download-proxy.html">pak 下载与 Windows／WSL 代理排查</a>。</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "已复制");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "已复制");
+        tooltip = new bootstrap.Tooltip(button,
+          { trigger: "manual",
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/hui950319\.github\.io\/Rnotes\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config);
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined;
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              }
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            }
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="../troubleshooting/index.html" class="pagination-link" aria-label="R 问题排查">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text">R 问题排查</span>
+      </a>
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="../troubleshooting/rstudio-wsl-diagnostics-20261007.html" class="pagination-link" aria-label="Edge + WSL RStudio 卡顿：R 诊断与大脚本实测">
+        <span class="nav-page-text"><span class="chapter-title">Edge + WSL RStudio 卡顿：R 诊断与大脚本实测</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/troubleshooting/windows-r-encoding-nul.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script src="../assets/sidebar-navigation.js"></script>
+
+
+
+
+</body></html>
