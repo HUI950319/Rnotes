@@ -32,6 +32,7 @@ PNG 同时提供更小的无损 WebP 预览。预览逐像素核验；原 PNG �
 python -m pip install beautifulsoup4==4.14.3 PyYAML==6.0.3 playwright==1.63.0
 python -m playwright install --with-deps chromium --only-shell
 python scripts/check_site.py
+python scripts/check_source_links.py
 Rscript scripts/check_examples.R
 python scripts/check_browser.py
 ```
@@ -39,9 +40,12 @@ python scripts/check_browser.py
 检查页底与 HTML 头部的上一页／下一页是否遵循 `_quarto.yml`，以及侧栏层级、短标题、当前页展开状态、面包屑、
 站内链接与锚点、页面摘要、图片替代文本与懒加载、全站图号唯一性、MLR 总览图数、搜索索引和 sitemap。
 R 检查解析教程代码，并实际验证 SHAP 分箱边界、分层示例数据构造与 RPA 时间换算。
-Chromium 检查 11 个代表页面在桌面及手机宽度下的溢出、亮色／暗色切换、标签页显示、
+源码链接检查通过 GitHub CLI 的只读 HEAD 请求，核对各包公开源文件、目录与提交快照；
+Windows 使用已认证的 WSL Ubuntu-22.04 gh，其他平台使用本机 gh，CI 使用只读 GitHub token。
+不存在的分支、文件或未公开提交返回非零状态；源码链接固定到运行快照时，不会要求跟随最新 HEAD。
+Chromium 检查 19 个代表页面在桌面及手机宽度下的溢出、亮色／暗色切换、标签页显示、
 首页筛选与 JavaScript 错误；只访问本地 `docs/`，使用备用字体。R 需 4.4.3；各检查失败均返回非零状态。
-GitHub Actions 会在每次 push 和 pull request 中执行这三项检查。
+GitHub Actions 会在每次 push 和 pull request 中执行这四项检查。
 
 ## 数据说明
 

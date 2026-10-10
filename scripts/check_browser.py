@@ -14,6 +14,9 @@ PAGES = [
     "mlr/shap-guide.html", "utilsr/composition-guide.html",
     "utilsr/function-modules.html", "causalr/function-modules.html",
     "causalr/shap-guide.html",
+    "regr/rcs-guide.html", "regr/cut-guide.html", "regr/flow-guide.html",
+    "regr/model-evaluation-guide.html", "regr/effect-comparison-guide.html",
+    "utilsr/format-guide.html", "utilsr/flow-guide.html", "mlr/couple-guide.html",
 ]
 
 
