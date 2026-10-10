@@ -2,6 +2,7 @@
 title: "队列筛选与流程图：get_flt、plt_flo 与 plt_flo2"
 description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，包括队列、配色、换行、布局和 PDF 保存。"
 date: 2026-10-01
+date-modified: 2026-10-10
 lightbox: true
 toc-depth: 2
 ---
@@ -9,6 +10,8 @@ toc-depth: 2
 `get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图，`plt_flo2()` 用阶段说明和队列人数绘制彩色研究流程。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
 
 **版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际执行筛选、绘制 **12 张 `plt_flo` 图和 8 张 `plt_flo2` 图**并验证 PDF 保存。网页展示保存的汇总结果；先运行下面的共用准备代码，再运行所选标签页代码即可复现。
+
+**本次更新：** 保留上述历史流程图与筛选结果；按公开提交 `857677a` 新增 `save_plt()` 的 Cairo 设备说明，并实际导出、读回含 ≥、± 和希腊字母的 PDF。包版本仍为 0.1.3，设备默认值以安装源码为准。
 
 ## 示例数据与共用准备 {#data}
 
@@ -402,10 +405,14 @@ stopifnot(
 
 `plt_flo2()` 的左侧是彩色阶段框，右侧是自动编号的说明框；还可以在顶部增加队列筛选，在左边增加旋转的阶段标签。输入是**阶段文字和队列人数**，`get_flt()` 的历史需要转换成 `cohorts` 后再传入。
 
+:::: {.table-responsive tabindex="0" role="region" aria-label="表格，可横向滚动"}
+
 | 函数 | 输入 | 主要展示内容 |
 |:--|:--|:--|
 | `plt_flo()` | 带 `flt` 历史的数据 | 连续筛选、排除明细、分组与汇合 |
 | `plt_flo2()` | `stages` 与可选的 `cohorts` | 队列选择与数据准备、建模、验证、解释等研究阶段 |
+
+::::
 
 下面的建模阶段是**研究流程文字示例**；本页实际执行的是队列筛选和绘图，并未拟合、验证模型或计算 SHAP。
 
@@ -596,6 +603,8 @@ p_small
 
 :::
 
+:::: {.table-responsive tabindex="0" role="region" aria-label="表格，可横向滚动"}
+
 | 参数 | 默认值与作用 |
 |:--|:--|
 | `gap_args$connector` | `0.8` 英寸；阶段框到说明框前竖线的横向连线长度 |
@@ -609,5 +618,29 @@ p_small
 | `box_args$desc_width / exc_width` | `5.5 / 3.5` 英寸；说明 / 排除文字的换行上限 |
 | `box_args$corner_radius` | `0.1` 英寸；阶段框与说明框圆角半径 |
 | `box_args$equal_height` | `TRUE`；说明框统一为最高说明框的高度 |
+
+::::
+
+## PDF 设备与特殊字符 {#pdf-device}
+
+当前 `RegR::save_plt()` 默认 `device = "cairo"`，支持普通文本标签里的 ≥、± 和希腊字母，并嵌入字体。宽高以英寸计，默认 10 × 11；文件名没有扩展名时补 `.pdf`，其他扩展名会报错。图形采用测量布局时，优先用前面的推荐尺寸。
+
+```r
+p_unicode <- ggplot(data.frame(x = 1:3, y = c(0.8, 1, 1.2)), aes(x, y)) +
+  geom_point(size = 3) + theme_minimal(base_size = 13) +
+  labs(title = "Unicode labels: α, β, Δ ± 1", x = "Value ≥ 1", y = "Ratio")
+pdf_unicode <- file.path(tempdir(), "unicode-cairo.pdf")
+RegR::save_plt(p_unicode, filename = pdf_unicode, width = 7, height = 4.5)
+```
+
+![普通字符串中的希腊字母、加减号与大于等于号使用 Cairo PDF 正常保存。](images/flow-guide/unicode-cairo.png){fig-alt="散点图标题含 α、β、Δ 和 ±，横轴标题含 ≥，对应 PDF 已读回确认字符与嵌入字体。"}
+
+[下载本例 Cairo PDF](images/flow-guide/unicode-cairo.pdf)。本次读回确认 **1 页、7 × 4.5 英寸**，文本提取包含上述字符，字体已嵌入；PNG 用于网页预览，PDF 为独立矢量输出。
+
+需要旧版设备时，在独立保存调用中使用 `device = "pdf"`。它通常使用未嵌入的 base-14 字体，不能可靠保存普通字符串中的 Unicode；plotmath 表达式仍可用于两种设备。R 没有 Cairo 支持时，默认调用会发出警告并回退到 pdf。
+
+函数内部的 `save` 接受哪些子项，应看该函数的帮助页；例如 `plt_couple()` 当前只接受 filename / width / height，选择设备可先取得图，再调用 `save_plt()`。`save = list()` / NULL 不保存；保存不会代替函数原本的返回对象。
+
+源码：[PDF 保存与设备选择](https://github.com/HUI950319/RegR/blob/857677a/R/plot-save.R)。相关示例见 [RPA 直接保存](rpa-guide.qmd#rpa-time-unit)。
 
 本站只提供上述汇总表、图形和调用代码，不提供患者级数据下载。
