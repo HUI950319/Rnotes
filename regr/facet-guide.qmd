@@ -9,7 +9,7 @@ toc-depth: 2
 
 `get_facet()` 把生存 / 竞争风险曲线、分面条带和每个面板的效应表组织在一张图中。本页沿用 [SHAP 可视化页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，相关参数放在标签页中比较，点击图片可以放大**。
 
-**核对记录：** 最近核对 **2026-10-10**，RegR **0.1.3** 本地开发源码 `7b71032`（核对时尚未推送；公开基线为 `4fc0724`）。最初的 **22 张布局图**按源码快照 `0add2bb`，使用 WSL R **4.4.3** 和 ToyData **0.1.0** 拟合并导出；直接曲线与差值图保留 2026-10-09 的重跑记录，新增层内重拟合图于 2026-10-10 实际执行。执行了 `unadj`、`direct`、两种方法组合，以及 CIF 的 `CSC` 标准化；IPTW / PSM 和 FGR 标准化仅说明接口。本页显示保存的汇总图形，未提供患者级数据下载。复现时需使用含本页布局、条带映射与缓存功能的 RegR 版本。
+**核对记录：** 最近核对 **2026-10-10**，RegR **0.1.3** 公开源码 `e7e8b10`（包含此前 `7b71032` 的分层重拟合与提示修复）。最初的 **22 张布局图**按源码快照 `0add2bb`，使用 WSL R **4.4.3** 和 ToyData **0.1.0** 拟合并导出；直接曲线与差值图保留 2026-10-09 的重跑记录，新增层内重拟合图与本次轴标题示例于 2026-10-10 实际执行。执行了 `unadj`、`direct`、两种方法组合，以及 CIF 的 `CSC` 标准化；IPTW / PSM 和 FGR 标准化仅说明接口。本页显示保存的汇总图形，未提供患者级数据下载。复现时需使用含本页布局、条带映射与缓存功能的 RegR 版本。
 
 ## 示例准备与读图规则 {#data}
 
@@ -66,7 +66,7 @@ table_base <- list(
 
 ## 层内调整项、奇异拟合与差值区间 {#current-strata}
 
-本节按 RegR 0.1.3 本地开发源码 `7b71032` 核对（恒定变量处理始于 `40515e1`）。本节的新处理需要包含这些修复的开发版本；核对时三个修复提交尚未推送到公开仓库。`get_facet()` 现在会检查每个分析层的调整变量：若某变量只在该层恒定，函数只从该层模型中剔除它并给出含层名的提示，其他层仍保留该变量。曲线和层内表使用同一套实际调整项；不能把所有层描述成完全相同的调整模型。
+本节按 RegR 0.1.3 源码 `7b71032` 实际核对（恒定变量处理始于 `40515e1`）；这些修复现已推送到公开 GitHub 仓库。复现仍需安装含这些提交的版本。`get_facet()` 现在会检查每个分析层的调整变量：若某变量只在该层恒定，函数只从该层模型中剔除它并给出含层名的提示，其他层仍保留该变量。曲线和层内表使用同一套实际调整项；不能把所有层描述成完全相同的调整模型。
 
 ```r
 # 人为设置示例边界：仅 Female 层中的 Race 恒定。
@@ -843,6 +843,7 @@ ggplot2::ggsave("CND-by-Sex-survival.png", f_both[["plt"]],
 |:--|:--|
 | `color` | 颜色向量或支持的调色板名；没有单独指定表颜色时，表格底色随曲线同步 |
 | `hcl_colors` | 分面条带的 HCL 调色板名向量，与曲线颜色是两套设置 |
+| `xlab, ylab` | NULL 保留默认标题；空字符串隐藏；自定义字符串原样使用，不追加 CI 后缀，不换算时间或概率 |
 | `xlim, xbre, ylim, ybre` | 数值范围与刻度向量；本页按月和原始比例显示 |
 | `conf_int` | TRUE / FALSE，显示 / 隐藏曲线区间 |
 | `unadj_steps` | TRUE / FALSE，未调整曲线的阶梯 / 线段画法 |
@@ -862,11 +863,53 @@ ggplot2::ggsave("CND-by-Sex-survival.png", f_both[["plt"]],
 
 所有图片均由上述公共调用实际导出；缓存重绘核对曲线与内嵌表保持一致，并检查 `.final_method`。旧绘图接口可能产生弃用提示，预防性暴露的交互计算也可能提示部分加法交互指标不可估计；本页没有把这些未展示指标当作已验证结论。
 
+## 轴标题与缓存重绘 {#axis-labels}
+
+`plot_params$xlab` / `ylab` 自公开提交 `e7e8b10` 起控制 KM、生存标准化和 CIF 曲线的轴标题。`NULL` 保留原默认值；`""` 隐藏；自定义文本原样显示。设置 `ylab` 后不会自动追加 `(95% CI)`，需要该信息时自行写入。修改标签不会换算 time，也不会把 0–1 概率乘以 100。
+
+下面先计算一次未调整 KM，再从 `facet_res` 重绘两个版本。本次已核对缓存重绘前后的 `sur.data` 完全一致。
+
+<!-- facet-axis:start -->
+```r
+f_axis <- get_facet(d, split_var = "Sex", cat_var = "N_4", adj_var = adj,
+  surv = TRUE, method = "unadj", timepoint = 60, max_t = 120, parallel = 1,
+  plot_params = plot_base, table_params = table_base)
+```
+
+::: {.panel-tabset}
+
+### 自定义标题
+
+```r
+f_axis_named <- get_facet(f_axis,
+  plot_params = modifyList(plot_base, list(xlab = "Months from diagnosis",
+    ylab = "Survival probability (95% CI)")), table_params = table_base)
+f_axis_named[["plt"]]
+```
+
+![缓存重绘使用自定义横纵轴标题，原曲线和 HR 表保持一致。](images/facet-guide/axis-custom.png){fig-alt="女性与男性两幅 KM 图，横轴为诊断后月数，纵轴明确标注生存概率和 95% CI。"}
+
+### 隐藏标题
+
+```r
+f_axis_blank <- get_facet(f_axis,
+  plot_params = modifyList(plot_base, list(xlab = "", ylab = "")),
+  table_params = table_base)
+f_axis_blank[["plt"]]
+```
+
+![空字符串隐藏两侧轴标题，刻度、曲线、区间与内嵌表保留。](images/facet-guide/axis-hidden.png){fig-alt="同一缓存 KM 图不显示横纵轴标题，保留轴刻度、曲线与 HR 表。"}
+
+:::
+<!-- facet-axis:end -->
+
+同样设置也适用于 CIF；应把纵轴写为累积发生概率，并保留正确的事件编码。只改绘图 list 可重用结果，改模型、输入时间单位或数据则需要重新拟合。`plot_params` 现在拒绝未知、重复或未命名字段，拼写错误会显式报错。
+
 ## 相关页面与源码 {#references}
 
 - [效应估计与森林图：get_eff 和 4 个绘图函数](forest-guide.qmd)
 - [竞争风险 CIF 的 FGR 与 CSC：get_eff、get_cat、get_facet 基准](get-eff-cif-benchmark.qmd)
 - [SHAP：get_shp 与 14 个绘图函数](../mlr/shap-guide.qmd)
 - [ToyData 数据介绍](../toydata/index.qmd)
-- 本次本地核对提交：`7b71032`；[公开基线的 facet-get.R](https://github.com/HUI950319/RegR/blob/4fc0724/R/facet-get.R) 与 [函数参考站点](https://hui950319.github.io/RegR/reference/index.html)
+- [当前公开的 facet-get.R](https://github.com/HUI950319/RegR/blob/e7e8b10/R/facet-get.R) 与 [函数参考站点](https://hui950319.github.io/RegR/reference/index.html)
 - [survival：Multi-state models and competing risks](https://cran.r-project.org/web/packages/survival/vignettes/compete.pdf)
