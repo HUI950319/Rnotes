@@ -1,14 +1,15 @@
 ---
 title: "RCS 组合图：get_rcs_all 的 7 种模式"
-description: "get_rcs_all 的模型分派、7 种面板、分组对比、时间单位、条带与坐标设置；598 人 PTC 队列的 16 个实际图形示例。"
+description: "get_rcs_all 的模型分派、7 种面板、分组对比、时间单位、条带与坐标设置；598 人 PTC 队列的历史图例与三种分组模型、参考值和置信带对照。"
 date: 2026-10-01
+date-modified: 2026-10-10
 lightbox: true
 toc-depth: 2
 ---
 
 `get_rcs_all()` 把未调整、调整后的限制性立方样条（RCS）曲线组成一幅图。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：代码与实际图形相邻，关键选项放在标签页中比较，点击图片可以放大。切点分析接着看 [get_cut 系列教程](cut-guide.qmd)。
 
-**版本与执行范围：** 接口按 RegR **0.1.3**、本机源码快照 `0add2bb` 核对；用 WSL R **4.4.3** 实际拟合并绘制 **16 张图**，覆盖全部 **7 种 `panel_show`**。VPD 使用 MLR **0.1.13** 的默认 Cox 解释模型。页面显示保存的图形，复制代码时需安装相应版本及依赖。
+**核对记录：** 当前接口按公开 RegR 源码 `3c58b3f` 核对，新模型与条带示例于 2026-10-10 在 WSL R 4.4.3 实际拟合、构建并导出。既有 **16 张历史图**保留原执行快照 `0add2bb`，覆盖全部 **7 种 `panel_show`**；本次新增 **6 张参数对照图**。VPD 使用 MLR **0.1.13** 的默认 Cox 解释模型。页面显示保存的图形，复制代码时需安装相应版本及依赖。
 
 ## 示例准备与读图尺度 {#data}
 
@@ -91,15 +92,17 @@ rcs_view <- function (p)
 ```r
 get_rcs_all(
   data, rcs_var, adj_var,
-  surv = 12 * 1000, n = 3L, conf.level = 0.95,
+  surv = 12 * 1000,
+  inter_method = c("interaction", "stratified", "adjusted"),
+  n = 3L, ref_value = "median", conf_int = TRUE, conf.level = 0.95,
   ylim_max = NULL, ybre = NULL,
   legend.position = c(0.05, 0.95), colors = NULL,
   panel_show = c("haz_poi", "haz", "haz_poi.dif", "haz_vpd",
                  "haz_vpd.dif", "poi_poi.dif", "vpd_vpd.dif"),
   adj_show = c("both", "adj", "unadj"),
   strip_list = list(
-    strip_style = c("panel", "grid"),
-    top_label = NULL, right_label = NULL, top_right_fill = NULL,
+    style = c("panel", "grid"),
+    label = NULL, fill = NULL, palette = NULL,
     adj_position = c("auto", "right", "bottom")
   ),
   name_map = NULL, xlim = NULL, xbreaks = NULL, xtitle = NULL,
@@ -220,9 +223,109 @@ rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
 
 单变量的非线性 P 值针对样条的非线性部分；分组相对效应图需要按交互 / 对比曲线理解。率差图的非线性检验针对**响应尺度上率差是否线性**，不是率差是否等于零。曲线接近水平、通过无效应线、非线性 P 值较大，回答的是不同问题。
 
+## 分组模型、参考值与置信带 {#group-model-controls}
+
+`inter_method` 决定 Cox / Logistic 的分组模型；`adj_show` 只选择未调整或调整面板。三种模型的纵轴含义不同，应结合公式与参照读图。
+
+::: {.table-responsive}
+
+| `inter_method` | 拟合与曲线含义 | 本例读法 |
+|:--|:--|:--|
+| `interaction` | 分组与样条交互；同一年龄处的组间对比 | Male 相对 Female 的 HR |
+| `stratified` | 每组单独拟合，各自相对同一参照年龄的风险 | 各组在 55 岁处 HR 为 1；不比较组间绝对风险 |
+| `adjusted` | 一个共同样条加分组主效应 | 各组曲线保持恒定比值；参照同时使用全数据的协变量代表值与参考组 |
+
+:::
+
+下列三图均使用相同数据、调整项、55 岁参照与两幅 `haz` 面板。默认 `interaction` 的组间对比不按 `ref_value` 归一化，因此不能把第一图与后两图当成相同估计量的外观变化。分组 Fine–Gray 的 `haz` 行仅支持 `interaction`，其他策略会报错；Poisson 仍按组拟合，VPD 不受这些模型选项影响。
+
+<!-- rcs-current:start -->
+::: {.panel-tabset}
+
+### 交互模型
+
+```r
+p_interaction <- rcs_view(get_rcs_all(d, c("Sex", "Age"), adj_group,
+  surv = TRUE, inter_method = "interaction", ref_value = 55,
+  panel_show = "haz", xtitle = "Age (years)"))
+p_interaction
+```
+
+![交互模型显示同一年龄处 Male 相对 Female 的 HR，上下为未调整和调整。](images/rcs-guide/strategy-interaction.png){fig-alt="598 人队列的两幅交互 RCS 曲线，表示同年龄处的性别 HR 对比。"}
+
+### 各组单独拟合
+
+```r
+p_stratified <- rcs_view(get_rcs_all(d, c("Sex", "Age"), adj_group,
+  surv = TRUE, inter_method = "stratified", ref_value = 55,
+  panel_show = "haz", xtitle = "Age (years)"))
+p_stratified
+```
+
+![两组分别拟合，均以 55 岁为各自参照；颜色在未调整和调整面板中一致。](images/rcs-guide/strategy-stratified.png){fig-alt="Female 和 Male 的组内年龄 HR 曲线，55 岁为各自参照，两个面板保持相同组颜色。"}
+
+### 共同样条与分组主效应
+
+```r
+p_adjusted <- rcs_view(get_rcs_all(d, c("Sex", "Age"), adj_group,
+  surv = TRUE, inter_method = "adjusted", ref_value = 55,
+  panel_show = "haz", xtitle = "Age (years)"))
+p_adjusted
+```
+
+![共同样条加性别主效应，组间 HR 比值随年龄保持恒定；非线性 P 值来自共同样条。](images/rcs-guide/strategy-adjusted.png){fig-alt="共同年龄样条下两组同形 HR 曲线及区间，显示未调整和调整面板。"}
+
+:::
+
+### 数值参照与隐藏置信带
+
+`ref_value` 可用 `median`、`min`、`mean` 或原始尺度上的有限数值。它控制相对效应的归一化，不是 `fmt_ref` 画出的竖线，也不改变拟合数据。以下单变量模型以 55 岁为 HR = 1 的参照。
+
+::: {.panel-tabset}
+
+### 保留区间
+
+```r
+p_ref55 <- rcs_view(get_rcs_all(d, "Age", adj, surv = TRUE,
+  ref_value = 55, panel_show = "haz", adj_show = "adj",
+  xtitle = "Age (years)"))
+p_ref55
+```
+
+![调整后年龄 HR 以 55 岁为参照，保留 95% 置信带。](images/rcs-guide/reference-55.png){fig-alt="单幅调整后年龄 RCS 曲线，55 岁处 HR 为 1，显示置信带。"}
+
+### 隐藏区间
+
+```r
+p_no_ci <- rcs_view(get_rcs_all(d, "Age", adj, surv = TRUE,
+  ref_value = 55, conf_int = FALSE, panel_show = "haz", adj_show = "adj",
+  xtitle = "Age (years)"))
+p_no_ci
+```
+
+![仅隐藏置信带并去掉轴标题的 CI 后缀，估计、存储的区间与 P 值不变。](images/rcs-guide/confidence-hidden.png){fig-alt="同一调整后年龄曲线不显示区间阴影，纵轴不带 CI 后缀。"}
+
+:::
+
+### 一列 haz 面板的共享条带
+
+`strip_list` 使用 `style`、`label`、`fill`、`palette`、`adj_position`。`panel` 的标签和填色按原始面板顺序随转置、筛选移动；`grid` 的 `label = list(top = ..., right = ...)` 对应最终布局的物理侧边。`fill` 与 `palette` 不能同时设置；旧字段仍可识别，但会给出迁移警告。
+
+```r
+p_haz_strip <- rcs_view(get_rcs_all(d, "Age", adj, surv = TRUE,
+  ref_value = 55, panel_show = "haz",
+  strip_list = list(style = "grid",
+    label = list(top = "Age: HR", right = c("Unadjusted", "Adjusted")),
+    fill = c("#DCEAF4", "#E4EEDC")), xtitle = "Age (years)"))
+p_haz_strip
+```
+
+![haz 两幅图保持一列，上条带标注指标，右条带区分调整状态。](images/rcs-guide/haz-custom-strip.png){fig-alt="一列两行的年龄 HR 曲线，顶端为 Age HR 共享条带，右侧为未调整和调整条带。"}
+<!-- rcs-current:end -->
+
 ## 相对效应、死亡率与率差 {#poisson}
 
-以下统一使用 `strip_style = "grid"`、`adj_position = "right"`，左列未调整、右列调整。右侧条带用短标签，完整量与单位保留在 y 轴上。率差始终按 **Male − Female** 读取；每 1000 人年的率不能读成某个时间点的死亡概率。
+以下统一使用 `style = "grid"`、`adj_position = "right"`，左列未调整、右列调整。右侧条带用短标签，完整量与单位保留在 y 轴上。率差始终按 **Male − Female** 读取；每 1000 人年的率不能读成某个时间点的死亡概率。
 
 ::: {.panel-tabset}
 
@@ -231,8 +334,8 @@ rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
 ```r
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, poi_time = 12 * 1000, panel_show = "haz_poi",
-            strip_list = list(strip_style = "grid", adj_position = "right",
-                              right_label = c("HR", "Death rate")),
+            strip_list = list(style = "grid", adj_position = "right",
+                              label = list(right = c("HR", "Death rate"))),
             xtitle = "Age (years)"))
 ```
 
@@ -243,8 +346,8 @@ rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
 ```r
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, poi_time = 12 * 1000, panel_show = "haz_poi.dif",
-            strip_list = list(strip_style = "grid", adj_position = "right",
-                              right_label = c("HR", "Rate difference")),
+            strip_list = list(style = "grid", adj_position = "right",
+                              label = list(right = c("HR", "Rate difference"))),
             xtitle = "Age (years)"))
 ```
 
@@ -255,8 +358,8 @@ rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
 ```r
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, poi_time = 12 * 1000, panel_show = "poi_poi.dif",
-            strip_list = list(strip_style = "grid", adj_position = "right",
-                              right_label = c("Death rate", "Rate difference")),
+            strip_list = list(style = "grid", adj_position = "right",
+                              label = list(right = c("Death rate", "Rate difference"))),
             xtitle = "Age (years)"))
 ```
 
@@ -282,9 +385,8 @@ VD 使用观测上的 x / yhat；PD 汇总改变变量后生成的 ICE 预测。
 set.seed(246)
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, vpd_time = 60, panel_show = "haz_vpd",
-            strip_list = list(strip_style = "grid", adj_position = "right",
-                              right_label = c("HR", "S(60)"),
-                              top_label = c("Unadjusted HR / VD", "Adjusted HR / PD")),
+            strip_list = list(style = "grid", adj_position = "right",
+                              label = list(right = c("HR", "S(60)"), top = c("Unadjusted HR / VD", "Adjusted HR / PD"))),
             xtitle = "Age (years)"))
 ```
 
@@ -296,9 +398,8 @@ rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
 set.seed(246)
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, vpd_time = 60, panel_show = "haz_vpd.dif",
-            strip_list = list(strip_style = "grid", adj_position = "right",
-                              right_label = c("HR", "S(60) difference"),
-                              top_label = c("Unadjusted HR / VD", "Adjusted HR / PD")),
+            strip_list = list(style = "grid", adj_position = "right",
+                              label = list(right = c("HR", "S(60) difference"), top = c("Unadjusted HR / VD", "Adjusted HR / PD"))),
             xtitle = "Age (years)"))
 ```
 
@@ -310,9 +411,8 @@ rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
 set.seed(246)
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, vpd_time = 60, panel_show = "vpd_vpd.dif",
-            strip_list = list(strip_style = "grid", adj_position = "right",
-                              right_label = c("S(60)", "S(60) difference"),
-                              top_label = c("VD", "PD")),
+            strip_list = list(style = "grid", adj_position = "right",
+                              label = list(right = c("S(60)", "S(60) difference"), top = c("VD", "PD"))),
             xtitle = "Age (years)"))
 ```
 
@@ -333,32 +433,31 @@ rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
 ```r
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, poi_time = 12 * 1000, panel_show = "haz_poi",
-            strip_list = list(strip_style = "panel", adj_position = "right"),
+            strip_list = list(style = "panel", adj_position = "right"),
             xtitle = "Age (years)"))
 ```
 
-![strip_style 为 panel，调整后放在右列。](images/rcs-guide/strip-panel.png){fig-alt="strip_style 为 panel，调整后放在右列。"}
+![style 为 panel，调整后放在右列。](images/rcs-guide/strip-panel.png){fig-alt="style 为 panel，调整后放在右列。"}
 
 ### 共享条带、调整在右 {.unnumbered}
 
 ```r
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, poi_time = 12 * 1000, panel_show = "haz_poi",
-            strip_list = list(strip_style = "grid", adj_position = "right",
-                              right_label = c("HR", "Death rate")),
+            strip_list = list(style = "grid", adj_position = "right",
+                              label = list(right = c("HR", "Death rate"))),
             xtitle = "Age (years)"))
 ```
 
-![strip_style 为 grid，显式把调整后放在右列。](images/rcs-guide/haz-poisson.png){fig-alt="strip_style 为 grid，显式把调整后放在右列。"}
+![style 为 grid，显式把调整后放在右列。](images/rcs-guide/haz-poisson.png){fig-alt="style 为 grid，显式把调整后放在右列。"}
 
 ### 共享条带、调整在下 {.unnumbered}
 
 ```r
 rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
             surv = TRUE, poi_time = 12 * 1000, panel_show = "haz_poi",
-            strip_list = list(strip_style = "grid", adj_position = "bottom",
-                              top_label = c("HR", "Death rate"),
-                              right_label = c("Unadjusted", "Adjusted")),
+            strip_list = list(style = "grid", adj_position = "bottom",
+                              label = list(top = c("HR", "Death rate"), right = c("Unadjusted", "Adjusted"))),
             xtitle = "Age (years)"))
 ```
 
@@ -366,7 +465,7 @@ rcs_view(get_rcs_all(d, rcs_var = c("Sex", "Age"), adj_var = adj_group,
 
 :::
 
-`top_label`、`right_label` 仅控制共享条带文字；`top_right_fill` 可给出一至两个顺序 HCL 调色板名。`adj_show` 决定保留哪一套调整状态，不改变 `conf.level`、`ylim_max`、`ybre` 的原始 p1–p4 参数索引。
+`label = list(top = ..., right = ...)` 控制共享条带文字；`palette` 可给出一至两个顺序 HCL 调色板名。`adj_show` 决定保留哪一套调整状态，不改变 `conf.level`、`ylim_max`、`ybre` 的原始 p1–p4 参数索引。
 
 ## 结点、参考线、分布与坐标 {#format}
 
@@ -403,6 +502,7 @@ rcs_view(get_rcs_all(d, rcs_var = "Age", adj_var = adj,
 
 | 参数 | 设置与边界 |
 |:--|:--|
+| `conf_int` | TRUE 保留区间；FALSE 只隐藏 RCS / Fine–Gray / Poisson 置信带与 CI 标题后缀，不改变点估计、存储区间或检验；VPD 不变 |
 | `conf.level` | 标量或循环使用的面板向量，控制置信带；当前 y 轴固定写 95% CI，因此本页统一使用 0.95 |
 | `ylim_max` | 上界；默认 haz 与差值对的上界按有限点估计最大值 × 1.25 设置，尾部置信带可能被截取 |
 | `ybre` | 刻度位置；向量应用所有面板，list 按原始 p1–p4 指定；不改变范围 |
@@ -463,4 +563,4 @@ get_rcs_all(
 | UtilsR / rms | 0.6.8 / 6.8.2 |
 | survival / segmented / flextable | 3.8.12 / 2.1.1 / 0.9.10 |
 
-源码入口为 [RegR/R/rcs-all.R](https://github.com/HUI950319/RegR/blob/main/R/rcs-all.R)，底层单面板与 Fine–Gray 适配分别在 [rcs-get.R](https://github.com/HUI950319/RegR/blob/main/R/rcs-get.R)、[rcs-crr.R](https://github.com/HUI950319/RegR/blob/main/R/rcs-crr.R)。该快照的实际图形已核验；版本升级后应重新核对 formals 与帮助页。
+源码入口为 [RegR/R/rcs-all.R](https://github.com/HUI950319/RegR/blob/3c58b3f/R/rcs-all.R)，底层单面板与 Fine–Gray 适配分别在 [rcs-get.R](https://github.com/HUI950319/RegR/blob/3c58b3f/R/rcs-get.R)、[rcs-crr.R](https://github.com/HUI950319/RegR/blob/3c58b3f/R/rcs-crr.R)。源码链接固定到本次公开核对提交；历史图的原始运行快照见页首，新示例已经实际运行。版本升级后应重新核对 formals 与帮助页。
