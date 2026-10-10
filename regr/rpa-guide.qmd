@@ -2,6 +2,7 @@
 title: "RPA：建树、终末节点与生存和二分类输出"
 description: "get_rpa 六种生存建树模式、节点规则与当前绘图接口；展示树图、节点效应、KM、汇总表、热图及 Logistic 节点图。"
 date: 2026-10-05
+date-modified: 2026-10-10
 lightbox: true
 toc-depth: 2
 ---
@@ -9,7 +10,7 @@ toc-depth: 2
 
 递归分区从候选变量中寻找结局差异较大的分组。先用 get_rpa() 建树和组织节点结果，再按需要展示树、节点生存曲线、效应表或计数热图。下面用同一演示队列比较算法与图形参数，每个标签页都附可复现代码和实际输出。
 
-**版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
+**核对记录：** 原有建树与节点图保留 2026-10-05 的执行结果，后续 Fine–Gray 节点对比按源码 `97b7775` 核对。2026-10-10 使用 WSL R 4.4.3 实际重跑本页新增的天/年单位示例，检查横轴、概率行标签和 `km_args` 转发；没有重跑全部历史图。`time_unit` / `xtitle` 来自本地 `R/rpa-plt.R` 的未提交改动，包版本仍为 RegR 0.1.3，属于开发版预览，不能只凭版本号判断是否可用。示例用于理解接口和输出，不构成外部验证或临床效果结论。
 
 ## 数据准备与复现
 
@@ -20,6 +21,13 @@ toc-depth: 2
 library(RegR)
 library(ggplot2)
 library(survival)
+
+# 收起模型的控制台输出，保留返回对象与警告。
+run_quiet <- function(expr) {
+  result <- NULL
+  invisible(capture.output(result <- expr))
+  result
+}
 data("seer_thyroid_mtc_2026", package = "RegR")
 d <- as.data.frame(seer_thyroid_mtc_2026)
 d[["DSS"]] <- as.integer(as.character(d[["DSS"]]))
@@ -66,6 +74,8 @@ get_rpa(data, rpa_var, adj_var = NULL, surv = TRUE,
                             contrasts = "reference")))
 ```
 
+:::: {.table-responsive}
+
 | 接口 | 输入 | 输出与选择 |
 |:--|:--|:--|
 | get_rpa | 数据、候选分裂变量 | 模型及节点结果 list |
@@ -75,11 +85,15 @@ get_rpa(data, rpa_var, adj_var = NULL, surv = TRUE,
 | plt_rpa_heat | 数据框及三列 | 计数热图，不接收完整 RPA list |
 | rpa.gg1 / rpa.gg2 | Logistic 返回字段 | bar/pie 节点图 |
 
+::::
+
 默认 cit 的 minsplit/minbucket 均为 20，alpha 为 0.05；mob 的 minsize 为 20、alpha 为 0.05。当前公共接口不提供这些控制参数，不能把额外参数当作已支持。Bonferroni 针对节点分裂检验；它不校正用同一数据发现分组后再报告的全部节点效应。
 
 ## 六种建树模式与节点规则 {#get-rpa-current}
 
 接口与本节输出按 2026-10-05 源码 `3411eb0` 核对。`timepoint` 已移入 `cat_arg`；改变这些节点后估计设置不改变分裂规则。
+
+:::: {.table-responsive}
 
 | `rpa_model` | 建树时的调整与分裂含义 |
 |:--|:--|
@@ -89,6 +103,8 @@ get_rpa(data, rpa_var, adj_var = NULL, surv = TRUE,
 | `mob_adj` | 节点内 Weibull AFT 调整 `adj_var`，检测基线参数不稳定性 |
 | `mob_int` | 截距型 Weibull AFT，只检测截距；形状变化本身不选变量 |
 | `mob_adj_int` | 调整 Weibull AFT，只检测截距；须提供 `adj_var` |
+
+::::
 
 MOB 候选子节点须达到每个 Weibull 参数至少 5 个事件的门槛。`cit_adj` 中拟合失败的节点停止分裂；不完全收敛的拟合仍可能被使用并发出警告，分析时需检查。
 
@@ -281,7 +297,9 @@ plt_rpa_heat(rpa_cit[["dat"]], x_var = "stage", y_var = "group",
 
 ## plt_rpa_km()：坐标轴、方向与主题 {#plt-rpa-km-current}
 
-`axis_args` 包含 `xlim`、`xbre`、`ylim`、`ybre`；默认 x 轴止于不超过曲线最长随访的最后一个刻度，每 48 月一个刻度，刻度过少时改为每 24 月。指定超过随访的 `xlim` 仍会被缩回；`xbre` 只控制刻度与显示终点，不延长估计随访。图上的未调整 KM 是阶梯曲线。
+`axis_args` 的已发布字段为 `xlim`、`xbre`、`ylim`、`ybre`。本地开发版另有 `xtitle = NULL` 与 `time_unit = "month"`；后者允许 `month`、`day`、`year`，默认横轴标题为 `Time since diagnosis (<time_unit>)`，`xtitle` 可以覆盖该文字。**这两个字段不换算时间或重算模型。** 数据中的 `time`、`cat_arg$timepoint`、`xlim` 和 `xbre` 必须使用同一单位。纵向排版中，默认概率行名据此生成 `90-day DSS` 或 `5-year DSS`；月数能整除 12 时仍沿用 `5-year DSS` 等年标签。自定义 `table_args$labels` 会覆盖默认行名。
+
+默认刻度间距仍是数值 48，刻度过少时为 24；更换单位后应显式传入 `xbre` 与 `xlim`。默认 x 轴止于不超过曲线最长随访的最后一个刻度。指定超过随访的 `xlim` 仍会被缩回；`xbre` 只控制刻度与显示终点，不延长估计随访。图上的未调整 KM 是阶梯曲线。
 
 ::: {.panel-tabset}
 
@@ -308,6 +326,59 @@ plt_rpa_km(rpa_cit, horizontal = FALSE,
 :::
 
 `table_args$rows` 对应 1 = 事件/总人数、2 = HR、3 = 生存概率、4 = 生存差。`labels` 若覆盖须提供四个唯一名称；`strip_map` 可以按组名命名，或按终末组顺序给一个标签向量。默认 `panel_spacing = 10` pt；`table_args$size = NULL` 随方向选择字号。调整主题使用 `theme_use`，不再传单独的 `base_size`。
+
+## 开发版预览：天数、年数与横轴标题 {#rpa-time-unit}
+
+下列示例需要包含 `time_unit` / `xtitle` 的本地开发版。先检查当前加载的接口；已发布版本缺少字段时应跳过本节。
+
+```r
+names(formals(RegR::plt_rpa_km)[["axis_args"]])
+# 开发版应含 xlim、xbre、ylim、ybre、xtitle、time_unit。
+```
+
+原队列只记录月份，因此按天展示时使用 `365.25 / 12` 作演示换算，并重新建树、估计 90 天概率。这不是重新获得精确的逐日随访；真实逐日数据直接使用其原始天数。
+
+::: {.panel-tabset}
+
+### 按天与自定义标题
+
+```r
+d_days <- d
+# 本示例按平均历年换算；真实逐日记录应直接使用原始天数。
+d_days[["time"]] <- d_days[["time"]] * 365.25 / 12
+rpa_days <- get_rpa(d_days, rpa_var = c("Age", "stage"),
+  adj_var = "Sex", rpa_model = "cit", cat_arg = list(timepoint = 90))
+p_days <- plt_rpa_km(rpa_days, horizontal = FALSE,
+  axis_args = list(time_unit = "day", xtitle = "Follow-up (days)",
+    xlim = c(0, 365.25 * 10), xbre = seq(0, 3000, 1000)))
+p_days
+```
+
+![按月记录演示换算为天数后重拟合，横轴为 Follow-up (days)，表中为 90-day DSS。](images/rpa-guide/km-days.png){fig-alt="开发版 RPA 按天绘制曲线，三个节点的概率行均显示 90-day DSS。"}
+
+### 按年与默认标题
+
+```r
+d_years <- d
+d_years[["time"]] <- d_years[["time"]] / 12
+rpa_years <- get_rpa(d_years, rpa_var = c("Age", "stage"),
+  adj_var = "Sex", rpa_model = "cit", cat_arg = list(timepoint = 5))
+p_years <- plt_rpa_km(rpa_years, horizontal = FALSE,
+  axis_args = list(time_unit = "year", xlim = c(0, 10), xbre = seq(0, 10, 2)))
+p_years
+```
+
+![月份除以 12 后重拟合，默认横轴为 Time since diagnosis (year)，表中显示 5-year DSS。](images/rpa-guide/km-years.png){fig-alt="开发版 RPA 按年绘制曲线，三个节点的概率行均显示 5-year DSS。"}
+
+:::
+
+树与曲线组合可通过 `km_args` 传入相同设置；它也不会替调用者换算时间。
+
+```r
+plt_rpa(rpa_years, km = TRUE, horizontal = FALSE,
+  km_args = list(axis_args = list(time_unit = "year",
+    xtitle = "Follow-up (years)", xlim = c(0, 10), xbre = seq(0, 10, 2))))
+```
 
 ## plt_rpa_tab()：可缩放效应表 {#plt-rpa-tab-current}
 
@@ -390,10 +461,14 @@ pair[["ft"]]
 
 默认 `method = "consec"`、`adjust = "none"`、`reverse = FALSE`，后一个因子水平相对前一个水平。下表是本次实际运行的调整后结果。
 
+:::: {.table-responsive}
+
 | group1 | group2 | effect | p.value. |
 | :-- | :-- | :-- | :-- |
 | g2 (node 4) | g1 (node 3) | 2.78 (1.37–5.65) |  0.005**  |
 | g3 (node 5) | g2 (node 4) | 3.12 (1.85–5.28) | <0.001*** |
+
+::::
 
 ### 与首组比较
 
@@ -402,10 +477,14 @@ get_rpa_pair(rpa_cit[["dat"]], adj_var = "Sex",
   method = "trt.vs.ctrl1")[["adj"]]
 ```
 
+:::: {.table-responsive}
+
 | group1 | group2 | effect | p.value. |
 | :-- | :-- | :-- | :-- |
 | g2 (node 4) | g1 (node 3) | 2.78 (1.37–5.65) |  0.005**  |
 | g3 (node 5) | g1 (node 3) | 8.69 (4.71–16.04) | <0.001*** |
+
+::::
 
 ### 全部两两比较
 
@@ -414,11 +493,15 @@ get_rpa_pair(rpa_cit[["dat"]], adj_var = "Sex",
   method = "pairwise", adjust = "bonferroni")[["adj"]]
 ```
 
+:::: {.table-responsive}
+
 | group1 | group2 | effect | p.value. |
 | :-- | :-- | :-- | :-- |
 | g1 (node 3) | g2 (node 4) | 0.36 (0.15–0.86) |  0.014*   |
 | g1 (node 3) | g3 (node 5) | 0.12 (0.05–0.24) | <0.001*** |
 | g2 (node 4) | g3 (node 5) | 0.32 (0.17–0.61) | <0.001*** |
+
+::::
 
 :::
 
@@ -448,10 +531,14 @@ pair_cif[["adj"]]
 pair_cif[["ft"]]
 ```
 
+:::: {.table-responsive}
+
 | group1 | group2 | estimate | conf.low | conf.high | p.value |
 | :-- | :-- | :-- | :-- | :-- | :-- |
 | N_noExamined | N0 | 4.788 | 3.335 | 6.873 | 2.067e-17 |
 | N1 | N_noExamined | 1.814 | 1.494 | 2.201 | 1.685e-09 |
+
+::::
 
 已核对 flextable 列名为 sHRs。相邻对比来自全队列同一个 Fine–Gray 模型，不能把这些 sHR 当作原因特异 HR、CIF 差或生存概率。将生存建树得到的终末组用于此入口时，评价的估计量已经改变；选择后推断的边界仍然适用。
 
