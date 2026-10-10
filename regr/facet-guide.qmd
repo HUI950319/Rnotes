@@ -1,14 +1,15 @@
 ---
-title: "分面生存曲线：get_facet 的 22 个可视化示例"
+title: "分面生存曲线：get_facet 与分层重拟合"
 description: "get_facet 的模型、分层与缓存详解；以 598 人 M1 PTC 队列比较 KM、调整生存、CIF、嵌套分面、内嵌表和迷你森林图；补充 get_facet_diff 的三张概率差曲线。"
-date: 2026-10-09
+date: 2026-10-01
+date-modified: 2026-10-10
 lightbox: true
 toc-depth: 2
 ---
 
 `get_facet()` 把生存 / 竞争风险曲线、分面条带和每个面板的效应表组织在一张图中。本页沿用 [SHAP 可视化页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，相关参数放在标签页中比较，点击图片可以放大**。
 
-**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 和 ToyData **0.1.0** 拟合并导出 **22 张图**。执行了 `unadj`、`direct`、两种方法组合，以及 CIF 的 `CSC` 标准化；IPTW / PSM 和 FGR 标准化仅说明接口。本页显示保存的汇总图形，未提供患者级数据下载。复现时需使用含本页布局、条带映射与缓存功能的 RegR 版本。
+**核对记录：** 最近核对 **2026-10-10**，RegR **0.1.3** 源码 `7b71032`。最初的 **22 张布局图**按源码快照 `0add2bb`，使用 WSL R **4.4.3** 和 ToyData **0.1.0** 拟合并导出；直接曲线与差值图保留 2026-10-09 的重跑记录，新增层内重拟合图于 2026-10-10 实际执行。执行了 `unadj`、`direct`、两种方法组合，以及 CIF 的 `CSC` 标准化；IPTW / PSM 和 FGR 标准化仅说明接口。本页显示保存的汇总图形，未提供患者级数据下载。复现时需使用含本页布局、条带映射与缓存功能的 RegR 版本。
 
 ## 示例准备与读图规则 {#data}
 
@@ -63,9 +64,9 @@ table_base <- list(
 
 这些示例展示观察性队列的拟合与绘图行为。调整曲线的组间差异和亚组中的 P 值不能单独证明 CND 的因果作用；“一组显著、另一组不显著”也不能替代交互检验。
 
-## 2026-10-09：层内调整项与差值区间 {#current-strata}
+## 层内调整项、奇异拟合与差值区间 {#current-strata}
 
-本节按 RegR 0.1.3 源码 `40515e1` 核对。`get_facet()` 现在会检查每个分析层的调整变量：若某变量只在该层恒定，函数只从该层模型中剔除它并给出含层名的提示，其他层仍保留该变量。曲线和层内表使用同一套实际调整项；不能把所有层描述成完全相同的调整模型。
+本节按 RegR 0.1.3 源码 `7b71032` 核对（恒定变量处理始于 `40515e1`）。`get_facet()` 现在会检查每个分析层的调整变量：若某变量只在该层恒定，函数只从该层模型中剔除它并给出含层名的提示，其他层仍保留该变量。曲线和层内表使用同一套实际调整项；不能把所有层描述成完全相同的调整模型。
 
 ```r
 # 人为设置示例边界：仅 Female 层中的 Race 恒定。
@@ -79,6 +80,47 @@ constant_fit <- get_facet(
 )
 # 检查提示和返回对象；本例更改仅用于验证恒定变量边界。
 ```
+
+### 奇异模型：只在失败层重新拟合
+
+直接模型出现相关奇异错误后，函数只在该层依次尝试：去掉空因子水平；删除与暴露或较早调整项共线的变量；删除含零目标事件水平的因子；若仍失败，再按最少事件数逐个删减调整变量。每一步只有前一步失败才执行；全模型正常拟合的层保持原设置。其他类型错误保留原有方法回退，不能把所有失败都解释成已成功修复。
+
+下面人为构造一个边界：Female 层的 `Cov2` 完全复制 `Cov1`，且 `Site` 保留空水平 C；Male 层中两个变量不同。本例用于验证接口，新增变量不代表临床协变量。默认 `show_surdiff = TRUE` 保留概率与区间计算：能画出点估计不等于区间路径也能拟合。
+
+<!-- facet-refit: setup -->
+```r
+d_sparse <- d
+d_sparse[["Cov1"]] <- factor(ifelse(seq_len(nrow(d_sparse)) %% 3L == 0L, "Yes", "No"))
+d_sparse[["Cov2"]] <- d_sparse[["Cov1"]]
+male <- d_sparse[["Sex"]] == "Male"
+flip <- which(male)[seq(1L, sum(male), 4L)]
+d_sparse[["Cov2"]][flip] <- ifelse(d_sparse[["Cov2"]][flip] == "Yes", "No", "Yes")
+d_sparse[["Site"]] <- factor(ifelse(male & seq_len(nrow(d_sparse)) %% 5L == 0L,
+  "C", ifelse(seq_len(nrow(d_sparse)) %% 2L == 0L, "A", "B")), levels = c("A", "B", "C"))
+```
+
+<!-- facet-refit: fit -->
+```r
+notices <- character()
+f_sparse <- withCallingHandlers(
+  get_facet(d_sparse, split_var = "Sex", cat_var = "N_4",
+    adj_var = c("Age", "Cov1", "Cov2", "Site"), method = "both", surv = TRUE,
+    timepoint = 60, max_t = 120, parallel = 1L, subgroup_model = "separate",
+    table_params = list(tb.vars = c("eve1", "HR"), show_SP.time = FALSE)),
+  message = function(m) {
+    notices <<- c(notices, conditionMessage(m))
+    invokeRestart("muffleMessage")
+  }
+)
+notices[grepl("adjustment model was singular", notices)]
+f_sparse[["plt"]]
+```
+
+本次实际提示为 `Stratum "Female": adjustment model was singular; refitted without Cov2.`；Female 的调整曲线与显式去掉 `Cov2`、空水平后的模型一致，Male 保留全部调整变量。串行与 `parallel = 2L` 的结果一致，两 worker 的提示也在主会话读到。
+
+![Female 层去掉共线的 Cov2 后重拟合；Male 层保留原调整项。上行为未调整曲线，下行为直接调整曲线。](images/facet-guide/singular-stratum.png){fig-alt="598 人演示队列的未调整与调整生存曲线；Female 层删除 Cov2 后重拟合，Male 层保持 Age、Cov1、Cov2、Site。"}
+
+**提示与报告：** 提示在合并 worker 结果前由主会话统一输出，源码覆盖 Windows PSOCK 的通知路径；本页实际并行验证在 WSL 完成。用 `run_quiet()` 或全局抑制消息会隐藏这些提示。应记录层名与实际删减项，并确认 `.final_method`；各层不能被描述成相同调整集合。删减变量是计算上的兼容处理，不保证调整集合在研究设计上充分。
 
 `get_facet_diff()` 的直接 Cox / CSC 概率差使用联合区间；正常多时点路径和兼容回退均保留组间协方差，不能退回“假定两组独立”的区间。下方直接 Cox、CSC 及直接差值示例已于本次重新生成；其他布局图保留原执行记录。
 
@@ -142,7 +184,7 @@ get_facet(
 
 方法向量必须恰好包含两个不同方法。`subgroup_model = "interaction"` 只支持 `unadj` / `direct` 及其组合；加权、匹配或多分类暴露需要使用 `"separate"`。
 
-`cif_args = list(model = "FGR")` 与 `list(model = "CSC")` 只影响 **CIF + direct 的标准化概率路径**。FGR 默认采用 Fine–Gray 模型与 50 次 bootstrap；CSC 采用各原因 Cox 模型与解析方差。即使选 CSC，内嵌比值表仍显示 Fine–Gray sHR，不能把它改读为原因特异 HR。模型假设与实测耗时见 [FGR 与 CSC 基准页](get-eff-cif-benchmark.qmd)。
+`cif_args = list(model = "FGR")` 与 `list(model = "CSC")` 只影响 **CIF + direct 的标准化概率路径**。FGR 当前优先使用 `mets::cifregFG()` 的 Fine–Gray 模型与解析区间；该拟合失败后才可能进入 adjustedCurves/FGR 的 bootstrap 回退。CSC 使用各原因 Cox 模型与解析方差。即使选 CSC，内嵌比值表仍显示 Fine–Gray sHR，不能把它改读为原因特异 HR。模型假设与实测耗时见 [FGR 与 CSC 基准页](get-eff-cif-benchmark.qmd)。
 
 ### subgroup_model 与分层顺序
 
@@ -826,5 +868,5 @@ ggplot2::ggsave("CND-by-Sex-survival.png", f_both[["plt"]],
 - [竞争风险 CIF 的 FGR 与 CSC：get_eff、get_cat、get_facet 基准](get-eff-cif-benchmark.qmd)
 - [SHAP：get_shp 与 14 个绘图函数](../mlr/shap-guide.qmd)
 - [ToyData 数据介绍](../toydata/index.qmd)
-- [RegR 源码仓库](https://github.com/HUI950319/RegR) 与 [函数参考站点](https://hui950319.github.io/RegR/reference/index.html)
+- [本次核对的 facet-get.R](https://github.com/HUI950319/RegR/blob/7b71032/R/facet-get.R) 与 [函数参考站点](https://hui950319.github.io/RegR/reference/index.html)
 - [survival：Multi-state models and competing risks](https://cran.r-project.org/web/packages/survival/vignettes/compete.pdf)
