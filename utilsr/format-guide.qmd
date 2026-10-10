@@ -2,13 +2,14 @@
 title: "ggplot 格式化：主题、坐标、图例、条带与面板标签"
 description: "fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化；实际参数对照与嵌套布局示例。"
 date: 2026-10-09
+date-modified: 2026-10-10
 lightbox: true
 toc-depth: 2
 ---
 
 fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
-**版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；31 个示例已在 WSL R 4.4.3 中实际执行，其中 31 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+**核对记录：** 本次按公开 UtilsR 源码 `f909d90` 核对轴文字和颜色条，并在 WSL R 4.4.3 实际绘制 5 张富文本、翻转坐标、嵌套布局与轴收集图。既有 31 张示例保留原执行输出；包版本仍为 0.6.8，使用新行为时应安装含该提交的源码。所有输入均为固定种子的模拟数据。
 
 ## 数据准备与输入约定 {#data}
 
@@ -473,6 +474,81 @@ fmt_tag(fmt_axis(shared, plot_dims = c(2, 2)), size = 13)
 ![共享条带、边界轴和连续标签可以组合使用。](images/format-guide/format-composed.png){fig-alt="规则四面板布局有列标题、行标题、A 至 D 标签，第二列条带背景透明。"}
 
 :::
+
+## 轴文字、类别顺序与嵌套布局 {#axis-current}
+
+当前 `fmt_axisText()` 通过已有的轴 guide 应用角度与文字样式，保留富文本类型、上 / 下 / 左 / 右轴的单独设置、嵌套布局和原对象。只设置 `x_hjust` / `y_hjust` 也会生效，不必同时传角度；`NULL` 保留既有设置。`...` 中显式给出的 theme 字段在最后应用。
+
+`fmt_axisTile()` 的颜色名对应离散变量的原值，不对应改写后的显示文字。它按 scale 的实际顺序、breaks、未使用水平和 NA 处理标签；`axis` 选择最终物理横轴或纵轴，所以 `coord_flip()` 后的类别轴通常为 `"y"`。连续轴、隐藏的 guide 和其他类型 guide 保持原样；非 Cartesian 坐标会明确报错。guide 实现要求 ggplot2 ≥ 3.5.0。
+
+<!-- format-axis:start -->
+::: {.panel-tabset}
+
+### 富文本旋转
+
+```r
+p_rich <- p_box + scale_x_discrete(limits = c("C", "A", "B"),
+  labels = c(A = "<b>A</b>: control", B = "<b>B</b>: group 2",
+    C = "<b>C</b>: group 3"), guide = guide_axis(angle = 0)) +
+  theme(axis.text.x = ggtext::element_markdown(), legend.position = "none")
+p_rich_rotated <- fmt_axisText(p_rich, x = 45, size = 11)
+p_rich_rotated
+```
+
+![类别顺序改为 C、A、B，轴标签保持加粗标记与整段文字，旋转后仍可阅读。](images/format-guide/axis-rich-text.png){fig-alt="C、A、B 三组小提琴图的富文本轴标签旋转 45 度，字母保持加粗。"}
+
+### 富文本按原类别着色
+
+```r
+p_rich_colored <- fmt_axisTile(p_rich, colors = cols, mode = "text",
+  text_angle = 45, text_size = 11)
+p_rich_colored
+```
+
+![颜色按 C、A、B 的原类别名匹配，不因改写标签或调整顺序而错配。](images/format-guide/axis-rich-colors.png){fig-alt="富文本标签 C 为绿色、A 为蓝色、B 为橙色，颜色随原类别而非显示文字匹配。"}
+
+### 翻转后的物理纵轴
+
+```r
+p_flipped_tile <- fmt_axisTile(p_box + coord_flip(), colors = cols,
+  axis = "y", mode = "tile", tile_width = 0.05, text_angle = 0)
+p_flipped_tile
+```
+
+![coord_flip 后用 axis=y 设置纵向类别颜色条，数据与类别颜色对应关系保留。](images/format-guide/axis-tile-flipped.png){fig-alt="水平小提琴图的左侧纵向类别轴有 A 蓝、B 橙、C 绿的颜色条。"}
+
+### 嵌套组合图与轴收集
+
+```r
+p_nested <- ((p_box | p_box) / (p_box | p_box)) +
+  plot_annotation(title = "Nested category axes")
+p_nested_tile <- fmt_axisTile(p_nested, colors = cols, mode = "tile")
+p_nested_tile <- fmt_axisText(p_nested_tile, x = 45)
+p_nested_tile
+```
+
+![两层嵌套保留四幅图、各自的颜色条和总标题。](images/format-guide/axis-tile-nested.png){fig-alt="两层嵌套的四幅小提琴图各有类别标签和配色条，保留总标题。"}
+
+### 相同类别轴的收集
+
+patchwork 的轴收集在当前布局层级生效，不会递归收集任意嵌套层级。下面把两幅图直接上下排列，让相同的横轴及颜色条只在底部保留一份。
+
+```r
+p_collected <- wrap_plots(p_box, p_box, ncol = 1, axes = "collect") +
+  plot_annotation(title = "Collected category axis")
+p_collected_tile <- fmt_axisTile(p_collected, colors = cols, mode = "tile")
+p_collected_tile <- fmt_axisText(p_collected_tile, x = 45)
+p_collected_tile
+```
+
+![两幅图共享底部类别轴，颜色条与该轴一起收集。](images/format-guide/axis-tile-collected.png){fig-alt="上下排列的两幅小提琴图只在底部保留一组 A、B、C 标签与蓝橙绿颜色条。"}
+
+:::
+<!-- format-axis:end -->
+
+同一类别与颜色映射才能收集为同一 guide；不同配色保留各自颜色条。重复调用会更新已有格式，切换 tile / text 不会不断嵌套新条带。tile 模式的单图仍包装为 patchwork，text 模式保留输入容器；命名列表仍返回列表，固定图形与插图不参与可编辑数据图的格式化。
+
+源码：[轴格式化与颜色条](https://github.com/HUI950319/UtilsR/blob/f909d90/R/fmt_plot.R)。上述五图均使用同一份模拟数据，格式化不改变分组值或分析数据。
 
 ## 返回对象、保存与使用边界 {#output}
 
