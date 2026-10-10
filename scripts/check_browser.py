@@ -60,6 +60,15 @@ def check(root):
                     if is_dark != dark:
                         page.locator(".quarto-color-scheme-toggle:visible").first.click()
                     page.wait_for_function("dark => document.body.classList.contains('quarto-dark') === dark", arg=dark)
+                    # Quarto changes the body class before the alternate CSS loads.
+                    page.wait_for_function("""dark => {
+                        const mode = dark ? 'dark' : 'light';
+                        const sheet = document.querySelector('link#quarto-bootstrap[data-mode="' + mode + '"]');
+                        return sheet && sheet.rel === 'stylesheet' && sheet.sheet;
+                    }""", arg=dark)
+                    if backgrounds:
+                        page.wait_for_function("light => getComputedStyle(document.body).backgroundColor !== light",
+                            arg=backgrounds[0])
                     backgrounds.append(page.locator("body").evaluate("el => getComputedStyle(el).backgroundColor"))
                     check_width(page, f"{name} desktop dark={dark}")
                     page.set_viewport_size({"width": 390, "height": 844})
