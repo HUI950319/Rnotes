@@ -2,7 +2,7 @@
 title: "模型评价：C-index、时点 AUC、Brier 与验证人群"
 description: "get_fit、get_msr、get_score、get_score_summary 与 plt_score 的实际输出；训练内与留出集评价边界。"
 date: 2026-10-05
-date-modified: 2026-10-10
+date-modified: 2026-10-13
 lightbox: true
 toc-depth: 2
 ---
@@ -10,7 +10,7 @@ toc-depth: 2
 
 模型区分度、概率误差和拟合优度不是同一个指标。下面将模型拟合、评价人群、时间网格和汇总方式明确分开，展示 RegR 两条评价路线，以及一个固定留出集的实际比较。
 
-**核对记录：** 历史示例保留原执行输出；本次按已推送提交 `6c8e4b9` 补充 `basic_group`，实际核对自定义基础分组列与默认列的完整评分表一致。包版本仍为 RegR 0.1.3，复现新参数须安装含该提交的源码。历史示例使用 WSL R 4.4.3 执行并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
+**核对记录：** 本次在WSL R 4.4.3实际执行固定模型、新队列重拟合及分期评分面板，并检查Word输出。外部队列接口与save功能仍包含未推送的本机开发提交；已推送basic_group示例及其他历史图表保留原输出。包版本仍为RegR 0.1.3，按提交与所加载接口核对。示例只演示接口，使用内部留出数据，不构成独立外部验证或临床效果结论。
 
 ## 数据准备与复现
 
@@ -39,7 +39,7 @@ d <- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])
 ## 共用计算与返回对象
 
 
-所有 R=0 的 RegR 评价都在传入的同一数据上拟合和评价，属于表观性能。R=1 也走无重采样分支。最后的 score_test 则使用只在 train 拟合的 get_fit() 模型，由 riskRegression::Score 在 test 上计算；这一步没有调用会在 test 上重拟合的 get_score(test, ...)。
+未提供 `new_data` 时，R=0 的 RegR 评价在传入的同一数据上拟合和评价，属于表观性能。R=1 也走无重采样分支。最后的 score_test 则使用只在 train 拟合的 get_fit() 模型，由 riskRegression::Score 在 test 上计算；这一步没有调用会在 test 上重拟合的 get_score(test, ...)。
 
 ```r
 models <- list(c("Age", "Sex"), c("Age", "Tum", "Sex", "stage"))
@@ -656,6 +656,82 @@ as.data.frame(score_test[["AUC"]][["score"]])
 
 :::
 
+
+## 开发模型固定评价与外部重拟合 {#external-cohort}
+
+本机开发提交 `04d667c` 为 `get_score()` 增加 `new_data` / `new_fit`，`9aa01b8` 增加末尾 `save=list()`。本节在 WSL R 4.4.3 实际执行；它们仍是 RegR 未推送的开发接口（远端基线 `db09cd0`，版本0.1.3）。旧表和旧图保留各自执行快照。
+
+`new_fit="fixed"` 使用开发队列拟合的模型预测新队列，是固定模型评价；`"refit"` 在新队列重新拟合同样的变量组合，得到该队列的表观性能；`"both"` 同时显示两种面板，不能把重拟合面板标为固定模型外部验证。`R` 只重采样开发队列，外部面板不随R重复拟合。
+
+下面对本页800人样本做固定随机划分，只演示接口，属于内部留出；真实外部验证应传入独立队列。没有用留出集选变量或调参。
+
+```r
+set.seed(20261001)
+dev_id <- sample.int(nrow(d), floor(0.7 * nrow(d)))
+development <- d[dev_id, ]
+validation <- d[-dev_id, ]
+external_models <- list(Basic = c("Age", "Sex"),
+  Extended = c("Age", "Tum", "Sex", "stage"))
+score_external <- run_quiet(get_score(development, vars = external_models,
+  timepoint = c(36, 60, 120), R = 0,
+  metrics = c("AUC_score", "BS_score", "AIC"),
+  score_args = list(n_cores = 1L), new_data = validation, new_fit = "both",
+  save = list(path = tempdir(), title = "Development and validation performance")))
+```
+
+::: {.panel-tabset}
+
+### 三个评价面板
+
+```r
+score_external[["ft"]]
+```
+
+![开发队列表观、固定开发模型和新队列重拟合的三个面板。](images/model-evaluation-guide/external-panels.png){fig-alt="模型评分表区分Development cohort、External development models和External refitted models；固定模型AIC为空。"}
+
+### 固定开发模型的时点曲线
+
+```r
+p_external_fixed <- plt_score(score_external[["ext"]][["fixed"]][["obj"]])
+p_external_fixed
+```
+
+![固定开发模型在留出队列上的AUC与Brier曲线。](images/model-evaluation-guide/external-fixed.png){fig-alt="Basic和Extended固定开发模型在36、60、120月留出样本上的时点AUC与Brier。"}
+
+### 新队列重拟合的时点曲线
+
+```r
+p_external_refit <- plt_score(score_external[["ext"]][["refit"]])
+p_external_refit
+```
+
+![在同一留出队列重新拟合后的表观曲线，评价含义与固定模型不同。](images/model-evaluation-guide/external-refit.png){fig-alt="Basic和Extended变量组合在留出队列重新拟合后的表观AUC与Brier。"}
+
+:::
+
+`AUC.BS.AIC` 的固定模型列以 `_ext` 结尾，重拟合列以 `_ext_refit` 结尾。原有图形字段仍描述开发队列，新队列对象在 `ext$fixed` / `ext$refit` 内。固定模型的 AIC、BIC、PVE 不计算，表格显示为空；这些指标描述拟合而非固定预测模型在新样本中的预测表现。分类变量按开发水平编码，开发队列未见的新水平会报错；不要静默转成缺失值。
+
+非空 `save` 将最终全部面板的 `ft` 写入Word，并保留返回对象；`NULL` / `list()` 跳过写入。本次实际检查了生成的docx含三个评价面板。
+
+## 分期方案的新队列评价 {#stage-external}
+
+分期评分的 `new_data` 固定的是基础组到各分期方案的映射；六项评分中的Cox模型在新队列上计算。它没有 `new_fit` 开关，也不等价于上节固定预测模型的性能验证。分期变量必须按开发队列的水平及顺序编码；新水平显式报错。
+
+```r
+set.seed(20261013)
+stage_id <- unlist(lapply(split(seq_len(nrow(ds)), ds[["group"]]),
+  function(i) sample(i, floor(0.7 * length(i)))))
+stage_external <- get_score_stage(ds[stage_id, ],
+  cat_groups = c("Stage_A", "Stage_B"), adj_var = "Age", R = 0,
+  new_data = ds[-stage_id, ],
+  name_map = c(Stage_A = "Three stages", Stage_B = "Four stages"),
+  save = list(path = tempdir(), title = "Staging schemes in two cohorts"))
+stage_external[["ft_total"]]
+```
+
+![开发与留出队列的分期评分面板，附每项原始Total score及标准化分数。](images/model-evaluation-guide/stage-external.png){fig-alt="三期和四期方案在开发与留出队列分别计算六项分期评分，表中显示Total score、标准化分数及排名。"}
+
+返回的 `ext` 是新队列六项评分数据框；`ft` / `ft_total` 的新队列列以 `_ext` 结尾。开发数据与外部数据分别使用自身的分析样本，缺失处理及实际水平应在报告中说明。
 
 ## 使用边界、保存与复现记录
 
