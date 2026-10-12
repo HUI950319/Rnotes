@@ -2,13 +2,14 @@
 title: "图形组合与导出：展平、grob、插图和栅格化"
 description: "嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较；实际参数对照与递归栅格化示例。"
 date: 2026-10-09
+date-modified: 2026-10-12
 lightbox: true
 toc-depth: 2
 ---
 
 嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
-**版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；28 个示例已在 WSL R 4.4.3 中实际执行，其中 22 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+**核对记录：** 本次按已推送 UtilsR `fc078ec` 重新执行展平示例，保留最外层注释，并新增命名 list、插图单元、坐标标题和 guide 作用域对照。其他 grob / 栅格化图及文件大小表保留原执行快照；包版本仍为 0.6.8。本页使用固定随机种子的模拟数据。
 
 ## 数据准备与输入约定 {#data}
 
@@ -50,9 +51,9 @@ dense <- ggplot(dat, aes(x, y, color = group)) + geom_point(size = 0.8, alpha = 
 
 | 目标 | 重要参数 | 作用与适用条件 |
 |:--|:--|:--|
-| 展平嵌套 | `flatten_patchwork(plots,...)` | 递归取 patchwork 子图，再调用 wrap_plots；外层标题、原设计和相对尺寸需重新设定 |
+| 展平嵌套 | `flatten_patchwork(plots,...)` | 递归取普通网格单元；保留最外层标题、tag 和收集设置，网格设计与相对尺寸通过 ... 重建 |
 | 选择和重排 | `select_inds=NULL/nrow_inds_order=NULL` | 先展平，再选索引；nrow_inds_order=2 对四图得到 1,3,2,4 |
-| 重新排版 | ... 中 `nrow/ncol/widths/heights/guides` | 直接交给 wrap_plots；不把已有 list 当作已支持的展平输入 |
+| 重新排版 | ... 中 `nrow/ncol/widths/heights/guides` | 直接交给 wrap_plots；支持嵌套 list，单单元条目名可匹配字符 design |
 | grob 转换 | `grob_as(plot,...)` | ggplot→gtable、gList→grobTree、现有 gtable 保持；patchwork 完整转换用 patchworkGrob |
 | 边缘附加 | `grob_add(position,space=NULL,clip="on")` | top/bottom/left/right/none；space 用 grid::unit 明确高度或宽度，本页使用单面板 |
 | 插图边界 | `left/bottom/right/top` | 默认 0–1 的相对坐标，支持 grid unit；顺序必须组成正的宽和高 |
@@ -83,13 +84,13 @@ nested
 
 ### 展平成一行 {.unnumbered}
 
-四张图递归展平，再统一排一行；外层 Outer annotation 和自动 tag 不会保留。
+四张图递归展平，再统一排一行；保留最外层 Outer annotation 和自动 tag。
 
 ```r
 flatten_patchwork(nested, nrow = 1)
 ```
 
-![四张图递归展平，再统一排一行；外层 Outer annotation 和自动 tag 不会保留。](images/composition-guide/flat-row.png){fig-alt="图形组合与导出：展平、grob、插图和栅格化；展平成一行；固定模拟数据的实际参数对照结果。"}
+![四张图递归展平，再统一排一行；保留最外层 Outer annotation 和自动 tag。](images/composition-guide/flat-row.png){fig-alt="图形组合与导出：展平、grob、插图和栅格化；展平成一行；固定模拟数据的实际参数对照结果。"}
 
 ### 选第 1 和第 3 图 {.unnumbered}
 
@@ -124,6 +125,62 @@ flatten_patchwork(nested, ncol = 2, widths = c(1.5, 1), heights = c(1, 0.8),
 ![重新定义列宽、行高与外层标题；收集的相同图例仍需核对内容是否完全一致。](images/composition-guide/new-layout.png){fig-alt="图形组合与导出：展平、grob、插图和栅格化；重新给布局和总标题；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+## 当前展平合同：命名、插图与收集 {#flatten-current}
+
+展平后的索引对应完整网格单元：普通图、spacer、guide area 和 wrapped 图均计入；插图随主图作为一个选择单元，`free()` 容器也保持完整。返回对象仍遵循 patchwork 原生子对象索引，因此含插图时 `length()` 不等于可选择的单元数。
+
+::: {.panel-tabset}
+
+### 嵌套命名 list 与 design
+
+```r
+p_named <- flatten_patchwork(list(B = p2, list(A = p1, C = p3)), design = "AAB\nAAC")
+p_named
+```
+
+![list顺序为B A C，但命名design将A放左侧两行，B C放右侧。](images/composition-guide/flat-named.png){fig-alt="嵌套命名list按AAB AAC设计排列，散点图占左侧两行，箱线和直方图位于右侧。"}
+
+### 插图随主图重排
+
+```r
+host <- p1 + inset_element(inset, 0.55, 0.02, 0.98, 0.45)
+p_inset_order <- flatten_patchwork(list(host, p3), select_inds = c(2, 1), nrow = 1)
+p_inset_order
+```
+
+![先放直方图，再放散点主图；右下角插图仍属于散点图。](images/composition-guide/flat-inset.png){fig-alt="直方图在左，带右下角箱线插图的散点图在右，重排未拆开主图与插图。"}
+
+### 先展平再收集坐标标题
+
+```r
+same_axes <- ((p1 | p1) / (p1 | p1)) +
+  plot_annotation(title = "Shared axis titles", tag_levels = "A")
+p_axes <- flatten_patchwork(same_axes, ncol = 2, axis_titles = "collect", guides = "collect") &
+  theme(legend.position = "bottom")
+p_axes
+```
+
+![四幅散点图位于同一布局层，保留总标题和tag，共用坐标标题与底部图例。](images/composition-guide/flat-axis-titles.png){fig-alt="两行两列散点图共享一个x和y轴标题、底部图例，并保留Shared axis titles和ABCD标签。"}
+
+### 保留内部 guide 作用域
+
+```r
+kept <- (p1 | p2) + plot_layout(guides = "keep")
+p_scope <- flatten_patchwork(list(wrap_elements(full = kept), p4),
+  ncol = 2, guides = "collect")
+p_scope
+```
+
+![左侧两图用wrap_elements作为一个单元保留内部keep，右侧密度图参与外层收集。](images/composition-guide/flat-guide-scope.png){fig-alt="左侧包装的散点和箱线组合保留各自图例，右侧密度图保留外层收集的图例。"}
+
+:::
+
+正索引可重复选择，负索引排除，0忽略；不接受缺失、小数、正负混用或越界索引。`nrow_inds_order` 在选择之后重排，不设置最终行数。字符 `design` 匹配到重复单元名时会报错，按位置重复排图可使用无名 list。
+
+普通嵌套容器展平后，内部 `guides="keep"/"collect"` 的作用域随容器消失；以保留的最外层设置及 `...` 为准。需要保留整个内部布局时用上面的 `wrap_elements()`。只保留输入 patchwork 的最外层注释，内部标题和 tag 作用域不会自动提升；原设计、宽高比例也不会自动沿用。
+
+源码：[flatten_patchwork 当前实现](https://github.com/HUI950319/UtilsR/blob/fc078ec/R/fmt_plot_utils.R)。本次实际构建了所有新增组合，并核对输入对象、插图归属和选择顺序。
 
 ## grob 类型与完整转换
 
