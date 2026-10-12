@@ -2,7 +2,7 @@
 title: "RPA：建树、终末节点与生存和二分类输出"
 description: "get_rpa 六种生存建树模式、节点规则与当前绘图接口；展示树图、节点效应、KM、汇总表、热图及 Logistic 节点图。"
 date: 2026-10-01
-date-modified: 2026-10-10
+date-modified: 2026-10-13
 lightbox: true
 toc-depth: 2
 ---
@@ -59,6 +59,76 @@ rpa_log <- run_quiet({get_rpa(d, rpa_var = c("Age", "stage"),
   adj_var = "Sex", surv = "DSS")})
 ```
 
+
+## 新队列沿用开发树与终末分组 {#fixed-rpa-groups}
+
+本机开发提交 `51832f6` 增加 `get_rpa_new(res, new_data)`；本节在 WSL R 4.4.3 实际拟合与运行。接口仍未进入 RegR 远端基线 `db09cd0`，版本号保持0.1.3。历史全队列树图保留原执行快照。
+
+树、切点和终末组完全固定，不在新队列重新建树。`new_data` 只需实际分裂变量，无需结局或调整项。函数保留新数据并新增 / 替换 `group`、`terminal_node`、`node_rule`、`node_rule2`，保留全部开发水平；没有新患者进入的组仍保留标签。
+
+本页800人样本按固定种子划为开发与留出集，演示接口，不是独立外部验证。
+
+```r
+set.seed(20261013)
+rpa_id <- sample.int(nrow(d), floor(0.7 * nrow(d)))
+rpa_development <- d[rpa_id, ]
+rpa_validation <- d[-rpa_id, ]
+rpa_dev <- run_quiet(get_rpa(rpa_development, rpa_var = c("Age", "stage"),
+  adj_var = "Sex", rpa_model = "cit",
+  cat_arg = list(timepoint = 60,
+    curve_args = list(ci = FALSE, max_times = 25L))))
+rpa_new <- get_rpa_new(rpa_dev, rpa_validation)
+```
+
+::: {.panel-tabset}
+
+### 只在开发样本建树
+
+```r
+plt_rpa(rpa_dev, term_label = "count")
+```
+
+![只用开发样本拟合的树，终末人数不是原全队列树的历史人数。](images/rpa-guide/development-tree.png){fig-alt="固定随机划分后的开发队列RPA树，以节点人数说明分裂规则。"}
+
+### 同一分组用于留出样本
+
+```r
+group_counts <- data.frame(group = levels(rpa_dev[["dat"]][["group"]]),
+  Development = as.integer(table(rpa_dev[["dat"]][["group"]])),
+  Validation = as.integer(table(rpa_new[["group"]])))
+flextable::flextable(group_counts)
+```
+
+![开发与留出样本共享终末组标签，人数各自计算。](images/rpa-guide/external-group-counts.png){fig-alt="同一开发树的终末组在开发与留出样本中分别计数，保留全部开发水平。"}
+
+:::
+
+因子可按名称重新排序，字符列也按开发水平匹配；开发数据从未出现的新水平报错，原数值变量必须保持数值。某行到达的分裂值缺失，或在该分裂处未观测到其水平时，返回 `group=NA` 并警告未分组人数；不会随机送往子节点。比较前检查 `table(rpa_new$group, useNA="ifany")`，不把未分组行归入最低风险组。
+
+把终末组再合并成风险分期由调用者完成，开发与验证队列应应用同一映射。分期评分的新队列接口见 [模型评价](model-evaluation-guide.qmd#stage-external)。
+
+## 节点组对比与可编辑表外脚注 {#pair-footnotes}
+
+`get_rpa_pair()` 比较终末组的HR、sHR或OR；它固定组别后拟合组间模型，不重新建树。`method="consec"` 比较后组对前组，`"trt.vs.ctrl1"` 对第一组，`"pairwise"` 为全部两两比较。`reverse=TRUE` 反转比值；多重校正方式以输出Note中实际采用的方法为准。
+
+```r
+# 仅为演示可编辑脚注生成模拟生存数据；不代表前方队列的节点HR。
+set.seed(20261013)
+pair_levels <- levels(rpa_dev[["dat"]][["group"]])
+pair_dat <- data.frame(group = factor(rep(pair_levels, each = 120), levels = pair_levels))
+pair_dat[["Sex"]] <- factor(rep(c("Female", "Male"), length.out = nrow(pair_dat)))
+pair_dat[["time"]] <- rexp(nrow(pair_dat), rate = 0.02 *
+  exp(0.3 * (as.integer(pair_dat[["group"]]) - 1))) + 1
+pair_dat[["DSS"]] <- rbinom(nrow(pair_dat), 1, 0.7)
+rpa_pair <- get_rpa_pair(pair_dat, adj_var = "Sex",
+  method = "consec", adjust = "none",
+  save = list(path = tempdir(), title = "Adjacent terminal groups"))
+rpa_pair[["ft"]]
+```
+
+![模拟相邻组HR表后有独立Note与Significance levels段落。](images/rpa-guide/pair-external-footnotes.png){fig-alt="未调整和调整Sex的相邻节点组HR表，Note与显著性说明显示为表格之后的两个独立段落。"}
+
+当前 `ft` 带 `rpa_pair_ft` 子类，脚注保存在 `footnotes` 属性，不在footer行内。HTML预览和Word中，Note与Significance levels是表格后的两个独立可编辑段落。本次实际检查了Word XML，两个说明均位于 `w:tbl` 之后。复用 `save_tb(rpa_pair$ft, ...)` 会保留说明，手动丢掉子类或属性可能丢失脚注。
 
 ## 当前接口与函数选择
 
