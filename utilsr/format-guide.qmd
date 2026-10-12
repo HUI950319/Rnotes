@@ -2,14 +2,14 @@
 title: "ggplot 格式化：主题、坐标、图例、条带与面板标签"
 description: "fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化；实际参数对照与嵌套布局示例。"
 date: 2026-10-09
-date-modified: 2026-10-10
+date-modified: 2026-10-12
 lightbox: true
 toc-depth: 2
 ---
 
 fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
-**核对记录：** 本次按公开 UtilsR 源码 `f909d90` 核对轴文字和颜色条，并在 WSL R 4.4.3 实际绘制 5 张富文本、翻转坐标、嵌套布局与轴收集图。既有 34 张图保留原执行输出；包版本仍为 0.6.8，使用新行为时应安装含该提交的源码。所有输入均为固定种子的模拟数据。
+**核对记录：** 本次按已推送 UtilsR `fc078ec` 更新统计比较、背景与图例，修复越界的 label.y.prop 示例，并实际执行新增的配对、单侧与校正 P 值对照。已有轴文字、颜色条、条带及其他图保留各自执行快照；全页新增 8 张实图。包版本仍为 0.6.8；输入均为固定种子的模拟数据。
 
 ## 数据准备与输入约定 {#data}
 
@@ -396,7 +396,7 @@ fmt_boxplot(p_box, boxplot.args = list(width = 0.18, alpha = 0.25, colour = "#22
 con 在当前横轴顺序上比较相邻组，标注高度与图形数据范围相联系。
 
 ```r
-fmt_com(p_box, com_method = "con", label = "p.format", label.y.prop = 1.15)
+fmt_com(p_box, com_method = "con", label = "p.format", label.y.prop = 0.9)
 ```
 
 ![con 在当前横轴顺序上比较相邻组，标注高度与图形数据范围相联系。](images/format-guide/comparison.png){fig-alt="ggplot 格式化：主题、坐标、图例、条带与面板标签；比较标注；固定模拟数据的实际参数对照结果。"}
@@ -549,6 +549,123 @@ p_collected_tile
 同一类别与颜色映射才能收集为同一 guide；不同配色保留各自颜色条。重复调用会更新已有格式，切换 tile / text 不会不断嵌套新条带。tile 模式的单图仍包装为 patchwork，text 模式保留输入容器；命名列表仍返回列表，固定图形与插图不参与可编辑数据图的格式化。
 
 源码：[轴格式化与颜色条](https://github.com/HUI950319/UtilsR/blob/f909d90/R/fmt_plot.R)。上述五图均使用同一份模拟数据，格式化不改变分组值或分析数据。
+
+## 统计比较：配对、方向与校正 {#statistical-comparisons}
+
+`fmt_com()` 会计算统计检验。`label.y.prop` 必须为0–1比例，按各面板变换后的 y 范围定位；原示例的1.15已无效。绝对 `label.y` 用原始数据单位，函数负责转换到 log 等坐标。显式位置默认不附加 nudge，必要时使用 `bracket.nudge.y`。
+
+`com_method="con"` 选择显示顺序上的相邻类别；单侧检验的方向使用原始组顺序或显式比较顺序，不随轴重排反转。`ref.group` 指定参考比较，不能和自定义比较 list 同时使用。默认星号对应原始 P 值；展示多重校正结果时显式选 `p.adj.signif` / `p.adj.format`。Dunn、Tukey、Games–Howell 先计算完整比较家族，再筛显示的配对，不能按显示的几条线重新理解其校正范围。
+
+::: {.panel-tabset}
+
+### 全部配对与 Holm 校正
+
+```r
+p_adjusted <- fmt_com(p_box, com_method = "all", method = "wilcox_test",
+  label = "p.adj.format", p.adjust.method = "holm", label.y.prop = 0.8)
+p_adjusted
+```
+
+![三组全部两两比较，标签显示 Holm 校正后的P值。](images/format-guide/com-adjusted.png){fig-alt="A B C三组小提琴图上显示三条比较括号和Holm校正后的P值。"}
+
+### 配对数据与受试者 ID
+
+```r
+set.seed(1012)
+before <- rnorm(24)
+paired_dat <- data.frame(subject = rep(sprintf("S%02d", 1:24), 2),
+  visit = factor(rep(c("Before", "After"), each = 24), levels = c("Before", "After")),
+  score = c(before, before + 0.35 + rnorm(24, sd = 0.25)))
+paired_dat$score[29] <- NA_real_
+p_pair <- ggplot(paired_dat, aes(visit, score)) +
+  geom_line(aes(group = subject), colour = "grey70", na.rm = TRUE) +
+  geom_point(na.rm = TRUE) + theme_my()
+p_paired <- fmt_com(p_pair, com_method = list(c("Before", "After")),
+  method = "t_test", method.args = list(paired = TRUE, id = "subject"),
+  label = "p.format", label.y.prop = 0.9)
+p_paired
+```
+
+![按受试者ID配对，一个随访值缺失时共同移除该对，不按剩余行位置错误配对。](images/format-guide/com-paired.png){fig-alt="24名模拟受试者的Before和After轨迹，统计检验按ID匹配并使用23个完整配对。"}
+
+### 轴重排保持单侧方向
+
+```r
+p_reordered <- p_box + scale_x_discrete(limits = c("C", "B", "A"))
+p_one_sided <- fmt_com(p_reordered, com_method = list(c("A", "B")),
+  method = "wilcox_test", method.args = list(alternative = "less"),
+  label = "p.format", label.y.prop = 0.9)
+p_one_sided
+```
+
+![轴显示C、B、A，检验仍按显式A对B的less方向执行。](images/format-guide/com-one-sided.png){fig-alt="横轴C B A顺序的小提琴图保留A对B的单侧Wilcoxon比较方向。"}
+
+### log 轴与绝对括号位置
+
+```r
+positive_dat <- transform(dat, value = exp(y))
+p_log <- ggplot(positive_dat, aes(group, value)) + geom_boxplot() +
+  scale_y_log10() + theme_my()
+p_log_com <- fmt_com(p_log, label = "p.format", label.y = c(30, 55))
+p_log_com
+```
+
+![label.y使用30和55的原始数值，在log坐标中定位；不是直接填写log值。](images/format-guide/com-log-scale.png){fig-alt="log纵轴箱线图中两条统计括号按原始数据数值30和55定位。"}
+
+:::
+
+配对检验没有 ID 时依赖组内原始顺序和相等组大小；显式 ID 更适合真实纵向数据。`group.by="x.var"` 在各 x 内比较图例组，`"legend.var"` 在各图例组内比较 x；统计分组应明确设置。scale limits 会筛除用于检验的观测，观察窗优先用 `coord_cartesian()`。自定义数据 / mapping 用于多个图层来源不一致时，不能假定每条线都参与同一检验。
+
+## 背景与图例的新行为 {#background-legend-current}
+
+`fmt_bg()` 的命名颜色匹配原始类别值，按训练后的类别顺序绘制；free facets 保持同一类别的同一颜色。重复调用更新已有背景，原数据和前景裁剪不因此改变。`fmt_legend()` 保留 guide 类型与局部设置；相同渲染结果才去重。图内图例不能被外层收集吞掉，包含可见 inside 图例时会保留它们并提示。
+
+::: {.panel-tabset}
+
+### 类别重排与背景颜色
+
+```r
+p_bg_order <- fmt_bg(p_box + scale_x_discrete(limits = c("C", "A", "B")),
+  palcolor = cols, alpha = 0.12)
+p_bg_order
+```
+
+![类别显示C、A、B，底色仍按C绿、A蓝、B橙对应。](images/format-guide/bg-reordered.png){fig-alt="C A B顺序的小提琴图具有按原类别名称匹配的绿蓝橙背景。"}
+
+### free facets 的共享配色
+
+```r
+bg_dat <- dat[!(dat$batch == "Batch 2" & dat$group == "B"), ]
+p_bg_facets <- ggplot(bg_dat, aes(group, y)) + geom_boxplot() +
+  facet_wrap(vars(batch), scales = "free_x") + theme_my()
+p_bg_facets <- fmt_bg(p_bg_facets, palcolor = cols, alpha = 0.12)
+p_bg_facets
+```
+
+![第二面板没有B，但A和C不重新分配颜色；保留各面板真实类别。](images/format-guide/bg-free-facets.png){fig-alt="两幅自由横轴箱线图中A始终蓝色C始终绿色，第二面板没有B。"}
+
+### 图内图例
+
+```r
+p_inside <- fmt_legend(p, legend.position = "br", scale = 0.85, title = "Group")
+p_inside
+```
+
+![br简写把图例放在右下角，缩放只作用于图例。](images/format-guide/legend-inside.png){fig-alt="散点图的图例在面板右下角，文字和键按0.85缩放。"}
+
+### 嵌套组合的外层收集
+
+```r
+p_guides <- fmt_legend((p | p) / (p | p), collect = TRUE,
+  legend.position = "bottom", title = "Group", scale = 0.85)
+p_guides
+```
+
+![四图保留原嵌套布局，同一颜色图例在外层底部收集。](images/format-guide/legend-nested.png){fig-alt="两层嵌套的四幅散点图共用底部一组Group图例。"}
+
+:::
+
+源码：[统计比较、背景与图例](https://github.com/HUI950319/UtilsR/blob/fc078ec/R/fmt_plot.R)。本次比较了重排前后的单侧P值；配对P值与按ID完成共同缺失处理后的t检验一致。
 
 ## 返回对象、保存与使用边界 {#output}
 
