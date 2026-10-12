@@ -2,6 +2,7 @@
 title: "效应估计与森林图：get_eff 和 4 个绘图函数"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的参数示例，并补充 set_eff 的数值与区间对照。"
 date: 2026-10-09
+date-modified: 2026-10-13
 lightbox: true
 toc-depth: 2
 ---
@@ -11,6 +12,16 @@ toc-depth: 2
 **版本与执行范围：** 接口按 RegR **0.1.3**（2026-10-09 源码 `40515e1`）核对，使用 WSL R **4.4.3** 重新拟合并绘制下方 **24 张主教程图**；set_eff 与分期方案补充图保留各自注明的执行记录。页面显示已保存的结果；代码可在装有 RegR、ToyData 及相关依赖的 R 环境中复现。
 
 24 张主教程图已于 2026-10-09 更新；此前执行记录不再用于说明当前默认后端或区间。下方 `cat_var_rpa` 补充示例按 2026-10-05 源码 `3411eb0` 实际运行，使用另外的 800 人 MTC 演示样本。
+
+## 2026-10-12：KM 推断、表头和叠加样式 {#current-forest}
+
+本次在 WSL R 4.4.3 使用 RegR 本机开发源码 `d54e60f` 重新拟合本页 `eff_sub`，刷新含 KM 生存差值的森林图与组别概率图。Greenwood 标准误修复会改变未调整 / PSM 生存差值的区间和 P 值，组别概率、其区间、HR、direct 与 IPTW 不受此修复影响。历史 `get_eff()` 对象应从原始数据重算，单独重画旧表无法修复推断。
+
+`plt_eff_pair()` 现在支持 `header_list`、`legend_position` 和 `type="v"/"i"/"i2"`；默认参考线显示为红色。`plt_eff_sur()` 支持替换表头与方法标题，概率时间标题从实际时点生成，90月为7.5年，不能把它写成10年。
+
+::: {.callout-note}
+上述更新含 RegR 未推送的本机开发提交；远端基线为 `db09cd0`，版本号仍是0.1.3。下列新图已实际执行，既有经典森林图与CIF图保留原执行快照。使用开发接口前应核对所安装源码。
+:::
 
 ## 示例数据与读图规则 {#data}
 
@@ -873,6 +884,8 @@ plt_eff_sur(eff_multi_prob, summary_vars = c("label", "eve1"),
 
 set_eff **会改变结果表的数值**，适用于注明来源的外部估计或敏感性展示，不重新拟合模型。默认 inplace=TRUE 会写回传入变量；以下均显式设为 FALSE，保留原对象。多个比值表时必须指定 which；sur_* 概率差表不支持。
 
+::: {.table-responsive}
+
 | 输入 | 实际行为 |
 |:--|:--|
 | CND="1.20 (0.90, 1.60)" | 将字符串视为 95% 比值区间，重写点估计、上下限、P 值、星号与 effect 文本 |
@@ -880,6 +893,8 @@ set_eff **会改变结果表的数值**，适用于注明来源的外部估计�
 | CND="conf_0.90" | 点估计不变，改变该行显示置信水平；原模型 p.value_0.95 保留 |
 | effect=list(N_4=c(CND="conf_0.90")) | 按“标题块→行标签”定位；重复标签时比直接按 label 更明确 |
 | header / 数字名称 | header 限定标签所在块；数字名称为行号，包含标题行，数据变化后需重新核对 |
+
+:::
 
 **P 值边界：** 由区间反推使用 log 正态近似，受输入小数精度影响。非 95% 展示时 p_value/星号遵循当前显示区间，不能直接当作原来的模型 P 值；原 95% 值见 p.value_0.95。数字 0.90 是新比值，字符串 conf_0.90 才是置信水平。区间换级记录在 conf_level_rows 属性中；重排行后不应继续沿用该属性。
 
@@ -1008,6 +1023,66 @@ do.call(rbind, lapply(names(objects), function(nm) {
 本次补充的源码依据：[eff-set.R](https://github.com/HUI950319/RegR/blob/2e56cc6e06d548786b0a43d3449e463a0b36b252/R/eff-set.R)。
 
 <!-- forest-extension: end -->
+
+## 叠加森林图：表头、图例与背景 {#pair-current}
+
+这些图沿用本页重新拟合的 `eff_sub`，不再次拟合。背景按汇总列及效应面板分块；`i` 填奇数正文行、`i2` 填偶数正文行。表头变更只改变文字，不能改变估计量、比较方向或单位。
+
+::: {.panel-tabset}
+
+### 自定义表头与顶部图例
+
+```r
+p_pair_header <- plt_eff_pair(eff_sub, measure = "haz_diff",
+  header_list = list(label = "Variables", eve1 = "Deaths / N",
+    header_title = c("Hazard ratio (95% CI)", "Survival difference at 60 months")),
+  legend_position = "top", type = "v", label_column_list = labels,
+  forest_nchar = 40, base_size = 10, core_size = c(10, 3))
+p_pair_header
+```
+
+![HR与60月生存差值共用汇总列，表头自定义，方法图例置顶。](images/forest-guide/pair-current-header.png){fig-alt="具有自定义标题和顶部方法图例的两面板叠加森林图，竖向底色按面板分块。"}
+
+### 奇数行底色
+
+```r
+p_pair_odd <- plt_eff_pair(eff_sub, measure = "haz_diff",
+  type = "i", legend_position = "bottom", label_column_list = labels,
+  forest_nchar = 40, base_size = 10, core_size = c(10, 3))
+p_pair_odd
+```
+
+![奇数正文行保留按面板区分的底色，方法图例在底部。](images/forest-guide/pair-current-odd.png){fig-alt="i背景叠加森林图在奇数行填色，红色参考线分别位于HR1和概率差0。"}
+
+### 偶数行底色
+
+```r
+p_pair_even <- plt_eff_pair(eff_sub, measure = "haz_diff",
+  type = "i2", legend_position = "right", label_column_list = labels,
+  forest_nchar = 40, base_size = 10, core_size = c(10, 3))
+p_pair_even
+```
+
+![偶数正文行填色，与i逐行对照。](images/forest-guide/pair-current-even.png){fig-alt="i2背景叠加森林图在偶数行填色，方法图例位于右侧。"}
+
+### 90月概率与方法标题
+
+```r
+eff90_prob <- run_quiet(get_eff(d, cat_var = "N_4", sub_var = "Sex", surv = TRUE,
+  methods_haz = character(), methods_sur = "unadj", time = 90))
+p_sur_header <- plt_eff_sur(eff90_prob,
+  header_list = list(label = "Groups", header_title = "Unadjusted KM"),
+  forest_nchar = 40, base_size = 10, core_size = c(10, 3))
+p_sur_header
+```
+
+![概率表头使用实际90月对应的7.5年，方法标题为Unadjusted KM。](images/forest-guide/sur-current-header.png){fig-alt="未调整组别生存概率森林图的时间列为7.5年，方法标题和分组列标题可自定义。"}
+
+:::
+
+`header_list` 使用完整字段名；未知或重复字段会报错。`legend_position="none"` 隐藏方法图例；叠加区间仍需在图注说明方法。组别概率列的自动时间标题不能通过 `header_list` 任意改写。
+
+调整项在分析前会移除空水平；数据筛选后仍应检查因子是否只剩一个观测水平。`get_eff()` 在候选调整项全为常量时明确报错，避免将无法调整的结果标成调整后；不要把报错当作已成功完成模型拟合。层内常量与缺失水平的处理另见 [分层重拟合](facet-guide.qmd#current-strata)。
 
 ## 尺寸、保存与复用 {#save}
 
