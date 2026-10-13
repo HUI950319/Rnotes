@@ -40,6 +40,10 @@ python scripts/check_browser.py
 检查页底与 HTML 头部的上一页／下一页是否遵循 `_quarto.yml`，以及侧栏层级、短标题、当前页展开状态、面包屑、
 站内链接与锚点、页面摘要、图片替代文本与懒加载、全站图号唯一性、MLR 总览图数、搜索索引和 sitemap。
 R 检查解析教程代码，并实际验证 SHAP 分箱边界、分层示例数据构造与 RPA 时间换算。
+装有当前 UtilsR、ggplot2、patchwork 的环境可再运行 `Rscript scripts/check_examples.R --runtime`，
+直接执行本站命名轴 Sankey、受试者 ID 配对检验与命名 list 展平示例，并检查图形构建和统计结果。
+配对 P 值与独立的完整配对 t 检验核对；这些检查不拟合临床模型、不写入用户包库。
+CI 保留前面的基础检查；当前开发源码的 runtime 检查在本机完成。
 源码链接检查通过 GitHub CLI 的只读 HEAD 请求，核对各包源文件、目录与提交快照；
 Windows 使用已认证的 WSL Ubuntu-22.04 gh，其他平台使用本机 gh，CI 使用只读 GitHub token。
 不存在的分支、文件或未推送提交返回非零状态；源码链接固定到运行快照时，不会要求跟随最新 HEAD。

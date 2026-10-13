@@ -1,6 +1,9 @@
-# Parse tutorial R blocks and run small examples that need only base R.
+# Parse tutorial blocks; optionally execute current UtilsR examples.
 args <- commandArgs(trailingOnly = TRUE)
-root <- if (length(args)) normalizePath(args[[1]]) else normalizePath(".")
+runtime <- "--runtime" %in% args
+paths <- args[args != "--runtime"]
+if (length(paths) > 1L) stop("Usage: check_examples.R [root] [--runtime]")
+root <- if (length(paths)) normalizePath(paths[[1]]) else normalizePath(".")
 files <- list.files(root, pattern = "\\.qmd$", recursive = TRUE, full.names = TRUE)
 blocks <- list()
 for (path in files) {
@@ -55,3 +58,44 @@ for (unit in c("days", "years")) {
   stopifnot(isTRUE(all.equal(env[[paste0("d_", unit)]][["time"]], expected)))
 }
 cat("PASS:", length(blocks), "R blocks parsed; SHAP binning, sparse strata and RPA time conversions executed\n")
+
+if (runtime) {
+  for (pkg in c("UtilsR", "ggplot2", "patchwork")) {
+    if (!requireNamespace(pkg, quietly = TRUE)) stop("Runtime examples require ", pkg)
+    library(pkg, character.only = TRUE)
+  }
+
+  # Execute the published named-axis Sankey, including its current list API.
+  env <- new.env(parent = globalenv())
+  setup <- snippet("utilsr/flow-guide.qmd", function(x) startsWith(x[["code"]], "library(UtilsR)"))
+  eval(parse(text = setup), envir = env)
+  mapped <- snippet("utilsr/flow-guide.qmd", function(x) startsWith(x[["code"]], "p_mapped <-"))
+  plot <- eval(parse(text = mapped), envir = env)
+  built <- ggplot2::ggplot_build(plot)
+  stopifnot(nrow(built[["data"]][[1]]) > 0L,
+    all(c("Disease stage", "Treatment", "Response") %in% built[["layout"]][["panel_params"]][[1]][["x"]][["get_labels"]]()))
+
+  # ID-based paired inference must agree with the independently paired t-test.
+  env <- new.env(parent = globalenv())
+  paired <- snippet("utilsr/format-guide.qmd", function(x) grepl("paired_dat <-", x[["code"]], fixed = TRUE))
+  plot <- eval(parse(text = paired), envir = env)
+  wide <- reshape(env[["paired_dat"]], idvar = "subject", timevar = "visit", direction = "wide")
+  wide <- wide[complete.cases(wide), ]
+  expected <- stats::t.test(wide[["score.Before"]], wide[["score.After"]], paired = TRUE)[["p.value"]]
+  layers <- ggplot2::ggplot_build(plot)[["data"]]
+  actual <- layers[[length(layers)]][["p"]]
+  stopifnot(nrow(wide) == 23L, length(actual) > 0L, all(abs(actual - expected) < 1e-5))
+
+  # Named design should place the plots by names rather than list order.
+  env <- new.env(parent = globalenv())
+  setup <- snippet("utilsr/composition-guide.qmd", function(x) startsWith(x[["code"]], "library(UtilsR)"))
+  eval(parse(text = setup), envir = env)
+  named <- snippet("utilsr/composition-guide.qmd", function(x) startsWith(x[["code"]], "p_named <-"))
+  plot <- eval(parse(text = named), envir = env)
+  grob <- patchwork::patchworkGrob(plot)
+  stopifnot(inherits(grob, "gtable"),
+    identical(plot[[1]][["labels"]][["title"]], "A: scatter"),
+    identical(plot[[2]][["labels"]][["title"]], "B: boxplot"),
+    identical(plot[[3]][["labels"]][["title"]], "C: histogram"))
+  cat("PASS runtime: published Sankey, paired comparison and named flattening examples\n")
+}
