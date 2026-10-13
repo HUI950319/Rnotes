@@ -1,8 +1,8 @@
 ---
-title: "队列筛选与流程图：get_flt、plt_flo 与 plt_flo2"
-description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，包括队列、配色、换行、布局和 PDF 保存。"
+title: "队列筛选与流程图：get_flt 与三个绘图入口"
+description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，并补充 plt_flo3 的多队列分组、阶段与 PDF 保存。"
 date: 2026-10-01
-date-modified: 2026-10-10
+date-modified: 2026-10-13
 lightbox: true
 toc-depth: 2
 ---
@@ -620,6 +620,97 @@ p_small
 | `box_args$equal_height` | `TRUE`；说明框统一为最高说明框的高度 |
 
 ::::
+
+## plt_flo3()：多队列、分组与研究内容 {#plt-flo3}
+
+`plt_flo3()` 适合开发 / 验证队列并行筛选，再连接终末分组和研究内容。函数不读取患者数据或执行筛选，所有人数由 `cohorts` 提供。下面使用模拟计数，与本页前方真实MTC筛选人数无关。
+
+本节按包含 `9e4b9e8` 及后续布局修复的本机源码实际绘制，仍是 RegR 未推送的开发接口（远端基线 `db09cd0`，版本0.1.3）。旧 `plt_flo()` / `plt_flo2()` 图和筛选记录保留原快照。
+
+```r
+cohorts3 <- list(
+  list(label = "Development cohort\n2011-2020", N = 900,
+    exclude = c("Missing predictors" = 150, "No follow-up" = 50),
+    split = c("Low risk" = 280, "Intermediate risk" = 220, "High risk" = 200),
+    final_label = "Development sample"),
+  list(label = "Validation cohort\n2021-2023", N = 420,
+    exclude = c("Missing predictors" = 40, "No follow-up" = 20),
+    split = c("Low risk" = 160, "Intermediate risk" = 120, "High risk" = 80),
+    final_label = "Validation sample")
+)
+contents3 <- c("Group characteristics", "Survival comparison", "Model evaluation")
+phases3 <- c("Selection", "Risk groups", "Study content")
+```
+
+::: {.panel-tabset}
+
+### 每个队列各自分组
+
+```r
+p_flo3_separate <- plt_flo3(cohorts3, split_layout = "separate",
+  content_labels = contents3, phase_labels = phases3)
+p_flo3_separate
+```
+
+![两个队列各自连接三个风险组，再汇入共同研究内容。](images/flow-guide/flo3-separate.png){fig-alt="开发900人筛除200后为700，验证420人筛除60后为360；两个队列分别连接三个风险组。"}
+
+### 同一行汇总各队列人数
+
+```r
+p_flo3_pooled <- plt_flo3(cohorts3, split_layout = "pooled",
+  content_labels = contents3, phase_labels = phases3,
+  save = list(filename = file.path(tempdir(), "flo3-pooled.pdf")))
+p_flo3_pooled
+```
+
+![共享风险组框分别列出两个队列人数，避免把模拟人数当作自动计算结果。](images/flow-guide/flo3-pooled.png){fig-alt="开发和验证队列汇入同一排风险组框，每组明确显示两个队列各自人数。"}
+
+### 仅首个队列分组
+
+```r
+cohorts_first <- cohorts3
+cohorts_first[[2]][["split"]] <- NULL
+p_flo3_first <- plt_flo3(cohorts_first, split_layout = "first",
+  content_labels = contents3, phase_labels = phases3)
+p_flo3_first
+```
+
+![开发队列分组，验证样本直接连向研究内容。](images/flow-guide/flo3-first.png){fig-alt="只有开发队列连接三个风险组，验证队列不显示分组，直接接入共同研究内容。"}
+
+### 阶段框、换行与间距
+
+```r
+p_flo3_style <- plt_flo3(cohorts3, split_layout = "separate",
+  content_labels = c("Baseline\ncharacteristics", "Survival\ncomparison", "Model evaluation"),
+  phase_labels = phases3, phase_style = "box",
+  gap_args = list(group = 0.45, content = 0.45, content_arrow = 0.7),
+  box_args = list(equal_group_width = FALSE, content_width = 1.8, text_fs = 10))
+p_flo3_style
+```
+
+![阶段标签换成矩形框，手工换行保留，内容箭头和框间距可分别调整。](images/flow-guide/flo3-style.png){fig-alt="矩形阶段标签的双队列流程，风险框按各自文字宽度，研究内容保留手工换行。"}
+
+:::
+
+[下载本次实际导出的 pooled PDF](images/flow-guide/flo3-pooled.pdf)。保存未指定宽高时使用 `attr(p,"flo_size")` 的自然尺寸；PNG也按该尺寸导出，避免在大画布上留下大片空白。
+
+:::: {.table-responsive}
+
+| 设置 | 当前合同 |
+|:--|:--|
+| `cohorts` | 每项含label、N，以及可选exclude、split、final_label、exclude_header、color；未知或重复字段报错 |
+| 人数 | N、排除人数和分组人数须为非负整数；排除和不能超过N，分组和须等于筛后人数 |
+| `split_layout="pooled"` | 所有队列须提供同名且同顺序的split；图中逐队列列数，不由数据自动汇总 |
+| `split_layout="first"` | 只使用首队列split；其他split会被忽略并警告，示例明确移除它们 |
+| `phase_style` | bracket / box；phase_labels按实际出现的筛选、分组、内容阶段依次使用 |
+| `gap_args` | exclude=0.5、group=NULL、content=0.3、content_arrow=0.4；部分list局部覆盖 |
+| `box_args` | text_fs=10、exc_width=3.5、content_width=NULL、corner_radius=0.08、equal_group_width=TRUE |
+| `fixed_size` | TRUE按自然尺寸，正数固定整图宽度；FALSE由设备伸展 |
+| `save` | list() / NULL不保存；非空list交给save_plt，返回对象保持图形 |
+
+::::
+
+分组来自RPA时，先用 [get_rpa_new](rpa-guide.qmd#fixed-rpa-groups) 固定开发规则，再从实际分组数据计算人数后填入流程参数。
 
 ## PDF 设备与特殊字符 {#pdf-device}
 
