@@ -2,6 +2,7 @@
 title: "Windows R：字符串里嵌入了 NUL、安装编码与旧缓存"
 description: "RegR 的 embedded nul 报错、C.UTF-8 环境变量来源、Windows UTF-8 安装流程，以及 UtilsR、MLR、causalR 的检查和保留 RStudio 数据与未保存脚本的方法。"
 date: 2026-10-11
+date-modified: 2026-10-13
 execute:
   eval: false
 ---
@@ -11,6 +12,8 @@ Windows RStudio 调用自研包时出现“字符串里嵌入了 nul”，不一
 修复后又发现了另一个容易混淆的问题：UtilsR 的磁盘安装已是 UTF-8，但当前 RStudio 保留了旧的函数索引与缓存，提示 `lazy-load database ... is corrupt`。这类情况可以通过安全卸载、定向清理缓存和重新加载解决。
 
 本文记录 2026-10-11 在 **Windows R 4.4.3** 下的排查与修复。安装脚本只调整 Windows R 子进程的环境；WSL 的环境和独立包库继续使用原流程。
+
+**2026-10-13 脚本同步：** 下载版已与统一安装器逐字节核对。本次在临时独立包库实际验证了PowerShell 5.1和7，各自的源码目录与tar.gz两种输入均通过；测试路径包含中文和空格，父进程locale保持不变。脚本采用兼容5.1的命令行转义和无BOM UTF-8临时R脚本。下面的实际包/RStudio修复结果保留2026-10-11记录，没有重新安装用户的包库。
 
 ## 先判断：安装编码，还是旧会话缓存？ {#diagnosis}
 
@@ -72,7 +75,7 @@ R 的版本 3 序列化格式会记录写入时的 native encoding，以便读�
 
 进程来源追溯到 Codex 的命令执行器。其官方源码在 `UNIFIED_EXEC_ENV` 中设置 `LANG`、`LC_CTYPE`、`LC_ALL` 为 `C.UTF-8`，并在创建执行环境时插入这些值。该行为与本机进程环境和可执行文件中的常量相符。[Codex 官方源码](https://github.com/openai/codex/blob/main/codex-rs/core/src/unified_exec/process_manager.rs)
 
-可以在 **PowerShell 7** 中检查自己的作用域；只读取相关变量即可：
+可以在 **PowerShell 5.1 或 7** 中检查自己的作用域；只读取相关变量即可：
 
 ```powershell
 foreach ($name in 'LANG', 'LC_ALL', 'LC_CTYPE') {
@@ -126,7 +129,7 @@ local({
 
 ### 2. 明确 Windows R 和目标库
 
-使用 [下载 Windows UTF-8 安装脚本](install-r-windows.ps1){download="install-r-windows.ps1"}。该文件与本次验证的 `E:/Rpackage/tools/install-r-windows.ps1` 内容一致，需要 PowerShell 7。
+使用 [下载 Windows UTF-8 安装脚本](install-r-windows.ps1){download="install-r-windows.ps1"}。该文件与本次验证的 `E:/Rpackage/tools/install-r-windows.ps1` 内容一致，支持 Windows 自带的 PowerShell 5.1 和 PowerShell 7。
 
 在 Windows RStudio 中先核对：
 
@@ -138,7 +141,7 @@ getNamespaceInfo("RegR", "path")
 
 确认目标包能够安全卸载时，在**原 RStudio** 中卸载后再安装；判断和刷新代码见[下一节](#refresh-session)。如果其他命名空间正在使用它，应先处理依赖和备份，避免强制卸载。安装来源使用经过验证的源码目录；开发目录含临时文件时，使用干净的 Git 导出目录。
 
-在 **PowerShell 7** 中运行以下命令。`-PackagePath` 是包含 `DESCRIPTION` 的源码目录；`-Library` 必须是已经存在的 Windows 包库。示例中的 R 安装路径按自己的机器修改：
+在 **PowerShell 5.1 或 7** 中运行以下命令。`-PackagePath` 可以是包含 `DESCRIPTION` 的源码目录，或 `.tar.gz` 源码包；`-Library` 必须是已经存在的 Windows 包库。示例中的 R 安装路径按自己的机器修改：
 
 ```powershell
 & './install-r-windows.ps1' `
@@ -147,11 +150,22 @@ getNamespaceInfo("RegR", "path")
   -RHome 'D:/software/R/R-4.4.3'
 ```
 
+源码包也使用同一个入口，先完成build并提供真实文件路径：
+
+```powershell
+& './install-r-windows.ps1' `
+  -PackagePath 'E:/release/RegR_0.1.3.tar.gz' `
+  -Library "$env:LOCALAPPDATA/R/win-library/4.4" `
+  -RHome 'D:/software/R/R-4.4.3'
+```
+
+Windows二进制zip不属于这个源码安装入口。含空格或中文的路径整体加引号；脚本通过Windows参数转义传入R，不把路径拼成R表达式。
+
 脚本依次执行：
 
 1. 创建 Windows R 子进程，删除该子进程环境中的 `LANG` 和 `LC_*`。
 2. 启动全新 R 进程，要求 Windows 且 `l10n_info()[["UTF-8"]]` 为 `TRUE`，否则立即停止。
-3. 对指定源码目录执行 `R CMD INSTALL --no-multiarch -l <目标库>`。
+3. 对指定源码目录或tar.gz执行 `R CMD INSTALL --no-multiarch -l <目标库>`。
 4. 在另一个全新 UTF-8 进程中加载安装结果，核对实际路径，并逐个读取全部导出对象。
 
 脚本不会自动安装依赖，也不会处理当前 RStudio 的包加载状态。只有安装成功且最后出现如下验证行，才完成这一步：

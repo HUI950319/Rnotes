@@ -1093,6 +1093,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     </div>
   </div>
 
+    <div>
+    <div class="quarto-title-meta-heading">修改于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date-modified">2026年10月13日</p>
+    </div>
+  </div>
 
   </div>
 
@@ -1104,6 +1110,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>Windows RStudio 调用自研包时出现“字符串里嵌入了 nul”，不一定来自输入数据。本次 RegR 的错误在<strong>仅提取函数、尚未传入数据</strong>时就能复现：安装进程在 ASCII 环境下生成了延迟加载数据库，UTF-8 的 RStudio 随后读取其中的非 ASCII 字符串失败。</p>
 <p>修复后又发现了另一个容易混淆的问题：UtilsR 的磁盘安装已是 UTF-8，但当前 RStudio 保留了旧的函数索引与缓存，提示 <code>lazy-load database ... is corrupt</code>。这类情况可以通过安全卸载、定向清理缓存和重新加载解决。</p>
 <p>本文记录 2026-10-11 在 <strong>Windows R 4.4.3</strong> 下的排查与修复。安装脚本只调整 Windows R 子进程的环境；WSL 的环境和独立包库继续使用原流程。</p>
+<p><strong>2026-10-13 脚本同步：</strong> 下载版已与统一安装器逐字节核对。本次在临时独立包库实际验证了PowerShell 5.1和7，各自的源码目录与tar.gz两种输入均通过；测试路径包含中文和空格，父进程locale保持不变。脚本采用兼容5.1的命令行转义和无BOM UTF-8临时R脚本。下面的实际包/RStudio修复结果保留2026-10-11记录，没有重新安装用户的包库。</p>
 <section id="diagnosis" class="level2">
 <h2 class="anchored" data-anchor-id="diagnosis">先判断：安装编码，还是旧会话缓存？</h2>
 <table class="caption-top table">
@@ -1205,7 +1212,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="environment-source">C.UTF-8 是在哪里设置的？</h2>
 <p>本次核对了 Windows 的 Process、User、Machine 三个环境作用域：只有启动命令的<strong>进程环境</strong>有这三个变量，用户与机器级配置均未设置它们；PowerShell profiles 也没有相应设置。关闭 shell profile 后启动的命令仍继承这些值。</p>
 <p>进程来源追溯到 Codex 的命令执行器。其官方源码在 <code>UNIFIED_EXEC_ENV</code> 中设置 <code>LANG</code>、<code>LC_CTYPE</code>、<code>LC_ALL</code> 为 <code>C.UTF-8</code>，并在创建执行环境时插入这些值。该行为与本机进程环境和可执行文件中的常量相符。<a href="https://github.com/openai/codex/blob/main/codex-rs/core/src/unified_exec/process_manager.rs">Codex 官方源码</a></p>
-<p>可以在 <strong>PowerShell 7</strong> 中检查自己的作用域；只读取相关变量即可：</p>
+<p>可以在 <strong>PowerShell 5.1 或 7</strong> 中检查自己的作用域；只读取相关变量即可：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode powershell code-with-copy"><code class="sourceCode powershell"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="cf">foreach</span> <span class="op">(</span><span class="va">$name</span> <span class="kw">in</span> <span class="st">'LANG'</span><span class="op">,</span> <span class="st">'LC_ALL'</span><span class="op">,</span> <span class="st">'LC_CTYPE'</span><span class="op">)</span> <span class="op">{</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="op">[</span>pscustomobject<span class="op">]</span>@<span class="op">{</span></span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>        Name    <span class="op">=</span> <span class="va">$name</span></span>
@@ -1247,22 +1254,28 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="明确-windows-r-和目标库" class="level3">
 <h3 class="anchored" data-anchor-id="明确-windows-r-和目标库">2. 明确 Windows R 和目标库</h3>
-<p>使用 <a href="install-r-windows.ps1" download="install-r-windows.ps1">下载 Windows UTF-8 安装脚本</a>。该文件与本次验证的 <code>E:/Rpackage/tools/install-r-windows.ps1</code> 内容一致，需要 PowerShell 7。</p>
+<p>使用 <a href="install-r-windows.ps1" download="install-r-windows.ps1">下载 Windows UTF-8 安装脚本</a>。该文件与本次验证的 <code>E:/Rpackage/tools/install-r-windows.ps1</code> 内容一致，支持 Windows 自带的 PowerShell 5.1 和 PowerShell 7。</p>
 <p>在 Windows RStudio 中先核对：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">R.home</span>()</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="fu">getNamespaceInfo</span>(<span class="st">"RegR"</span>, <span class="st">"path"</span>)</span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="fu">.libPaths</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>确认目标包能够安全卸载时，在<strong>原 RStudio</strong> 中卸载后再安装；判断和刷新代码见<a href="#refresh-session">下一节</a>。如果其他命名空间正在使用它，应先处理依赖和备份，避免强制卸载。安装来源使用经过验证的源码目录；开发目录含临时文件时，使用干净的 Git 导出目录。</p>
-<p>在 <strong>PowerShell 7</strong> 中运行以下命令。<code>-PackagePath</code> 是包含 <code>DESCRIPTION</code> 的源码目录；<code>-Library</code> 必须是已经存在的 Windows 包库。示例中的 R 安装路径按自己的机器修改：</p>
+<p>在 <strong>PowerShell 5.1 或 7</strong> 中运行以下命令。<code>-PackagePath</code> 可以是包含 <code>DESCRIPTION</code> 的源码目录，或 <code>.tar.gz</code> 源码包；<code>-Library</code> 必须是已经存在的 Windows 包库。示例中的 R 安装路径按自己的机器修改：</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode powershell code-with-copy"><code class="sourceCode powershell"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="op">&amp;</span> <span class="st">'./install-r-windows.ps1'</span> `</span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>PackagePath <span class="st">'E:/Rpackage/RegR'</span> `</span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>Library <span class="st">"</span><span class="va">$env</span><span class="op">:</span><span class="va">LOCALAPPDATA</span><span class="st">/R/win-library/4.4"</span> `</span>
 <span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>RHome <span class="st">'D:/software/R/R-4.4.3'</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>源码包也使用同一个入口，先完成build并提供真实文件路径：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode powershell code-with-copy"><code class="sourceCode powershell"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="op">&amp;</span> <span class="st">'./install-r-windows.ps1'</span> `</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>PackagePath <span class="st">'E:/release/RegR_0.1.3.tar.gz'</span> `</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>Library <span class="st">"</span><span class="va">$env</span><span class="op">:</span><span class="va">LOCALAPPDATA</span><span class="st">/R/win-library/4.4"</span> `</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  <span class="op">-</span>RHome <span class="st">'D:/software/R/R-4.4.3'</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Windows二进制zip不属于这个源码安装入口。含空格或中文的路径整体加引号；脚本通过Windows参数转义传入R，不把路径拼成R表达式。</p>
 <p>脚本依次执行：</p>
 <ol type="1">
 <li>创建 Windows R 子进程，删除该子进程环境中的 <code>LANG</code> 和 <code>LC_*</code>。</li>
 <li>启动全新 R 进程，要求 Windows 且 <code>l10n_info()[["UTF-8"]]</code> 为 <code>TRUE</code>，否则立即停止。</li>
-<li>对指定源码目录执行 <code>R CMD INSTALL --no-multiarch -l &lt;目标库&gt;</code>。</li>
+<li>对指定源码目录或tar.gz执行 <code>R CMD INSTALL --no-multiarch -l &lt;目标库&gt;</code>。</li>
 <li>在另一个全新 UTF-8 进程中加载安装结果，核对实际路径，并逐个读取全部导出对象。</li>
 </ol>
 <p>脚本不会自动安装依赖，也不会处理当前 RStudio 的包加载状态。只有安装成功且最后出现如下验证行，才完成这一步：</p>
@@ -1283,22 +1296,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="全新进程检查与原会话检查分开做" class="level3">
 <h3 class="anchored" data-anchor-id="全新进程检查与原会话检查分开做">全新进程检查与原会话检查分开做</h3>
 <p>在编码已经确认正常的<strong>全新 Windows R 进程</strong>中，可以用以下代码检查全部命名空间对象，包括内部函数。将 <code>lib</code> 改为实际目标库；检查原会话时，另外核对它已加载的路径。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">local</span>({</span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(.Platform[[<span class="st">"OS.type"</span>]] <span class="sc">==</span> <span class="st">"windows"</span>)</span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">l10n_info</span>()[[<span class="st">"UTF-8"</span>]]))</span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  lib <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">Sys.getenv</span>(<span class="st">"LOCALAPPDATA"</span>), <span class="st">"R"</span>, <span class="st">"win-library"</span>, <span class="st">"4.4"</span>)</span>
-<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>  pkgs <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"UtilsR"</span>, <span class="st">"MLR"</span>, <span class="st">"causalR"</span>)</span>
-<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">lapply</span>(<span class="fu">setNames</span>(pkgs, pkgs), <span class="cf">function</span>(pkg) {</span>
-<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>    ns <span class="ot">&lt;-</span> <span class="fu">loadNamespace</span>(pkg, <span class="at">lib.loc =</span> lib)</span>
-<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>    expected <span class="ot">&lt;-</span> <span class="fu">normalizePath</span>(<span class="fu">file.path</span>(lib, pkg), <span class="at">winslash =</span> <span class="st">"/"</span>)</span>
-<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>    actual <span class="ot">&lt;-</span> <span class="fu">normalizePath</span>(<span class="fu">getNamespaceInfo</span>(ns, <span class="st">"path"</span>), <span class="at">winslash =</span> <span class="st">"/"</span>)</span>
-<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stopifnot</span>(<span class="fu">identical</span>(actual, expected))</span>
-<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>    symbols <span class="ot">&lt;-</span> <span class="fu">ls</span>(ns, <span class="at">all.names =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (name <span class="cf">in</span> symbols) <span class="fu">invisible</span>(<span class="fu">get</span>(name, ns, <span class="at">inherits =</span> <span class="cn">FALSE</span>))</span>
-<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">list</span>(<span class="at">path =</span> actual, <span class="at">bindings =</span> <span class="fu">length</span>(symbols),</span>
-<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>         <span class="at">exports =</span> <span class="fu">length</span>(<span class="fu">getNamespaceExports</span>(ns)))</span>
-<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>  })</span>
-<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">local</span>({</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(.Platform[[<span class="st">"OS.type"</span>]] <span class="sc">==</span> <span class="st">"windows"</span>)</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">l10n_info</span>()[[<span class="st">"UTF-8"</span>]]))</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  lib <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">Sys.getenv</span>(<span class="st">"LOCALAPPDATA"</span>), <span class="st">"R"</span>, <span class="st">"win-library"</span>, <span class="st">"4.4"</span>)</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>  pkgs <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"UtilsR"</span>, <span class="st">"MLR"</span>, <span class="st">"causalR"</span>)</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">lapply</span>(<span class="fu">setNames</span>(pkgs, pkgs), <span class="cf">function</span>(pkg) {</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>    ns <span class="ot">&lt;-</span> <span class="fu">loadNamespace</span>(pkg, <span class="at">lib.loc =</span> lib)</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>    expected <span class="ot">&lt;-</span> <span class="fu">normalizePath</span>(<span class="fu">file.path</span>(lib, pkg), <span class="at">winslash =</span> <span class="st">"/"</span>)</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>    actual <span class="ot">&lt;-</span> <span class="fu">normalizePath</span>(<span class="fu">getNamespaceInfo</span>(ns, <span class="st">"path"</span>), <span class="at">winslash =</span> <span class="st">"/"</span>)</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stopifnot</span>(<span class="fu">identical</span>(actual, expected))</span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>    symbols <span class="ot">&lt;-</span> <span class="fu">ls</span>(ns, <span class="at">all.names =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (name <span class="cf">in</span> symbols) <span class="fu">invisible</span>(<span class="fu">get</span>(name, ns, <span class="at">inherits =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">list</span>(<span class="at">path =</span> actual, <span class="at">bindings =</span> <span class="fu">length</span>(symbols),</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>         <span class="at">exports =</span> <span class="fu">length</span>(<span class="fu">getNamespaceExports</span>(ns)))</span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>不要在仍继承错误 locale 的命令执行环境里直接启动 <code>Rscript</code> 作为“UTF-8 对照”。前面的安装脚本已为其检查子进程隔离环境并设置了 UTF-8 前置断言。</p>
 </section>
 <section id="安全刷新目标包" class="level3">
@@ -1308,29 +1321,29 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 internal error 1 in R_decompress1 with libdeflate</code></pre>
 <p>这种旧会话与新进程的对照支持加载状态／缓存失配的判断。R 4.4 的延迟加载实现会按文件路径缓存数据库字节；覆盖磁盘安装后，原进程可能继续持有旧内容。<code>.Internal(lazyLoadDBflush(...))</code> 可以释放指定路径的缓存。<a href="https://github.com/wch/r-source/blob/R-4-4-branch/src/main/serialize.c">R 4.4 源码</a></p>
 <p>在已经完成备份、确认目标包没有其他命名空间使用者的<strong>原 RStudio Console</strong> 中执行：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">local</span>({</span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  pkg <span class="ot">&lt;-</span> <span class="st">"UtilsR"</span>  <span class="co"># 按实际需要改为 RegR、MLR 或 causalR</span></span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(pkg <span class="sc">%in%</span> <span class="fu">loadedNamespaces</span>())</span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  users <span class="ot">&lt;-</span> <span class="fu">getNamespaceUsers</span>(pkg)</span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(users)) {</span>
-<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"其他命名空间仍使用该包："</span>, <span class="fu">paste</span>(users, <span class="at">collapse =</span> <span class="st">", "</span>))</span>
-<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  path <span class="ot">&lt;-</span> <span class="fu">getNamespaceInfo</span>(pkg, <span class="st">"path"</span>)</span>
-<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  pos <span class="ot">&lt;-</span> <span class="fu">match</span>(<span class="fu">paste0</span>(<span class="st">"package:"</span>, pkg), <span class="fu">search</span>())</span>
-<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  db <span class="ot">&lt;-</span> <span class="fu">list.files</span>(path, <span class="at">pattern =</span> <span class="st">"[.]rdb$"</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>                   <span class="at">full.names =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">unloadNamespace</span>(pkg)</span>
-<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (file <span class="cf">in</span> db) <span class="fu">.Internal</span>(<span class="fu">lazyLoadDBflush</span>(file))</span>
-<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.na</span>(pos)) {</span>
-<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">loadNamespace</span>(pkg, <span class="at">lib.loc =</span> <span class="fu">dirname</span>(path))</span>
-<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
-<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>    <span class="fu">library</span>(pkg, <span class="at">lib.loc =</span> <span class="fu">dirname</span>(path), <span class="at">character.only =</span> <span class="cn">TRUE</span>, <span class="at">pos =</span> pos)</span>
-<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>  ns <span class="ot">&lt;-</span> <span class="fu">asNamespace</span>(pkg)</span>
-<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (name <span class="cf">in</span> <span class="fu">ls</span>(ns, <span class="at">all.names =</span> <span class="cn">TRUE</span>)) {</span>
-<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a>    <span class="fu">invisible</span>(<span class="fu">get</span>(name, ns, <span class="at">inherits =</span> <span class="cn">FALSE</span>))</span>
-<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">local</span>({</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  pkg <span class="ot">&lt;-</span> <span class="st">"UtilsR"</span>  <span class="co"># 按实际需要改为 RegR、MLR 或 causalR</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(pkg <span class="sc">%in%</span> <span class="fu">loadedNamespaces</span>())</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>  users <span class="ot">&lt;-</span> <span class="fu">getNamespaceUsers</span>(pkg)</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(users)) {</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"其他命名空间仍使用该包："</span>, <span class="fu">paste</span>(users, <span class="at">collapse =</span> <span class="st">", "</span>))</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>  path <span class="ot">&lt;-</span> <span class="fu">getNamespaceInfo</span>(pkg, <span class="st">"path"</span>)</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>  pos <span class="ot">&lt;-</span> <span class="fu">match</span>(<span class="fu">paste0</span>(<span class="st">"package:"</span>, pkg), <span class="fu">search</span>())</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>  db <span class="ot">&lt;-</span> <span class="fu">list.files</span>(path, <span class="at">pattern =</span> <span class="st">"[.]rdb$"</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>                   <span class="at">full.names =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">unloadNamespace</span>(pkg)</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (file <span class="cf">in</span> db) <span class="fu">.Internal</span>(<span class="fu">lazyLoadDBflush</span>(file))</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.na</span>(pos)) {</span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">loadNamespace</span>(pkg, <span class="at">lib.loc =</span> <span class="fu">dirname</span>(path))</span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>    <span class="fu">library</span>(pkg, <span class="at">lib.loc =</span> <span class="fu">dirname</span>(path), <span class="at">character.only =</span> <span class="cn">TRUE</span>, <span class="at">pos =</span> pos)</span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a>  ns <span class="ot">&lt;-</span> <span class="fu">asNamespace</span>(pkg)</span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (name <span class="cf">in</span> <span class="fu">ls</span>(ns, <span class="at">all.names =</span> <span class="cn">TRUE</span>)) {</span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>    <span class="fu">invisible</span>(<span class="fu">get</span>(name, ns, <span class="at">inherits =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a>})</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>这里保留目标包原来的安装库和搜索位置，只清理它自己的 <code>.rdb</code> 内存缓存，不删除安装文件。该代码使用 R 内部接口，本次在 R 4.4.3 下验证；含复杂卸载钩子、动态库或仍被其他包引用的包，需要先评估能否安全卸载。</p>
 <p>本次 UtilsR 刷新后，163 个对象和 92 个导出接口全部读取成功，中文输入的代表调用也通过，因此没有再次安装。已有对象若保存了旧版函数闭包或外部资源引用，重新加载包也不能保证这些引用自动更新；必要时应重新创建对应对象或在备份后重启会话。</p>
 </section>
