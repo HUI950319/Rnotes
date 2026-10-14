@@ -1,0 +1,247 @@
+---
+title: "BTW MCP 自动注册：Windows / WSL"
+description: "配置 Windows 与 WSL RStudio 的 BTW MCP 自动注册，说明 Rprofile.site、用户与项目 .Rprofile 的优先级、TCP 与 IPC 地址、防重复注册和真实会话验证。"
+date: 2026-10-14
+execute:
+  eval: false
+---
+
+每次打开 RStudio 项目后，可以由启动文件自动调用 `btw::btw_mcp_session()`，让 MCP 客户端发现当前 R 会话。**Windows 若要覆盖带有自身 `.Rprofile` 的任意项目，注册代码应放在当前 R 安装的 `Rprofile.site`；WSL 本机现有配置则放在用户级 `~/.Rprofile`，需要留意项目配置的覆盖。**
+
+本文记录 2026-10-14 的配置与验证。代码均为供读者复制的静态示例，网页渲染不会修改启动文件、启动 MCP 服务或重启 RStudio。
+
+## 先区分服务与会话 {#server-and-session}
+
+BTW MCP 需要两端配合：客户端启动一个独立的 R MCP 服务；正在使用的 RStudio 会话运行注册代码。`btw::btw_mcp_server()` 用于前者，`btw::btw_mcp_session()` 用于后者。服务工具被转发到已注册的会话后，才能访问该会话中的对象。参见 [BTW MCP 文档](https://posit-dev.github.io/btw/reference/mcp.html)。
+
+在本次安装的 btw 1.5.0 中，注册函数直接调用：
+
+```r
+btw::btw_mcp_session()
+# 内部调用 mcptools::mcp_session()
+```
+
+mcptools 1.0.3 会创建 `nanonext` socket，寻找可用的会话槽位，开始监听并安排处理服务端请求。注册函数返回后，RStudio Console 仍可继续使用；不要把会阻塞进程的 `btw_mcp_server()` 放进交互式启动文件。
+
+| 配置位置 | Windows RStudio | WSL RStudio Server |
+|:--|:--|:--|
+| 本机 R 版本 | 4.4.3，ucrt | 4.4.3 |
+| 自动注册入口 | `D:/software/R/R-4.4.3/etc/Rprofile.site` | `/home/oyh/.Rprofile` |
+| 会话通信 | TCP，地址前缀 `tcp://127.0.0.1:4777` | IPC，目录 `/tmp/mcptools-oyh/` |
+| 示例监听地址 | `tcp://127.0.0.1:47771` | `ipc:///tmp/mcptools-oyh/mcptools-socket1` |
+| 防重复方式 | 检查已有 `session_socket` | 检查本进程的 PID 标记 |
+| 项目自带 `.Rprofile` | 仍先加载系统级注册代码 | 会覆盖用户级入口，须显式加载或另设系统级入口 |
+
+这些路径是本机记录。Windows 和 WSL 的 R、包库与 RStudio 会话彼此独立，需要分别安装和配置 `btw`、`mcptools`。
+
+## R 启动文件的加载顺序 {#startup-order}
+
+通常先加载系统级 `Rprofile.site`，再加载当前目录的 `.Rprofile`；当前目录没有 `.Rprofile` 时，才加载用户目录的 `.Rprofile`。项目级与用户级文件不会自动叠加。`R_PROFILE`、`R_PROFILE_USER` 可以指定其他文件，`--no-site-file`、`--no-init-file` 或 `--vanilla` 可以跳过相应步骤。规则见 [R 官方启动文档](https://stat.ethz.ch/R-manual/R-devel/library/base/html/Startup.html)。
+
+在实际使用的 RStudio Console 中查路径：
+
+```r
+list(
+  R = R.version.string,
+  R_home = R.home(),
+  site_profile = file.path(R.home("etc"), "Rprofile.site"),
+  user_profile = path.expand("~/.Rprofile"),
+  project_profile = file.path(getwd(), ".Rprofile"),
+  profile_overrides = Sys.getenv(c("R_PROFILE", "R_PROFILE_USER"))
+)
+```
+
+项目启动后可能调用 `setwd()`；此时 `getwd()` 未必仍是项目根目录。RStudio 的活动项目可以另用 `rstudioapi::getActiveProject()` 检查。
+
+## Windows：任意项目自动注册 {#windows}
+
+先确认当前 Windows R 的包库已安装 `btw` 和 `mcptools`。在 Console 中取得 `file.path(R.home("etc"), "Rprofile.site")`，备份现有文件后，将下面的代码**追加**到末尾，保留原有内容。编辑安装目录可能需要该目录的写入权限。
+
+```r
+# Windows RStudio: register the current session with BTW MCP once.
+if (interactive() &&
+    identical(.Platform[["OS.type"]], "windows") &&
+    identical(Sys.getenv("RSTUDIO"), "1")) {
+  local({
+    tryCatch({
+      if (requireNamespace("btw", quietly = TRUE) &&
+          requireNamespace("mcptools", quietly = TRUE)) {
+        mcptools_state <- get("the", envir = asNamespace("mcptools"))
+        mcptools_state[["socket_url"]] <- "tcp://127.0.0.1:4777"
+        options(btw.run_r.enabled = TRUE)
+        if (is.null(mcptools_state[["session_socket"]])) {
+          btw::btw_mcp_session()
+        }
+      }
+    }, error = function(e) {
+      message("BTW MCP registration failed: ", conditionMessage(e))
+    })
+  })
+}
+```
+
+这个入口限定为交互式 Windows RStudio。普通 Rscript 和未设置 RStudio 标记的终端 R 不会触发注册。`local()` 不向全局环境留下辅助变量；已有 socket 时不会再次调用注册函数，注册失败也不会中断整个 R 启动。
+
+本机原来的 `C:/Users/ouyan/Documents/.Rprofile` 仅设置 TCP 地址和执行权限，没有自动注册。系统级入口补上自动注册后，项目自己的 `.Rprofile` 仍会继续加载。IPN3 原有的注册代码也检查 `session_socket`，与该入口共同使用时不会创建第二个监听。
+
+::: {.callout-note}
+系统级文件属于**当前这套 R 安装**。换用其他 R 版本、设置了其他 `R_PROFILE`，或明确跳过系统启动文件时，需要检查对应入口。若项目在 `.Rprofile` 中无条件再次调用 `btw_mcp_session()`，也应改成检查已有 socket 后再注册。
+:::
+
+修改后从下一次打开项目或重启 R 会话开始生效。重启前自行保存需要保留的数据与脚本；修改磁盘配置不会自动重启当前会话。
+
+## WSL：用户级自动注册 {#wsl}
+
+本机 WSL 使用 `/home/oyh/.Rprofile`。其中先统一 IPC 目录，再加载 mcptools；下面的目录代码必须位于首次载入 mcptools 之前：
+
+```r
+if (!nzchar(Sys.getenv("MCPTOOLS_SOCKET_DIR"))) {
+  Sys.setenv(
+    MCPTOOLS_SOCKET_DIR = file.path(
+      "/tmp", paste0("mcptools-", Sys.info()[["user"]])
+    )
+  )
+}
+```
+
+本机用户为 `oyh`，因此目录为 `/tmp/mcptools-oyh`。WSL 启动的 MCP 服务与 RStudio Server 可能带有不同的 `XDG_RUNTIME_DIR`；固定同一目录可以让两端使用同一组 socket。若已有 `MCPTOOLS_SOCKET_DIR`，上述代码保留它，仍需确认两端的值一致。mcptools 对该环境变量及用户隔离的说明见 [官方服务文档](https://posit-dev.github.io/mcptools/reference/server.html)。
+
+用户级文件中的实际自动注册代码如下：
+
+```r
+if (interactive() &&
+    identical(Sys.info()[["sysname"]], "Linux") &&
+    identical(Sys.getenv("RSTUDIO"), "1") &&
+    requireNamespace("btw", quietly = TRUE) &&
+    requireNamespace("mcptools", quietly = TRUE)) {
+  local({
+    current_pid <- as.character(Sys.getpid())
+
+    if (!identical(
+      Sys.getenv("BTW_MCP_SESSION_PID", unset = ""),
+      current_pid
+    )) {
+      Sys.setenv(BTW_MCP_SESSION_PID = current_pid)
+
+      tryCatch(
+        btw::btw_mcp_session(),
+        error = function(e) {
+          Sys.unsetenv("BTW_MCP_SESSION_PID")
+          message("BTW MCP registration failed: ", conditionMessage(e))
+        }
+      )
+    }
+  })
+}
+```
+
+它只在交互式 Linux RStudio 中运行。注册前记录当前 PID；同一进程再次加载文件时跳过注册，新进程的 PID 不同则重新注册。出错时清除标记，允许后续重试。这是启动文件自身的防重复措施；直接在 Console 中反复调用 `btw_mcp_session()` 不会经过该 PID 检查。
+
+### 项目有自己的 .Rprofile 时 {#wsl-project-profile}
+
+用户级 `.Rprofile` 不会自然生效。可以在项目 `.Rprofile` 中、首次加载 mcptools 之前，显式加载用户配置：
+
+```r
+source(path.expand("~/.Rprofile"))
+```
+
+这样也会加载用户文件内的其他全局选项。若希望独立于项目文件覆盖所有 WSL 项目，可以将 IPC 目录设置与注册块放进 WSL 当前 R 的 `Rprofile.site`；这是另一种部署方式，**本机本次记录仍采用用户级入口，没有改写 WSL 系统级配置**。
+
+### 挂起后恢复 {#wsl-resume}
+
+本机 `/home/oyh/.config/rstudio/rstudio-prefs.json` 已设置：
+
+```json
+{
+  "run_rprofile_on_resume": true
+}
+```
+
+上面只展示相关键。修改现有 JSON 时应合并该键，保留其他偏好设置；不要用这三行覆盖整个文件。恢复时重新执行启动文件可触发注册逻辑，PID 标记用于避免同一进程重复注册。该设置不会自行唤醒已挂起的会话，需要先在浏览器中打开或恢复 WSL RStudio 会话。
+
+## MCP 客户端的两套启动配置 {#client-config}
+
+在 Windows 上运行的 Codex 客户端中，两套服务配置保存在用户目录的 `.codex/config.toml`。以下与本机配置等价，Windows Rscript 路径需按实际安装位置调整：
+
+```toml
+[mcp_servers.r-mcptools]
+command = "wsl"
+args = [
+  "-e", "Rscript", "-e",
+  "btw::btw_mcp_server(btw::btw_tools('env', 'sessioninfo', 'ide', 'run', 'files'))"
+]
+
+[mcp_servers.r-windows-btw]
+command = "D:/software/R/R-4.4.3/bin/Rscript.exe"
+args = [
+  "-e",
+  "local({ mcptools_state <- get('the', envir = asNamespace('mcptools')); mcptools_state[['socket_url']] <- 'tcp://127.0.0.1:4777'; btw::btw_mcp_server(btw::btw_tools('env', 'sessioninfo', 'ide', 'run', 'files')) })"
+]
+```
+
+`wsl -e` 使用默认发行版。本机默认发行版为 Ubuntu-22.04；如果默认发行版没有这套 R，可在 WSL 参数开头加入 `"-d", "Ubuntu-22.04"`，明确指定已配置的发行版。
+
+Windows 服务先设置与会话相同的 TCP 地址，再启动 MCP；WSL 服务依靠加载用户 `.Rprofile` 获得一致的 IPC 目录。两套配置都包含 `env`、`sessioninfo`、`ide`、`run`、`files` 工具组。
+
+本次也读取了 Claude Code 与 Claude Desktop 的对应配置，其 `command` 和 `args` 与上述两套服务一致。其他客户端采用自身的 MCP 配置格式，将相同的命令和参数放入对应服务条目即可。客户端服务配置修改后，需要让客户端重新加载配置；仅修改 R 启动文件时，下一次 R 会话启动即可读取。
+
+## 验证连接的是实际 RStudio 会话 {#verify}
+
+先在目标 RStudio Console 中查看注册状态：
+
+```r
+local({
+  state <- get("the", envir = asNamespace("mcptools"))
+  list(
+    probe = 1 + 1,
+    gui = .Platform[["GUI"]],
+    os = Sys.info()[["sysname"]],
+    RSTUDIO = Sys.getenv("RSTUDIO"),
+    wd = getwd(),
+    pid = Sys.getpid(),
+    global_objects = length(ls(envir = .GlobalEnv, all.names = TRUE)),
+    socket_url = state[["socket_url"]],
+    slot = state[["session"]],
+    socket_active = !is.null(state[["session_socket"]]),
+    socket_dir = Sys.getenv("MCPTOOLS_SOCKET_DIR")
+  )
+})
+```
+
+接着在客户端调用 `list_r_sessions`，有多个会话时选择所需项目，再通过执行 R 代码的工具运行同一段检查。应确认 `gui = "RStudio"`、`RSTUDIO = "1"`、平台、工作目录与 PID 均对应目标会话。**只得到 `1 + 1 = 2`，或者只看到工具名称，不能证明已连接到用户的 RStudio。**
+
+服务一般优先匹配工作目录相同的会话，否则连接唯一可用会话；存在多个会话且无目录匹配时，可能在服务自身的 R 进程中执行工具。会话选择规则见 [mcptools 官方文档](https://posit-dev.github.io/mcptools/reference/server.html)。
+
+工具捕获的输出未必显示在可见 Console 中。若希望看到 Console 实际执行，可以使用：
+
+```r
+rstudioapi::sendToConsole("1 + 1", execute = TRUE)
+```
+
+## 常见现象与处理 {#troubleshooting}
+
+| 现象 | 检查与处理 |
+|:--|:--|
+| WSL 服务运行，但 `list_r_sessions` 为空 | 检查是否有运行中的 `rsession`；先打开或恢复 RStudio 会话。服务运行不代表交互式会话正在运行 |
+| WSL 自动注册了，客户端仍看不到 | 比较两端的用户与 `MCPTOOLS_SOCKET_DIR`；目录必须一致，且设置要发生在 mcptools 首次加载之前 |
+| Windows 的 4777 端口没有监听 | 本机地址是前缀，会话槽位实际使用 47771、47772 等端口；检查实际监听地址 |
+| 用户级配置已写好，某个项目却没有注册 | 检查项目自己的 `.Rprofile`；Windows 可用系统级入口，WSL 可显式加载用户入口 |
+| 会话能列出，工具调用却超时 | 核对选中的会话、是否忙于计算、是否重复注册；不要继续反复创建监听。保存需要保留的状态后再重启会话 |
+| 代码在空环境中执行 | 查看 GUI、工作目录与 PID，确认没有执行到 MCP 服务自身的普通 R 进程 |
+| 更换 R 版本后自动注册消失 | 查看新 R 安装的 `Rprofile.site`，并确认新包库中存在 btw、mcptools |
+
+`state[["socket_url"]]`、`state[["session_socket"]]` 等是 mcptools 内部字段，本页已核对的是 1.0.3。升级包后如出现字段或通信行为变化，应重新读取该版本实现，不直接套用旧判断。
+
+## 本次验证范围 {#validation}
+
+| 检查 | 2026-10-14 的结果 |
+|:--|:--|
+| Windows 与 WSL 的 R / btw / mcptools | 两端均为 R 4.4.3、btw 1.5.0、mcptools 1.0.3 |
+| Windows 系统级配置 | 已追加并备份原文件；保存后的内容与测试版本一致 |
+| Windows 独立启动测试 | 无项目配置、项目自身 `.Rprofile`、IPN3 的既有配置三种情况均注册成功；重复加载保持同一 socket 与槽位 |
+| Windows 普通进程隔离 | 非交互式 Rscript 与未设置 RStudio 标记的交互式终端 R 均没有注册 |
+| Windows 现有真实会话 | GUI、平台、活动项目、PID、执行结果均已核对；原会话没有被重启 |
+| WSL 配置 | 已读取用户启动文件、IPC 目录设置、PID 防重复代码和恢复偏好 |
+| WSL 当前真实会话 | 服务运行，但保存的会话已挂起、没有运行中的 `rsession`；本次没有声称已验证活动 RStudio 连接 |
+
+Windows 独立启动测试使用 `Rterm --ess` 与 `RSTUDIO=1` 模拟交互式 RStudio 启动条件，验证的是启动文件与 socket 行为；它不等同于逐一打开所有真实 GUI 项目。系统级入口的覆盖范围依据 R 的启动文件加载规则。
