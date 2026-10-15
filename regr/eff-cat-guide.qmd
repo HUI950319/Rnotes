@@ -2,6 +2,7 @@
 title: "同一暴露的效应比较：调整模型、结局与分层"
 description: "get_eff_cat 的多调整模型、多结局、60 月绝对效应、sub_var/split_var、dat_adj_ps 独立队列场景及联合暴露；plt_eff 实际参数对照。"
 date: 2026-10-09
+date-modified: 2026-10-15
 lightbox: true
 toc-depth: 2
 ---
@@ -547,3 +548,45 @@ plt_eff(scenario_fit, show_pinter = "none", fixed_size = FALSE, base_size = 10)
 ![全体队列与年龄至少 55 岁队列分别拟合的 Cox 效应。](images/eff-cat-guide/scenarios.png){fig-alt="全体与年龄至少 55 岁队列的未调整、调整和场景内 IPTW Cox 结果，队列与调整方法均由标签区分。"}
 
 这里比较的是不同队列和分析设计；结果差异同时可能来自入组人群、调整和加权。此演示用于检查场景组织，不能仅凭图形判定哪种模型更正确。匹配/加权仍需单独报告平衡与重叠。
+
+## 累计调整模型与森林图默认布局 {#step-current}
+
+2026-10-15按RegR `2d4d83c` 在WSL实际绘制以下两张图。这里的adj_var_step与森林图布局改动已包含于核对时已推送基线 `ef4ecda`；本节使用360人的固定种子模拟生存数据，与前面的SEER队列结果分开。
+
+依次运行两个标签页；第二张图复用第一张的step_models。调整顺序是分析者指定的模型敏感性比较，不是自动筛变量，也不能凭估计趋于稳定证明消除了混杂。
+
+::: {.panel-tabset}
+
+### 逐项累计调整与当前默认单张森林图
+
+adj_var_step按给定顺序累计加入协变量；本例依次为age、age+marker、age+marker+sex，外加未调整模型。不能同时给adj_var或dat_adj_ps。plt_eff()识别模型比较表后默认放进同一森林图；每种量纲仍使用自己的横轴。
+
+```r
+set.seed(20261015)
+n_step <- 360L
+d_step <- data.frame(z = factor(rep(c("No", "Yes"), each = 180)),
+  age = rnorm(n_step, 55, 10), marker = rnorm(n_step),
+  sex = factor(rep(c("F", "M"), 180)))
+d_step$time <- rexp(n_step, exp(-4.5 + 0.4 * (d_step$z == "Yes") + 0.015 * (d_step$age - 55)))
+d_step$DSS <- rbinom(n_step, 1, 0.65)
+options(RegR.eff_cat.plot = FALSE)
+step_models <- get_eff_cat(d_step, cat_var = "z", adj_var_step = c("age", "marker", "sex"),
+  abs_args = list(enabled = TRUE, time = 60))
+p_step_default <- plt_eff(step_models, fixed_size = FALSE)
+p_step_default
+```
+
+![逐项累计调整与当前默认单张森林图。](images/eff-cat-guide/20261015-step-default.png){fig-alt="逐项累计调整与当前默认单张森林图的固定输入参数对照实图。"}
+
+### 显式v保留分行展示
+
+display="v"仍可明确要求拆成多行。相同效应尺度的面板共享范围，HR/OR与概率差等不同尺度不会强行共用一条轴。这里只重排同一个step_models，不重新拟合。
+
+```r
+p_step_vertical <- plt_eff(step_models, display = "v", fixed_size = FALSE)
+p_step_vertical
+```
+
+![显式v保留分行展示。](images/eff-cat-guide/20261015-step-explicit-v.png){fig-alt="显式v保留分行展示的固定输入参数对照实图。"}
+
+:::
