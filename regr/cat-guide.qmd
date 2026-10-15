@@ -2,7 +2,7 @@
 title: "KM/CIF 组合图：get_cat 与 3 个绘图函数"
 description: "get_cat 的数据、方法和返回对象详解；用 RegR 自带 MTC 队列比较 plt_cat1、plt_cat2、plt_cat3 的 布局和推断的实际图形示例。"
 date: 2026-10-09
-date-modified: 2026-10-13
+date-modified: 2026-10-15
 lightbox: true
 toc-depth: 2
 ---
@@ -25,7 +25,7 @@ toc-depth: 2
 
 本机开发提交 `d54e60f` 修正了未调整和 PSM 生存路径的标准误：差值推断需要生存概率 `S(t)` 的 Greenwood 标准误，旧结果曾读取到 `-log S(t)` 的标准误，导致差值区间偏宽。组别生存概率、其区间和 HR 点估计不因此改变；未调整 / 匹配的生存概率差区间和 P 值可能改变。该修复不针对 direct、IPTW 或 CIF。
 
-本页 KM 图片已从原始数据重算。历史 `cat_res` 必须重新调用 `get_cat()`，换绘图参数无法修正对象中的历史标准误。下面显示新增的纯曲线横向布局；`sur` 保持纵向，`sur_h` 并列未调整与调整曲线。多个暴露的 `sur_h` 组合会按暴露上下排列。
+本页 KM 图片已从原始数据重算。历史 `cat_res` 必须重新调用 `get_cat()`，换绘图参数无法修正对象中的历史标准误。下面显示新增的纯曲线横向布局；`sur` 保持纵向，`sur_h` 并列未调整与调整曲线。多个暴露的 `sur_h` 组合现在形成每暴露一行的共享网格；逐面板堆叠可用strip2_arg=list(strip=FALSE)，见文末新示例。
 
 ::: {.callout-note}
 2026-10-13 复核：已推送基线 `a3881fa` 包含 `d54e60f` 和 `sur_h`。本页生存图片仍对应上述实际执行快照；旧安装需升级至包含这些提交的源码，版本号同为0.1.3不能区分更新前后。
@@ -613,3 +613,48 @@ p
 - [adjustedCurves 的生存与竞争风险方法说明](https://robindenz1.github.io/adjustedCurves/articles/adjustedCurves.html)。
 - [survival 官方竞争风险教程](https://cran.r-project.org/web/packages/survival/vignettes/compete.pdf)。
 - 本站相关教程：[效应估计与森林图](forest-guide.qmd)、[分面生存曲线](facet-guide.qmd)、[CIF 的 FGR / CSC 基准](get-eff-cif-benchmark.qmd)。
+
+## 多暴露共享网格、轴标题和纯曲线图例 {#shared-grid-current}
+
+2026-10-15按RegR `2d4d83c` 在WSL运行并导出两张新图；本节布局接口已包含于已推送基线 `ef4ecda`。本节使用模拟生存数据，从原始数据拟合两个暴露；前面的真实队列KM/CIF结果不改动。先运行第一标签页，第二标签页复用cat_shared。
+
+::: {.panel-tabset}
+
+### 多个暴露形成共享曲线网格
+
+list输入配display="sur_h"时，每个暴露一行，未调整/调整各一列；strip2_arg控制共享上、右条带。xlab/ylab只改变显示，legend_arg控制纯曲线布局图例。
+
+```r
+set.seed(20261015)
+n_step <- 360L
+d_step <- data.frame(z = factor(rep(c("No", "Yes"), each = 180)),
+  age = rnorm(n_step, 55, 10), marker = rnorm(n_step),
+  sex = factor(rep(c("F", "M"), 180)))
+d_step$time <- rexp(n_step, exp(-4.5 + 0.4 * (d_step$z == "Yes") + 0.015 * (d_step$age - 55)))
+d_step$DSS <- rbinom(n_step, 1, 0.65)
+options(RegR.eff_cat.plot = FALSE)
+cat_shared <- get_cat(d_step, cat_var = c("z", "sex"), adj_var = c("age", "marker"),
+  timepoint = 60, time_dif = c(36, 60), methods = c("unadj", "direct"))
+p_cat_shared <- plt_cat1(cat_shared, display = "sur_h", max_t = 120,
+  xbreaks = seq(0, 120, 24), xlab = "Follow-up (months)", ylab = "Survival probability",
+  strip2_arg = list(top_label = c("Unadjusted", "Adjusted"), right_label = c("Exposure", "Sex")),
+  legend_arg = list(position = "bottom", scale = 0.65))
+p_cat_shared
+```
+
+![多个暴露形成共享曲线网格。](images/cat-guide/20261015-cat-shared-grid.png){fig-alt="多个暴露形成共享曲线网格的固定输入参数对照实图。"}
+
+### 关闭共享条带并独立堆叠
+
+strip2_arg=list(strip=FALSE)恢复逐暴露堆叠的面板条带。共享条带只对list+sur_h有效；对其他输入强制TRUE会报错。纯曲线图可用legend_arg=list(position="none")隐藏图例，含森林表的布局不显示曲线图例。
+
+```r
+p_cat_stacked <- plt_cat1(cat_shared, display = "sur_h", max_t = 120,
+  xbreaks = seq(0, 120, 24), strip2_arg = list(strip = FALSE),
+  legend_arg = list(position = "bottom", scale = 0.65))
+p_cat_stacked
+```
+
+![关闭共享条带并独立堆叠。](images/cat-guide/20261015-cat-per-panel.png){fig-alt="关闭共享条带并独立堆叠的固定输入参数对照实图。"}
+
+:::
