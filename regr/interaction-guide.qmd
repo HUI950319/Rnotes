@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；包含 get_fit_ms 的多分类与连续变量整体检验，及 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
 date: 2026-10-09
-date-modified: 2026-10-15
+date-modified: 2026-10-16
 lightbox: true
 toc-depth: 2
 format:
@@ -1489,7 +1489,7 @@ fmt_eff_inter_gt(eff_inter_split, show_color = FALSE, event_by_group = FALSE)
 
 ## get_int：统一分析与分层画布 {#get-int-current}
 
-2026-10-15按本机RegR `2d4d83c` 在WSL运行下面两张模拟数据实图。get_int()基础入口及split_var已包含于核对时已推送基线 `ef4ecda`；随后本机的use.DSS/time/conf.level、不可估计伙伴跳过及Viewer显示更新尚未推送，不应仅凭0.1.3版本号判断旧安装。
+前两张图按2026-10-15的RegR `2d4d83c` 在WSL执行。2026-10-16复核：已推送5956139包含这些接口；按该提交重新运行轻量例，table统计量与前快照逐项一致。当前默认已开启亚组树，下面代码显式设置tree_args=NULL；只凭0.1.3版本号不能判断旧安装。
 
 两图只开启MS和标准交互分支；没有训练SHAP/HTE或树。先运行第一标签页，再运行分层标签页。返回的table保留统计量、contrast和model，results保留各分支对象，combined是画布、gt是完整交互表；分层返回strata、combined和gt，各层结果放在strata中。
 
@@ -1499,7 +1499,7 @@ mean_rank按已运行分析的伙伴强度平均排名，first按首分析，non
 
 ### 统一交互面板并保留原始结果
 
-默认开启MS、标准交互、SHAP与HTE筛查，H统计量、paired-VIMP和树默认关闭。NULL关闭对应分析，list()使用默认值，命名list传控制参数。本例显式关闭SHAP和HTE，只计算MS及乘法/加法交互；各量不是同一效应尺度。
+当前5956139默认开启MS、标准交互、SHAP、HTE及亚组树；H统计量和paired-VIMP默认关闭。NULL关闭对应分析，list()使用默认值，命名list传控制参数。本例显式关闭SHAP和HTE，只计算MS及乘法/加法交互；各量不是同一效应尺度。
 
 ```r
 set.seed(20261015)
@@ -1508,7 +1508,7 @@ d_int <- data.frame(z = rep(0:1, 240), x = rnorm(480), marker = rnorm(480),
 d_int$outcome <- rbinom(480, 1, plogis(-0.3 + 0.4 * d_int$z + 0.5 * d_int$x + 0.8 * d_int$z * d_int$x))
 int_basic <- get_int(d_int, int_var = "z", vars = c("x", "sex", "marker"),
   adj_var = c("x", "sex", "marker"), surv = "outcome", shp_args = NULL,
-  hte_args = NULL, order_by = "mean_rank", detail = "table")
+  hte_args = NULL, tree_args = NULL, order_by = "mean_rank", detail = "table")
 int_basic$combined
 ```
 
@@ -1521,7 +1521,7 @@ split_var对每个层独立分析，但每个伙伴跨层放在同一行。连�
 ```r
 int_split <- get_int(d_int, int_var = "z", vars = c("x", "sex", "marker"),
   adj_var = c("x", "sex", "marker"), split_var = "region", surv = "outcome",
-  shp_args = NULL, hte_args = NULL, top_n = 3, detail = "table")
+  shp_args = NULL, hte_args = NULL, tree_args = NULL, top_n = 3, detail = "table")
 int_split$combined
 ```
 
@@ -1530,8 +1530,62 @@ int_split$combined
 :::
 
 
-当前本机公共控制的补充：`vars=NULL`取adj_var；vars/adj_var中的int_var及split_var会剔除。surv=TRUE时use.DSS=FALSE改用OS；time默认120月，conf.level默认0.95，分支list的time/conf_level可覆盖公共值。这三个新参数尚不属于上述已推送基线。
+当前已推送公共控制的补充：`vars=NULL`取adj_var；vars/adj_var中的int_var及split_var会剔除。surv=TRUE时use.DSS=FALSE改用OS；time默认120月，conf.level默认0.95，分支list的time/conf_level可覆盖公共值。5956139已包含这些参数。
 
-tree_args默认NULL；开启后仅接受有分裂检验的maxt、mob_*、ctree_*等方法，默认maxt/ctree_rel/ctree_abs，后续树复用首棵的森林背景，图放画布底部单独一行。需要二分类int_var、非Fine–Gray结局及ggparty。hst_args与rfint_args默认NULL；shp_args、hte_args默认list()，完整默认调用可能明显更耗时。
+tree_args当前默认list()，NULL明确关闭。默认六法为maxt、ctree_rel、ctree_abs、ctree_dr、ctree_r、ctree_cate；后者基于森林CATE的两阶段分裂P值偏乐观，只作探索。也可显式选择其他带检验的mob_*或ctree_*方法。后续树复用首棵的森林背景，树图在画布底部按宽度换行。需要二分类int_var、非Fine–Gray结局及相应grf/partykit/ggparty依赖。
 
-本机交互式print的新行为在Viewer显示整张画布并附完整表，可纵向滚动、点击看原尺寸；非交互会先输出表再画图。本站实图通过combined直接导出，没有自动打开RStudio Viewer。保存仍用save=list(filename="...")，只给文件名时使用画布的plot_size；不要按小Plots窗格大小强行裁切。
+省略tree_args时走默认安静模式：只有至少一棵树分裂才显示树行；无分裂的树仍保留在results/table，分裂P不加入伙伴排名，失败或缺包用message报告。显式传list()则请求正常树行为，与省略参数不完全相同。完整默认调用可能明显更耗时。
+
+当前交互式print在Viewer显示整张画布并附完整表，可滚动、点击看原尺寸，同时在Plots中将整张PNG缩小显示；非交互会输出表并画图。导出应读取combined或使用save=list(filename="...")，按plot_size保留原尺寸，避免把Plots缩略预览当成导出质量。本页实图直接导出combined，没有打开RStudio Viewer。
+
+## get_all交互画布与紧凑gt表格 {#intc-current}
+
+2026-10-16按已推送RegR `5956139` 实际运行以下新例。intc.args调用get_int()并返回interCanvas；原int.args仍是get_inter()统计表分支，返回interTable。data、adj_var、surv、time、conf.level来自com.args，use.DSS也在公共层处理；共同split_var优先，分支只能重复相同值。
+
+fmt_eff_inter_gt()同样支持compact。5956139还改为按模型项定位get_inter()的交互系数，旧结果对象须重新计算才会使用新逻辑。本节新例已重算，其他历史结果保留其原快照。
+
+::: {.panel-tabset}
+
+### 统一入口的轻量画布
+
+复用前节d_int，显式关闭SHAP、HTE和树。返回的interCanvas保留table/results/gt/combined。
+
+```r
+int_from_all <- get_all(com.args = list(data = d_int, surv = "outcome",
+  adj_var = c("x", "sex", "marker")),
+  intc.args = list(int_var = "z", vars = c("x", "sex", "marker"),
+    shp_args = NULL, hte_args = NULL, tree_args = NULL, detail = NULL))
+int_from_all$interCanvas$combined
+```
+
+![统一入口的轻量画布。](images/interaction-guide/20261016-get-all-intc.png){fig-alt="统一入口的轻量画布的固定输入参数对照实图。"}
+
+### 默认紧凑gt
+
+新建1600人的独立模拟数据作样式对照；两表使用同一结果，核对底层数据完全相同且没有NaN估计。compact=TRUE默认使用13px和较小单元格间距，只控制视觉密度。
+
+```r
+set.seed(20261016)
+d_table <- data.frame(a = rep(0:1, 800), b = rep(c(0, 0, 1, 1), 400), score = rnorm(1600))
+d_table$outcome <- rbinom(1600, 1, plogis(-2 + 0.8 * d_table$a + 0.9 * d_table$b +
+  0.7 * d_table$a * d_table$b + 0.1 * d_table$score))
+inter_table_new <- get_inter(d_table, exposure_names = c("a", "b"),
+  adj_var = "score", surv = "outcome")
+gt_compact <- fmt_inter_gt(inter_table_new)
+gt_spaced <- fmt_inter_gt(inter_table_new, compact = FALSE)
+gt_compact
+```
+
+![默认紧凑gt。](images/interaction-guide/20261016-gt-compact.png){fig-alt="默认紧凑gt的固定输入参数对照实图。"}
+
+### 恢复gt常规间距
+
+复用前一标签页的gt_spaced；两表统计量和区间一致。
+
+```r
+gt_spaced
+```
+
+![恢复gt常规间距。](images/interaction-guide/20261016-gt-spaced.png){fig-alt="恢复gt常规间距的固定输入参数对照实图。"}
+
+:::
