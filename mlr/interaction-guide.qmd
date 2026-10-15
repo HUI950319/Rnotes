@@ -2,6 +2,7 @@
 title: "变量交互：H 统计量、paired-VIMP 与 VIV 图谱"
 description: "实际比较交互定义、缩放、预测时间、热图标签、网络边阈值和布局。"
 date: 2026-10-01
+date-modified: 2026-10-15
 lightbox: true
 toc-depth: 2
 ---
@@ -326,3 +327,28 @@ ggplot2::ggsave("interaction-network.pdf", p, width = 9, height = 6)
 
 本页图片来自上面的实际公共调用。使用固定示例、固定随机种子和注明的小规模设置，图形用于学习接口及解释预测结果。
 12 张图均由公开入口实际生成，覆盖两套交互算法、三种 H 缩放/定义、生存 CHF 与固定时间概率、两种热图呈现和多种网络阈值/布局。小样本网格和较低 nrep 用于教程速度，不能替代正式分析的重复性检查。
+
+## 定向paired-VIMP与计算范围 {#targeted-current}
+
+2026-10-15按已推送MLR `c5b85af` 在固定种子模拟数据上运行定向计算。树数和重复数仅用于轻量接口演示；原有全配对及H统计量图保持历史执行快照。
+
+::: {.panel-tabset}
+
+### 只计算锚点变量的paired-VIMP
+
+int_var与pairwise_m不能同时使用。p个变量只计算锚点与其余变量的p−1对；其他配对未计算，不能把矩阵空缺解释为无交互。每对的Var 1 VIMP来自该对自身的重复，不能假设与全配对一次调用完全相同。
+
+```r
+set.seed(20261015)
+d_rfint_new <- data.frame(x = rnorm(180), z = rnorm(180), w = rnorm(180), u = rnorm(180))
+d_rfint_new$outcome <- factor(ifelse(runif(180) < plogis(d_rfint_new$x * d_rfint_new$z), "Yes", "No"))
+rf_target <- get_rfint(d_rfint_new, vars = c("x", "z", "w", "u"), surv = "outcome",
+  int_var = "x", num.trees = 80, nrep = 2, Num.sample = 180, seed = 246, verbose = FALSE)
+plt_viv(rf_target, mode = "heatmap", fixed_size = FALSE)
+```
+
+![只计算锚点变量的paired-VIMP。](images/interaction-guide/20261015-rfint-target.png){fig-alt="只计算锚点变量的paired-VIMP的固定输入参数对照实图。"}
+
+:::
+
+H统计量的Num.sample限制训练行数，hstats_args$n_max限制交互背景行数；减小n_max、grid_size或变量数会改变近似范围。生存CHF输出包含多个时间列；固定时点预测也可能先计算整条生存曲线，不能把训练时间当总耗时。复用返回的矩阵绘图可避免重复拟合。本轮未重测耗时，不给出新的加速倍数。
