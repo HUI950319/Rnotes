@@ -1,15 +1,184 @@
 ---
-description: "seerR 的 SEER 导出文件整理功能概览，介绍变量重编码、纳排流程与生存结局构建；详细操作笔记仍在整理。"
+description: "用包内 2025/2026 样例运行甲状腺 ETL，核对 schema、字段、缺失及复发标记的顺序和并列值边界。"
+date-modified: 2026-10-17
 ---
 
-# seerR 概览
+# seerR 笔记
 
-seerR 把 SEER 肿瘤登记导出文件整理成可分析的队列：变量重编码、纳排流程和生存结局构建。
+seerR 把 SEER 导出字段整理为分析变量。先按文件实际 schema 选择入口，再检查输出编码、缺失及分析单位；同名列或成功返回并不说明两个年度的导出文件可以混用。
 
-**主要函数：** SEER ETL 流程与队列构建函数
+2026-10-17 按已推送 seerR `82b0960`、UtilsR `f426bc0`，在 Windows / WSL R 4.4.3 实际执行本页两套包内样例及合成边界例。包内样例用于接口演示，不代表本文建立了研究队列；原有 [功能模块图](function-modules.qmd) 保持其历史快照。
 
-参考文档：暂未公开。
+## 选择流水线与 schema {#pipeline-current}
 
-::: {.callout-note}
-这个分区的笔记还在整理中。
+甲状腺入口为 `seer_thyroid_pipeline(data, schema=...)`；schema 默认 `"2025"`，2026 导出须显式选择 `"2026"`。它依次完成字段选择、组织学、分期与淋巴结、转移、人口学、治疗、结局及复发标记整理。胰腺使用独立的 `seer_pancreas_pipeline()`，不能直接套用甲状腺字段和规则。
+
+```r
+library(seerR)
+```
+
+::: {.panel-tabset}
+
+### 2025 样例 {.unnumbered}
+
+```r
+sample_2025 <- system.file("extdata", "sample_seer_thyroid_2025.csv", package = "seerR")
+stopifnot(nzchar(sample_2025))
+raw_2025 <- readr::read_csv(sample_2025, show_col_types = FALSE)
+selected_2025 <- seer_thyroid_select_2025(raw_2025)
+analysis_2025 <- seer_thyroid_pipeline(raw_2025, schema = "2025")
+data.frame(step = c("raw", "selected", "analysis"),
+  rows = c(nrow(raw_2025), nrow(selected_2025), nrow(analysis_2025)),
+  columns = c(ncol(raw_2025), ncol(selected_2025), ncol(analysis_2025)))
+head(analysis_2025[, c("Patient_ID", "Age", "His_6", "T_stage", "N_stage",
+  "time", "DSS", "RFS", "time.RFS")])
+```
+
+实际步骤尺寸：
+
+::: {.table-responsive}
+
+|step     | rows| columns|
+|:--------|----:|-------:|
+|raw      |  100|     246|
+|selected |  100|      65|
+|analysis |  100|     126|
+
 :::
+
+实际输出前六行：
+
+::: {.table-responsive}
+
+|Patient_ID | Age|His_6 |T_stage |N_stage | time| DSS| RFS| time.RFS|
+|:----------|---:|:-----|:-------|:-------|----:|---:|---:|--------:|
+|sample_001 |  53|PTC   |T2      |N1a     |  108|   0|   0|      108|
+|sample_002 |  45|PTC   |T1      |N0      |   59|   0|   0|       59|
+|sample_003 |  75|PTC   |T4a     |N0      |    0|   1|   0|        0|
+|sample_004 |  76|PTC   |T1      |N0      |  116|   0|   0|      116|
+|sample_005 |  41|FTC   |T3a     |N0      |   27|   0|   0|       27|
+|sample_006 |  61|PTC   |T1      |N0      |   66|   0|   0|       66|
+
+:::
+
+### 2026 样例 {.unnumbered}
+
+```r
+sample_2026 <- system.file("extdata", "sample_seer_thyroid_2026.csv", package = "seerR")
+stopifnot(nzchar(sample_2026))
+raw_2026 <- readr::read_csv(sample_2026, show_col_types = FALSE)
+selected_2026 <- seer_thyroid_select_2026(raw_2026)
+analysis_2026 <- seer_thyroid_pipeline(raw_2026, schema = "2026")
+data.frame(step = c("raw", "selected", "analysis"),
+  rows = c(nrow(raw_2026), nrow(selected_2026), nrow(analysis_2026)),
+  columns = c(ncol(raw_2026), ncol(selected_2026), ncol(analysis_2026)))
+head(analysis_2026[, c("Patient_ID", "Age", "His_6", "T_stage", "N_stage",
+  "time", "DSS", "RFS", "time.RFS")])
+```
+
+实际步骤尺寸：
+
+::: {.table-responsive}
+
+|step     | rows| columns|
+|:--------|----:|-------:|
+|raw      |  100|     247|
+|selected |  100|      67|
+|analysis |  100|     128|
+
+:::
+
+实际输出前六行：
+
+::: {.table-responsive}
+
+|Patient_ID | Age|His_6 |T_stage |N_stage | time| DSS| RFS| time.RFS|
+|:----------|---:|:-----|:-------|:-------|----:|---:|---:|--------:|
+|sample_001 |  53|PTC   |T2      |N1a     |  120|   0|   0|      120|
+|sample_002 |  45|PTC   |T1      |N0      |  110|   0|   0|      110|
+|sample_003 |  75|PTC   |T4a     |N0      |    0|   1|   0|        0|
+|sample_004 |  76|PTC   |T1      |N0      |  116|   0|   0|      116|
+|sample_005 |  41|FTC   |T3a     |N0      |   39|   0|   0|       39|
+|sample_006 |  61|PTC   |T1      |N0      |   66|   0|   0|       66|
+
+:::
+
+:::
+
+两套样例均保留 100 行，字段数随 schema 和派生变量而变。输出的行数不能代替患者数，也不能据此确认结局完整。
+
+## 检查输出质量 {#quality-current}
+
+样例运行中会出现数值转换产生 NA 和部分对数计算产生 NaN 的警告，不能把成功完成流水线等同于所有字段均可直接分析。应保留并核对这些提示。下面是 2026 样例实际输出的缺失数：
+
+```r
+quality_fields <- c("time", "DSS", "RFS", "time.RFS")
+data.frame(field = quality_fields,
+  missing = vapply(analysis_2026[quality_fields], function(x) sum(is.na(x)), integer(1)))
+```
+
+::: {.table-responsive}
+
+|         |field    | missing|
+|:--------|:--------|-------:|
+|time     |time     |       1|
+|DSS      |DSS      |       0|
+|RFS      |RFS      |       0|
+|time.RFS |time.RFS |       1|
+
+:::
+
+`time` 来自 SEER 随访月字段，`DSS` 与 `RFS` 是不同的编码结果。实际分析还需核对零随访、状态编码、患者重复记录、因子未知水平及所需协变量。`UtilsR::check_na()` / `lv()` 的当前特殊字符串识别见 [数据检视页](../utilsr/missing-guide.qmd)；函数不会自动把所有 Unknown 字符串改为 NA。
+
+## 同人记录与复发标记 {#recurrence-current}
+
+`seer_fmt_recurrence()` 按现有行顺序读取同一患者的首条、末条记录，用首条 time 减末条 time。只有同人多条记录、时间差至少六个月且所有 His_6 都与首条相同时，才接入 `RFS=1` 与共同的 `time.RFS`；它不会先按 time 自动排序。
+
+这是该函数按记录规则推导的标记，研究中仍须核验它与所需复发定义是否一致。未满足规则的记录得到 `RFS=0`、`time.RFS=time`，不能仅凭这个零值断言临床未复发。
+
+```r
+d_rec <- data.frame(Patient_ID = c("A", "A", "B", "B", "C", "C"),
+  time = c(60, 24, 20, 30, 50, 10),
+  His_6 = c("PTC", "PTC", "PTC", "PTC", "PTC", "MTC"))
+seer_fmt_recurrence(d_rec)
+```
+
+::: {.table-responsive}
+
+|Patient_ID | time|His_6 | time.RFS| RFS|
+|:----------|----:|:-----|--------:|---:|
+|A          |   60|PTC   |       36|   1|
+|A          |   24|PTC   |       36|   1|
+|B          |   20|PTC   |       20|   0|
+|B          |   30|PTC   |       30|   0|
+|C          |   50|PTC   |       50|   0|
+|C          |   10|MTC   |       10|   0|
+
+:::
+
+A 的差值为 36，标记接到该患者的两条原记录；B 的现有顺序给出负差值，C 的组织学不一致，两者均不满足规则。His_6 含 NA 时也不满足全组相同的检查。准备数据时应明确患者记录顺序与分析单位。
+
+### 并列最大随访会增加连接行数
+
+当前向量化实现保留了原来的并列最大值和 left join 行为。同一患者最大 time 出现两次时，该患者原记录会各连接两次。
+
+```r
+d_ties <- data.frame(Patient_ID = rep("D", 3), time = c(80, 80, 30),
+  His_6 = rep("PTC", 3))
+rec_ties <- seer_fmt_recurrence(d_ties)
+nrow(d_ties)    # 3
+nrow(rec_ties)  # 6
+table(rec_ties$Patient_ID)
+```
+
+本轮实际核验了 3 → 6 行及 `time.RFS=50`；dplyr 可同时提示 many-to-many 连接。需要患者级结果时，应先确定记录选择与并列处理原则，再核对行数和患者数，不把重复行直接当成新增患者。
+
+## 当前优化与复现范围
+
+`82b0960` 把逐患者筛选改为整列处理，并复用分期整理中重复的 Extension 条件。本文没有重新测量大样本速度，不能把其他环境或旧版本的倍数套到自己的数据。
+
+本页实际执行了两种 schema 的包内样例、基本复发规则、记录顺序与并列连接例；没有用这些结果验证真实数据的分期或复发终点。参数、字段与解释应结合当前帮助和自己的导出字典核对。
+
+- [功能模块图](function-modules.qmd)
+- [seerR 源码](https://github.com/HUI950319/seerR/blob/master/R/seer_thyroid.R)
+- [共同字段与复发标记源码](https://github.com/HUI950319/seerR/blob/master/R/seer_fmt_common.R)
