@@ -697,3 +697,50 @@ rpa_all$rpa$ft.pair
 ```
 
 树没有分裂时成品图或相邻组表可能为NULL，需检查返回值，不能把缺表当作“差异不显著”。
+
+## get_rpa 的图、终末组与比较表 {#viewer-20261017}
+
+2026-10-17 按已推送 RegR `197faa2`，在 WSL R 4.4.3 实际运行下例的生存与 Logistic 两条路径。`view` 是成品结果页：生存路径先放三个成品图，再放终末组汇总表和 `ft.pair`；Logistic 路径先放条形树与 OR 森林，再放两类表。
+
+以下是固定种子的合成数据，用于核验结果组织，不作为真实队列或临床分层验证。
+
+```r
+set.seed(1017)
+n_view <- 600L
+d_view <- data.frame(Age = runif(n_view, 25, 80), Marker = rnorm(n_view),
+  Sex = factor(sample(c("Female", "Male"), n_view, TRUE)))
+d_view$Treat <- factor(ifelse(runif(n_view) < plogis(-0.7 +
+  0.02 * (d_view$Age - 50) + 0.3 * d_view$Marker), "Yes", "No"), levels = c("No", "Yes"))
+d_view$time <- rexp(n_view, exp(-4 + 1.4 * (d_view$Age > 55) + 0.3 * d_view$Marker))
+d_view$DSS <- rbinom(n_view, 1, 0.75)
+d_view$Outcome <- factor(ifelse(runif(n_view) < plogis(-1.5 +
+  3 * (d_view$Age > 55) + 0.5 * d_view$Marker), "Yes", "No"), levels = c("No", "Yes"))
+```
+```r
+rpa_view_sur <- get_rpa(d_view, rpa_var = "Age", adj_var = "Sex", surv = TRUE,
+  cat_arg = list(timepoint = 24, curve_args = list(ci = FALSE, max_times = 30L)))
+rpa_view_log <- get_rpa(d_view, rpa_var = "Age", adj_var = "Sex", surv = "Outcome")
+rpa_view_sur$view
+fmt_page(rpa_view_sur$view,
+  save = list(filename = file.path(tempdir(), "rpa-survival-results.html")))
+```
+
+::: {.panel-tabset}
+
+### 生存路径 {.unnumbered}
+
+![生存 RPA 结果页中的终末组汇总表。](images/rpa-guide/20261017-rpa-sur-view.png){fig-alt="实际生存 RPA 终末组表，包含规则、事件人数、24 月生存概率与对首组的 HR。"}
+
+[打开生存完整结果页](images/rpa-guide/20261017-rpa-sur-view.html){target="_blank"} · [下载 HTML](images/rpa-guide/20261017-rpa-sur-view.html){download="rpa-survival-results.html"}
+
+### Logistic 路径 {.unnumbered}
+
+![Logistic RPA 结果页中的终末组汇总表。](images/rpa-guide/20261017-rpa-log-view.png){fig-alt="实际 Logistic RPA 终末组表，包含规则、事件人数及对首组的 OR。"}
+
+[打开 Logistic 完整结果页](images/rpa-guide/20261017-rpa-log-view.html){target="_blank"} · [下载 HTML](images/rpa-guide/20261017-rpa-log-view.html){download="rpa-logistic-results.html"}
+
+:::
+
+终末组表每组一行，生存路径的 HR 与指定时间生存概率来自原 KM 面板使用的结果；有 `adj_var` 时并排显示未调整与调整值。其参照是首组，末尾 `ft.pair` 默认比较相邻组，两张表的比较对象不同。图按自身 `plot_size` 绘制，浏览器中可点击原尺寸查看。
+
+`get_all(rpa.args=...)` 在交互会话显示该 `view`；Quarto HTML 中应在独立代码块写 `res$rpa$view`。Word 中需要单独输出 `res$rpa$ft.pair` 等原对象。无分裂、缺少 htmltools 或构建失败时检查 NULL 与警告，不把缺表解释为无统计差异。两份 HTML 均已验证离线显示、手机宽度和点击缩放；原有历史树和图表保留原快照。
