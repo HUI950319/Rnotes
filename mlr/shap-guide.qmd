@@ -2,7 +2,7 @@
 title: "SHAP：get_shp 与 14 个绘图函数"
 description: "get_shp 的自动分箱、任务、采样、后端与返回对象详解；用 ToyData::toy_shp 比较 14 个 plt_shp_* 函数的 34 个图形示例。"
 date: 2026-09-30
-date-modified: 2026-10-15
+date-modified: 2026-10-16
 lightbox: true
 toc-depth: 2
 ---
@@ -224,7 +224,7 @@ res_python <- get_shp(data, vars = vars, surv = TRUE, model = "ranger",
 
 `interactions = TRUE` 请求交互矩阵，便于展示主效应、变量对贡献、交互排名与网络；关闭后，依赖 `S_inter` 的图形无法生成。交互存储量随解释样本数与变量数按 $n\times p\times p$ 增长，变量较多时可先缩小解释样本或关闭交互。
 
-`int_var` 主要指定预生成交互图中需要查看的变量对，例如 `c("Age", "Che")`，并不意味着只计算这两个变量的交互。后续可以继续对同一个完整对象选择其他变量。
+`int_var` 选择预生成交互图的一个或两个变量，例如 `"Marker"` 或 `c("Age", "Che")`，不缩小SHAP交互矩阵的计算范围。单个锚点的plt.int1按交互排名配对各伙伴的两个方向，plt.int2只画一个锚点；两个变量保留双锚点展示。
 
 `render_plots = FALSE` 保留 SHAP 计算，但把下面六个预生成图字段全部置为 `NULL`。需要自己选图、自己调参数时，这个开关可以减少不必要的作图。
 
@@ -240,7 +240,7 @@ res_python <- get_shp(data, vars = vars, surv = TRUE, model = "ranger",
 | `plt.tot` | 各变量总 SHAP 依赖图 | `render_plots = TRUE` |
 | `plt.mai` | 各变量主效应图 | 还需 `S_inter` |
 | `plt.int1` | `int_var` 两个方向的总贡献 / 配对交互图 | 还需 `S_inter` 与 `int_var` |
-| `plt.int2` | 两个锚点各自的交互排名与自动配对插图 | 自动选择各自最强搭档，不保证就是 `int_var` 的另一个变量 |
+| `plt.int2` | 一个或两个锚点各自的交互排名与自动配对插图 | 自动选择各自最强搭档，不保证就是 `int_var` 的另一个变量 |
 | `cat_vars` | 原始 `vars` 中因子或字符列的名称 | 用于变量分类 |
 | `con_vars` | 原始 `vars` 中数值列的名称 | 用于变量分类 |
 | `par_lis` | 原始 `data` 与 `vars` | 参数记录；保存完整结果时也会保存原始数据 |
@@ -906,3 +906,42 @@ attr(p2, "plot_size")  # 顺序为 width、height，单位为英寸
 - [get_shp 的当前源码](https://github.com/HUI950319/MLR/blob/95d3204/R/shp-get.R)
 - [SHAP TreeExplainer：主效应、交互与可加性](https://shap.readthedocs.io/en/latest/generated/shap.TreeExplainer.html)
 - [ToyData 数据对象介绍](../toydata/index.qmd)
+
+
+## 单个int_var与保存图对象 {#single-anchor-current}
+
+2026-10-16按MLR `78c4238` 固定快照在WSL R 4.4.3实际执行以下合成数据新例；单锚点与图对象环境整理已包含于核对时远端 `462f041`。原ToyData的35张图和既有SHAP值保留原快照。
+
+ranger路径会将字符预测变量转成因子，使ranger与treeshap使用一致的水平编码，调用者的数据不被改写。Unix treeshap可按工作量使用fork，Windows仍启动独立R进程；Python无法启动的会话缓存与get_imp共用。没有在本轮测量新的加速倍数。
+
+
+### 单变量锚点的预生成交互图
+
+独立320人合成二分类数据，使用R treeshap重新计算。一个int_var使plt.int1进入排名模式，展示与各伙伴的两个方向；plt.int2只生成一个锚点的排名与插图。int_var仅选择展示，不缩小S_inter的计算范围。
+
+```r
+set.seed(20261016)
+d_shp_one <- data.frame(Age=runif(320,20,80),Marker=rnorm(320),
+  Group=sample(c("A","B"),320,TRUE))
+d_shp_one$Outcome <- factor(ifelse(runif(320)<plogis(-0.3+d_shp_one$Marker+
+  0.04*(d_shp_one$Age-50)+0.08*(d_shp_one$Age-50)*d_shp_one$Marker),"Yes","No"))
+shp_one <- get_shp(d_shp_one,vars=c("Age","Marker","Group"),surv="Outcome",
+  interactions=TRUE,int_var="Marker",engine="treeshap",device="cpu",
+  Num.sample=320,exp.sample=40)
+shp_one$plt.int1
+```
+
+![单变量锚点的预生成交互图](images/shap-guide/20261016-shap-single-anchor.png){fig-alt="单变量锚点的预生成交互图；固定输入、按注明源码快照实际运行的示例。"}
+
+
+### 单锚点的排名与搭档
+
+直接读取同一shp_one的plt.int2，不重新训练。最强搭档由交互强度选择；图上没有P值，也不是治疗效应检验。
+
+```r
+shp_one$plt.int2
+```
+
+![单锚点的排名与搭档](images/shap-guide/20261016-shap-single-summary.png){fig-alt="单锚点的排名与搭档；固定输入、按注明源码快照实际运行的示例。"}
+
+当前plt_shp_TI/TM整理了绘图环境，保存图不应再因局部环境带入整份输入对象。本例已保存、读回plt.int1并重新构建；这不等于完整get_shp结果已去掉原始数据，par_lis仍记录data和vars。只需图时保存图，只需数值时选择必要字段；不要把图对象当作匿名数据。
