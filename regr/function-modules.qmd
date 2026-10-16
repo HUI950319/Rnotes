@@ -208,7 +208,7 @@ all_score[["msr"]][["ft"]]
 
 2026-10-16按RegR a8a6eb8固定快照在Windows R 4.4.3实际运行；fmt_page已包含于核对时远端1dc3b2f。复用本页介绍该函数，图谱下载件仍保留其历史快照。
 
-`fmt_page()`按输入顺序组合图、表和文字；命名项成为小标题，NULL项略过。支持ggplot/patchwork/grob、gt、gtsummary、flextable、htmltools标签及htmlwidget。普通list应拆开传，例如 `do.call(fmt_page,res[c("combined","gt")])`，不能把整个分析结果list当一块图传入。
+`fmt_page()`按输入顺序组合图、表和文字；命名项成为小标题，NULL项略过。支持ggplot/patchwork/grob、gt、gtsummary、flextable、data.frame/tibble、htmltools标签及htmlwidget。普通list应拆开传，例如 `do.call(fmt_page,res[c("combined","gt")])`，不能把整个分析结果list当一块图传入。
 
 ```r
 fmt_page(..., title=NULL, plot_size=c(7,5),
@@ -238,4 +238,34 @@ p_page
 
 返回值是可浏览的htmltools tagList，可保存RDS后读回。图按自身plot_size属性绘制，没有该属性才用公共plot_size；页面中的图为PNG，点击切换原尺寸。save只接受filename，省略.html会自动补齐；本地CSS/JS会内联，但仅有网页地址的外部依赖仍需联网。用htmltools::save_html另存时则可能生成旁边的lib目录。
 
-此HTML已在Chromium检查桌面/手机显示、点击缩放及离线加载；WSL本机的V8库缺少libnode.so.72，因此本例改用Windows执行，未把WSL渲染失败写成成功。导出的PNG不是矢量图；需要矢量图时仍单独使用save_plt。
+此HTML已在Chromium检查桌面/手机显示、点击缩放及离线加载；2026-10-16 的 WSL 旧例因 V8 缺少 libnode.so.72 而改用 Windows 执行；下节的新源码与 Windows / WSL 验证另行记录。导出的PNG不是矢量图；需要矢量图时仍单独使用save_plt。
+
+### 数据框、tibble 与已有页面复用 {#fmt-page-dataframe-current}
+
+2026-10-17 按已推送 RegR `197faa2`，在 Windows / WSL R 4.4.3 实际运行下例。数据框与 tibble 自动转为 gt 表；字符行名成为行标题，普通行号不单独显示；list 列的每个元素用逗号连接。图的 `labs(alt=...)` 成为图片替代文本。
+
+```r
+library(RegR)
+library(ggplot2)
+p_page_new <- ggplot(mtcars, aes(wt, mpg)) + geom_point(colour = "#137C8B") +
+  theme_bw() + labs(alt = "Mileage against car weight")
+d_page <- head(mtcars[, c("wt", "mpg", "cyl")], 4)
+d_page$variables <- list(c("wt", "mpg"), "cyl", c("mpg", "cyl"), character())
+page_new <- fmt_page(Plot = p_page_new, Data = d_page,
+  Tibble = tibble::as_tibble(head(iris, 3)),
+  "A data frame, a list column and a tibble.", NULL,
+  title = "Data-frame result page", plot_size = c(6, 3.5),
+  save = list(filename = file.path(tempdir(), "dataframe-page")))
+page_new
+saveRDS(page_new, file.path(tempdir(), "page-new.rds"))
+fmt_page(readRDS(file.path(tempdir(), "page-new.rds")),
+  save = list(filename = file.path(tempdir(), "page-resaved.html")))
+```
+
+![实际结果页：图、含行名和 list 列的数据框，以及 tibble。](images/function-modules/20261017-dataframe-page.png){fig-alt="fmt_page 的实际浏览器预览，显示一张散点图与两张数据表。"}
+
+[打开完整 HTML](images/function-modules/20261017-dataframe-page.html){target="_blank"} · [下载 HTML](images/function-modules/20261017-dataframe-page.html){download="dataframe-page.html"}
+
+返回对象增加 `fmt_page` 类，仍兼容 htmltools。交互会话打印时显示页面；Rscript 仅打印摘要。已有页面可直接另存，不重新绘制图。保存路径的父目录须存在；本地依赖及其字体、图片等文件会嵌入，仅有远端地址的依赖仍可能需要联网。
+
+当前 gt 渲染使用局部样式，不再经过逐单元格内联 CSS 的 V8 路径；上例已在 WSL 成功生成。HTML 已检查离线加载、手机宽度和点击缩放。本轮另用独立 Quarto 文档实际编译 HTML 与 Word：HTML 保留文档标题及两张表；Word 只嵌入图的 PNG，不包含该页面的 HTML 表格和文字。PDF 等非 HTML 格式遵循相同的图像回退接口，本轮没有编译 PDF。需要可编辑的 Word 表时，应另行输出原始 `ft` / `tbl_merge` 等表格对象。
