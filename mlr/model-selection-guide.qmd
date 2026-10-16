@@ -73,6 +73,8 @@ mc <- get_model_selection(task_c, imputations = c("complete", "median_mode"),
 
 **`auto_tuner = FALSE` 的含义需要特别注意：** 对有内置搜索空间的模型，它先在全数据上调参一次，再冻结参数执行外层 benchmark。这不是严格嵌套评估。`auto_tuner = TRUE` 才会在每个外层训练折内重新调参。原始内置名字 ranger 与本页的固定参数自定义 Forest 不是相同调参流程。
 
+::: {.table-responsive}
+
 | 指标 | 任务 | 方向 |
 |:--|:--|:--|
 | cindex | 生存区分 | 越高越好 |
@@ -80,6 +82,8 @@ mc <- get_model_selection(task_c, imputations = c("complete", "median_mode"),
 | brier + time | 固定时间生存概率误差 | 越低越好 |
 | auc / prauc | 二分类区分 | 越高越好；PR AUC 依赖正类比例 |
 | brier / bbrier / logloss | 二分类概率误差 | 越低越好 |
+
+:::
 
 生存概率指标需要 distr 预测；`predict_type = crank` 的学习器只提供排序分数，不能据此计算原生生存概率的 Brier。二分类始终要求正类概率，不能传生存专用 predict_type 或 survdnn_device。
 
@@ -269,6 +273,8 @@ plt_bmr_circle(mc, measure = "auc", ylim = c(0, 1), circle_args = list(type = "b
 
 ## 参数调整、保存与使用边界 {#parameters}
 
+::: {.table-responsive}
+
 | 参数 | 作用 | 示例取舍 |
 |:--|:--|:--|
 | models / imputations | 选择学习器与缺失管线 | 两类模型、两种缺失处理 |
@@ -278,6 +284,8 @@ plt_bmr_circle(mc, measure = "auc", ylim = c(0, 1), circle_args = list(type = "b
 | backend / workers / store_models | 计算与保存规模 | 顺序运行，不保留每折模型 |
 | measure / time / ncol / colors / ylim | 图形指标与呈现 | 同一分数无需重训即可切换 |
 | circle_args 的 type / scales / show_points | 环形图统计与尺度 | 分布图与均值图不能互相替代 |
+
+:::
 
 ## 表格与实际结果
 
@@ -289,12 +297,16 @@ tb_model_selection(mc, type = "model_parameters", output_format = "gt")
 
 下面由公开表格的实际 data.frame 结果生成：
 
+::: {.table-responsive}
+
 | Models | Dataset | AUC | PR-AUC | Brier | Log loss |
 | :-- | :-- | :-- | :-- | :-- | :-- |
 | Logistic | complete | 0.793 (0.057) | 0.761 (0.083) | 0.189 (0.024) | 0.562 (0.062) |
 | Logistic | median_mode | 0.775 (0.021) | 0.752 (0.023) | 0.194 (0.008) | 0.574 (0.021) |
 | Forest | complete | 0.722 (0.063) | 0.659 (0.084) | 0.222 (0.028) | 0.634 (0.074) |
 | Forest | median_mode | 0.722 (0.028) | 0.656 (0.031) | 0.217 (0.011) | 0.624 (0.026) |
+
+:::
 
 自定义固定参数模型的搜索空间表显示横线；这表示没有配置搜索空间，不是超参数没有实际值。学习器的固定值可通过 `ms_models[["Forest"]][["param_set"]][["values"]]` 查看。
 
@@ -319,3 +331,67 @@ dev.off()
 
 本页图片来自上面的实际公共调用。使用固定示例、固定随机种子和注明的小规模设置，图形用于学习接口及解释预测结果。
 两类任务的四个组合均成功得到有限分数；ggplot 图形通过实际构建，环形图使用基础设备导出；performance、imputation、model_parameters 三类 data.frame 均实际读回。
+
+## 当前小样本 GBM 与嵌套调参 {#current-20261017}
+
+2026-10-17 按已推送 MLR `4bbc8c8`，在 WSL R 4.4.3 实际运行下例的生存与二分类内置 GBM。生存分布组合可把基础学习器的风险预测接成 `distr`，以计算概率指标；小样本时，内置 `n.minobsinnode` 范围按最小训练折缩小，必要时固定为一个合法值。
+
+本例只有 72 行，使用两折外层 × 两折内层，每次搜索两个配置；`auto_tuner=TRUE` 在外层训练数据内重新调参。这是接口验证预算，不用于推荐模型或解读微小分数差。
+
+```r
+library(mlr3)
+library(mlr3proba)
+library(mlr3extralearners)
+set.seed(1020)
+n_gbm <- 72L
+d_gbm <- data.frame(Age = runif(n_gbm, 25, 80), Marker = rnorm(n_gbm))
+d_gbm$time <- rexp(n_gbm, exp(-3 + 0.03 * (d_gbm$Age - 50) + 0.5 * d_gbm$Marker))
+d_gbm$status <- rep(0:1, length.out = n_gbm)
+d_gbm$Outcome <- factor(rep(c("No", "Yes"), length.out = n_gbm))
+task_gbm_s <- as_task_surv(d_gbm[, c("time", "status", "Age", "Marker")],
+  time = "time", event = "status")
+task_gbm_c <- as_task_classif(d_gbm[, c("Outcome", "Age", "Marker")],
+  target = "Outcome", positive = "Yes")
+ms_gbm <- get_model_selection(task_gbm_s, imputations = "complete", models = "gbm",
+  auto_tuner = TRUE, inner_folds = 2, outer_folds = 2, outer_repeats = 1,
+  n_evals = 2, batch_size = 1, backend = "sequential", seed = 1020)
+mc_gbm <- get_model_selection(task_gbm_c, imputations = "complete", models = "gbm",
+  auto_tuner = TRUE, inner_folds = 2, outer_folds = 2, outer_repeats = 1,
+  n_evals = 2, batch_size = 1, backend = "sequential", seed = 1020, positive = "Yes")
+tb_model_selection(ms_gbm, type = "model_parameters", output_format = "data.frame")
+tb_model_selection(mc_gbm, type = "model_parameters", output_format = "data.frame")
+```
+
+
+::: {.panel-tabset}
+
+### 生存参数空间 {.unnumbered}
+
+::: {.table-responsive}
+
+|Model |Hyperparameter                                 |Parameter space          |
+|:-----|:----------------------------------------------|:------------------------|
+|gbm   |interaction.depth: maximum interaction depth   |[1, 5]                   |
+|gbm   |n.minobsinnode: minimum observations in a node |3 (fixed)                |
+|gbm   |shrinkage: learning rate for boosting          |[0.001, 0.1] (log scale) |
+
+:::
+
+### 二分类参数空间 {.unnumbered}
+
+::: {.table-responsive}
+
+|Model |Hyperparameter                                 |Parameter space          |
+|:-----|:----------------------------------------------|:------------------------|
+|gbm   |n.trees: tunable parameter                     |[100, 500]               |
+|gbm   |interaction.depth: maximum interaction depth   |[1, 5]                   |
+|gbm   |n.minobsinnode: minimum observations in a node |3 (fixed)                |
+|gbm   |shrinkage: learning rate for boosting          |[0.001, 0.1] (log scale) |
+
+:::
+
+:::
+
+两条路径的实际参数表均显示 `n.minobsinnode=3 (fixed)`；它由此数据和折数得到，不是对所有样本的新默认值。改变样本数、完整案例数或折数后应重新检查 `model_parameters`。这些适配针对内置 GBM；自定义学习器仍由调用者设置搜索空间。
+
+本轮两类任务均完成嵌套调参与外层 benchmark，保留了原有 11 张图。本轮未测量速度；原先固定参数的 Cox / Forest 示例仍按其原设置理解。
