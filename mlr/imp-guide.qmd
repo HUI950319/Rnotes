@@ -1,6 +1,6 @@
 ---
 title: "特征重要性：get_imp 与 9 个绘图函数"
-description: "比较 SHAP、impurity/Gain 与 permutation；用实际图形对照组合模式、排序、百分比、环形、网络及雷达图参数。"
+description: "比较 SHAP、impurity/Gain、permutation 与 rfsrc 的 VIMP/最小深度；用实际图形对照组合模式、排序、百分比、环形、网络及雷达图参数。"
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
@@ -82,6 +82,7 @@ imp_plot
 |:--|:--|:--|:--|
 | ranger | impurity | mean.SHAP、permutation | 分类特征保留因子 |
 | xgboost | gain | mean.SHAP、permutation | 生存仅 onehot；二分类可 onehot / target |
+| rfsrc | vimp | min.depth | 无 SHAP；最小深度原值越小越重要 |
 
 `get_imp()` 返回长格式数据框，计算过程中还会打印柱形组合、标准和带间隙流向图。它不返回一个装满图的 list。提供 `shp` 会复用平均绝对 SHAP；XGBoost 仍训练模型以计算 Gain 和 permutation。只有数据、变量和预测目标相匹配时才应复用 SHAP。
 
@@ -89,7 +90,7 @@ imp_plot
 
 ```r
 get_imp(data, vars, surv = TRUE, shp = NULL,
-        model = c("ranger", "xgboost"),
+        model = c("ranger", "xgboost", "rfsrc"),
         boosting_encoding = c("onehot", "target"), n_rep = 1L)
 
 # 重新计算时传自己的数据；下面只展示写法，本页未执行。
@@ -102,7 +103,7 @@ get_imp(data, vars, surv = TRUE, shp = NULL,
 
 2026-10-16复核：已推送 `462f041` 包含上述surv检查、ranger字符特征转因子及后端更新。Windows的生存和XGBoost路径直接使用treeshap，不先尝试Python；Unix仍按条件尝试Python并回退。Python完全无法启动的失败会在当前R会话中记住，模块导入失败则仍可重试。Windows R已验证后端选择与surv=FALSE报错；不据此给出新的耗时倍数。
 
-以下重复分析按本机MLR `78c4238` 在WSL R 4.4.3实际运行；核对时GitHub远端 `462f041` 尚未包含n_rep。运行前用 `"n_rep" %in% names(formals(MLR::get_imp))` 检查安装接口，不能只看0.1.13版本号。旧保存结果和前面的300棵树实图保留原执行快照。
+2026-10-17 核对 GitHub 远端 MLR `4bbc8c8`：`n_rep` 已推送，也已包含下节的 `model="rfsrc"`。以下重复分析仍保留 `78c4238` 在 WSL R 4.4.3 的真实执行结果。旧安装可用 `"n_rep" %in% names(formals(MLR::get_imp))` 检查接口，不能只看 0.1.13 版本号。旧保存结果和前面的 300 棵树实图保留原执行快照。
 
 `n_rep=1L` 保持一次运行；大于1时每次重新拟合、抽训练与SHAP行，先对原始重要性求均值，再按方法缩放，不能先平均各次0–1值。新增lower/upper、sd、rank_median/rank_lower/rank_upper、p_top3；逐次表在 `attr(res,"reps")`，Kendall's W在 `attr(res,"stability")`。提供shp会让各次复用同一份SHAP，因而mean.SHAP不随重复变化。置换重要性允许为负，不应为了画百分比而将其解释成正贡献。
 
@@ -133,6 +134,64 @@ ggplot(imp_rep, aes(var, yhat_raw)) +
 ![重复运行与排名稳定性](images/imp-guide/20261016-importance-repeats.png){fig-alt="重复运行与排名稳定性；固定输入、按注明源码快照实际运行的示例。"}
 
 三次运行用于检查接口和画图，不代表正式分析已达到稳定。该例字符Sex由ranger路径内部转因子，调用者的数据列仍为字符。正式分析应结合不同种子、样本及模型设置检查排名稳定性；这些运行间分位数不是患者总体的置信区间。
+
+## randomForestSRC：VIMP 与最小深度 {#rfsrc-current}
+
+2026-10-17 按已推送 MLR `4bbc8c8`，用固定种子的 360 行合成数据在 WSL R 4.4.3 执行并导出以下三张图；Windows R 同时核验相同调用与图形构建。原来的 ToyData 图保持历史快照，不作为新森林的结果。
+
+`model="rfsrc"` 需要可选包 randomForestSRC，使用 300 棵树，只返回 `vimp` 与 `min.depth`，没有 SHAP；与 `shp=` 同传会报错。二分类 VIMP 使用 G-mean 对应的 OOB 误差，生存 VIMP 使用 Harrell C 对应的 OOB 误差。VIMP 内部限定单核以保证同一种子下的复现，该临时线程设置在调用后恢复。
+
+`min.depth` 的 `yhat_raw` 是原始深度，越小越重要；`yhat` 已反转为越大越重要。百分比图使用该反向缩放值，不把原始深度相加当作贡献份额。单次结果的 `attr(res,"min_depth_threshold")` 给出深度阈值；它不是 P 值或置信区间。不同方法的缩放值也不是同一统计量。
+
+::: {.panel-tabset}
+
+### 二分类重要性 {.unnumbered}
+
+合成二分类数据的 VIMP 与最小深度；两者的 0–1 展示都按越大越重要排列。
+
+```r
+set.seed(1017)
+n_rf <- 360L
+d_rf <- data.frame(Age = runif(n_rf, 20, 80), Marker = rnorm(n_rf),
+  Sex = factor(sample(c("Female", "Male"), n_rf, TRUE)), Noise = rnorm(n_rf))
+d_rf$Outcome <- factor(ifelse(runif(n_rf) < plogis(-0.5 +
+  0.05 * (d_rf$Age - 50) + 1.4 * d_rf$Marker), "Yes", "No"))
+rf_vars <- c("Age", "Marker", "Sex", "Noise")
+imp_rf <- get_imp(d_rf, rf_vars, surv = "Outcome", model = "rfsrc")
+attr(imp_rf, "min_depth_threshold")
+plt_imp_bar_per(imp_rf, imp_type = c("vimp", "min.depth"), mode = "bar")
+```
+
+![合成二分类数据的 VIMP 与最小深度；两者的 0–1 展示都按越大越重要排列。](images/imp-guide/20261017-rfsrc-classification.png){fig-alt="合成二分类数据的 VIMP 与最小深度；两者的 0–1 展示都按越大越重要排列。"}
+
+### 生存重要性 {.unnumbered}
+
+同一组特征用于合成生存结局；VIMP 的误差定义与二分类不同，不能横向比较原值。
+
+```r
+set.seed(1018)
+d_sur_rf <- d_rf
+d_sur_rf$time <- rexp(n_rf, exp(-4 + 0.04 * (d_rf$Age - 50) + d_rf$Marker))
+d_sur_rf$DSS <- rbinom(n_rf, 1, 0.65)
+imp_sur_rf <- get_imp(d_sur_rf, rf_vars, surv = TRUE, model = "rfsrc")
+plt_imp_bar_per(imp_sur_rf, imp_type = c("vimp", "min.depth"), mode = "bar")
+```
+
+![同一组特征用于合成生存结局；VIMP 的误差定义与二分类不同，不能横向比较原值。](images/imp-guide/20261017-rfsrc-survival.png){fig-alt="同一组特征用于合成生存结局；VIMP 的误差定义与二分类不同，不能横向比较原值。"}
+
+### 两种排名 {.unnumbered}
+
+最小深度与 VIMP 的排名比较；偏离对角线表示排序分歧，不等于统计显著差异。
+
+```r
+plt_imp_two(imp_rf, imp_type = c("vimp", "min.depth"))
+```
+
+![最小深度与 VIMP 的排名比较；偏离对角线表示排序分歧，不等于统计显著差异。](images/imp-guide/20261017-rfsrc-rank.png){fig-alt="最小深度与 VIMP 的排名比较；偏离对角线表示排序分歧，不等于统计显著差异。"}
+
+:::
+
+`plt_imp_two()` 和 `plt_imp_circ()` 默认比较 SHAP 与 permutation；对 rfsrc 结果应显式传 `imp_type=c("vimp","min.depth")`。`n_rep>1` 仍可汇总重复运行的均值、波动和排名；深度阈值属性只在单次结果提供。此处未测量速度，也不把单个合成队列的排序当作外部验证。
 
 ## `plt_imp_bar()`：柱形与棒棒糖
 

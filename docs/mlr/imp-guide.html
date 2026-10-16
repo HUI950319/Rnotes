@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="比较 SHAP、impurity/Gain 与 permutation；用实际图形对照组合模式、排序、百分比、环形、网络及雷达图参数。">
+<meta name="description" content="比较 SHAP、impurity/Gain、permutation 与 rfsrc 的 VIMP/最小深度；用实际图形对照组合模式、排序、百分比、环形、网络及雷达图参数。">
 
 <title>特征重要性：get_imp 与 9 个绘图函数 – R 包开发笔记</title>
 <style>
@@ -1061,6 +1061,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#current-importance" id="toc-current-importance" class="nav-link" data-scroll-target="#current-importance">2026-10-09：当前默认森林与重新计算示例</a></li>
   <li><a href="#interface" id="toc-interface" class="nav-link" data-scroll-target="#interface">接口、返回对象与分析流程</a></li>
   <li><a href="#importance-repeat-current" id="toc-importance-repeat-current" class="nav-link" data-scroll-target="#importance-repeat-current">当前后端与重复重要性</a></li>
+  <li><a href="#rfsrc-current" id="toc-rfsrc-current" class="nav-link" data-scroll-target="#rfsrc-current">randomForestSRC：VIMP 与最小深度</a></li>
   <li><a href="#plt_imp_bar柱形与棒棒糖" id="toc-plt_imp_bar柱形与棒棒糖" class="nav-link" data-scroll-target="#plt_imp_bar柱形与棒棒糖"><code>plt_imp_bar()</code>：柱形与棒棒糖</a></li>
   <li><a href="#plt_imp_bar_per五种组合模式" id="toc-plt_imp_bar_per五种组合模式" class="nav-link" data-scroll-target="#plt_imp_bar_per五种组合模式"><code>plt_imp_bar_per()</code>：五种组合模式</a></li>
   <li><a href="#plt_imp_bar_per方法配色与布局" id="toc-plt_imp_bar_per方法配色与布局" class="nav-link" data-scroll-target="#plt_imp_bar_per方法配色与布局"><code>plt_imp_bar_per()</code>：方法、配色与布局</a></li>
@@ -1232,12 +1233,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <td style="text-align: left;">mean.SHAP、permutation</td>
 <td style="text-align: left;">生存仅 onehot；二分类可 onehot / target</td>
 </tr>
+<tr class="odd">
+<td style="text-align: left;">rfsrc</td>
+<td style="text-align: left;">vimp</td>
+<td style="text-align: left;">min.depth</td>
+<td style="text-align: left;">无 SHAP；最小深度原值越小越重要</td>
+</tr>
 </tbody>
 </table>
 <p><code>get_imp()</code> 返回长格式数据框，计算过程中还会打印柱形组合、标准和带间隙流向图。它不返回一个装满图的 list。提供 <code>shp</code> 会复用平均绝对 SHAP；XGBoost 仍训练模型以计算 Gain 和 permutation。只有数据、变量和预测目标相匹配时才应复用 SHAP。</p>
 <p>原生重要性、置换后的性能损失与平均绝对 SHAP 具有不同定义；0–1 缩放方便查看排序，不能据此把三种方法的原始大小作等量比较。</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_imp</span>(data, vars, <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">shp =</span> <span class="cn">NULL</span>,</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>        <span class="at">model =</span> <span class="fu">c</span>(<span class="st">"ranger"</span>, <span class="st">"xgboost"</span>),</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>        <span class="at">model =</span> <span class="fu">c</span>(<span class="st">"ranger"</span>, <span class="st">"xgboost"</span>, <span class="st">"rfsrc"</span>),</span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>        <span class="at">boosting_encoding =</span> <span class="fu">c</span>(<span class="st">"onehot"</span>, <span class="st">"target"</span>), <span class="at">n_rep =</span> <span class="dv">1</span>L)</span>
 <span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 重新计算时传自己的数据；下面只展示写法，本页未执行。</span></span>
@@ -1246,7 +1253,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="importance-repeat-current" class="level2">
 <h2 class="anchored" data-anchor-id="importance-repeat-current">当前后端与重复重要性</h2>
 <p>2026-10-16复核：已推送 <code>462f041</code> 包含上述surv检查、ranger字符特征转因子及后端更新。Windows的生存和XGBoost路径直接使用treeshap，不先尝试Python；Unix仍按条件尝试Python并回退。Python完全无法启动的失败会在当前R会话中记住，模块导入失败则仍可重试。Windows R已验证后端选择与surv=FALSE报错；不据此给出新的耗时倍数。</p>
-<p>以下重复分析按本机MLR <code>78c4238</code> 在WSL R 4.4.3实际运行；核对时GitHub远端 <code>462f041</code> 尚未包含n_rep。运行前用 <code>"n_rep" %in% names(formals(MLR::get_imp))</code> 检查安装接口，不能只看0.1.13版本号。旧保存结果和前面的300棵树实图保留原执行快照。</p>
+<p>2026-10-17 核对 GitHub 远端 MLR <code>4bbc8c8</code>：<code>n_rep</code> 已推送，也已包含下节的 <code>model="rfsrc"</code>。以下重复分析仍保留 <code>78c4238</code> 在 WSL R 4.4.3 的真实执行结果。旧安装可用 <code>"n_rep" %in% names(formals(MLR::get_imp))</code> 检查接口，不能只看 0.1.13 版本号。旧保存结果和前面的 300 棵树实图保留原执行快照。</p>
 <p><code>n_rep=1L</code> 保持一次运行；大于1时每次重新拟合、抽训练与SHAP行，先对原始重要性求均值，再按方法缩放，不能先平均各次0–1值。新增lower/upper、sd、rank_median/rank_lower/rank_upper、p_top3；逐次表在 <code>attr(res,"reps")</code>，Kendall’s W在 <code>attr(res,"stability")</code>。提供shp会让各次复用同一份SHAP，因而mean.SHAP不随重复变化。置换重要性允许为负，不应为了画百分比而将其解释成正贡献。</p>
 <section id="重复运行与排名稳定性" class="level3">
 <h3 class="anchored" data-anchor-id="重复运行与排名稳定性">重复运行与排名稳定性</h3>
@@ -1276,28 +1283,84 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>三次运行用于检查接口和画图，不代表正式分析已达到稳定。该例字符Sex由ranger路径内部转因子，调用者的数据列仍为字符。正式分析应结合不同种子、样本及模型设置检查排名稳定性；这些运行间分位数不是患者总体的置信区间。</p>
 </section>
 </section>
-<section id="plt_imp_bar柱形与棒棒糖" class="level2">
-<h2 class="anchored" data-anchor-id="plt_imp_bar柱形与棒棒糖"><code>plt_imp_bar()</code>：柱形与棒棒糖</h2>
-<p><code>display</code> 只改变图形几何；<code>yhat</code> 是每个方法内部的 min–max 值，不能把不同方法的同一高度当成相同原始贡献。</p>
+<section id="rfsrc-current" class="level2">
+<h2 class="anchored" data-anchor-id="rfsrc-current">randomForestSRC：VIMP 与最小深度</h2>
+<p>2026-10-17 按已推送 MLR <code>4bbc8c8</code>，用固定种子的 360 行合成数据在 WSL R 4.4.3 执行并导出以下三张图；Windows R 同时核验相同调用与图形构建。原来的 ToyData 图保持历史快照，不作为新森林的结果。</p>
+<p><code>model="rfsrc"</code> 需要可选包 randomForestSRC，使用 300 棵树，只返回 <code>vimp</code> 与 <code>min.depth</code>，没有 SHAP；与 <code>shp=</code> 同传会报错。二分类 VIMP 使用 G-mean 对应的 OOB 误差，生存 VIMP 使用 Harrell C 对应的 OOB 误差。VIMP 内部限定单核以保证同一种子下的复现，该临时线程设置在调用后恢复。</p>
+<p><code>min.depth</code> 的 <code>yhat_raw</code> 是原始深度，越小越重要；<code>yhat</code> 已反转为越大越重要。百分比图使用该反向缩放值，不把原始深度相加当作贡献份额。单次结果的 <code>attr(res,"min_depth_threshold")</code> 给出深度阈值；它不是 P 值或置信区间。不同方法的缩放值也不是同一统计量。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">棒棒糖</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">实心柱形</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">二分类重要性</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">生存重要性</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-3" role="tab" aria-controls="tabset-1-3" aria-selected="false" href="">两种排名</a></li></ul>
 <div class="tab-content">
 <div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
-<p>三种方法分别显示其 0–1 归一化重要性。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar</span>(imp, <span class="at">display =</span> <span class="st">"l"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>合成二分类数据的 VIMP 与最小深度；两者的 0–1 展示都按越大越重要排列。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1017</span>)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>n_rf <span class="ot">&lt;-</span> <span class="dv">360</span>L</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>d_rf <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="fu">runif</span>(n_rf, <span class="dv">20</span>, <span class="dv">80</span>), <span class="at">Marker =</span> <span class="fu">rnorm</span>(n_rf),</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">Sex =</span> <span class="fu">factor</span>(<span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), n_rf, <span class="cn">TRUE</span>)), <span class="at">Noise =</span> <span class="fu">rnorm</span>(n_rf))</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>d_rf<span class="sc">$</span>Outcome <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(n_rf) <span class="sc">&lt;</span> <span class="fu">plogis</span>(<span class="sc">-</span><span class="fl">0.5</span> <span class="sc">+</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="fl">0.05</span> <span class="sc">*</span> (d_rf<span class="sc">$</span>Age <span class="sc">-</span> <span class="dv">50</span>) <span class="sc">+</span> <span class="fl">1.4</span> <span class="sc">*</span> d_rf<span class="sc">$</span>Marker), <span class="st">"Yes"</span>, <span class="st">"No"</span>))</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>rf_vars <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Marker"</span>, <span class="st">"Sex"</span>, <span class="st">"Noise"</span>)</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>imp_rf <span class="ot">&lt;-</span> <span class="fu">get_imp</span>(d_rf, rf_vars, <span class="at">surv =</span> <span class="st">"Outcome"</span>, <span class="at">model =</span> <span class="st">"rfsrc"</span>)</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(imp_rf, <span class="st">"min_depth_threshold"</span>)</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp_rf, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"vimp"</span>, <span class="st">"min.depth"</span>), <span class="at">mode =</span> <span class="st">"bar"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/bar-lollipop.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="三种方法分别显示其 0–1 归一化重要性。"><img src="images/imp-guide/bar-lollipop.png" class="img-fluid figure-img" alt="三种方法分别显示其 0–1 归一化重要性。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/e19710546df60b4c8a0c222163f4befb.webp"></a></p>
-<figcaption>三种方法分别显示其 0–1 归一化重要性。</figcaption>
+<p><a href="images/imp-guide/20261017-rfsrc-classification.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="合成二分类数据的 VIMP 与最小深度；两者的 0–1 展示都按越大越重要排列。"><img src="images/imp-guide/20261017-rfsrc-classification.png" class="img-fluid figure-img" alt="合成二分类数据的 VIMP 与最小深度；两者的 0–1 展示都按越大越重要排列。" loading="lazy" decoding="async" width="1350" height="750" srcset="../assets/figure-previews/fffe027786ab28a73406bd1dec18c433.webp"></a></p>
+<figcaption>合成二分类数据的 VIMP 与最小深度；两者的 0–1 展示都按越大越重要排列。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
-<p>同一结果切换为柱形，方法内部的排序和数值保持一致。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar</span>(imp, <span class="at">display =</span> <span class="st">"b"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>同一组特征用于合成生存结局；VIMP 的误差定义与二分类不同，不能横向比较原值。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1018</span>)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>d_sur_rf <span class="ot">&lt;-</span> d_rf</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>d_sur_rf<span class="sc">$</span>time <span class="ot">&lt;-</span> <span class="fu">rexp</span>(n_rf, <span class="fu">exp</span>(<span class="sc">-</span><span class="dv">4</span> <span class="sc">+</span> <span class="fl">0.04</span> <span class="sc">*</span> (d_rf<span class="sc">$</span>Age <span class="sc">-</span> <span class="dv">50</span>) <span class="sc">+</span> d_rf<span class="sc">$</span>Marker))</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>d_sur_rf<span class="sc">$</span>DSS <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n_rf, <span class="dv">1</span>, <span class="fl">0.65</span>)</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>imp_sur_rf <span class="ot">&lt;-</span> <span class="fu">get_imp</span>(d_sur_rf, rf_vars, <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">model =</span> <span class="st">"rfsrc"</span>)</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp_sur_rf, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"vimp"</span>, <span class="st">"min.depth"</span>), <span class="at">mode =</span> <span class="st">"bar"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/bar-solid.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="同一结果切换为柱形，方法内部的排序和数值保持一致。"><img src="images/imp-guide/bar-solid.png" class="img-fluid figure-img" alt="同一结果切换为柱形，方法内部的排序和数值保持一致。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/128a58e5c7599170742959dbf96ee427.webp"></a></p>
+<p><a href="images/imp-guide/20261017-rfsrc-survival.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="同一组特征用于合成生存结局；VIMP 的误差定义与二分类不同，不能横向比较原值。"><img src="images/imp-guide/20261017-rfsrc-survival.png" class="img-fluid figure-img" alt="同一组特征用于合成生存结局；VIMP 的误差定义与二分类不同，不能横向比较原值。" loading="lazy" decoding="async" width="1350" height="750" srcset="../assets/figure-previews/b97f582ce3582c3fc0510a5a873b2656.webp"></a></p>
+<figcaption>同一组特征用于合成生存结局；VIMP 的误差定义与二分类不同，不能横向比较原值。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-1-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-3-tab">
+<p>最小深度与 VIMP 的排名比较；偏离对角线表示排序分歧，不等于统计显著差异。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_two</span>(imp_rf, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"vimp"</span>, <span class="st">"min.depth"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/imp-guide/20261017-rfsrc-rank.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="最小深度与 VIMP 的排名比较；偏离对角线表示排序分歧，不等于统计显著差异。"><img src="images/imp-guide/20261017-rfsrc-rank.png" class="img-fluid figure-img" alt="最小深度与 VIMP 的排名比较；偏离对角线表示排序分歧，不等于统计显著差异。" loading="lazy" decoding="async" width="900" height="750" srcset="../assets/figure-previews/7ac192a6cfcf9b66ab7d70dee879ff9e.webp"></a></p>
+<figcaption>最小深度与 VIMP 的排名比较；偏离对角线表示排序分歧，不等于统计显著差异。</figcaption>
+</figure>
+</div>
+</div>
+</div>
+</div>
+<p><code>plt_imp_two()</code> 和 <code>plt_imp_circ()</code> 默认比较 SHAP 与 permutation；对 rfsrc 结果应显式传 <code>imp_type=c("vimp","min.depth")</code>。<code>n_rep&gt;1</code> 仍可汇总重复运行的均值、波动和排名；深度阈值属性只在单次结果提供。此处未测量速度，也不把单个合成队列的排序当作外部验证。</p>
+</section>
+<section id="plt_imp_bar柱形与棒棒糖" class="level2">
+<h2 class="anchored" data-anchor-id="plt_imp_bar柱形与棒棒糖"><code>plt_imp_bar()</code>：柱形与棒棒糖</h2>
+<p><code>display</code> 只改变图形几何；<code>yhat</code> 是每个方法内部的 min–max 值，不能把不同方法的同一高度当成相同原始贡献。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">棒棒糖</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">实心柱形</a></li></ul>
+<div class="tab-content">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<p>三种方法分别显示其 0–1 归一化重要性。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar</span>(imp, <span class="at">display =</span> <span class="st">"l"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/imp-guide/bar-lollipop.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="三种方法分别显示其 0–1 归一化重要性。"><img src="images/imp-guide/bar-lollipop.png" class="img-fluid figure-img" alt="三种方法分别显示其 0–1 归一化重要性。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/e19710546df60b4c8a0c222163f4befb.webp"></a></p>
+<figcaption>三种方法分别显示其 0–1 归一化重要性。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<p>同一结果切换为柱形，方法内部的排序和数值保持一致。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar</span>(imp, <span class="at">display =</span> <span class="st">"b"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/imp-guide/bar-solid.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="同一结果切换为柱形，方法内部的排序和数值保持一致。"><img src="images/imp-guide/bar-solid.png" class="img-fluid figure-img" alt="同一结果切换为柱形，方法内部的排序和数值保持一致。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/128a58e5c7599170742959dbf96ee427.webp"></a></p>
 <figcaption>同一结果切换为柱形，方法内部的排序和数值保持一致。</figcaption>
 </figure>
 </div>
@@ -1309,54 +1372,54 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_bar_per五种组合模式"><code>plt_imp_bar_per()</code>：五种组合模式</h2>
 <p><code>mode</code> 覆盖单独条形、单环、双环和两种组合；<code>bar_display</code> 控制棒棒糖/柱形，<code>bar_per_palette</code> 分别控制条形与环图配色。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">bar</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">per</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-3" role="tab" aria-controls="tabset-2-3" aria-selected="false" href="">per2</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-4" role="tab" aria-controls="tabset-2-4" aria-selected="false" href="">bar_per</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-5-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-5" role="tab" aria-controls="tabset-2-5" aria-selected="false" href="">bar_per2</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">bar</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">per</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-3" role="tab" aria-controls="tabset-3-3" aria-selected="false" href="">per2</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-4" role="tab" aria-controls="tabset-3-4" aria-selected="false" href="">bar_per</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-5-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-5" role="tab" aria-controls="tabset-3-5" aria-selected="false" href="">bar_per2</a></li></ul>
 <div class="tab-content">
-<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
 <p>mode = bar；百分比优先用非负原始重要性计算。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"bar"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"bar"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/composition-bar.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="mode = bar；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-bar.png" class="img-fluid figure-img" alt="mode = bar；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/23e21f01004f7188b1438b5f9e5d0db9.webp"></a></p>
+<p><a href="images/imp-guide/composition-bar.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="mode = bar；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-bar.png" class="img-fluid figure-img" alt="mode = bar；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/23e21f01004f7188b1438b5f9e5d0db9.webp"></a></p>
 <figcaption>mode = bar；百分比优先用非负原始重要性计算。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
 <p>mode = per；百分比优先用非负原始重要性计算。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"per"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"per"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/composition-per.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="mode = per；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-per.png" class="img-fluid figure-img" alt="mode = per；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/43c6e6e2ce31501ca8ab8e7d644b3f4e.webp"></a></p>
+<p><a href="images/imp-guide/composition-per.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="mode = per；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-per.png" class="img-fluid figure-img" alt="mode = per；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/43c6e6e2ce31501ca8ab8e7d644b3f4e.webp"></a></p>
 <figcaption>mode = per；百分比优先用非负原始重要性计算。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-2-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-3-tab">
+<div id="tabset-3-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-3-tab">
 <p>mode = per2；百分比优先用非负原始重要性计算。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"per2"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"per2"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/composition-per2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="mode = per2；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-per2.png" class="img-fluid figure-img" alt="mode = per2；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/e678d41d40e9e90a6cf912d8ec91a45f.webp"></a></p>
+<p><a href="images/imp-guide/composition-per2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="mode = per2；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-per2.png" class="img-fluid figure-img" alt="mode = per2；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/e678d41d40e9e90a6cf912d8ec91a45f.webp"></a></p>
 <figcaption>mode = per2；百分比优先用非负原始重要性计算。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-2-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-4-tab">
+<div id="tabset-3-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-4-tab">
 <p>mode = bar_per；百分比优先用非负原始重要性计算。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"bar_per"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"bar_per"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/composition-bar_per.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="mode = bar_per；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-bar_per.png" class="img-fluid figure-img" alt="mode = bar_per；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/5f2ba373c5de078d12ccf0b5c0025383.webp"></a></p>
+<p><a href="images/imp-guide/composition-bar_per.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="mode = bar_per；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-bar_per.png" class="img-fluid figure-img" alt="mode = bar_per；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/5f2ba373c5de078d12ccf0b5c0025383.webp"></a></p>
 <figcaption>mode = bar_per；百分比优先用非负原始重要性计算。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-2-5" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-5-tab">
+<div id="tabset-3-5" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-5-tab">
 <p>mode = bar_per2；百分比优先用非负原始重要性计算。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"bar_per2"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"bar_per2"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/composition-bar_per2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="mode = bar_per2；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-bar_per2.png" class="img-fluid figure-img" alt="mode = bar_per2；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/16cdb2ffdf37f86078706001897c8a98.webp"></a></p>
+<p><a href="images/imp-guide/composition-bar_per2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="mode = bar_per2；百分比优先用非负原始重要性计算。"><img src="images/imp-guide/composition-bar_per2.png" class="img-fluid figure-img" alt="mode = bar_per2；百分比优先用非负原始重要性计算。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/16cdb2ffdf37f86078706001897c8a98.webp"></a></p>
 <figcaption>mode = bar_per2；百分比优先用非负原始重要性计算。</figcaption>
 </figure>
 </div>
@@ -1368,24 +1431,24 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_bar_per方法配色与布局"><code>plt_imp_bar_per()</code>：方法、配色与布局</h2>
 <p>方法选择和变量删减会改变比较集合；<code>per_position</code> 只改变插图位置。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">选择与排列方法</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">配色与插图位置</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">选择与排列方法</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">配色与插图位置</a></li></ul>
 <div class="tab-content">
-<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
+<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
 <p>只选 permutation、mean.SHAP，并按所给顺序组成面板。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"permutation"</span>, <span class="st">"mean.SHAP"</span>), <span class="at">mode =</span> <span class="st">"bar"</span>, <span class="at">bar_display =</span> <span class="st">"b"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"permutation"</span>, <span class="st">"mean.SHAP"</span>), <span class="at">mode =</span> <span class="st">"bar"</span>, <span class="at">bar_display =</span> <span class="st">"b"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/composition-methods.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="只选 permutation、mean.SHAP，并按所给顺序组成面板。"><img src="images/imp-guide/composition-methods.png" class="img-fluid figure-img" alt="只选 permutation、mean.SHAP，并按所给顺序组成面板。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/a83a095a0c169224a9da9f32137efbde.webp"></a></p>
+<p><a href="images/imp-guide/composition-methods.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="只选 permutation、mean.SHAP，并按所给顺序组成面板。"><img src="images/imp-guide/composition-methods.png" class="img-fluid figure-img" alt="只选 permutation、mean.SHAP，并按所给顺序组成面板。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/a83a095a0c169224a9da9f32137efbde.webp"></a></p>
 <figcaption>只选 permutation、mean.SHAP，并按所给顺序组成面板。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
+<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
 <p>蓝色柱形配橙色双环；移动并缩小插图，为变量标签留空间。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"bar_per2"</span>, <span class="at">bar_display =</span> <span class="st">"b"</span>, <span class="at">bar_per_palette =</span> <span class="fu">c</span>(<span class="st">"Blues"</span>, <span class="st">"Oranges"</span>), <span class="at">per_position =</span> <span class="fu">c</span>(<span class="fl">0.36</span>, <span class="fl">0.07</span>, <span class="fl">0.62</span>, <span class="fl">0.8</span>), <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bar_per</span>(imp, <span class="at">mode =</span> <span class="st">"bar_per2"</span>, <span class="at">bar_display =</span> <span class="st">"b"</span>, <span class="at">bar_per_palette =</span> <span class="fu">c</span>(<span class="st">"Blues"</span>, <span class="st">"Oranges"</span>), <span class="at">per_position =</span> <span class="fu">c</span>(<span class="fl">0.36</span>, <span class="fl">0.07</span>, <span class="fl">0.62</span>, <span class="fl">0.8</span>), <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/composition-palette.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="蓝色柱形配橙色双环；移动并缩小插图，为变量标签留空间。"><img src="images/imp-guide/composition-palette.png" class="img-fluid figure-img" alt="蓝色柱形配橙色双环；移动并缩小插图，为变量标签留空间。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/2532abe9784cecd492c38db06ab69a0a.webp"></a></p>
+<p><a href="images/imp-guide/composition-palette.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="蓝色柱形配橙色双环；移动并缩小插图，为变量标签留空间。"><img src="images/imp-guide/composition-palette.png" class="img-fluid figure-img" alt="蓝色柱形配橙色双环；移动并缩小插图，为变量标签留空间。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/2532abe9784cecd492c38db06ab69a0a.webp"></a></p>
 <figcaption>蓝色柱形配橙色双环；移动并缩小插图，为变量标签留空间。</figcaption>
 </figure>
 </div>
@@ -1397,10 +1460,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_flo标准流向图"><code>plt_imp_flo()</code>：标准流向图</h2>
 <p>流线表示变量的对应关系，不表示患者流动，也不是因果路径。</p>
 <p>流线追踪同一变量在三种重要性方法间的排序变化。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_flo</span>(imp, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_flo</span>(imp, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/flow-standard.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="流线追踪同一变量在三种重要性方法间的排序变化。"><img src="images/imp-guide/flow-standard.png" class="img-fluid figure-img" alt="流线追踪同一变量在三种重要性方法间的排序变化。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/d1340cc05b342f51bcf0a7c03202f2bd.webp"></a></p>
+<p><a href="images/imp-guide/flow-standard.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="流线追踪同一变量在三种重要性方法间的排序变化。"><img src="images/imp-guide/flow-standard.png" class="img-fluid figure-img" alt="流线追踪同一变量在三种重要性方法间的排序变化。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/d1340cc05b342f51bcf0a7c03202f2bd.webp"></a></p>
 <figcaption>流线追踪同一变量在三种重要性方法间的排序变化。</figcaption>
 </figure>
 </div>
@@ -1409,34 +1472,34 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_flo2高度颜色与间隙"><code>plt_imp_flo2()</code>：高度、颜色与间隙</h2>
 <p>至少选择两个方法。<code>height_by</code> 控制条块高度；<code>color_by = first</code> 沿用第一个方法的颜色，便于追踪变量。<code>gap</code> 是条块间隙。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">按百分比分配高度</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">等高与固定颜色</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-3" role="tab" aria-controls="tabset-4-3" aria-selected="false" href="">两方法、直线与大间隙</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">按百分比分配高度</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">等高与固定颜色</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-3" role="tab" aria-controls="tabset-5-3" aria-selected="false" href="">两方法、直线与大间隙</a></li></ul>
 <div class="tab-content">
-<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
+<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
 <p>height_by = pct、color_by = method；每个方法按自己的份额着色。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_flo2</span>(imp, <span class="at">add_name =</span> labels, <span class="at">label.size =</span> <span class="fl">2.5</span>, <span class="at">base.size =</span> <span class="dv">12</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_flo2</span>(imp, <span class="at">add_name =</span> labels, <span class="at">label.size =</span> <span class="fl">2.5</span>, <span class="at">base.size =</span> <span class="dv">12</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/flow-pct.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="height_by = pct、color_by = method；每个方法按自己的份额着色。"><img src="images/imp-guide/flow-pct.png" class="img-fluid figure-img" alt="height_by = pct、color_by = method；每个方法按自己的份额着色。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/193e58de4e16c00124e7361f0208f24b.webp"></a></p>
+<p><a href="images/imp-guide/flow-pct.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="height_by = pct、color_by = method；每个方法按自己的份额着色。"><img src="images/imp-guide/flow-pct.png" class="img-fluid figure-img" alt="height_by = pct、color_by = method；每个方法按自己的份额着色。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/193e58de4e16c00124e7361f0208f24b.webp"></a></p>
 <figcaption>height_by = pct、color_by = method；每个方法按自己的份额着色。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
+<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
 <p>所有变量等高，颜色沿用第一个方法，隐藏百分比文字。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_flo2</span>(imp, <span class="at">height_by =</span> <span class="st">"equal"</span>, <span class="at">color_by =</span> <span class="st">"first"</span>, <span class="at">pct.style =</span> <span class="st">"none"</span>, <span class="at">add_name =</span> labels, <span class="at">label.size =</span> <span class="fl">2.5</span>, <span class="at">base.size =</span> <span class="dv">12</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_flo2</span>(imp, <span class="at">height_by =</span> <span class="st">"equal"</span>, <span class="at">color_by =</span> <span class="st">"first"</span>, <span class="at">pct.style =</span> <span class="st">"none"</span>, <span class="at">add_name =</span> labels, <span class="at">label.size =</span> <span class="fl">2.5</span>, <span class="at">base.size =</span> <span class="dv">12</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/flow-equal.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="所有变量等高，颜色沿用第一个方法，隐藏百分比文字。"><img src="images/imp-guide/flow-equal.png" class="img-fluid figure-img" alt="所有变量等高，颜色沿用第一个方法，隐藏百分比文字。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/98b413962a6c55b6864d48244b8b83eb.webp"></a></p>
+<p><a href="images/imp-guide/flow-equal.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="所有变量等高，颜色沿用第一个方法，隐藏百分比文字。"><img src="images/imp-guide/flow-equal.png" class="img-fluid figure-img" alt="所有变量等高，颜色沿用第一个方法，隐藏百分比文字。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/98b413962a6c55b6864d48244b8b83eb.webp"></a></p>
 <figcaption>所有变量等高，颜色沿用第一个方法，隐藏百分比文字。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-4-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-3-tab">
+<div id="tabset-5-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-3-tab">
 <p>改变方法顺序、曲线类型和留白；对应关系仍由变量名称决定。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_flo2</span>(imp, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"permutation"</span>, <span class="st">"mean.SHAP"</span>), <span class="at">gap =</span> <span class="fl">0.025</span>, <span class="at">curve.type =</span> <span class="st">"linear"</span>, <span class="at">pct.style =</span> <span class="st">"pct"</span>, <span class="at">add_name =</span> labels, <span class="at">label.size =</span> <span class="fl">2.5</span>, <span class="at">base.size =</span> <span class="dv">12</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_flo2</span>(imp, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"permutation"</span>, <span class="st">"mean.SHAP"</span>), <span class="at">gap =</span> <span class="fl">0.025</span>, <span class="at">curve.type =</span> <span class="st">"linear"</span>, <span class="at">pct.style =</span> <span class="st">"pct"</span>, <span class="at">add_name =</span> labels, <span class="at">label.size =</span> <span class="fl">2.5</span>, <span class="at">base.size =</span> <span class="dv">12</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/flow-order.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="改变方法顺序、曲线类型和留白；对应关系仍由变量名称决定。"><img src="images/imp-guide/flow-order.png" class="img-fluid figure-img" alt="改变方法顺序、曲线类型和留白；对应关系仍由变量名称决定。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/697442cb416a7907c389f3ee6b82ab51.webp"></a></p>
+<p><a href="images/imp-guide/flow-order.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="改变方法顺序、曲线类型和留白；对应关系仍由变量名称决定。"><img src="images/imp-guide/flow-order.png" class="img-fluid figure-img" alt="改变方法顺序、曲线类型和留白；对应关系仍由变量名称决定。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/697442cb416a7907c389f3ee6b82ab51.webp"></a></p>
 <figcaption>改变方法顺序、曲线类型和留白；对应关系仍由变量名称决定。</figcaption>
 </figure>
 </div>
@@ -1448,24 +1511,24 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_two排名一致性"><code>plt_imp_two()</code>：排名一致性</h2>
 <p>此图比较排名，不比较原始重要性幅度；<code>imp_type = NULL</code> 展示所有方法对。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">指定两个方法</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">全部方法对</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">指定两个方法</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">全部方法对</a></li></ul>
 <div class="tab-content">
-<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
+<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
 <p>横纵轴是排名；偏离对角线表示排序不一致。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_two</span>(imp, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"mean.SHAP"</span>, <span class="st">"permutation"</span>), <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_two</span>(imp, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"mean.SHAP"</span>, <span class="st">"permutation"</span>), <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/two-pair.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="横纵轴是排名；偏离对角线表示排序不一致。"><img src="images/imp-guide/two-pair.png" class="img-fluid figure-img" alt="横纵轴是排名；偏离对角线表示排序不一致。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/ed38b96f286f3ce7c3fa32685a75a2be.webp"></a></p>
+<p><a href="images/imp-guide/two-pair.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="横纵轴是排名；偏离对角线表示排序不一致。"><img src="images/imp-guide/two-pair.png" class="img-fluid figure-img" alt="横纵轴是排名；偏离对角线表示排序不一致。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/ed38b96f286f3ce7c3fa32685a75a2be.webp"></a></p>
 <figcaption>横纵轴是排名；偏离对角线表示排序不一致。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
+<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
 <p>全部三对排名比较使用同一输入。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_two</span>(imp, <span class="at">imp_type =</span> <span class="cn">NULL</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_two</span>(imp, <span class="at">imp_type =</span> <span class="cn">NULL</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/two-all.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="全部三对排名比较使用同一输入。"><img src="images/imp-guide/two-all.png" class="img-fluid figure-img" alt="全部三对排名比较使用同一输入。" loading="lazy" decoding="async" width="1350" height="1500" srcset="../assets/figure-previews/e6f2da1f4da35395ebf5c9ec3f173d97.webp"></a></p>
+<p><a href="images/imp-guide/two-all.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="全部三对排名比较使用同一输入。"><img src="images/imp-guide/two-all.png" class="img-fluid figure-img" alt="全部三对排名比较使用同一输入。" loading="lazy" decoding="async" width="1350" height="1500" srcset="../assets/figure-previews/e6f2da1f4da35395ebf5c9ec3f173d97.webp"></a></p>
 <figcaption>全部三对排名比较使用同一输入。</figcaption>
 </figure>
 </div>
@@ -1477,34 +1540,34 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_bump变量数量与数字显示"><code>plt_imp_bump()</code>：变量数量与数字显示</h2>
 <p><code>value_type</code> 控制节点附近的数字；<code>reverse_y = TRUE</code> 让第一名在上方。它们不会重新估计重要性。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">前八项与归一化值</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">原始值</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-3" role="tab" aria-controls="tabset-6-3" aria-selected="false" href="">隐藏数值与直线连接</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-7-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-1" role="tab" aria-controls="tabset-7-1" aria-selected="true" href="">前八项与归一化值</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-2" role="tab" aria-controls="tabset-7-2" aria-selected="false" href="">原始值</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-3" role="tab" aria-controls="tabset-7-3" aria-selected="false" href="">隐藏数值与直线连接</a></li></ul>
 <div class="tab-content">
-<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
+<div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
 <p>top_n 依据第一种方法选取变量；方法变换后仍追踪同一集合。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bump</span>(imp, <span class="at">top_n =</span> <span class="dv">8</span>, <span class="at">add_name =</span> labels, <span class="at">bump_args =</span> <span class="fu">list</span>(<span class="at">value_size =</span> <span class="dv">10</span>, <span class="at">rank_label_size =</span> <span class="dv">10</span>, <span class="at">group_label_size =</span> <span class="dv">10</span>, <span class="at">rank_circle_size =</span> <span class="dv">6</span>, <span class="at">point_size =</span> <span class="dv">5</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bump</span>(imp, <span class="at">top_n =</span> <span class="dv">8</span>, <span class="at">add_name =</span> labels, <span class="at">bump_args =</span> <span class="fu">list</span>(<span class="at">value_size =</span> <span class="dv">10</span>, <span class="at">rank_label_size =</span> <span class="dv">10</span>, <span class="at">group_label_size =</span> <span class="dv">10</span>, <span class="at">rank_circle_size =</span> <span class="dv">6</span>, <span class="at">point_size =</span> <span class="dv">5</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/bump-top.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="top_n 依据第一种方法选取变量；方法变换后仍追踪同一集合。"><img src="images/imp-guide/bump-top.png" class="img-fluid figure-img" alt="top_n 依据第一种方法选取变量；方法变换后仍追踪同一集合。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/f6859b2b9e315ddf7436bee6d5def646.webp"></a></p>
+<p><a href="images/imp-guide/bump-top.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="top_n 依据第一种方法选取变量；方法变换后仍追踪同一集合。"><img src="images/imp-guide/bump-top.png" class="img-fluid figure-img" alt="top_n 依据第一种方法选取变量；方法变换后仍追踪同一集合。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/f6859b2b9e315ddf7436bee6d5def646.webp"></a></p>
 <figcaption>top_n 依据第一种方法选取变量；方法变换后仍追踪同一集合。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
+<div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
 <p>节点数字切换为 yhat_raw；不同方法的单位与范围各不相同。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bump</span>(imp, <span class="at">top_n =</span> <span class="dv">6</span>, <span class="at">value_type =</span> <span class="st">"raw"</span>, <span class="at">add_name =</span> labels, <span class="at">bump_args =</span> <span class="fu">list</span>(<span class="at">value_size =</span> <span class="dv">10</span>, <span class="at">rank_label_size =</span> <span class="dv">10</span>, <span class="at">group_label_size =</span> <span class="dv">10</span>, <span class="at">rank_circle_size =</span> <span class="dv">6</span>, <span class="at">point_size =</span> <span class="dv">5</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bump</span>(imp, <span class="at">top_n =</span> <span class="dv">6</span>, <span class="at">value_type =</span> <span class="st">"raw"</span>, <span class="at">add_name =</span> labels, <span class="at">bump_args =</span> <span class="fu">list</span>(<span class="at">value_size =</span> <span class="dv">10</span>, <span class="at">rank_label_size =</span> <span class="dv">10</span>, <span class="at">group_label_size =</span> <span class="dv">10</span>, <span class="at">rank_circle_size =</span> <span class="dv">6</span>, <span class="at">point_size =</span> <span class="dv">5</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/bump-raw.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="节点数字切换为 yhat_raw；不同方法的单位与范围各不相同。"><img src="images/imp-guide/bump-raw.png" class="img-fluid figure-img" alt="节点数字切换为 yhat_raw；不同方法的单位与范围各不相同。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/2d2b4c31221f6826c492fd57db7dd801.webp"></a></p>
+<p><a href="images/imp-guide/bump-raw.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="节点数字切换为 yhat_raw；不同方法的单位与范围各不相同。"><img src="images/imp-guide/bump-raw.png" class="img-fluid figure-img" alt="节点数字切换为 yhat_raw；不同方法的单位与范围各不相同。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/2d2b4c31221f6826c492fd57db7dd801.webp"></a></p>
 <figcaption>节点数字切换为 yhat_raw；不同方法的单位与范围各不相同。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-6-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-3-tab">
+<div id="tabset-7-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-3-tab">
 <p>降低曲线平滑度并隐藏数值，突出排名路径。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bump</span>(imp, <span class="at">top_n =</span> <span class="dv">8</span>, <span class="at">smooth =</span> <span class="dv">1</span>, <span class="at">add_name =</span> labels, <span class="at">bump_args =</span> <span class="fu">list</span>(<span class="at">show_value =</span> <span class="cn">FALSE</span>, <span class="at">point_size =</span> <span class="dv">5</span>, <span class="at">rank_label_size =</span> <span class="dv">10</span>, <span class="at">group_label_size =</span> <span class="dv">10</span>, <span class="at">rank_circle_size =</span> <span class="dv">6</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_bump</span>(imp, <span class="at">top_n =</span> <span class="dv">8</span>, <span class="at">smooth =</span> <span class="dv">1</span>, <span class="at">add_name =</span> labels, <span class="at">bump_args =</span> <span class="fu">list</span>(<span class="at">show_value =</span> <span class="cn">FALSE</span>, <span class="at">point_size =</span> <span class="dv">5</span>, <span class="at">rank_label_size =</span> <span class="dv">10</span>, <span class="at">group_label_size =</span> <span class="dv">10</span>, <span class="at">rank_circle_size =</span> <span class="dv">6</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/bump-minimal.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="降低曲线平滑度并隐藏数值，突出排名路径。"><img src="images/imp-guide/bump-minimal.png" class="img-fluid figure-img" alt="降低曲线平滑度并隐藏数值，突出排名路径。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/82a19a063672e10e7c3bcce85633eb22.webp"></a></p>
+<p><a href="images/imp-guide/bump-minimal.png" class="lightbox" data-gallery="quarto-lightbox-gallery-23" title="降低曲线平滑度并隐藏数值，突出排名路径。"><img src="images/imp-guide/bump-minimal.png" class="img-fluid figure-img" alt="降低曲线平滑度并隐藏数值，突出排名路径。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/82a19a063672e10e7c3bcce85633eb22.webp"></a></p>
 <figcaption>降低曲线平滑度并隐藏数值，突出排名路径。</figcaption>
 </figure>
 </div>
@@ -1516,24 +1579,24 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_circ两方法环形布局"><code>plt_imp_circ()</code>：两方法环形布局</h2>
 <p>这是 circlize 基础绘图设备输出，不能用 ggplot 的 <code>+ theme()</code> 调整。<code>start_position</code>、<code>gap</code>、<code>cell.padding</code> 控制起点与留白。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-7-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-1" role="tab" aria-controls="tabset-7-1" aria-selected="true" href="">从顶部开始</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-2" role="tab" aria-controls="tabset-7-2" aria-selected="false" href="">改变起点并隐藏百分比</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-8-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-1" role="tab" aria-controls="tabset-8-1" aria-selected="true" href="">从顶部开始</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-8-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-2" role="tab" aria-controls="tabset-8-2" aria-selected="false" href="">改变起点并隐藏百分比</a></li></ul>
 <div class="tab-content">
-<div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
+<div id="tabset-8-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-8-1-tab">
 <p>展示 SHAP 前八项的两方法环形对照；百分比分母是所选八项。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_circ</span>(imp8, <span class="at">add_name =</span> labels, <span class="at">cell.padding =</span> <span class="fu">c</span>(<span class="fl">0.02</span>, <span class="dv">0</span>, <span class="fl">0.02</span>, <span class="dv">0</span>), <span class="at">gap =</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">12</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_circ</span>(imp8, <span class="at">add_name =</span> labels, <span class="at">cell.padding =</span> <span class="fu">c</span>(<span class="fl">0.02</span>, <span class="dv">0</span>, <span class="fl">0.02</span>, <span class="dv">0</span>), <span class="at">gap =</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">12</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/circle-top.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="展示 SHAP 前八项的两方法环形对照；百分比分母是所选八项。"><img src="images/imp-guide/circle-top.png" class="img-fluid figure-img" alt="展示 SHAP 前八项的两方法环形对照；百分比分母是所选八项。" loading="lazy" decoding="async" width="1350" height="1350" srcset="../assets/figure-previews/359f958fb8222ceb2deb91dd74650e35.webp"></a></p>
+<p><a href="images/imp-guide/circle-top.png" class="lightbox" data-gallery="quarto-lightbox-gallery-24" title="展示 SHAP 前八项的两方法环形对照；百分比分母是所选八项。"><img src="images/imp-guide/circle-top.png" class="img-fluid figure-img" alt="展示 SHAP 前八项的两方法环形对照；百分比分母是所选八项。" loading="lazy" decoding="async" width="1350" height="1350" srcset="../assets/figure-previews/359f958fb8222ceb2deb91dd74650e35.webp"></a></p>
 <figcaption>展示 SHAP 前八项的两方法环形对照；百分比分母是所选八项。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
+<div id="tabset-8-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-8-2-tab">
 <p>交换内外方法、从右侧开始，并增加方法组之间的间隔。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_circ</span>(imp8, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"permutation"</span>, <span class="st">"mean.SHAP"</span>), <span class="at">add_name =</span> labels, <span class="at">start_position =</span> <span class="st">"right"</span>, <span class="at">show_percent =</span> <span class="cn">FALSE</span>, <span class="at">cell.padding =</span> <span class="fu">c</span>(<span class="fl">0.02</span>, <span class="dv">0</span>, <span class="fl">0.02</span>, <span class="dv">0</span>), <span class="at">gap =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">18</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_circ</span>(imp8, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"permutation"</span>, <span class="st">"mean.SHAP"</span>), <span class="at">add_name =</span> labels, <span class="at">start_position =</span> <span class="st">"right"</span>, <span class="at">show_percent =</span> <span class="cn">FALSE</span>, <span class="at">cell.padding =</span> <span class="fu">c</span>(<span class="fl">0.02</span>, <span class="dv">0</span>, <span class="fl">0.02</span>, <span class="dv">0</span>), <span class="at">gap =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">18</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/circle-right.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="交换内外方法、从右侧开始，并增加方法组之间的间隔。"><img src="images/imp-guide/circle-right.png" class="img-fluid figure-img" alt="交换内外方法、从右侧开始，并增加方法组之间的间隔。" loading="lazy" decoding="async" width="1350" height="1350" srcset="../assets/figure-previews/f5dc9dd333a8812d1bd7bb1cba497200.webp"></a></p>
+<p><a href="images/imp-guide/circle-right.png" class="lightbox" data-gallery="quarto-lightbox-gallery-25" title="交换内外方法、从右侧开始，并增加方法组之间的间隔。"><img src="images/imp-guide/circle-right.png" class="img-fluid figure-img" alt="交换内外方法、从右侧开始，并增加方法组之间的间隔。" loading="lazy" decoding="async" width="1350" height="1350" srcset="../assets/figure-previews/f5dc9dd333a8812d1bd7bb1cba497200.webp"></a></p>
 <figcaption>交换内外方法、从右侧开始，并增加方法组之间的间隔。</figcaption>
 </figure>
 </div>
@@ -1545,24 +1608,24 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_network柱形气泡与百分比"><code>plt_imp_network()</code>：柱形、气泡与百分比</h2>
 <p>此网络连接的是方法与特征，边不是变量间交互。<code>y_hat</code> 选择 scale_value / percent；<code>network_args</code> 可局部覆盖标签配置。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-8-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-1" role="tab" aria-controls="tabset-8-1" aria-selected="true" href="">外圈柱形</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-8-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-2" role="tab" aria-controls="tabset-8-2" aria-selected="false" href="">外圈气泡与百分比</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-9-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-1" role="tab" aria-controls="tabset-9-1" aria-selected="true" href="">外圈柱形</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-9-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-2" role="tab" aria-controls="tabset-9-2" aria-selected="false" href="">外圈气泡与百分比</a></li></ul>
 <div class="tab-content">
-<div id="tabset-8-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-8-1-tab">
+<div id="tabset-9-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-9-1-tab">
 <p>方法节点连接其变量，外圈柱长表示方法内部的归一化值。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_network</span>(imp8, <span class="at">add_name =</span> labels, <span class="at">outer_style =</span> <span class="st">"bar"</span>, <span class="at">network_args =</span> <span class="fu">list</span>(<span class="at">label_size =</span> <span class="fl">2.6</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_network</span>(imp8, <span class="at">add_name =</span> labels, <span class="at">outer_style =</span> <span class="st">"bar"</span>, <span class="at">network_args =</span> <span class="fu">list</span>(<span class="at">label_size =</span> <span class="fl">2.6</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/network-bar.png" class="lightbox" data-gallery="quarto-lightbox-gallery-23" title="方法节点连接其变量，外圈柱长表示方法内部的归一化值。"><img src="images/imp-guide/network-bar.png" class="img-fluid figure-img" alt="方法节点连接其变量，外圈柱长表示方法内部的归一化值。" loading="lazy" decoding="async" width="1500" height="1500" srcset="../assets/figure-previews/0c3dea2e7f8e6dc7c66934d79b2374ab.webp"></a></p>
+<p><a href="images/imp-guide/network-bar.png" class="lightbox" data-gallery="quarto-lightbox-gallery-26" title="方法节点连接其变量，外圈柱长表示方法内部的归一化值。"><img src="images/imp-guide/network-bar.png" class="img-fluid figure-img" alt="方法节点连接其变量，外圈柱长表示方法内部的归一化值。" loading="lazy" decoding="async" width="1500" height="1500" srcset="../assets/figure-previews/0c3dea2e7f8e6dc7c66934d79b2374ab.webp"></a></p>
 <figcaption>方法节点连接其变量，外圈柱长表示方法内部的归一化值。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-8-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-8-2-tab">
+<div id="tabset-9-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-9-2-tab">
 <p>以方法内份额控制气泡大小，起点转到右侧。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_network</span>(imp8, <span class="at">add_name =</span> labels, <span class="at">outer_style =</span> <span class="st">"bubble"</span>, <span class="at">y_hat =</span> <span class="st">"percent"</span>, <span class="at">start_position =</span> <span class="st">"right"</span>, <span class="at">network_args =</span> <span class="fu">list</span>(<span class="at">label_size =</span> <span class="fl">2.6</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_network</span>(imp8, <span class="at">add_name =</span> labels, <span class="at">outer_style =</span> <span class="st">"bubble"</span>, <span class="at">y_hat =</span> <span class="st">"percent"</span>, <span class="at">start_position =</span> <span class="st">"right"</span>, <span class="at">network_args =</span> <span class="fu">list</span>(<span class="at">label_size =</span> <span class="fl">2.6</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/network-bubble.png" class="lightbox" data-gallery="quarto-lightbox-gallery-24" title="以方法内份额控制气泡大小，起点转到右侧。"><img src="images/imp-guide/network-bubble.png" class="img-fluid figure-img" alt="以方法内份额控制气泡大小，起点转到右侧。" loading="lazy" decoding="async" width="1500" height="1500" srcset="../assets/figure-previews/a5bcfe8d74834fe44edd53c15a30a958.webp"></a></p>
+<p><a href="images/imp-guide/network-bubble.png" class="lightbox" data-gallery="quarto-lightbox-gallery-27" title="以方法内份额控制气泡大小，起点转到右侧。"><img src="images/imp-guide/network-bubble.png" class="img-fluid figure-img" alt="以方法内份额控制气泡大小，起点转到右侧。" loading="lazy" decoding="async" width="1500" height="1500" srcset="../assets/figure-previews/a5bcfe8d74834fe44edd53c15a30a958.webp"></a></p>
 <figcaption>以方法内份额控制气泡大小，起点转到右侧。</figcaption>
 </figure>
 </div>
@@ -1574,34 +1637,34 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt_imp_radar归一化与分面"><code>plt_imp_radar()</code>：归一化与分面</h2>
 <p><code>normalize = max</code> 展示相对于本方法最大值的幅度；<code>sum</code> 展示所选变量中的份额。<code>output = gg</code> 返回 ggplot，可继续排版。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-9-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-1" role="tab" aria-controls="tabset-9-1" aria-selected="true" href="">按最大值归一化</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-9-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-2" role="tab" aria-controls="tabset-9-2" aria-selected="false" href="">按总和归一化</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-9-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-3" role="tab" aria-controls="tabset-9-3" aria-selected="false" href="">选择方法并分面</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-10-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-10-1" role="tab" aria-controls="tabset-10-1" aria-selected="true" href="">按最大值归一化</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-10-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-10-2" role="tab" aria-controls="tabset-10-2" aria-selected="false" href="">按总和归一化</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-10-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-10-3" role="tab" aria-controls="tabset-10-3" aria-selected="false" href="">选择方法并分面</a></li></ul>
 <div class="tab-content">
-<div id="tabset-9-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-9-1-tab">
+<div id="tabset-10-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-10-1-tab">
 <p>每个方法最大的非负原始重要性映射为 1；并非 min–max 归一化。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_radar</span>(imp8, <span class="at">normalize =</span> <span class="st">"max"</span>, <span class="at">output =</span> <span class="st">"gg"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_radar</span>(imp8, <span class="at">normalize =</span> <span class="st">"max"</span>, <span class="at">output =</span> <span class="st">"gg"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/radar-max.png" class="lightbox" data-gallery="quarto-lightbox-gallery-25" title="每个方法最大的非负原始重要性映射为 1；并非 min–max 归一化。"><img src="images/imp-guide/radar-max.png" class="img-fluid figure-img" alt="每个方法最大的非负原始重要性映射为 1；并非 min–max 归一化。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/9a05f7086a30f5356a26e197357cfcb4.webp"></a></p>
+<p><a href="images/imp-guide/radar-max.png" class="lightbox" data-gallery="quarto-lightbox-gallery-28" title="每个方法最大的非负原始重要性映射为 1；并非 min–max 归一化。"><img src="images/imp-guide/radar-max.png" class="img-fluid figure-img" alt="每个方法最大的非负原始重要性映射为 1；并非 min–max 归一化。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/9a05f7086a30f5356a26e197357cfcb4.webp"></a></p>
 <figcaption>每个方法最大的非负原始重要性映射为 1；并非 min–max 归一化。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-9-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-9-2-tab">
+<div id="tabset-10-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-10-2-tab">
 <p>每个方法的轴值总和为 1；图形变化来自归一化规则。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_radar</span>(imp8, <span class="at">normalize =</span> <span class="st">"sum"</span>, <span class="at">output =</span> <span class="st">"gg"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_radar</span>(imp8, <span class="at">normalize =</span> <span class="st">"sum"</span>, <span class="at">output =</span> <span class="st">"gg"</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/radar-sum.png" class="lightbox" data-gallery="quarto-lightbox-gallery-26" title="每个方法的轴值总和为 1；图形变化来自归一化规则。"><img src="images/imp-guide/radar-sum.png" class="img-fluid figure-img" alt="每个方法的轴值总和为 1；图形变化来自归一化规则。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/62e0166f33bce497df95ad95832c4580.webp"></a></p>
+<p><a href="images/imp-guide/radar-sum.png" class="lightbox" data-gallery="quarto-lightbox-gallery-29" title="每个方法的轴值总和为 1；图形变化来自归一化规则。"><img src="images/imp-guide/radar-sum.png" class="img-fluid figure-img" alt="每个方法的轴值总和为 1；图形变化来自归一化规则。" loading="lazy" decoding="async" width="1350" height="1200" srcset="../assets/figure-previews/62e0166f33bce497df95ad95832c4580.webp"></a></p>
 <figcaption>每个方法的轴值总和为 1；图形变化来自归一化规则。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-9-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-9-3-tab">
+<div id="tabset-10-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-10-3-tab">
 <p>把两种方法分别绘制，减少雷达轮廓重叠。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_radar</span>(imp8, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"mean.SHAP"</span>, <span class="st">"permutation"</span>), <span class="at">normalize =</span> <span class="st">"max"</span>, <span class="at">output =</span> <span class="st">"gg"</span>, <span class="at">facet =</span> <span class="cn">TRUE</span>, <span class="at">n_breaks =</span> <span class="dv">4</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_radar</span>(imp8, <span class="at">imp_type =</span> <span class="fu">c</span>(<span class="st">"mean.SHAP"</span>, <span class="st">"permutation"</span>), <span class="at">normalize =</span> <span class="st">"max"</span>, <span class="at">output =</span> <span class="st">"gg"</span>, <span class="at">facet =</span> <span class="cn">TRUE</span>, <span class="at">n_breaks =</span> <span class="dv">4</span>, <span class="at">add_name =</span> labels)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/imp-guide/radar-facet.png" class="lightbox" data-gallery="quarto-lightbox-gallery-27" title="把两种方法分别绘制，减少雷达轮廓重叠。"><img src="images/imp-guide/radar-facet.png" class="img-fluid figure-img" alt="把两种方法分别绘制，减少雷达轮廓重叠。" loading="lazy" decoding="async" width="1500" height="900" srcset="../assets/figure-previews/b2433bb8cc5a6cda9f8fe56611370f17.webp"></a></p>
+<p><a href="images/imp-guide/radar-facet.png" class="lightbox" data-gallery="quarto-lightbox-gallery-30" title="把两种方法分别绘制，减少雷达轮廓重叠。"><img src="images/imp-guide/radar-facet.png" class="img-fluid figure-img" alt="把两种方法分别绘制，减少雷达轮廓重叠。" loading="lazy" decoding="async" width="1500" height="900" srcset="../assets/figure-previews/b2433bb8cc5a6cda9f8fe56611370f17.webp"></a></p>
 <figcaption>把两种方法分别绘制，减少雷达轮廓重叠。</figcaption>
 </figure>
 </div>
@@ -1668,19 +1731,19 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tbody>
 </table>
 <p><code>fmt_args$cha_mult</code> 会改变贡献数值，不能当成普通字体设置；本页没有使用倍乘。重要性网络的边连接方法与变量，不代表变量交互。多方法排序相近说明在此对象上排序一致，不保证外部稳定性或因果重要性。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">plt_imp_bump</span>(imp, <span class="at">top_n =</span> <span class="dv">8</span>,</span>
-<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>                  <span class="at">bump_args =</span> <span class="fu">list</span>(<span class="at">show_value =</span> <span class="cn">FALSE</span>))</span>
-<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"importance-ranks.pdf"</span>, p, <span class="at">width =</span> <span class="dv">10</span>, <span class="at">height =</span> <span class="dv">6</span>)</span>
-<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 有 save 参数的函数可直接转交保存设置。</span></span>
-<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_network</span>(imp8, <span class="at">add_name =</span> labels,</span>
-<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a>                <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="st">"importance-network.pdf"</span>,</span>
-<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>                            <span class="at">width =</span> <span class="dv">10</span>, <span class="at">height =</span> <span class="dv">10</span>))</span>
-<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a><span class="co"># circlize 图使用基础绘图设备。</span></span>
-<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="st">"importance-circle.pdf"</span>, <span class="at">width =</span> <span class="dv">9</span>, <span class="at">height =</span> <span class="dv">9</span>)</span>
-<span id="cb30-12"><a href="#cb30-12" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_circ</span>(imp8, <span class="at">add_name =</span> labels)</span>
-<span id="cb30-13"><a href="#cb30-13" aria-hidden="true" tabindex="-1"></a><span class="fu">dev.off</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">plt_imp_bump</span>(imp, <span class="at">top_n =</span> <span class="dv">8</span>,</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>                  <span class="at">bump_args =</span> <span class="fu">list</span>(<span class="at">show_value =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"importance-ranks.pdf"</span>, p, <span class="at">width =</span> <span class="dv">10</span>, <span class="at">height =</span> <span class="dv">6</span>)</span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 有 save 参数的函数可直接转交保存设置。</span></span>
+<span id="cb33-6"><a href="#cb33-6" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_network</span>(imp8, <span class="at">add_name =</span> labels,</span>
+<span id="cb33-7"><a href="#cb33-7" aria-hidden="true" tabindex="-1"></a>                <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="st">"importance-network.pdf"</span>,</span>
+<span id="cb33-8"><a href="#cb33-8" aria-hidden="true" tabindex="-1"></a>                            <span class="at">width =</span> <span class="dv">10</span>, <span class="at">height =</span> <span class="dv">10</span>))</span>
+<span id="cb33-9"><a href="#cb33-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-10"><a href="#cb33-10" aria-hidden="true" tabindex="-1"></a><span class="co"># circlize 图使用基础绘图设备。</span></span>
+<span id="cb33-11"><a href="#cb33-11" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="st">"importance-circle.pdf"</span>, <span class="at">width =</span> <span class="dv">9</span>, <span class="at">height =</span> <span class="dv">9</span>)</span>
+<span id="cb33-12"><a href="#cb33-12" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_imp_circ</span>(imp8, <span class="at">add_name =</span> labels)</span>
+<span id="cb33-13"><a href="#cb33-13" aria-hidden="true" tabindex="-1"></a><span class="fu">dev.off</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>不同函数的保存接口并不完全相同，复制时查看实际签名；不要把 <code>save</code> 传给不支持它的入口。</p>
 </section>
 <section id="references" class="level2">
