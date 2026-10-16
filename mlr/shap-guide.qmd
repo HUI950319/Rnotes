@@ -945,3 +945,72 @@ shp_one$plt.int2
 ![单锚点的排名与搭档](images/shap-guide/20261016-shap-single-summary.png){fig-alt="单锚点的排名与搭档；固定输入、按注明源码快照实际运行的示例。"}
 
 当前plt_shp_TI/TM整理了绘图环境，保存图不应再因局部环境带入整份输入对象。本例已保存、读回plt.int1并重新构建；这不等于完整get_shp结果已去掉原始数据，par_lis仍记录data和vars。只需图时保存图，只需数值时选择必要字段；不要把图对象当作匿名数据。
+
+## 当前打印行为与 TM 层级 {#current-20261017}
+
+2026-10-17 按已推送 MLR `4bbc8c8`，在 WSL R 4.4.3 实际拟合下面的合成二分类模型，并导出新图。`get_shp()` 的返回对象增加 `mlr_shp` 类，原来十个字段仍在，未增加保存 HTML 的 `view` 字段。
+
+在交互会话直接打印结果，会把可用图放在同一 Viewer 页面；Rscript 和 knitted 文档中仍逐图打印。`render_plots=FALSE` 时打印 SHAP 矩阵规模。页面每次打印时构建，保存结果 RDS 不会额外保留这一临时页面。
+
+```r
+set.seed(1017)
+n_shp <- 240L
+d_shp <- data.frame(Age = runif(n_shp, 25, 80), Marker = rnorm(n_shp),
+  Sex = factor(sample(c("Female", "Male"), n_shp, TRUE)), Noise = rnorm(n_shp))
+d_shp$Outcome <- factor(ifelse(runif(n_shp) < plogis(-0.4 +
+  0.04 * (d_shp$Age - 50) + d_shp$Marker), "Yes", "No"))
+vars_shp <- c("Age", "Marker", "Sex", "Noise")
+res_shp_new <- get_shp(d_shp, vars_shp, surv = "Outcome", model = "ranger",
+  engine = "treeshap", Num.sample = 240, exp.sample = 160,
+  interactions = TRUE, int_var = "Marker")
+res_shp_new  # 交互会话显示整页；Rscript / knitr 逐图显示
+```
+
+
+### 变量标题与总贡献 / 主效应
+
+`plt_shp_TM()` 的默认条带改为深灰、白色加粗标题，变量名称与 SHAP 总图的映射一致。条带已标明变量时省去重复 x 轴标题；分类标签可按空格折行、拥挤时交错排列。下面沿用真实模型产生的 SHAP，比较三个变量的总贡献与主效应。
+
+```r
+p_tm_new <- plt_shp_TM(res_shp_new, x_var = c("Age", "Sex", "Marker"),
+  display = "TM", axis_arg = list(share_y = "var", hide_y = TRUE))
+p_tm_new
+```
+
+
+![当前深色条带、映射后的变量标题与共享纵轴。](images/shap-guide/20261017-tm-current.png){fig-alt="新拟合合成模型的 Age、Sex、Marker 总贡献与主效应面板，深色条带突出变量层级。"}
+
+### 超过十二个变量的布局
+
+超过 12 个变量时按四列排布。下面直接构造数值矩阵，只演示布局；这些数值没有经过模型训练或 SHAP 解释器计算，不用于解释预测贡献。
+
+```r
+set.seed(1019)
+X_layout <- as.data.frame(matrix(rnorm(80 * 13), nrow = 80))
+names(X_layout) <- paste0("X", seq_len(13))
+S_layout <- as.matrix(X_layout) / 5
+sv_layout <- shapviz::shapviz(S_layout, X = X_layout, baseline = 0)
+plt_shp_TM(sv_layout, display = "T", axis_arg = list(share_y = "all", hide_y = TRUE))
+```
+
+
+![十三变量的四列布局演示。](images/shap-guide/20261017-tm-layout.png){fig-alt="直接构造的十三变量矩阵展示四列面板布局，仅用于排版验证。"}
+
+### 把选定图保存为 HTML
+
+需要保留页面时，显式组合所需图。下面选择 summary、TM 与交互图，原始十字段结果对象保持原结构。`get_all(shp.args=...)` 在交互会话也使用 `mlr_shp` 的打印方法；Rscript、knitr 或旧 MLR 仍逐图输出。
+
+```r
+p_summary <- res_shp_new$plt.sum
+attr(p_summary, "plot_size") <- c(12, 6)
+page_shp_new <- RegR::fmt_page(Summary = p_summary, `Total and main` = p_tm_new,
+  Interactions = res_shp_new$plt.int1, plot_size = c(12, 7),
+  save = list(filename = file.path(tempdir(), "shap-results.html")))
+```
+
+
+![选定 SHAP 图组合成 HTML 的实际页首预览。](images/shap-guide/20261017-shap-view.png){fig-alt="实际浏览器中的 SHAP summary 与选定图结果页。"}
+
+[打开完整 HTML](images/shap-guide/20261017-shap-view.html){target="_blank"} · [下载 HTML](images/shap-guide/20261017-shap-view.html){download="shap-results.html"}
+
+本轮核验了返回类与十个字段、非交互打印、图形构建，以及 HTML 离线加载、手机宽度和点击缩放。前面的 37 张历史图与解释数值保留原快照；新增三张图分别说明当前模型、纯布局与页面预览。
