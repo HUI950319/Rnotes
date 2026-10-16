@@ -762,3 +762,42 @@ R>=2 时 get_score 的 AUC_score/BS_score 使用 bootcv，而 get_msr 使用它�
 packageVersion("RegR")
 sessionInfo()
 ```
+
+## get_score 的完整评价结果页 {#viewer-20261017}
+
+2026-10-17 按已推送 RegR `197faa2`，在 WSL R 4.4.3 实际执行下面的合成数据示例。新增 `view` 把可用的 AUC / Brier 曲线（Logistic 为 ROC）放在 `ft` 表格上方；`R=c(0,n)` 及 `new_data` 增加的表格面板也在同一页面中。
+
+```r
+set.seed(1017)
+n_view <- 600L
+d_view <- data.frame(Age = runif(n_view, 25, 80), Marker = rnorm(n_view),
+  Sex = factor(sample(c("Female", "Male"), n_view, TRUE)))
+d_view$Treat <- factor(ifelse(runif(n_view) < plogis(-0.7 +
+  0.02 * (d_view$Age - 50) + 0.3 * d_view$Marker), "Yes", "No"), levels = c("No", "Yes"))
+d_view$time <- rexp(n_view, exp(-4 + 1.4 * (d_view$Age > 55) + 0.3 * d_view$Marker))
+d_view$DSS <- rbinom(n_view, 1, 0.75)
+d_view$Outcome <- factor(ifelse(runif(n_view) < plogis(-1.5 +
+  3 * (d_view$Age > 55) + 0.5 * d_view$Marker), "Yes", "No"), levels = c("No", "Yes"))
+```
+```r
+score_dev <- d_view[1:360, ]
+score_valid <- d_view[361:600, ]
+score_view_new <- get_score(score_dev,
+  vars = list(Age = "Age", Clinical = c("Age", "Marker", "Sex")),
+  surv = TRUE, timepoint = c(6, 12, 24), times = c("2-year" = 24), R = c(0, 2),
+  metrics = c("AUC_score", "BS_score"),
+  score_args = list(plots = "auto", n_cores = 1L),
+  new_data = score_valid, new_fit = "both")
+score_view_new$view
+fmt_page(score_view_new$view,
+  save = list(filename = file.path(tempdir(), "model-evaluation-results.html")))
+is.null(score_view_new$ext$refit$view)  # TRUE: 由外层统一建页
+```
+
+![get_score 的实际结果页页首，曲线下方接各评价面板。](images/model-evaluation-guide/20261017-score-view.png){fig-alt="合成开发与验证数据的 get_score 结果页截图，显示 AUC/Brier 曲线及评价表。"}
+
+[打开完整 HTML](images/model-evaluation-guide/20261017-score-view.html){target="_blank"} · [下载 HTML](images/model-evaluation-guide/20261017-score-view.html){download="model-evaluation-results.html"}
+
+本例 360 行用于开发、240 行用于演示新队列；仅两次 bootstrap 用于检查接口与输出组织，不支持精确区间或临床性能结论。`new_fit="both"` 同时保留固定开发模型评价与新队列重拟合，不能把后者称为原模型的外部验证。新页面不改变各面板的统计含义。
+
+`ext$refit$view` 按设计为空，由外层 `view` 统一展示，不能据此判断重拟合失败。页面构建失败或缺少 htmltools 时也可能返回 NULL，应同时检查原图、`ft` 和警告。完整 HTML 已验证离线加载、手机宽度及缩放；Quarto HTML 单独输出 `score_view_new$view`，Word 单独输出 `score_view_new$ft`。
