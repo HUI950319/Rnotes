@@ -604,7 +604,7 @@ p <- plt_cat2(cat_fit, max_t = 180, xbreaks = seq(0, 180, 36),
 p
 ```
 
-`save` 交给 `RegR::save_plt()`，保存后仍返回原图形对象。页面生存模式图片是本次实际运行的 PNG 预览，CIF 图保留前次快照；PDF 导出代码用于说明保存方式，本页没有执行该文件写入。复用结果对象能避免调一次布局就重跑模型，但保存 `cat_fit` / `cif_fit` 本身会连同 `par$data` 保存原始数据。
+`save` 交给 `RegR::save_plt()`，保存后仍返回原图形对象。页面生存模式图片是本次实际运行的 PNG 预览，CIF 图保留前次快照；上面的 sex-survival-difference.pdf 保存语句仅展示写法；下节另有当前尺寸的实际 PDF 导出。复用结果对象能避免调一次布局就重跑模型，但保存 `cat_fit` / `cif_fit` 本身会连同 `par$data` 保存原始数据。
 
 ## 参考与源码 {#references}
 
@@ -658,3 +658,55 @@ p_cat_stacked
 ![关闭共享条带并独立堆叠。](images/cat-guide/20261015-cat-per-panel.png){fig-alt="关闭共享条带并独立堆叠的固定输入参数对照实图。"}
 
 :::
+
+## 当前画布尺寸与只传文件名保存 {#cat-auto-current}
+
+2026-10-17 按已推送 RegR `197faa2`，在 WSL R 4.4.3 实际运行以下四组示例并读回导出的 PDF 尺寸。`plt_cat1()` 的 `v` / `h` / `s+f` 布局会根据内嵌森林表的宽度与组数扩大画布；纯曲线仍有自己的尺寸规则。结果的 `attr(p,"plot_size")` 给出宽、高（英寸）。
+
+```r
+set.seed(1017)
+n_view <- 600L
+d_view <- data.frame(Age = runif(n_view, 25, 80), Marker = rnorm(n_view),
+  Sex = factor(sample(c("Female", "Male"), n_view, TRUE)))
+d_view$Treat <- factor(ifelse(runif(n_view) < plogis(-0.7 +
+  0.02 * (d_view$Age - 50) + 0.3 * d_view$Marker), "Yes", "No"), levels = c("No", "Yes"))
+d_view$time <- rexp(n_view, exp(-4 + 1.4 * (d_view$Age > 55) + 0.3 * d_view$Marker))
+d_view$DSS <- rbinom(n_view, 1, 0.75)
+d_view$Outcome <- factor(ifelse(runif(n_view) < plogis(-1.5 +
+  3 * (d_view$Age > 55) + 0.5 * d_view$Marker), "Yes", "No"), levels = c("No", "Yes"))
+```
+
+```r
+d_view$Age_band <- cut(d_view$Age, breaks = c(-Inf, 40, 55, 65, Inf),
+  labels = c("Under 40", "40 to 54", "55 to 64", "65 plus"))
+old_plot_option <- options(RegR.eff_cat.plot = FALSE)
+cat_size <- get_cat(d_view, cat_var = "Age_band", adj_var = "Sex", surv = TRUE,
+  timepoint = 24, time_dif = c(12, 24), curve_args = list(ci = FALSE, max_times = 30L))
+options(old_plot_option)
+p_auto <- plt_cat1(cat_size, display = "v",
+  save = list(filename = file.path(tempdir(), "cat-auto.pdf")))
+p_horizontal <- plt_cat1(cat_size, display = "h")
+attr(p_auto, "plot_size")
+attr(p_horizontal, "plot_size")
+p_auto
+```
+
+
+本机字体与设备下的实际返回尺寸：
+
+::: {.table-responsive}
+
+|layout |  width| height|
+|:------|------:|------:|
+|v      | 12.263|   10.0|
+|h      | 24.526|    8.5|
+
+:::
+
+![四组生存曲线与内嵌森林表，按当前返回尺寸导出。](images/cat-guide/20261017-cat-auto.png){fig-alt="合成四年龄组的生存组合图，画布随森林表宽度和组数扩展。"}
+
+[下载本例实际导出的 PDF](images/cat-guide/20261017-cat-auto.pdf){download="cat-auto.pdf"}
+
+本例 PDF 的页面为 882 × 720 pt，约 12.25 × 10 英寸，尺寸取整与返回属性接近。尺寸会随字体、表格标签及组数变化，不宜把本机宽高当成通用常数。当前 `get_cat()` 的复制提示对 `plt_cat1()` 只提供文件名，保留自动尺寸；显式传 `width` / `height` 仍会覆盖它。组合多个结果时沿拼接方向累加尺寸，`sur_h` 共享网格使用对应行数规则。
+
+图的坐标范围、内嵌表留白与统计计算仍分别控制；调整输出宽高只影响排版。原来的历史图和 PDF 写法保留各自执行范围，本节新增图与 PDF 已实际生成。
