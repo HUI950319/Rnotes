@@ -1151,3 +1151,62 @@ all_step$eff
 ![get_all转入累计调整并添加Overall。](images/forest-guide/20261015-get-all-step.png){fig-alt="get_all转入累计调整并添加Overall的固定输入参数对照实图。"}
 
 :::
+
+## 筛选后的空水平与单水平暴露 {#empty-levels-current}
+
+2026-10-17 按已推送 RegR `197faa2`，在 WSL R 4.4.3 核验：`get_eff()` 拟合前会移除暴露及亚组因子的空水平，并给出提示。空水平指有定义但没有记录的水平；它与筛选后只有一个实际观测水平不同。
+
+以下给合成数据增加没有记录的因子水平，比较当前函数与显式 `droplevels()`。同样的输入可复用本节代码独立执行。
+
+```r
+set.seed(1017)
+n_view <- 600L
+d_view <- data.frame(Age = runif(n_view, 25, 80), Marker = rnorm(n_view),
+  Sex = factor(sample(c("Female", "Male"), n_view, TRUE)))
+d_view$Treat <- factor(ifelse(runif(n_view) < plogis(-0.7 +
+  0.02 * (d_view$Age - 50) + 0.3 * d_view$Marker), "Yes", "No"), levels = c("No", "Yes"))
+d_view$time <- rexp(n_view, exp(-4 + 1.4 * (d_view$Age > 55) + 0.3 * d_view$Marker))
+d_view$DSS <- rbinom(n_view, 1, 0.75)
+d_view$Outcome <- factor(ifelse(runif(n_view) < plogis(-1.5 +
+  3 * (d_view$Age > 55) + 0.5 * d_view$Marker), "Yes", "No"), levels = c("No", "Yes"))
+```
+
+```r
+d_sparse <- d_view
+d_sparse$Treat <- factor(d_sparse$Treat, levels = c("No", "Yes", "Unused treatment"))
+d_sparse$Sex <- factor(d_sparse$Sex, levels = c("Female", "Male", "Unused subgroup"))
+eff_sparse <- get_eff(d_sparse, cat_var = "Treat", sub_var = "Sex", adj_var = "Age",
+  surv = TRUE, methods = "direct", show_surdiff = FALSE, all = NULL)
+eff_clean <- get_eff(droplevels(d_sparse), cat_var = "Treat", sub_var = "Sex", adj_var = "Age",
+  surv = TRUE, methods = "direct", show_surdiff = FALSE, all = NULL)
+isTRUE(all.equal(eff_sparse, eff_clean, check.attributes = FALSE))  # TRUE
+```
+
+
+本轮两份效应结果一致。实际表中是各 Sex 亚组内 Treat 的 Yes 对 No 的调整 HR，Sex 不是这张表的暴露对比；Sex 行是亚组标题，其 NA 不表示某个亚组拟合失败。
+
+::: {.table-responsive}
+
+|label  |effect            |eve1    |   p_value|
+|:------|:-----------------|:-------|---------:|
+|Sex    |NA                |        |        NA|
+|Female |0.89 (0.68, 1.16) |245/298 | 0.3769191|
+|Male   |0.92 (0.69, 1.24) |227/302 | 0.5917170|
+
+:::
+
+本例的交互分解会提示至少一个暴露为预防性，并可能出现对数运算警告；上表仅用于核对 Cox 亚组效应与删空水平的结果一致，不解释这些交互分解的区间。
+
+```r
+d_one <- d_sparse[d_sparse$Treat == "Yes", ]
+tryCatch(
+  get_eff(d_one, cat_var = "Treat", adj_var = "Age", surv = TRUE,
+    methods = "iptw", show_surdiff = FALSE),
+  error = function(e) conditionMessage(e)
+)
+```
+
+
+实际返回的报错明确指出 `Treat` 只有一个不同值，IPTW 要求至少两个值。删掉空标签不会创造缺少的比较组，遇到此情况应检查筛选后的分析样本。
+
+`get_cat()` 的曲线路径还会移除没有完整随访记录的暴露水平；这不会填补结局或生成缺少的曲线。应结合提示核对实际纳入水平和完整病例人数。
