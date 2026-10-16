@@ -331,3 +331,33 @@ ROC / PR 由概率排序计算；阈值影响混淆矩阵和灵敏度等指标�
 
 本页图片来自上面的实际公共调用。使用固定示例、固定随机种子和注明的小规模设置，图形用于学习接口及解释预测结果。
 两类任务、两个分类阈值均成功计算。13 张图通过实际构建/导出；生存 summary 与分类 confusion 的公共 flextable 输出已验证。本页刻意保留少量重采样作为教程预算。
+
+## 当前按需制表与 MCC 阈值曲线 {#current-20261017}
+
+2026-10-17 按已推送 MLR `4bbc8c8`，在 WSL R 4.4.3 实际运行下面的 600 行合成分类例。`tables` 先保留各表的数据，读取 `result$tables$summary` 或 `[["summary"]]` 时才生成该 flextable；取子集仍保留这一行为。模型、预测与指标仍在主调用中计算，延后的是表格排版。
+
+```r
+library(mlr3)
+library(mlr3learners)
+set.seed(1021)
+d_eval <- data.frame(Age = runif(600, 25, 80), Marker = rnorm(600))
+d_eval$Outcome <- factor(ifelse(runif(600) < plogis(-0.4 +
+  0.03 * (d_eval$Age - 50) + d_eval$Marker), "Yes", "No"))
+task_eval <- as_task_classif(d_eval, target = "Outcome", positive = "Yes")
+eval_new <- get_model_evaluation(task_eval,
+  learner = lrn("classif.log_reg", predict_type = "prob"),
+  resampling = rsmp("cv", folds = 2), metrics = c("auc", "mcc"),
+  curve_points = 21, threshold = 0.5, backend = "sequential", seed = 1021, positive = "Yes")
+eval_new$tables$summary
+# 与默认参数的公开制表函数得到相同表内容。
+tb_model_evaluation(eval_new, type = "summary")
+plt_model_evaluation(eval_new, type = "threshold", metric = "mcc",
+  source = "apparent", show_interval = FALSE)
+```
+
+
+![600 行合成数据的表观 MCC 阈值曲线。](images/model-evaluation-guide/20261017-mcc-current.png){fig-alt="实际拟合分类模型的表观 MCC 随概率阈值变化，虚线为预设的 0.5。"}
+
+分类阈值曲线当前一次组织整组计数，MCC 的乘积使用双精度，避免较大计数时的整数溢出。本轮以原预测的四格计数手算核对了 0.5 处 MCC，并检查两种公开取表方式的内容一致。曲线是同一模型的表观结果，不能据此选择阈值后继续把它当作独立验证；两折 CV 也只是教程预算。
+
+生存 Brier 路径也减少了各时间点的重复评分工作；仍使用传入的时间网格与原指标定义，必要时按标准评分接口逐时点回退。本轮没有新增计时，前面的 13 张图保留原执行快照。需要数值计算时读取 `metric_summary` / `resample_metrics` 等原数据字段，避免反复生成排版表。
