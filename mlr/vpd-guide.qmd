@@ -4,6 +4,7 @@ description: "get_exp、get_vpd、get_vpd_pnl 与 get_ale2 的工作流；比较
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
+date-modified: 2026-10-16
 ---
 
 `get_exp()` 构建预测解释器，`get_vpd()` 将变量分布（VD）与部分依赖（PD）放在一起。本页用实际图形解释两块面板的差别，并对照主要任务和分组路径。
@@ -61,7 +62,7 @@ erf <- get_exp(d, vars = vars, surv = 60, model = "ranger")
 原有 `get_vpd(exp_var=c("Group","Marker"))` 是按组展示的一维响应曲线。`get_ale2()` 计算两个变量的局部二阶变化、累积并去除低阶项，用于观察模型中的二阶交互；它与包含主效应的 `get_pdp2()` 有不同含义。
 
 ```r
-get_ale2(EXP.obj, exp_var, N = 10000, scale = c("link", "prob"),
+get_ale2(EXP.obj, exp_var, N = 10000, grid_size = 20, scale = c("link", "prob"),
   engine = c("iml", "ale"), cores = NULL, save = list())
 ```
 
@@ -361,3 +362,52 @@ ggplot2::ggsave("age-pdp-60-months.pdf", p, width = 9, height = 7)
 
 本页图片来自上面的实际公共调用。使用固定示例、固定随机种子和注明的小规模设置，图形用于学习接口及解释预测结果。
 12 张图覆盖两类任务各四种变量组合、60/120 月、tidy_plot 和 ranger 后端。生存剖面限制为单线程以控制资源；小规模曲线形状计算可能提示某些重采样无事件，不能把相关提示当成临床效应证据。
+
+
+## 当前网格与统一工作流 {#ale-grid-current}
+
+2026-10-16按MLR `78c4238` 与RegR `a8a6eb8` 的固定源码快照在WSL R 4.4.3执行以下新例；相关ALE接口已包含于核对时远端MLR `462f041`、RegR `1dc3b2f`。旧图保留原快照。
+
+grid_size默认20，是每个连续变量的分位数区间数，两种引擎都使用它；通常有grid_size+1个网格点，重复分位数会减少实际点数。分类变量仍每个水平一个点。它与N限制背景行数是两种控制，改变任一项都可能改变近似结果。
+
+热图当前统一用红色表达较高风险：log累计风险、logit和事件概率的正ALE为红；生存概率尺度则负ALE为红。不能将所有尺度都读作“红色=ALE正值”。分类×连续变量仍用分类曲线展示。
+
+
+### 相同模型比较两种网格
+
+同一个解释器只训练一次，分别用6和16个分位数区间计算二阶ALE。连续网格更细时每格样本更少；这会改变估计的曲面，不能作为纯计算提速比较。
+
+```r
+set.seed(20261016)
+d_ale <- data.frame(Age = runif(400,20,80), Marker = rnorm(400),
+  Group = factor(sample(c("A","B"),400,TRUE)))
+d_ale$Outcome <- factor(ifelse(runif(400) < plogis(-0.4 +
+  0.04*(d_ale$Age-50) + d_ale$Marker + 0.06*(d_ale$Age-50)*d_ale$Marker),"Yes","No"))
+exp_ale <- get_exp(d_ale, vars=c("Age","Marker","Group"), surv="Outcome", model="ranger",cores=1)
+ale_coarse <- get_ale2(exp_ale,c("Age","Marker"),N=400,grid_size=6,scale="prob",cores=1)
+ale_fine <- get_ale2(exp_ale,c("Age","Marker"),N=400,grid_size=16,scale="prob",cores=1)
+(ale_coarse + ggtitle("6 quantile intervals") |
+  ale_fine + ggtitle("16 quantile intervals")) &
+  theme(text=element_text(size=10),strip.text=element_text(size=11),
+    axis.title=element_text(size=11),legend.title=element_text(size=10),
+    plot.title=element_text(size=13))
+```
+
+![相同模型比较两种网格](images/vpd-guide/20261016-ale-grid.png){fig-alt="相同模型比较两种网格；固定输入、按注明源码快照实际运行的示例。"}
+
+
+### get_all的二阶ALE入口
+
+统一入口显式传ale2.args才启用分析，结果在ale2字段。此例选择ranger与概率尺度；省略model的当前模板选择xgboost，省略scale选择link。
+
+```r
+ale_all <- get_all(com.args=list(data=d_ale,adj_var="Group",surv="Outcome"),
+  ale2.args=list(exp_var=c("Age","Marker"),model="ranger",scale="prob",
+    grid_size=6,N=400,cores=1))
+ale_all$ale2 + theme(text=element_text(size=10),strip.text=element_text(size=12),
+  legend.title=element_text(size=10))
+```
+
+![get_all的二阶ALE入口](images/vpd-guide/20261016-ale-unified.png){fig-alt="get_all的二阶ALE入口；固定输入、按注明源码快照实际运行的示例。"}
+
+get_all现在有13个分析入口。ale2.args必须显式提供才启用；仅提供exp_var时继承model="xgboost"、scale="link"、grid_size=20。com.args提供data、adj_var、surv和生存预测时间time；N、engine、cores、save继续传给get_ale2。返回 `res$ale2` 是图，不是交互显著性检验。
