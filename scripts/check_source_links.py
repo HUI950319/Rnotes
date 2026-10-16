@@ -17,7 +17,7 @@ from check_site import chapters
 
 REPOS = {"RegR", "MLR", "UtilsR", "seerR", "LabR", "scMMR", "ToyData", "causalR", "Rnotes"}
 # Verified private repositories. The Rnotes Actions token cannot read them.
-PRIVATE_REPOS = {"RegR", "MLR"}
+PRIVATE_REPOS = {"RegR", "MLR", "seerR"}
 
 
 def endpoint(url):
