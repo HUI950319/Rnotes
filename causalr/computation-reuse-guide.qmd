@@ -2,7 +2,7 @@
 title: "计算与复用：森林缓存、树参数与时间网格"
 description: "用真实运行展示 reuse 的有效范围、时间和内存，并对照生存事件网格诊断；整理主要引擎参数与复现信息。"
 date: 2026-10-02
-date-modified: 2026-10-15
+date-modified: 2026-10-16
 lightbox: true
 toc-depth: 2
 ---
@@ -128,7 +128,7 @@ ggplot(timing, aes(step, seconds)) + geom_col(fill = "steelblue", width = .6) +
 | `max_depth` | `3` | 深度上限；可设 Inf，policy 要求有限 |
 | `min_leaf` | `0.05` | 占发现患者的最小比例，范围 [0,0.5)；每个子节点还需每臂两人 |
 | `alpha` | `0.05` | 检验门槛；1 强制允许分裂到深度/叶子约束，rpart/policy 不接受 |
-| maxt `n_boot` | `1000` | 每个节点的 multiplier bootstrap；0 无 p 值并要求 alpha=1 |
+| maxt `n_boot` | `NULL`，按发现集人数解析 | ≤5万人用1000；更大时减少，最低250。0无P值并要求alpha=1；详见下节 |
 | maxt `max_cuts` | `100` | 每设计列最多尝试的切点数 |
 | ctree `testtype` | `"Bonferroni"` | 可用 Univariate/MonteCarlo，改变检验控制 |
 | mob `trim/max_cuts` | `0.1/100` | 数值切分两端裁去比例/候选切点上限；每切点重拟合，成本可很高 |
@@ -265,7 +265,7 @@ sessionInfo()
 
 ## 筛查结果中的森林对象复用 {#unihtee-reuse-current}
 
-2026-10-15在Windows R 4.4.3、UTF-8环境中按本机causalR `f39631a` 实际运行本节新例。已推送基线 `31e8e6d` 包含unihtee的hte字段和row_height；本机之后的右角树边、结点与叶子配色更新在核对时尚未推送。原代码块保留为原有完整流程，本轮不重新执行其历史分析。新例使用600人的固定种子连续结局模拟数据，与前面数据和结果分开。
+2026-10-15在Windows R 4.4.3、UTF-8环境中按本机causalR `f39631a` 实际运行本节新例。2026-10-16复核：远端 `f3f7ecc` 已包含unihtee的hte字段、row_height及右角树边、结点/叶子配色；本节图片保留原 `f39631a` 执行快照。原代码块保留为原有完整流程，本轮不重新执行其历史分析。新例使用600人的固定种子连续结局模拟数据，与前面数据和结果分开。
 
 ::: {.panel-tabset}
 
@@ -287,3 +287,37 @@ p_uni_sub
 ![筛查后直接使用返回的HTE拟合。](images/computation-reuse-guide/20261015-unihtee-fit-reuse.png){fig-alt="筛查后直接使用返回的HTE拟合的固定输入参数对照实图。"}
 
 :::
+
+
+## 发布状态与树变量名称 {#release-20261016}
+
+2026-10-16核对：树图样式及绘图环境整理已推送到causalR `f3f7ecc`。仅保存plt_hte_tree/plt_hte_icf的图对象时，绘图环境不再连带保存整个拟合；图仍含绘图所需数据，这不是匿名化功能。既有图片和数值保留各自执行日期，本轮没有重跑历史分析。
+
+本机另有 `e389a75` 将get_hte_tree/get_hte_icf的candidate_var更名为tree_var；核对时远端f3f7ecc尚未包含该名称更新。本站72d6139已同步树/icf代码的参数拼写，本轮渲染保留其旧输出，并未将改名当成重新计算。运行前检查 `names(formals(causalR::get_hte_tree))`：旧安装使用candidate_var，本机新接口使用tree_var；get_hte_select/get_hte_unihtee仍使用candidate_var。
+
+
+## max-t默认抽样预算 {#maxt-budget-current}
+
+已推送f3f7ecc把默认tree_args$n_boot改为NULL：在完整发现样本确定后，使用 `as.integer(min(1000, max(250, round(5e7 / n_disc))))`，并在减少时给出消息。这里n_disc是进入规则发现的有效人数，不是整个队列人数；实际次数记录在 `attr(res,"analysis")$tree_args$n_boot`。
+
+由公式得到：5万人为1000次、10万人为500次、20万及30万人为250次。这是预算公式示意，本轮没有运行这些大样本来测量耗时。更少抽样使P值分辨率变粗，最小P值为1/(n_boot+1)；不能把这一变化称为统计精度完全相同的加速。需要固定次数时显式传 `tree_args=list(n_boot=1000L)`。
+
+下面600人例子按本机e389a75在Windows R 4.4.3、UTF-8中实际运行：默认解析为1000，再复用同一森林显式设250。改变次数可能改变分裂P值和树，因此不宣称两棵树结果相同。
+
+```r
+set.seed(20261016)
+d_boot <- data.frame(b=rbinom(600,1,0.5),x=rnorm(600))
+d_boot$z <- rbinom(600,1,0.5)
+d_boot$y <- d_boot$x+d_boot$z*(-2+5*d_boot$b)+rnorm(600)
+boot_common <- list(data=d_boot,cat_var="z",adj_var=c("b","x"),tree_var=c("b","x"),
+  surv="y",method="maxt",max_depth=1,min_leaf=0.1,split_frac=0.5,seed=123,
+  grf_args=list(num.trees=100,num.threads=1))
+boot_default <- do.call(get_hte_tree,boot_common)
+boot_fixed <- do.call(get_hte_tree,c(boot_common,
+  list(reuse=boot_default,tree_args=list(n_boot=250L))))
+attr(boot_default,"analysis")$tree_args
+attr(boot_fixed,"analysis")$tree_args
+attr(boot_fixed,"analysis")$forests_reused
+```
+
+Rademacher符号生成也已优化；本轮Windows检查固定种子下500个符号及之后的RNG状态与原sample写法一致。这与减少n_boot是两项不同变化。
