@@ -1002,7 +1002,7 @@
     "href": "mlr/imp-guide.html#interface",
     "title": "特征重要性：get_imp 与 9 个绘图函数",
     "section": "接口、返回对象与分析流程",
-    "text": "接口、返回对象与分析流程\nget_imp() 按 surv 类型与模型分派：逻辑值进入生存任务，字符值指定二分类结局列。生存路径读取 time / DSS；surv = FALSE 仍进入生存路径。\n\n\n\n\n\n\n\n\n\n模型\n原生重要性\n共用方法\n编码\n\n\n\n\nranger\nimpurity\nmean.SHAP、permutation\n分类特征保留因子\n\n\nxgboost\ngain\nmean.SHAP、permutation\n生存仅 onehot；二分类可 onehot / target\n\n\n\nget_imp() 返回长格式数据框，计算过程中还会打印柱形组合、标准和带间隙流向图。它不返回一个装满图的 list。提供 shp 会复用平均绝对 SHAP；XGBoost 仍训练模型以计算 Gain 和 permutation。只有数据、变量和预测目标相匹配时才应复用 SHAP。\n原生重要性、置换后的性能损失与平均绝对 SHAP 具有不同定义；0–1 缩放方便查看排序，不能据此把三种方法的原始大小作等量比较。\nget_imp(data, vars, surv = TRUE, shp = NULL,\n        model = c(\"ranger\", \"xgboost\"),\n        boosting_encoding = c(\"onehot\", \"target\"))\n\n# 重新计算时传自己的数据；下面只展示写法，本页未执行。\n# res &lt;- get_imp(d, vars = c(\"Age\", \"Sex\", \"T_stage\"), surv = TRUE)",
+    "text": "接口、返回对象与分析流程\nget_imp() 当前只接受 surv=TRUE（读取 time / DSS）或一个二分类结局列名。surv=FALSE 及其他值会在拟合前报错；ranger 分类结局必须恰有两个不同值。2026-10-16按已推送MLR 462f041 核对，旧版按逻辑类型分派的说明已不适用。\n\n\n\n\n\n\n\n\n\n模型\n原生重要性\n共用方法\n编码\n\n\n\n\nranger\nimpurity\nmean.SHAP、permutation\n分类特征保留因子\n\n\nxgboost\ngain\nmean.SHAP、permutation\n生存仅 onehot；二分类可 onehot / target\n\n\n\nget_imp() 返回长格式数据框，计算过程中还会打印柱形组合、标准和带间隙流向图。它不返回一个装满图的 list。提供 shp 会复用平均绝对 SHAP；XGBoost 仍训练模型以计算 Gain 和 permutation。只有数据、变量和预测目标相匹配时才应复用 SHAP。\n原生重要性、置换后的性能损失与平均绝对 SHAP 具有不同定义；0–1 缩放方便查看排序，不能据此把三种方法的原始大小作等量比较。\nget_imp(data, vars, surv = TRUE, shp = NULL,\n        model = c(\"ranger\", \"xgboost\"),\n        boosting_encoding = c(\"onehot\", \"target\"), n_rep = 1L)\n\n# 重新计算时传自己的数据；下面只展示写法，本页未执行。\n# res &lt;- get_imp(d, vars = c(\"Age\", \"Sex\", \"T_stage\"), surv = TRUE)",
     "crumbs": [
       "MLR · 机器学习解释",
       "模型解释与可视化",
@@ -9898,6 +9898,18 @@
       "UtilsR · 通用工具",
       "格式与配色",
       "<span class='chapter-number'>40</span>  <span class='chapter-title'>ggplot 格式化</span>"
+    ]
+  },
+  {
+    "objectID": "mlr/imp-guide.html#importance-repeat-current",
+    "href": "mlr/imp-guide.html#importance-repeat-current",
+    "title": "特征重要性：get_imp 与 9 个绘图函数",
+    "section": "当前后端与重复重要性",
+    "text": "当前后端与重复重要性\n2026-10-16复核：已推送 462f041 包含上述surv检查、ranger字符特征转因子及后端更新。Windows的生存和XGBoost路径直接使用treeshap，不先尝试Python；Unix仍按条件尝试Python并回退。Python完全无法启动的失败会在当前R会话中记住，模块导入失败则仍可重试。Windows R已验证后端选择与surv=FALSE报错；不据此给出新的耗时倍数。\n以下重复分析按本机MLR 78c4238 在WSL R 4.4.3实际运行；核对时GitHub远端 462f041 尚未包含n_rep。运行前用 \"n_rep\" %in% names(formals(MLR::get_imp)) 检查安装接口，不能只看0.1.13版本号。旧保存结果和前面的300棵树实图保留原执行快照。\nn_rep=1L 保持一次运行；大于1时每次重新拟合、抽训练与SHAP行，先对原始重要性求均值，再按方法缩放，不能先平均各次0–1值。新增lower/upper、sd、rank_median/rank_lower/rank_upper、p_top3；逐次表在 attr(res,\"reps\")，Kendall’s W在 attr(res,\"stability\")。提供shp会让各次复用同一份SHAP，因而mean.SHAP不随重复变化。置换重要性允许为负，不应为了画百分比而将其解释成正贡献。\n\n重复运行与排名稳定性\n固定种子，三次完整运行只演示汇总结构。点是原始重要性的运行均值，线是运行间2.5%–97.5%分位数，不是总体置信区间。各方法单位不同，分面各用自己的纵轴。\nset.seed(20261016)\nn_rep_demo &lt;- 320L\nd_rep &lt;- data.frame(Age = runif(n_rep_demo, 20, 80), Marker = rnorm(n_rep_demo),\n  Sex = sample(c(\"Female\", \"Male\"), n_rep_demo, TRUE),\n  Group = factor(sample(c(\"A\", \"B\"), n_rep_demo, TRUE)))\nd_rep$Outcome &lt;- factor(ifelse(runif(n_rep_demo) &lt; plogis(-0.5 +\n  0.04 * (d_rep$Age - 45) + 1.2 * d_rep$Marker + 0.6 * (d_rep$Group == \"B\")), \"Yes\", \"No\"))\nrep_vars &lt;- c(\"Age\", \"Marker\", \"Sex\", \"Group\")\nset.seed(321)\nimp_rep &lt;- get_imp(d_rep, rep_vars, surv = \"Outcome\", n_rep = 3L)\nattr(imp_rep, \"stability\")\nggplot(imp_rep, aes(var, yhat_raw)) +\n  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.15) +\n  geom_point(size = 2.5, colour = \"#137C8B\") +\n  facet_wrap(~imp_type, scales = \"free_y\") + theme_bw() +\n  labs(x = NULL, y = \"Raw importance: mean and between-run spread\")\n\n\n\n重复运行与排名稳定性\n\n\n三次运行用于检查接口和画图，不代表正式分析已达到稳定。该例字符Sex由ranger路径内部转因子，调用者的数据列仍为字符。正式分析应结合不同种子、样本及模型设置检查排名稳定性；这些运行间分位数不是患者总体的置信区间。",
+    "crumbs": [
+      "MLR · 机器学习解释",
+      "模型解释与可视化",
+      "<span class='chapter-number'>25</span>  <span class='chapter-title'>特征重要性</span>"
     ]
   }
 ]
