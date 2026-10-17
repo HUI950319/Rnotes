@@ -1,0 +1,119 @@
+---
+title: "Illustrator 打开 PDF 缺字体：WSL 的 Cairo 与 Arial"
+description: "RegR::save_plt() 改用 Cairo 后，WSL R 保存的 PDF 嵌入 Nimbus Sans，Windows 上的 Adobe Illustrator 判为缺失字体并替换显示；记录 pdffonts 对照、WSL fontconfig 配置、RegR 改用 Arial 的修复与替代方法。"
+date: 2026-10-17
+execute:
+  eval: false
+---
+
+在 WSL RStudio 里用 `RegR::save_plt()` 保存的 PDF，在 Windows 上用 Adobe Illustrator 打开编辑时，文字全部带粉色底色，字体栏显示 `NimbusSans`，字形换成了另一种更宽的字体，流程图里的文字超出方框。**原因是 2026-10-10 起 `save_plt()` 默认用 Cairo 写 PDF，WSL 的 Cairo 嵌入了 Nimbus Sans，而 Windows 没有这个字体。让 WSL 的 fontconfig 找得到 Windows 的 Arial，再让 `save_plt()` 显式使用 Arial，问题消失。**
+
+本文记录 2026-10-17 的排查与修复。代码均为静态示例，网页渲染不会执行，也不会修改字体配置。
+
+## 现象 {#symptom}
+
+- 同一个 PDF 用 Acrobat、浏览器或 `pdftoppm` 转图查看都正常，只在 Illustrator 里编辑时出问题。
+- 粉色底色是 Illustrator「突出显示替代的字体」的标记（在文档设置里），表示该字体本机没有安装，已用其他字体代替。
+- 替代字体的字宽与原字体不同，文字整体变宽，超出原来的方框。
+- 8 月用旧版 `save_plt()` 保存的同类流程图没有这个问题。
+
+## 排查证据 {#evidence}
+
+用 poppler 的 `pdffonts` 查看两份 PDF 的字体，`pdfinfo` 查看写出 PDF 的程序：
+
+```bash
+pdffonts old.pdf; pdfinfo old.pdf | grep -E "Creator|Producer"
+pdffonts new.pdf; pdfinfo new.pdf | grep -E "Creator|Producer"
+```
+
+| | 8 月保存（旧版） | 10 月 17 日保存 |
+|:--|:--|:--|
+| 写出 PDF 的程序 | R 4.4.3 的 `grDevices::pdf()` | cairo 1.16.0（`grDevices::cairo_pdf()`） |
+| 字体 | Helvetica、Helvetica-Bold | NimbusSans-Regular、NimbusSans-Bold |
+| 是否嵌入 | 否：PDF 标准 14 种字体之一 | 是：子集嵌入，名称前带 `LMRICE+` 这类 6 位前缀 |
+
+同一天保存的另一张效应图也嵌入了 NimbusSans。
+
+## 原因 {#cause}
+
+1. RegR 2026-10-10 的提交 857677a 让 `save_plt()` 默认通过 `cairo_pdf()` 写 PDF。旧的 `pdf()` 用单字节编码的 Helvetica，`≥` 这类字符在 Windows 上会不报错地变成 `=`；Cairo 能写出任意 Unicode 并嵌入字体，见 [PDF 设备与特殊字符](../regr/flow-guide.qmd#pdf-device)。
+2. Cairo 的默认字体族是 `"sans"`。Windows 上它对应 Arial；Linux 上 R 把它换成 Helvetica 再交给 fontconfig 匹配，WSL 里匹配到的是 URW 出品、与 Helvetica 字宽兼容的 Nimbus Sans，于是 PDF 嵌入了它。
+3. Illustrator 编辑文字只用本机已安装的字体，不用 PDF 里嵌入的子集。Windows 没装 Nimbus Sans，就判为缺失字体并替换。旧图的 Helvetica 是标准字体，Illustrator 会自动换成本机字体，所以以前没有出问题。
+
+在 Windows R 里保存不会出现这个问题：那里嵌入的是 Arial（RegR 的测试在 Windows R 上读回了 `ArialMT`）。
+
+## 只配 fontconfig 为什么不够 {#fontconfig-only}
+
+修改前，WSL 里两个字体名的匹配结果：
+
+```bash
+fc-match Helvetica   # NimbusSans-Regular.otf: "Nimbus Sans" "Regular"
+fc-match Arial       # LiberationSans-Regular.ttf: "Liberation Sans" "Regular"
+```
+
+- 没有 Arial 时，fontconfig 把 Arial 换成字宽兼容的 Liberation Sans，Illustrator 同样没有这个字体。
+- 用一个只在测试进程里生效的 fontconfig 配置让 WSL 看到 Windows 的 Arial 之后，`cairo_pdf()` 的默认字体**仍然**嵌入 Nimbus Sans，因为 R 请求的是 Helvetica 而不是 Arial；只有 `cairo_pdf(family = "Arial")` 才嵌入 ArialMT、Arial-BoldMT。
+
+因此需要两步：让 fontconfig 找得到真正的 Arial，再让 `save_plt()` 显式请求它。
+
+## 修复一：WSL 用户级 fontconfig {#fontconfig}
+
+新建 `~/.config/fontconfig/fonts.conf`；已有该文件时只加 `<dir>` 一行。它只影响当前用户，不改系统配置：
+
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <!-- Windows fonts, so Cairo PDFs written from WSL R can embed Arial -->
+  <dir>/mnt/c/Windows/Fonts</dir>
+</fontconfig>
+```
+
+```bash
+fc-cache                                 # 建立用户级字体缓存，本机约 2 秒
+fc-match Arial                           # arial.ttf: "Arial" "Regular"
+fc-list | grep -c /mnt/c/Windows/Fonts   # 本机识别 465 个字体
+```
+
+本机核对常用字体名，配置前后只有两项变化：
+
+| 字体名 | 配置前 | 配置后 |
+|:--|:--|:--|
+| Arial | Liberation Sans | Arial |
+| Symbol | Standard Symbols PS | Windows 的 symbol.ttf |
+| sans、serif、monospace、Helvetica、Times、Times New Roman、中文 sans | — | 不变 |
+
+Symbol 变化后，另用 `cairo_pdf()` 画了含希腊字母、`≥`、`±`、`∞` 和上下标的 plotmath 表达式，显示正常。
+
+## 修复二：RegR 让 Cairo 使用 Arial {#regr-fix}
+
+RegR 2026-10-17 的提交 13fc9f4（版本号仍为 0.1.3）：
+
+- 在非 Windows 系统上，`save_plt()` 先试写一个请求 Arial 的临时 PDF，确认嵌入的确实是 Arial（而不是 Liberation Sans 之类的替身）才使用 `family = "Arial"`，否则保持原来的默认字体。每个 R 会话只检查一次。
+- `plt_flo()`、`plt_flo2()`、`plt_flo3()` 和 `plt_eff()` 系列按测量出的文字宽度排版，它们的测量设备改用同一字体，测量与绘制保持一致。
+- Windows 上的输出不变；`save_plt(device = "pdf")` 仍写旧版的 Helvetica。
+
+装好新版后要**重启 R 会话**：运行中的会话还在用旧版 RegR，fontconfig 也是在会话里第一次使用 Cairo 时读入的。重启后检查：
+
+```r
+RegR:::.pdf_font_family()
+#> [1] "Arial"
+```
+
+返回 `"sans"` 说明这个会话没有找到真正的 Arial，回到上一节检查 fontconfig。随后重新保存图片，`pdffonts` 应显示 `ArialMT` 和 `Arial-BoldMT`。已经保存的 PDF 不会自动改变，需要重新保存。本机重启 WSL RStudio 会话、重新保存流程图后，Illustrator 中显示正常。
+
+## 不改环境时的替代方法 {#alternatives}
+
+| 方法 | 做法 | 代价 |
+|:--|:--|:--|
+| 在 Windows 安装 Nimbus Sans | 把 WSL 里 `/usr/share/fonts/opentype/urw-base35/NimbusSans-*.otf` 复制到 Windows 并安装 | 已保存的 PDF 都能正常编辑；合作者的电脑也要安装 |
+| 单张图退回旧设备 | `save = list(filename = ..., device = "pdf")` | `≥`、`–`、`±`、希腊字母等非 ASCII 字符会出错 |
+| 在 Illustrator 里替换字体 | 文字 → 查找字体，把 NimbusSans 换成 Arial | 每个文件都要手动处理；两者字宽兼容，版面基本不变 |
+
+## 适用范围 {#scope}
+
+- 只影响没有指定字体族的文字；显式设置了 `family = "serif"`、`"Times New Roman"` 等的文字仍按原设置匹配。
+- Windows R 保存的 PDF 本来就嵌入 Arial，不受影响。
+- 其他 Linux 机器只要 fontconfig 能找到真正的 Arial，`save_plt()` 也会使用它；找不到时输出与修改前相同。这一点只在本机 WSL 上验证过。
+
+函数说明见 [save_plt() 帮助页](https://hui950319.github.io/RegR/reference/save_plt.html)；pkgdown 站点的帮助页可能晚于本次提交更新。
