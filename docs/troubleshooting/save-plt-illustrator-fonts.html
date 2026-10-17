@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="RegR::save_plt() 改用 Cairo 后，WSL R 保存的 PDF 嵌入 Nimbus Sans，Windows 上的 Adobe Illustrator 判为缺失字体并替换显示；记录 pdffonts 对照、WSL fontconfig 配置、RegR 改用 Arial 的修复与替代方法。">
+<meta name="description" content="RegR::save_plt() 改用 Cairo 后，WSL R 保存的 PDF 嵌入 Nimbus Sans，Windows 上的 Adobe Illustrator 判为缺失字体并替换显示；记录 pdffonts 对照、WSL fontconfig 配置、RegR 改用 Arial、显式 sans / serif 的字体替换规则与替代方法。">
 
 <title>Illustrator 打开 PDF 缺字体：WSL 的 Cairo 与 Arial – R 包开发笔记</title>
 <style>
@@ -1064,6 +1064,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#fontconfig-only" id="toc-fontconfig-only" class="nav-link" data-scroll-target="#fontconfig-only">只配 fontconfig 为什么不够</a></li>
   <li><a href="#fontconfig" id="toc-fontconfig" class="nav-link" data-scroll-target="#fontconfig">修复一：WSL 用户级 fontconfig</a></li>
   <li><a href="#regr-fix" id="toc-regr-fix" class="nav-link" data-scroll-target="#regr-fix">修复二：RegR 让 Cairo 使用 Arial</a></li>
+  <li><a href="#explicit-family" id="toc-explicit-family" class="nav-link" data-scroll-target="#explicit-family">修复三：显式写了 “sans” / “serif” 的文字</a>
+  <ul class="collapse">
+  <li><a href="#explicit-family-cause" id="toc-explicit-family-cause" class="nav-link" data-scroll-target="#explicit-family-cause">原因</a></li>
+  <li><a href="#explicit-family-fix" id="toc-explicit-family-fix" class="nav-link" data-scroll-target="#explicit-family-fix">修复</a></li>
+  </ul></li>
   <li><a href="#alternatives" id="toc-alternatives" class="nav-link" data-scroll-target="#alternatives">不改环境时的替代方法</a></li>
   <li><a href="#scope" id="toc-scope" class="nav-link" data-scroll-target="#scope">适用范围</a></li>
   </ul>
@@ -1098,7 +1103,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </header>
 
 
-<p>在 WSL RStudio 里用 <code>RegR::save_plt()</code> 保存的 PDF，在 Windows 上用 Adobe Illustrator 打开编辑时，文字全部带粉色底色，字体栏显示 <code>NimbusSans</code>，字形换成了另一种更宽的字体，流程图里的文字超出方框。<strong>原因是 2026-10-10 起 <code>save_plt()</code> 默认用 Cairo 写 PDF，WSL 的 Cairo 嵌入了 Nimbus Sans，而 Windows 没有这个字体。让 WSL 的 fontconfig 找得到 Windows 的 Arial，再让 <code>save_plt()</code> 显式使用 Arial，问题消失。</strong></p>
+<p>在 WSL RStudio 里用 <code>RegR::save_plt()</code> 保存的 PDF，在 Windows 上用 Adobe Illustrator 打开编辑时，文字全部带粉色底色，字体栏显示 <code>NimbusSans</code>，字形换成了另一种更宽的字体，流程图里的文字超出方框。<strong>原因是 2026-10-10 起 <code>save_plt()</code> 默认用 Cairo 写 PDF，WSL 的 Cairo 嵌入了 Nimbus Sans，而 Windows 没有这个字体。让 WSL 的 fontconfig 找得到 Windows 的 Arial，让 <code>save_plt()</code> 显式使用 Arial，再把 Helvetica、Times 分别替换成 Arial、Times New Roman（处理主题里显式写的 <code>"sans"</code> / <code>"serif"</code>），问题消失。</strong></p>
 <p>本文记录 2026-10-17 的排查与修复。代码均为静态示例，网页渲染不会执行，也不会修改字体配置。</p>
 <section id="symptom" class="level2">
 <h2 class="anchored" data-anchor-id="symptom">现象</h2>
@@ -1226,6 +1231,87 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] "Arial"</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>返回 <code>"sans"</code> 说明这个会话没有找到真正的 Arial，回到上一节检查 fontconfig。随后重新保存图片，<code>pdffonts</code> 应显示 <code>ArialMT</code> 和 <code>Arial-BoldMT</code>。已经保存的 PDF 不会自动改变，需要重新保存。本机重启 WSL RStudio 会话、重新保存流程图后，Illustrator 中显示正常。</p>
 </section>
+<section id="explicit-family" class="level2">
+<h2 class="anchored" data-anchor-id="explicit-family">修复三：显式写了 “sans” / “serif” 的文字</h2>
+<p>完成前两步后，另一张用 <code>UtilsR::theme_my()</code> 的组合图在 Illustrator 里仍有一部分文字标粉：坐标轴上的变量名、刻度数字和轴标题。<code>pdffonts</code> 显示 PDF 里除了 ArialMT、Arial-BoldMT，还有一个 NimbusSans-Bold。</p>
+<section id="explicit-family-cause" class="level3">
+<h3 class="anchored" data-anchor-id="explicit-family-cause">原因</h3>
+<p>R 的 Cairo 设备只在文字<strong>没有</strong>写字体族时使用设备默认字体，也就是 <code>save_plt()</code> 设的 Arial。显式写了字体族时，Linux 版 R 会先把它换成固定的名字，再交给 fontconfig：<code>"sans"</code> 换成 Helvetica，<code>"serif"</code> 换成 Times，<code>"mono"</code> 换成 Courier（Windows 版 R 换成的是 Arial 和 Times New Roman，所以 Windows 上没有这个问题）。fontconfig 给 Helvetica 和 Times 的答案是 Nimbus Sans 和 Nimbus Roman。</p>
+<p><code>UtilsR::theme_my()</code> 的默认参数是 <code>base_family = "sans", base_fontface = "bold"</code>，LabR 的主题同样默认 <code>"sans"</code>，RegR 的 RCS 图用了 <code>family = "serif"</code>。所以套了这些主题的图，主题文字会嵌入 Nimbus 字体；没写字体族的文字（例如图里的数据标签）则是 Arial。</p>
+<p>列出一张 ggplot 图里各段文字的字体族和字重：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>font_table <span class="ot">&lt;-</span> <span class="cf">function</span>(p) {</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  out <span class="ot">&lt;-</span> <span class="fu">list</span>()</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  walk <span class="ot">&lt;-</span> <span class="cf">function</span>(x) {</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    gp <span class="ot">&lt;-</span> x<span class="sc">$</span>gp</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(gp<span class="sc">$</span>fontfamily) <span class="sc">||</span> <span class="sc">!</span><span class="fu">is.null</span>(gp<span class="sc">$</span>fontface))</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>      out[[<span class="fu">length</span>(out) <span class="sc">+</span> <span class="dv">1</span>L]] <span class="ot">&lt;&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>        <span class="at">family =</span> <span class="cf">if</span> (<span class="fu">is.null</span>(gp<span class="sc">$</span>fontfamily)) <span class="st">"&lt;unset&gt;"</span> <span class="cf">else</span> gp<span class="sc">$</span>fontfamily[<span class="dv">1</span>],</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>        <span class="at">face   =</span> <span class="cf">if</span> (<span class="fu">is.null</span>(gp<span class="sc">$</span>fontface)) <span class="cn">NA</span> <span class="cf">else</span> gp<span class="sc">$</span>fontface[<span class="dv">1</span>],</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>        <span class="at">label  =</span> <span class="cf">if</span> (<span class="fu">is.null</span>(x<span class="sc">$</span>label)) <span class="st">""</span> <span class="cf">else</span> <span class="fu">substr</span>(<span class="fu">paste</span>(<span class="fu">head</span>(<span class="fu">as.character</span>(x<span class="sc">$</span>label), <span class="dv">2</span>), <span class="at">collapse =</span> <span class="st">" | "</span>), <span class="dv">1</span>, <span class="dv">40</span>))</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    kids <span class="ot">&lt;-</span> <span class="cf">if</span> (<span class="fu">inherits</span>(x, <span class="st">"gtable"</span>)) x<span class="sc">$</span>grobs <span class="cf">else</span> <span class="cf">if</span> (<span class="fu">inherits</span>(x, <span class="st">"gTree"</span>)) x<span class="sc">$</span>children</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (k <span class="cf">in</span> kids) <span class="fu">walk</span>(k)</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">walk</span>(ggplot2<span class="sc">::</span><span class="fu">ggplotGrob</span>(p))</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">unique</span>(<span class="fu">do.call</span>(rbind, out))</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>本例中坐标轴文字的 <code>family</code> 是 <code>"sans"</code>、<code>face</code> 是 2（粗体），数据标签的 <code>family</code> 为空。</p>
+</section>
+<section id="explicit-family-fix" class="level3">
+<h3 class="anchored" data-anchor-id="explicit-family-fix">修复</h3>
+<p>在 <code>~/.config/fontconfig/fonts.conf</code> 里加两条规则：请求 Helvetica 时优先用 Arial，请求 Times 时优先用 Times New Roman。加上后的完整文件：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode xml code-with-copy"><code class="sourceCode xml"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">&lt;?xml</span><span class="ot"> version=</span><span class="st">"1.0"</span><span class="fu">?&gt;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="dt">&lt;!DOCTYPE</span> <span class="dt">fontconfig</span> SYSTEM "fonts.dtd"<span class="dt">&gt;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">fontconfig</span>&gt;</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">dir</span>&gt;/mnt/c/Windows/Fonts&lt;/<span class="kw">dir</span>&gt;</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">match</span><span class="ot"> target=</span><span class="st">"pattern"</span>&gt;</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">test</span><span class="ot"> qual=</span><span class="st">"any"</span><span class="ot"> name=</span><span class="st">"family"</span>&gt;&lt;<span class="kw">string</span>&gt;Helvetica&lt;/<span class="kw">string</span>&gt;&lt;/<span class="kw">test</span>&gt;</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">edit</span><span class="ot"> name=</span><span class="st">"family"</span><span class="ot"> mode=</span><span class="st">"prepend"</span><span class="ot"> binding=</span><span class="st">"strong"</span>&gt;&lt;<span class="kw">string</span>&gt;Arial&lt;/<span class="kw">string</span>&gt;&lt;/<span class="kw">edit</span>&gt;</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">match</span>&gt;</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">match</span><span class="ot"> target=</span><span class="st">"pattern"</span>&gt;</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">test</span><span class="ot"> qual=</span><span class="st">"any"</span><span class="ot"> name=</span><span class="st">"family"</span>&gt;&lt;<span class="kw">string</span>&gt;Times&lt;/<span class="kw">string</span>&gt;&lt;/<span class="kw">test</span>&gt;</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">edit</span><span class="ot"> name=</span><span class="st">"family"</span><span class="ot"> mode=</span><span class="st">"prepend"</span><span class="ot"> binding=</span><span class="st">"strong"</span>&gt;&lt;<span class="kw">string</span>&gt;Times New Roman&lt;/<span class="kw">string</span>&gt;&lt;/<span class="kw">edit</span>&gt;</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">match</span>&gt;</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">fontconfig</span>&gt;</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>规则只改字体匹配，不需要重新运行 <code>fc-cache</code>。检查：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="ex">fc-match</span> Helvetica:bold   <span class="co"># arialbd.ttf: "Arial" "Bold"</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="ex">fc-match</span> Times            <span class="co"># times.ttf: "Times New Roman" "Regular"</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>本机核对的结果：</p>
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">请求</th>
+<th style="text-align: left;">加规则前</th>
+<th style="text-align: left;">加规则后</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">Helvetica（常规、粗体、斜体）</td>
+<td style="text-align: left;">Nimbus Sans</td>
+<td style="text-align: left;">Arial</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Times（常规、粗体）</td>
+<td style="text-align: left;">Nimbus Roman</td>
+<td style="text-align: left;">Times New Roman</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">sans、serif、monospace、中文 sans、Arial、Times New Roman</td>
+<td style="text-align: left;">—</td>
+<td style="text-align: left;">不变</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">Courier</td>
+<td style="text-align: left;">Nimbus Mono PS</td>
+<td style="text-align: left;">不变，未加规则</td>
+</tr>
+</tbody>
+</table>
+<p>在 <code>cairo_pdf()</code> 里分别用 <code>"sans"</code> 粗体、<code>"sans"</code> 常规和 <code>"serif"</code> 写字，嵌入的字体依次是 Arial-BoldMT、ArialMT 和 TimesNewRomanPSMT。用 <code>theme_my()</code> 画的图经 <code>save_plt()</code> 保存后，只嵌入 Arial-BoldMT，以及 serif 标题的 TimesNewRomanPS-BoldMT。</p>
+<p>这两条规则对 WSL 里所有程序生效：任何程序请求 Helvetica 或 Times，都会拿到 Arial 或 Times New Roman。有了这两条规则，即使不用修复二，没写字体族的文字（R 把它当作 <code>"sans"</code>）也会变成 Arial；修复二仍保留，用于没有配置这些规则的 Linux 机器。改完同样要重启 R 会话，再重新保存图片。</p>
+</section>
+</section>
 <section id="alternatives" class="level2">
 <h2 class="anchored" data-anchor-id="alternatives">不改环境时的替代方法</h2>
 <table class="caption-top table">
@@ -1263,7 +1349,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="scope" class="level2">
 <h2 class="anchored" data-anchor-id="scope">适用范围</h2>
 <ul>
-<li>只影响没有指定字体族的文字；显式设置了 <code>family = "serif"</code>、<code>"Times New Roman"</code> 等的文字仍按原设置匹配。</li>
+<li>修复二只作用于没写字体族的文字；显式写 <code>"sans"</code> / <code>"serif"</code> 的文字靠修复三的规则处理。直接写字体名（如 <code>"Times New Roman"</code>）的文字按该名字匹配，不受影响。</li>
+<li>显式写 <code>"mono"</code> 的文字仍会嵌入 Nimbus Mono PS；需要时可以按同样写法加一条 Courier → Courier New 的规则。</li>
+<li>plotmath 表达式（<code>expression()</code>）里的希腊字母等符号，本机嵌入的是 DejaVu Sans，在 Illustrator 里同样会显示为缺失字体；这与以上修复无关，尚未处理。</li>
 <li>Windows R 保存的 PDF 本来就嵌入 Arial，不受影响。</li>
 <li>其他 Linux 机器只要 fontconfig 能找到真正的 Arial，<code>save_plt()</code> 也会使用它；找不到时输出与修改前相同。这一点只在本机 WSL 上验证过。</li>
 </ul>

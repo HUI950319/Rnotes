@@ -10312,7 +10312,7 @@
     "href": "troubleshooting/save-plt-illustrator-fonts.html",
     "title": "Illustrator 打开 PDF 缺字体：WSL 的 Cairo 与 Arial",
     "section": "",
-    "text": "现象\n在 WSL RStudio 里用 RegR::save_plt() 保存的 PDF，在 Windows 上用 Adobe Illustrator 打开编辑时，文字全部带粉色底色，字体栏显示 NimbusSans，字形换成了另一种更宽的字体，流程图里的文字超出方框。原因是 2026-10-10 起 save_plt() 默认用 Cairo 写 PDF，WSL 的 Cairo 嵌入了 Nimbus Sans，而 Windows 没有这个字体。让 WSL 的 fontconfig 找得到 Windows 的 Arial，再让 save_plt() 显式使用 Arial，问题消失。\n本文记录 2026-10-17 的排查与修复。代码均为静态示例，网页渲染不会执行，也不会修改字体配置。",
+    "text": "现象\n在 WSL RStudio 里用 RegR::save_plt() 保存的 PDF，在 Windows 上用 Adobe Illustrator 打开编辑时，文字全部带粉色底色，字体栏显示 NimbusSans，字形换成了另一种更宽的字体，流程图里的文字超出方框。原因是 2026-10-10 起 save_plt() 默认用 Cairo 写 PDF，WSL 的 Cairo 嵌入了 Nimbus Sans，而 Windows 没有这个字体。让 WSL 的 fontconfig 找得到 Windows 的 Arial，让 save_plt() 显式使用 Arial，再把 Helvetica、Times 分别替换成 Arial、Times New Roman（处理主题里显式写的 \"sans\" / \"serif\"），问题消失。\n本文记录 2026-10-17 的排查与修复。代码均为静态示例，网页渲染不会执行，也不会修改字体配置。",
     "crumbs": [
       "R 问题排查",
       "<span class='chapter-number'>86</span>  <span class='chapter-title'>Illustrator 缺字体：Cairo 与 Arial</span>"
@@ -10400,7 +10400,18 @@
     "href": "troubleshooting/save-plt-illustrator-fonts.html#scope",
     "title": "Illustrator 打开 PDF 缺字体：WSL 的 Cairo 与 Arial",
     "section": "适用范围",
-    "text": "适用范围\n\n只影响没有指定字体族的文字；显式设置了 family = \"serif\"、\"Times New Roman\" 等的文字仍按原设置匹配。\nWindows R 保存的 PDF 本来就嵌入 Arial，不受影响。\n其他 Linux 机器只要 fontconfig 能找到真正的 Arial，save_plt() 也会使用它；找不到时输出与修改前相同。这一点只在本机 WSL 上验证过。\n\n函数说明见 save_plt() 帮助页；pkgdown 站点的帮助页可能晚于本次提交更新。",
+    "text": "适用范围\n\n修复二只作用于没写字体族的文字；显式写 \"sans\" / \"serif\" 的文字靠修复三的规则处理。直接写字体名（如 \"Times New Roman\"）的文字按该名字匹配，不受影响。\n显式写 \"mono\" 的文字仍会嵌入 Nimbus Mono PS；需要时可以按同样写法加一条 Courier → Courier New 的规则。\nplotmath 表达式（expression()）里的希腊字母等符号，本机嵌入的是 DejaVu Sans，在 Illustrator 里同样会显示为缺失字体；这与以上修复无关，尚未处理。\nWindows R 保存的 PDF 本来就嵌入 Arial，不受影响。\n其他 Linux 机器只要 fontconfig 能找到真正的 Arial，save_plt() 也会使用它；找不到时输出与修改前相同。这一点只在本机 WSL 上验证过。\n\n函数说明见 save_plt() 帮助页；pkgdown 站点的帮助页可能晚于本次提交更新。",
+    "crumbs": [
+      "R 问题排查",
+      "<span class='chapter-number'>86</span>  <span class='chapter-title'>Illustrator 缺字体：Cairo 与 Arial</span>"
+    ]
+  },
+  {
+    "objectID": "troubleshooting/save-plt-illustrator-fonts.html#explicit-family",
+    "href": "troubleshooting/save-plt-illustrator-fonts.html#explicit-family",
+    "title": "Illustrator 打开 PDF 缺字体：WSL 的 Cairo 与 Arial",
+    "section": "修复三：显式写了 “sans” / “serif” 的文字",
+    "text": "修复三：显式写了 “sans” / “serif” 的文字\n完成前两步后，另一张用 UtilsR::theme_my() 的组合图在 Illustrator 里仍有一部分文字标粉：坐标轴上的变量名、刻度数字和轴标题。pdffonts 显示 PDF 里除了 ArialMT、Arial-BoldMT，还有一个 NimbusSans-Bold。\n\n原因\nR 的 Cairo 设备只在文字没有写字体族时使用设备默认字体，也就是 save_plt() 设的 Arial。显式写了字体族时，Linux 版 R 会先把它换成固定的名字，再交给 fontconfig：\"sans\" 换成 Helvetica，\"serif\" 换成 Times，\"mono\" 换成 Courier（Windows 版 R 换成的是 Arial 和 Times New Roman，所以 Windows 上没有这个问题）。fontconfig 给 Helvetica 和 Times 的答案是 Nimbus Sans 和 Nimbus Roman。\nUtilsR::theme_my() 的默认参数是 base_family = \"sans\", base_fontface = \"bold\"，LabR 的主题同样默认 \"sans\"，RegR 的 RCS 图用了 family = \"serif\"。所以套了这些主题的图，主题文字会嵌入 Nimbus 字体；没写字体族的文字（例如图里的数据标签）则是 Arial。\n列出一张 ggplot 图里各段文字的字体族和字重：\nfont_table &lt;- function(p) {\n  out &lt;- list()\n  walk &lt;- function(x) {\n    gp &lt;- x$gp\n    if (!is.null(gp$fontfamily) || !is.null(gp$fontface))\n      out[[length(out) + 1L]] &lt;&lt;- data.frame(\n        family = if (is.null(gp$fontfamily)) \"&lt;unset&gt;\" else gp$fontfamily[1],\n        face   = if (is.null(gp$fontface)) NA else gp$fontface[1],\n        label  = if (is.null(x$label)) \"\" else substr(paste(head(as.character(x$label), 2), collapse = \" | \"), 1, 40))\n    kids &lt;- if (inherits(x, \"gtable\")) x$grobs else if (inherits(x, \"gTree\")) x$children\n    for (k in kids) walk(k)\n  }\n  walk(ggplot2::ggplotGrob(p))\n  unique(do.call(rbind, out))\n}\n本例中坐标轴文字的 family 是 \"sans\"、face 是 2（粗体），数据标签的 family 为空。\n\n\n修复\n在 ~/.config/fontconfig/fonts.conf 里加两条规则：请求 Helvetica 时优先用 Arial，请求 Times 时优先用 Times New Roman。加上后的完整文件：\n&lt;?xml version=\"1.0\"?&gt;\n&lt;!DOCTYPE fontconfig SYSTEM \"fonts.dtd\"&gt;\n&lt;fontconfig&gt;\n  &lt;dir&gt;/mnt/c/Windows/Fonts&lt;/dir&gt;\n\n  &lt;match target=\"pattern\"&gt;\n    &lt;test qual=\"any\" name=\"family\"&gt;&lt;string&gt;Helvetica&lt;/string&gt;&lt;/test&gt;\n    &lt;edit name=\"family\" mode=\"prepend\" binding=\"strong\"&gt;&lt;string&gt;Arial&lt;/string&gt;&lt;/edit&gt;\n  &lt;/match&gt;\n  &lt;match target=\"pattern\"&gt;\n    &lt;test qual=\"any\" name=\"family\"&gt;&lt;string&gt;Times&lt;/string&gt;&lt;/test&gt;\n    &lt;edit name=\"family\" mode=\"prepend\" binding=\"strong\"&gt;&lt;string&gt;Times New Roman&lt;/string&gt;&lt;/edit&gt;\n  &lt;/match&gt;\n&lt;/fontconfig&gt;\n规则只改字体匹配，不需要重新运行 fc-cache。检查：\nfc-match Helvetica:bold   # arialbd.ttf: \"Arial\" \"Bold\"\nfc-match Times            # times.ttf: \"Times New Roman\" \"Regular\"\n本机核对的结果：\n\n\n\n请求\n加规则前\n加规则后\n\n\n\n\nHelvetica（常规、粗体、斜体）\nNimbus Sans\nArial\n\n\nTimes（常规、粗体）\nNimbus Roman\nTimes New Roman\n\n\nsans、serif、monospace、中文 sans、Arial、Times New Roman\n—\n不变\n\n\nCourier\nNimbus Mono PS\n不变，未加规则\n\n\n\n在 cairo_pdf() 里分别用 \"sans\" 粗体、\"sans\" 常规和 \"serif\" 写字，嵌入的字体依次是 Arial-BoldMT、ArialMT 和 TimesNewRomanPSMT。用 theme_my() 画的图经 save_plt() 保存后，只嵌入 Arial-BoldMT，以及 serif 标题的 TimesNewRomanPS-BoldMT。\n这两条规则对 WSL 里所有程序生效：任何程序请求 Helvetica 或 Times，都会拿到 Arial 或 Times New Roman。有了这两条规则，即使不用修复二，没写字体族的文字（R 把它当作 \"sans\"）也会变成 Arial；修复二仍保留，用于没有配置这些规则的 Linux 机器。改完同样要重启 R 会话，再重新保存图片。",
     "crumbs": [
       "R 问题排查",
       "<span class='chapter-number'>86</span>  <span class='chapter-title'>Illustrator 缺字体：Cairo 与 Arial</span>"
