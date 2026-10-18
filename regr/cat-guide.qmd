@@ -2,13 +2,13 @@
 title: "KM/CIF 组合图：get_cat 与 3 个绘图函数"
 description: "get_cat 的数据、方法和返回对象详解；用 RegR 自带 MTC 队列比较 plt_cat1、plt_cat2、plt_cat3 的 布局和推断的实际图形示例。"
 date: 2026-10-09
-date-modified: 2026-10-15
+date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 directory:
   title: "KM/CIF组合：自适应尺寸、共享网格与PDF"
   topic: 回归与生存分析
-  updated: 2026-10-17
+  updated: 2026-10-19
 ---
 
 先用 `get_cat()` 计算曲线和效应表，再用 `plt_cat1()`、`plt_cat2()` 或 `plt_cat3()` 选择布局。本页参照 [MLR 的 SHAP 页面](../mlr/shap-guide.qmd)：**每个参数选项配可复制代码与实绘图片，在标签页中切换比较，点击图片可放大。**
@@ -714,3 +714,37 @@ p_auto
 本例 PDF 的页面为 882 × 720 pt，约 12.25 × 10 英寸，尺寸取整与返回属性接近。尺寸会随字体、表格标签及组数变化，不宜把本机宽高当成通用常数。当前 `get_cat()` 的复制提示对 `plt_cat1()` 只提供文件名，保留自动尺寸；显式传 `width` / `height` 仍会覆盖它。组合多个结果时沿拼接方向累加尺寸，`sur_h` 共享网格使用对应行数规则。
 
 图的坐标范围、内嵌表留白与统计计算仍分别控制；调整输出宽高只影响排版。原来的历史图和 PDF 写法保留各自执行范围，本节新增图与 PDF 已实际生成。
+
+## 多模型结果：每个模型单独绘图与保存 {#models-20261019}
+
+2026-10-19 按已推送 RegR `f26e137` 在 Windows / WSL R 4.4.3 执行。本节沿用上面完整案例 MTC 队列，分别拟合未调整和仅调整 Age 的模型；调整集合与前面 Age、Race 的历史图不同。
+
+<!-- rnotes-20261019: cat-models -->
+```r
+cat_models <- get_cat(d, cat_var = "Sex", adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE),
+  methods = c("unadj", "direct"), timepoint = 120, time_dif = NULL)
+cat_plots <- plt_cat1(cat_models, display = "sur", max_t = 180,
+  xbreaks = seq(0, 180, 36),
+  sur_arg = list(ylim = list(sur = c(0.3, 1), cif = c(0, 0.4))),
+  save = list(filename = c(
+    sur = file.path(tempdir(), "cat-sur.pdf"),
+    cif = file.path(tempdir(), "cat-cif.pdf"))))
+names(cat_plots)  # "sur" "cif"
+```
+
+::: {.panel-tabset}
+
+### KM {.unnumbered}
+
+![多模型结果中的生存图。](images/cat-guide/20261019-model-sur.png){fig-alt="MTC队列中Female与Male的未调整及Age调整生存曲线，多模型结果sur单独绘图，纵轴范围0.3至1。"}
+
+### CIF {.unnumbered}
+
+![多模型结果中的 CIF 图。](images/cat-guide/20261019-model-cif.png){fig-alt="MTC队列中同一分组的未调整及Age调整甲状腺癌死亡CIF，多模型结果cif单独绘图，纵轴范围0至0.4。"}
+
+:::
+
+`get_cat()` 的多模型返回值带 `surv_models` 类，`plt_cat1()` 返回同名图形 list，并生成两个 PDF。`sur_arg` 中按模型命名的 list 逐模型分发，普通设置共享；文件名可用同名字符向量。
+
+这与多个暴露的普通 `cat_res` list 不同：普通 list 会拼成一张图，多模型 list 每模型一张图。保留原对象的类，不要用 `unclass()` 改变分发方式。每个模型分别筛选完整案例；若两种模型需要的变量缺失情况不同，人数也可能不同。参数混合类型与统计尺度见[多模型约定](forest-guide.qmd#models-20261019)。
