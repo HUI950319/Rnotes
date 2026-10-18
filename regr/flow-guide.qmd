@@ -2,7 +2,7 @@
 title: "队列筛选与流程图：get_flt 与三个绘图入口"
 description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，并补充 plt_flo3 的多队列分组、阶段与 PDF 保存。"
 date: 2026-10-01
-date-modified: 2026-10-13
+date-modified: 2026-10-18
 lightbox: true
 toc-depth: 2
 ---
@@ -735,3 +735,52 @@ RegR::save_plt(p_unicode, filename = pdf_unicode, width = 7, height = 4.5)
 源码：[PDF 保存与设备选择](https://github.com/HUI950319/RegR/blob/857677a/R/plot-save.R)。相关示例见 [RPA 直接保存](rpa-guide.qmd#rpa-time-unit)。
 
 本站只提供上述汇总表、图形和调用代码，不提供患者级数据下载。
+
+## 当前内容框：整行粗体与手动换行 {#bold-20261018}
+
+2026-10-18按已推送RegR `7265b31`，在Windows / WSL R 4.4.3实际绘制。plt_flo与plt_flo3的content_labels可用`**...**`标记整行粗体，一对标记也可跨越多行；普通说明行保持常规字重。它不是通用Markdown，不能把句中任意单词加粗。手动换行用`\n`，函数按各行字重测量内容框。
+
+```r
+d_flow <- data.frame(Age = 20:119, Tx = factor(rep(c("No", "Yes"), 50)),
+  Marker = c(NA, seq_len(99)))
+selected_flow <- d_flow |> get_flt(Age >= 30) |> get_flt(!is.na(Marker))
+contents_current <- c("**Survival analysis**\n(curves and models)",
+  "**Model\nchecking**\n(calibration)")
+p_flow <- plt_flo(selected_flow, inclu_row = 0,
+  cohort = list(label = "Simulated records"), split_var = "Tx",
+  content_labels = contents_current, exc_args = list(bold_summary = FALSE),
+  name_map = c(Age = "Age < 30 years", Marker = "Missing marker"))
+p_flow
+```
+
+![单队列中将内容标题加粗、说明保留常规字重。](images/flow-guide/20261018-flow-bold.png){fig-alt="100条模拟记录排除10条小于30岁的记录，90条分成No和Yes各45条，底部两个内容框展示整行粗体和跨行粗体。"}
+
+筛选条件表示保留谁，`name_map`写排除原因，必须与条件相符。Marker缺失所在行已在第一步排除，本例第二步新增排除数为0；不能把每步移除数重复相加。
+
+```r
+cohorts_current <- list(
+  list(label = "Development", N = 120, exclude = c("Missing" = 20),
+    split = c("Low" = 60, "High" = 40)),
+  list(label = "Validation", N = 80, exclude = c("Missing" = 10),
+    split = c("Low" = 40, "High" = 30)))
+p_flow3 <- plt_flo3(cohorts_current, content_labels = contents_current)
+p_flow3
+# 按各图返回的flo_size保存；不要用更小设备挤压内容。
+attr(p_flow, "flo_size")
+attr(p_flow3, "flo_size")
+```
+
+![多队列共用底部研究内容框。](images/flow-guide/20261018-flow3-bold.png){fig-alt="模拟开发和验证队列分别纳入100和70条记录，再分Low与High；下方共用带整行粗体的研究内容框。"}
+
+### 因子水平晚出现也要保留 {#factor-20261018}
+
+get_flt先检查每个因子前10,000行是否包含全部水平；没出现齐时会回查完整结果，再只清理真正空的水平。这里实际验证late仅在第20,001行出现仍被保留，unused被移除：
+
+```r
+late <- data.frame(flag = factor(c(rep("common", 20000), "late"),
+  levels = c("common", "late", "unused")))
+kept <- get_flt(late, flag != "unused")
+stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "late")))
+```
+
+这是水平清理的计算路径调整，不是只分析前10,000行，也不会恢复已被条件排除的记录。本轮未进行新计时。[筛选源码](https://github.com/HUI950319/RegR/blob/7265b31/R/flt-get.R) · [单队列流程源码](https://github.com/HUI950319/RegR/blob/7265b31/R/flo-plt.R)
