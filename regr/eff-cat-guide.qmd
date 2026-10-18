@@ -2,13 +2,13 @@
 title: "同一暴露的效应比较：调整模型、结局与分层"
 description: "get_eff_cat 的多调整模型、多结局、60 月绝对效应、sub_var/split_var、dat_adj_ps 独立队列场景及联合暴露；plt_eff 实际参数对照。"
 date: 2026-10-09
-date-modified: 2026-10-15
+date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 directory:
   title: "同一暴露的效应比较：累计调整、单森林与多结局"
   topic: 回归与生存分析
-  updated: 2026-10-15
+  updated: 2026-10-19
 ---
 
 
@@ -325,7 +325,7 @@ as.data.frame(absolute[["sur_models"]])[, intersect(c("model_label", "level", "r
 ## 分面与按行分层
 
 
-sub_var 返回各层独立面板；split_var 将层绑定为同一张表的前导列。两者不能同时用。add_overall=TRUE 增加同一完整案例队列的总体结果；总体调整变量仍按原指定，层内会去掉常数分层变量。分层效应差异不是正式交互检验。
+`sub_var` 返回各层独立面板；`split_var` 将层绑定为同一张表的前导列。两者可以同时使用：先按 `sub_var` 分面板，再在每个面板内按 `split_var` 绑定行。`add_overall=TRUE` 同时增加总体面板及面板内的 Overall 行块；某面板缺少的分层水平保留空白块，`status="not_estimable"`，便于面板对齐。总体调整变量仍按原指定，层内会去掉常数分层变量。分层效应差异不是正式交互检验。当前组合用法见下方[独立分层与面板内分层](#strata-20261019)。
 
 ::: {.panel-tabset}
 
@@ -360,6 +360,57 @@ plt_eff(by_rows, show_pinter = "none",
 
 :::
 
+
+## 独立分层与面板内分层 {#strata-20261019}
+
+2026-10-19 按已推送 RegR `f26e137`，在 Windows / WSL R 4.4.3 执行本节。继续使用上面的同一份 MTC 演示样本；未改变结局、参考组或随访单位。
+
+<!-- rnotes-20261019: eff-strata -->
+```r
+both_strata <- run_quiet(get_eff_cat(d, cat_var = "Sex",
+  sub_var = "stage", split_var = "surgery", adj_var = c("Age", "Tum"),
+  add_overall = TRUE))
+
+d_split <- d
+d_split[["age55"]] <- factor(ifelse(d_split[["Age"]] < 55, "<55", ">=55"))
+independent <- run_quiet(get_eff_cat(d_split, cat_var = "Sex",
+  split_var = list("stage", "age55"), adj_var = c("Age", "Tum")))
+joint <- run_quiet(get_eff_cat(d_split, cat_var = "Sex",
+  split_var = c("stage", "age55"), adj_var = c("Age", "Tum")))
+```
+
+::: {.panel-tabset}
+
+### 面板内再分层 {.unnumbered}
+
+`stage` 决定 Overall、Early、Other 三个面板；每个面板内按手术分组，保留该面板的 Overall 行块。
+
+```r
+plt_eff(both_strata, fixed_size = FALSE, base_size = 10,
+  forest_nchar = 35, xlim = c(0.3, 70), ticks_at = c(1, 10, 30, 60))
+```
+
+![面板内按手术分层。](images/eff-cat-guide/20261019-combined-strata.png){fig-alt="同一MTC样本中，Overall和两种分期分别成面板，各面板内再展示总体及手术分层的未调整与调整Cox效应。"}
+
+### 每个变量独立分层 {.unnumbered}
+
+```r
+names(independent[[1]])
+plt_eff(independent, fixed_size = FALSE, base_size = 10, forest_nchar = 35)
+```
+
+![分期与年龄分别分层，依序堆叠。](images/eff-cat-guide/20261019-independent-strata.png){fig-alt="单张森林表依次展示stage的Early与Other、age55的两个年龄层；前导列为split_var和split_level。"}
+
+:::
+
+| 写法 | 模型所用的数据层 | 返回表的前导列 |
+|:--|:--|:--|
+| `split_var=list("stage","age55")` | 先分别分析分期各层，再分别分析年龄各层 | `split_var`、`split_level` |
+| `split_var=c("stage","age55")` | 分期与年龄的交叉组合 | `stage`、`age55` |
+
+独立分层每次只剔除当前分层列的缺失值，并从模型中移除当前列；另一列若在调整项中仍会保留。不能将 `sub_var` 中的同一列再放进独立分层 list。两种写法的分析人群和调整集合可能不同，不能当作同一结果的两种排版。`dat_adj_ps` 的场景限制仍按其专节执行。
+
+图中增加 `forest_nchar` 为估计与区间留出列宽，原结果表保留完整数值。
 
 ## 联合暴露与倾向评分设计
 
