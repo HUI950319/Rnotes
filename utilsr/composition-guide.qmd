@@ -2,13 +2,13 @@
 title: "图形组合与导出：展平、grob、插图和栅格化"
 description: "嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较；实际参数对照与递归栅格化示例。"
 date: 2026-10-09
-date-modified: 2026-10-18
+date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 directory:
   title: "图形组合：共享轴标题默认值与展平"
   topic: 绘图与格式化
-  updated: 2026-10-18
+  updated: 2026-10-19
 ---
 
 嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -55,7 +55,7 @@ dense <- ggplot(dat, aes(x, y, color = group)) + geom_point(size = 0.8, alpha = 
 
 | 目标 | 重要参数 | 作用与适用条件 |
 |:--|:--|:--|
-| 展平嵌套 | `flatten_patchwork(plots,...)` | 递归取普通网格单元；保留最外层标题、tag 和收集设置，网格设计与相对尺寸通过 ... 重建 |
+| 展平嵌套 | `fmt_flatten(plots,...)` | 递归取普通网格单元；保留最外层标题、tag 和收集设置，网格设计与相对尺寸通过 ... 重建 |
 | 选择和重排 | `select_inds=NULL/nrow_inds_order=NULL` | 先展平，再选索引；nrow_inds_order=2 对四图得到 1,3,2,4 |
 | 重新排版 | ... 中 `nrow/ncol/widths/heights/guides` | 直接交给 wrap_plots；支持嵌套 list，单单元条目名可匹配字符 design |
 | grob 转换 | `grob_as(plot,...)` | ggplot→gtable、gList→grobTree、现有 gtable 保持；patchwork 完整转换用 patchworkGrob |
@@ -394,7 +394,7 @@ fmt_raster(dense, method = "ggrastr", dpi = 300)
 
 ### 列表与原布局 {.unnumbered}
 
-ggrastr 后端返回与输入一致的 list；再显式 wrap_plots。本例列表支持不应类推到 ragg。
+普通 list 在三个后端中均可递归处理并保留名称；本例再显式 wrap_plots。
 
 ```r
 plots <- fmt_raster(list(p1, dense), method = "ggrastr", dpi = 150)
@@ -502,7 +502,7 @@ data.frame(output = c("Vector points", paste("Raster points:", dpis, "dpi")),
 
 ### 当前 ggrastr 层匹配接口 {.unnumbered}
 
-UtilsR 的 ggrastr 后端未传 layers，自身没有该参数；本表按当前依赖方法签名核对默认匹配范围。
+UtilsR 先筛选点与 tile 层，再交给 ggrastr；自身没有 layers 参数。下方仅展示依赖的方法签名，不代表 UtilsR 的默认匹配范围。
 
 ```r
 print(args(utils::getFromNamespace("rasterise.ggplot", "ggrastr")))
@@ -516,7 +516,7 @@ NULL
 
 ### 展平输入与栅格化输入 {.unnumbered}
 
-`flatten_patchwork()` 的入口仍要求组合图；普通 list 可先用 `wrap_plots()` 组合。`fmt_raster()` 的三种后端则直接支持 list，示例见下方“递归输入”一节。此前 ragg 的 list 报错属于旧实现，不再代表当前行为。
+`fmt_flatten()`（旧名 `flatten_patchwork()`）直接接受 ggplot、patchwork 与普通嵌套 list，无需先组合。`fmt_raster()` 的三种后端则直接支持 list，示例见下方“递归输入”一节。此前 ragg 的 list 报错属于旧实现，不再代表当前行为。
 
 :::
 
@@ -603,7 +603,7 @@ flatten_patchwork 返回 patchwork；grob_as 返回 grob/gtable；grob_add 与 g
 
 当前 grob_as(patchwork) 复用 ggplotGrob，实测会遗漏组合子图；先用 patchwork::patchworkGrob 完整转换，再交给 UtilsR 的 grob 工具或 ragg 后端。grob_add 的对齐位置取面板布局行列的均值，多面板时不能保证对每个面板分别对齐，本页边缘组件只用单面板。
 
-ggrastr 后端继承当前依赖的默认 layers 匹配，未向所有 geom 无差别栅格化；可查看本页实际方法签名。ragg 后端以面板子 grob 名称、class、viewport 等启发式保留文字，并非任意注释都保证矢量。两者都应在最终 PDF 的所需放大倍率检查可读性。
+ggrastr 后端由 UtilsR 显式选择点与 tile 层，其他层保持原路径；当前示例见[选择性栅格化](#current-20261019)。ragg 后端以面板子 grob 名称、class、viewport 等启发式保留文字，并非任意注释都保证矢量。两者都应在最终 PDF 的所需放大倍率检查可读性。
 
 本页 PNG 只用于显示结果，真实临时 PDF 用于核对生成、尺寸和字节。默认调用不保存；实际保存均写入 tempdir，没有在用户工作目录留下临时文件。只改变组合和绘制过程，未新增模型或改变统计估计。
 
@@ -741,3 +741,50 @@ image_raster
 需要后续调整数据或统计层时，保留原ggplot并先完成这些修改，再执行立即捕获的ragg/image。需要矢量文字时选择面板ragg路径，不能把image中的文字当作可编辑矢量。
 
 [本轮栅格化源码](https://github.com/HUI950319/UtilsR/blob/545bf4b/R/fmt_raster.R)
+
+## 当前展平名称与选择性栅格化 {#current-20261019}
+
+2026-10-19 使用已推送 UtilsR `0bb52b5` 在 Windows / WSL R 4.4.3 执行。`fmt_flatten()` 是首选名称，`flatten_patchwork()` 保留为同一函数的别名，无弃用警告；前面的历史代码和图片仍可复现。
+
+<!-- rnotes-20261019: composition -->
+```r
+flat_current <- fmt_flatten(list(B = p2, list(A = p1, C = p3)),
+  design = "AAB\nAAC")
+mixed_current <- ggplot(dat, aes(x, y)) +
+  geom_point(size = 0.8, alpha = 0.35, color = "#2166AC") +
+  geom_smooth(method = "lm", se = FALSE, color = "#B2182B") +
+  annotate("text", x = -2, y = 2.5, label = "Vector annotation") +
+  theme_minimal(base_size = 12)
+raster_current <- fmt_raster(mixed_current, method = "ggrastr", dpi = 180)
+ggsave(file.path(tempdir(), "mixed-raster.pdf"), raster_current,
+  width = 6, height = 4, device = grDevices::cairo_pdf)
+
+# image 也接受 grob 等可直接绘制的对象，不限于 ggplot。
+grob_current <- grid::grobTree(
+  grid::rectGrob(gp = grid::gpar(fill = "#E7EFF6", col = "#2166AC")),
+  grid::textGrob("A grid grob", gp = grid::gpar(fontsize = 18)))
+grob_image <- fmt_raster(grob_current, method = "image",
+  width = 4, height = 2, dpi = 150, bg = "white")
+```
+
+::: {.panel-tabset}
+
+### 命名的嵌套 list {.unnumbered}
+
+![按 A/B/C 名称放置三个数据图。](images/composition-guide/20261019-flatten-list.png){fig-alt="fmt_flatten直接接收普通嵌套list，字符design将A散点图跨两行放在左侧，B箱线图与C直方图置于右侧。"}
+
+### 点栅格、线与文字矢量 {.unnumbered}
+
+![混合层图的实际预览。](images/composition-guide/20261019-selective-raster.png){fig-alt="3000个散点与一条拟合直线及Vector annotation文字；PDF仅栅格化散点，线和文字保留原绘制路径。"}
+
+[下载混合矢量 PDF](images/composition-guide/20261019-selective-raster.pdf)
+
+### 整张 grob 转图片 {.unnumbered}
+
+![image 后端处理 grid grob。](images/composition-guide/20261019-grob-image.png){fig-alt="grid grob的浅蓝背景、蓝色边框与A grid grob文字，经image模式转成整张位图。"}
+
+:::
+
+ggrastr 后端由 UtilsR 选择 `GeomPoint` / `GeomTile` 层，线、柱、多边形与文字保持原绘制路径；不能从 ggrastr 依赖的默认 `layers` 推断范围。`image` 模式可用于 grob、recordedplot 及能通过 `print()` 绘制的对象，整图包括文字都会变成位图。带自身 class 的 list 对象按整体图形处理，普通无 class 的 list 才递归处理。
+
+展平时显式重设 `axes` 而未设置 `axis_titles`，会清除继承的轴标题收集设置；需要收集标题时显式给出 `axis_titles="collect"`。原命名 list、插图归属及 source plot 应保留，本节实际构建并导出以上结果。
