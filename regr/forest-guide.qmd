@@ -2,13 +2,13 @@
 title: "效应估计与森林图：get_eff 和 4 个绘图函数"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的参数示例，并补充 set_eff 的数值与区间对照。"
 date: 2026-10-09
-date-modified: 2026-10-18
+date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 directory:
   title: "效应估计与森林图：当前标签与模型表头"
   topic: 回归与生存分析
-  updated: 2026-10-18
+  updated: 2026-10-19
 ---
 
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
@@ -93,9 +93,48 @@ plt_eff2(eff_labels, which = 1L,
 这些图展示观察性队列的模型结果和接口行为，不能仅凭 HR、P 值或某一亚组的星号认定 CND 的因果效果。亚组间差异应检查交互检验，不能用“一组显著、另一组不显著”代替交互检验。图中的通用 `Low risk / High risk` 箭头是绘图模板标签；读概率差时，应以上表的组别方向和正负值为准。
 :::
 
+## 多模型返回结构与逐模型绘图 {#models-20261019}
+
+2026-10-19 按已推送 RegR `f26e137` 在 Windows / WSL R 4.4.3 执行。下面只计算未调整的比值效应，继续使用本页 598 人队列；HR、sHR、OR 是不同估计量。
+
+<!-- rnotes-20261019: eff-models -->
+```r
+eff_models <- run_quiet(get_eff(d, cat_var = "N_4",
+  surv = list(sur = TRUE, cif = FALSE, log = "DSS"),
+  methods = "unadj", show_surdiff = FALSE, all = NULL))
+names(eff_models)  # "sur" "cif" "log"
+names(eff_models[["sur"]])
+p_eff_sur <- plt_eff(eff_models[["sur"]], fixed_size = FALSE,
+  title = "Cox: CND versus No CND")
+p_eff_cif <- plt_eff(eff_models[["cif"]], fixed_size = FALSE,
+  title = "Fine-Gray: CND versus No CND")
+```
+
+::: {.panel-tabset}
+
+### Cox {.unnumbered}
+
+![Cox 分析的完整结果单独绘制。](images/forest-guide/20261019-multi-model-sur.png){fig-alt="get_eff多模型结果的sur元素绘制CND相对No CND的未调整Cox危险比。"}
+
+### Fine–Gray {.unnumbered}
+
+![Fine–Gray 分析的完整结果单独绘制。](images/forest-guide/20261019-multi-model-cif.png){fig-alt="同一次多模型调用的cif元素绘制目标死亡的亚分布危险比，与Cox模型分别展示。"}
+
+:::
+
+| 入口 | 多模型返回结构 | 后续处理 |
+|:--|:--|:--|
+| `get_eff()` | 普通命名 list，每个元素是完整 `eff_res` | `plt_eff(eff_models[["sur"]])` |
+| `get_eff_cat()` | 一个 `eff_res`，内部按结局组织 `haz_*` 模型比较表 | 直接交给 `plt_eff()`，见[效应比较](eff-cat-guide.qmd) |
+| `get_facet/get_cat/get_inter()` | `surv_models`，每个元素是对应模型的完整结果 | 使用各入口的多模型重绘或导出接口 |
+
+示例显式命名模型，后续索引不依赖自动命名规则。各模型分别筛选自身所需变量的完整案例；不能默认人数相同。逻辑值与结局列混用时写 `list(TRUE,FALSE,"DSS")`；`c(TRUE,FALSE,"DSS")` 会把逻辑值转成字符串并报错。仅逻辑值的 `c(TRUE,FALSE)` 可用。Logistic 的 OR 不处理删失，不与 HR 或 sHR 合并为同一统计目标。
+
 ## get_eff()：从分析设置到结果表 {#get-eff}
 
 `get_eff()` 负责模型拟合、概率估计、亚组与分层组织，返回带有绘图元数据的结果表。森林图函数读取这些表中的数值，调整布局和文字。
+
+多模型 `surv` 会返回“每模型一份完整结果”的外层 list，绘图时先取其中一个元素；它与 `get_eff_cat()` 的“每结局一张模型比较表”不同，见[多模型返回结构](#models-20261019)。`split_var=list(...)` 表示逐变量独立分层，字符向量表示交叉分层，见[分层对照](eff-cat-guide.qmd#strata-20261019)。
 
 ### 当前接口
 
