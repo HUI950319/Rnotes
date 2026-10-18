@@ -6092,6 +6092,66 @@
     ]
   },
   {
+    "objectID": "regr/facet-guide.html#current-strata",
+    "href": "regr/facet-guide.html#current-strata",
+    "title": "分面生存曲线：get_facet 与分层重拟合",
+    "section": "层内调整项、奇异拟合与差值区间",
+    "text": "层内调整项、奇异拟合与差值区间\n本节按 RegR 0.1.3 源码 7b71032 实际核对（恒定变量处理始于 40515e1）；这些修复现已推送到GitHub 仓库。复现仍需安装含这些提交的版本。get_facet() 现在会检查每个分析层的调整变量：若某变量只在该层恒定，函数只从该层模型中剔除它并给出含层名的提示，其他层仍保留该变量。曲线和层内表使用同一套实际调整项；不能把所有层描述成完全相同的调整模型。\n# 人为设置示例边界：仅 Female 层中的 Race 恒定。\nd_constant &lt;- d\ni &lt;- d_constant[[\"Sex\"]] == \"Female\"\nd_constant[[\"Race\"]][i] &lt;- levels(d_constant[[\"Race\"]])[1]\nconstant_fit &lt;- get_facet(\n  d_constant, split_var = \"Sex\", cat_var = \"N_4\",\n  adj_var = adj, method = \"direct\", surv = TRUE,\n  timepoint = 60, parallel = 1L, subgroup_model = \"separate\"\n)\n# 检查提示和返回对象；本例更改仅用于验证恒定变量边界。\n\n奇异模型：只在失败层重新拟合\n直接模型出现相关奇异错误后，函数只在该层依次尝试：去掉空因子水平；删除与暴露或较早调整项共线的变量；删除含零目标事件水平的因子；若仍失败，再按最少事件数逐个删减调整变量。每一步只有前一步失败才执行；全模型正常拟合的层保持原设置。其他类型错误保留原有方法回退，不能把所有失败都解释成已成功修复。\n下面人为构造一个边界：Female 层的 Cov2 完全复制 Cov1，且 Site 保留空水平 C；Male 层中两个变量不同。本例用于验证接口，新增变量不代表临床协变量。默认 show_surdiff = TRUE 保留概率与区间计算：能画出点估计不等于区间路径也能拟合。\n\nd_sparse &lt;- d\nd_sparse[[\"Cov1\"]] &lt;- factor(ifelse(seq_len(nrow(d_sparse)) %% 3L == 0L, \"Yes\", \"No\"))\nd_sparse[[\"Cov2\"]] &lt;- d_sparse[[\"Cov1\"]]\nmale &lt;- d_sparse[[\"Sex\"]] == \"Male\"\nflip &lt;- which(male)[seq(1L, sum(male), 4L)]\nd_sparse[[\"Cov2\"]][flip] &lt;- ifelse(d_sparse[[\"Cov2\"]][flip] == \"Yes\", \"No\", \"Yes\")\nd_sparse[[\"Site\"]] &lt;- factor(ifelse(male & seq_len(nrow(d_sparse)) %% 5L == 0L,\n  \"C\", ifelse(seq_len(nrow(d_sparse)) %% 2L == 0L, \"A\", \"B\")), levels = c(\"A\", \"B\", \"C\"))\n\nnotices &lt;- character()\nf_sparse &lt;- withCallingHandlers(\n  get_facet(d_sparse, split_var = \"Sex\", cat_var = \"N_4\",\n    adj_var = c(\"Age\", \"Cov1\", \"Cov2\", \"Site\"), method = \"both\", surv = TRUE,\n    timepoint = 60, max_t = 120, parallel = 1L, subgroup_model = \"separate\",\n    table_params = list(tb.vars = c(\"eve1\", \"HR\"), show_SP.time = FALSE)),\n  message = function(m) {\n    notices &lt;&lt;- c(notices, conditionMessage(m))\n    invokeRestart(\"muffleMessage\")\n  }\n)\nnotices[grepl(\"adjustment model was singular\", notices)]\nf_sparse[[\"plt\"]]\n本次实际提示为 Stratum \"Female\": adjustment model was singular; refitted without Cov2.；Female 的调整曲线与显式去掉 Cov2、空水平后的模型一致，Male 保留全部调整变量。串行与 parallel = 2L 的结果一致，两 worker 的提示也在主会话读到。\n\n\n\nFemale 层去掉共线的 Cov2 后重拟合；Male 层保留原调整项。上行为未调整曲线，下行为直接调整曲线。\n\n\n提示与报告： 提示在合并 worker 结果前由主会话统一输出，源码覆盖 Windows PSOCK 的通知路径；本页实际并行验证在 WSL 完成。用 run_quiet() 或全局抑制消息会隐藏这些提示。应记录层名与实际删减项，并确认 .final_method；各层不能被描述成相同调整集合。删减变量是计算上的兼容处理，不保证调整集合在研究设计上充分。\nget_facet_diff() 的直接 Cox / CSC 概率差使用联合区间；正常多时点路径和兼容回退均保留组间协方差，不能退回“假定两组独立”的区间。下方直接 Cox、CSC 及直接差值示例已于本次重新生成；其他布局图保留原执行记录。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "效应估计与生存曲线",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
+    ]
+  },
+  {
+    "objectID": "regr/facet-guide.html#axis-labels",
+    "href": "regr/facet-guide.html#axis-labels",
+    "title": "分面生存曲线：get_facet 与分层重拟合",
+    "section": "轴标题与缓存重绘",
+    "text": "轴标题与缓存重绘\nplot_params$xlab / ylab 自已推送提交 e7e8b10 起控制 KM、生存标准化和 CIF 曲线的轴标题。NULL 保留原默认值；\"\" 隐藏；自定义文本原样显示。设置 ylab 后不会自动追加 (95% CI)，需要该信息时自行写入。修改标签不会换算 time，也不会把 0–1 概率乘以 100。\n下面先计算一次未调整 KM，再从 facet_res 重绘两个版本。本次已核对缓存重绘前后的 sur.data 完全一致。\n\nf_axis &lt;- get_facet(d, split_var = \"Sex\", cat_var = \"N_4\", adj_var = adj,\n  surv = TRUE, method = \"unadj\", timepoint = 60, max_t = 120, parallel = 1,\n  plot_params = plot_base, table_params = table_base)\n\n自定义标题隐藏标题\n\n\nf_axis_named &lt;- get_facet(f_axis,\n  plot_params = modifyList(plot_base, list(xlab = \"Months from diagnosis\",\n    ylab = \"Survival probability (95% CI)\")), table_params = table_base)\nf_axis_named[[\"plt\"]]\n\n\n\n缓存重绘使用自定义横纵轴标题，原曲线和 HR 表保持一致。\n\n\n\n\nf_axis_blank &lt;- get_facet(f_axis,\n  plot_params = modifyList(plot_base, list(xlab = \"\", ylab = \"\")),\n  table_params = table_base)\nf_axis_blank[[\"plt\"]]\n\n\n\n空字符串隐藏两侧轴标题，刻度、曲线、区间与内嵌表保留。\n\n\n\n\n\n\n同样设置也适用于 CIF；应把纵轴写为累积发生概率，并保留正确的事件编码。只改绘图 list 可重用结果，改模型、输入时间单位或数据则需要重新拟合。plot_params 现在拒绝未知、重复或未命名字段，拼写错误会显式报错。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "效应估计与生存曲线",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
+    ]
+  },
+  {
+    "objectID": "regr/facet-guide.html#current-defaults",
+    "href": "regr/facet-guide.html#current-defaults",
+    "title": "分面生存曲线：get_facet 与分层重拟合",
+    "section": "当前默认值与分层列名",
+    "text": "当前默认值与分层列名\n接口中现已列出完整的15项 plot_params 和12项 table_params 默认值。部分 list 只覆盖指定字段；list() / NULL 沿用默认。没有指定表格颜色时随曲线颜色同步，model 默认由 surv 推导。save 仍位于两个显示 list 前，末尾参数请按完整名称传入。\n本机开发修复保留名为 group 的分层列，内部 group 表示暴露曲线，分层值保存为避免碰撞的 strata* 字段。下面同一数据只改分层列名；两种写法的曲线数值一致，不能把层标签读为暴露组别。\n\n原始Sex分层分层列命名为group\n\n\nf_group_baseline &lt;- get_facet(d, split_var = \"Sex\", cat_var = \"N_4\",\n  method = \"unadj\", subgroup_model = \"separate\", timepoint = 60,\n  max_t = 120, parallel = 1L, plot_params = plot_base, table_params = table_base)\nf_group_baseline[[\"plt\"]]\n\n\n\n使用Sex列分层，两个面板各保留No CND与CND曲线。\n\n\n\n\nd_group &lt;- d\nd_group[[\"group\"]] &lt;- d_group[[\"Sex\"]]\nf_group_named &lt;- get_facet(d_group, split_var = \"group\", cat_var = \"N_4\",\n  method = \"unadj\", subgroup_model = \"separate\", timepoint = 60,\n  max_t = 120, parallel = 1L, plot_params = plot_base, table_params = table_base)\nf_group_named[[\"plt\"]]\n\n\n\n分层列命名为group仍保留暴露曲线，层标签不会覆盖No CND与CND。\n\n\n\n\n\n旧缓存若已覆盖暴露曲线，必须从原始数据重算。Greenwood标准误修复同样需要重新拟合历史 facet_res / facet_diff_res，影响未调整与PSM生存差值区间及P值，不能靠缓存重绘修复。只调整图形样式时，仍可复用本次生成的正确对象。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "效应估计与生存曲线",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
+    ]
+  },
+  {
+    "objectID": "regr/facet-guide.html#current-20261018",
+    "href": "regr/facet-guide.html#current-20261018",
+    "title": "分面生存曲线：get_facet 与分层重拟合",
+    "section": "当前标签、默认布局与整页结果",
+    "text": "当前标签、默认布局与整页结果\n2026-10-18 按RegR 7265b31 在Windows / WSL R 4.4.3实际运行。get_facet()的flip默认已改为TRUE，省略或设为NULL也取TRUE。第一项split_var放在行，methods与其他分层放在列；显式FALSE保留原来的方向。\n本页旧示例的plot_base显式设置了FALSE，所以继续保留其旧布局对照。上面的Usage已同步新默认值；此前实图仍为各节原快照，不把转置当成重新拟合。\n\n当前默认TRUE与新标签显式FALSE与缓存复用\n\n\nd_current &lt;- as.data.frame(ToyData::toy_ptc_m1_cnd)\nd_current[[\"N_4\"]] &lt;- stats::relevel(d_current[[\"N_4\"]], ref = \"No CND\")\nstrip_current &lt;- c(\"Female\" = \"Women\", \"Male\" = \"Men\", \"&lt;55\" = \"Age &lt;55\", \"≥55\" = \"Age &gt;=55\",\n  \"Unadjusted survival curves\" = \"KM\", \"Adjusted survival curves\" = \"Adjusted\")\nfacet_current &lt;- get_facet(d_current, split_var = c(\"Sex\", \"age_55\"), cat_var = \"N_4\",\n  adj_var = \"Age\", surv = TRUE, method = c(\"unadj\", \"direct\"),\n  timepoint = 60, max_t = 120, parallel = 1,\n  plot_params = list(conf_int = FALSE, base_size = 10, strip_map = strip_current),\n  table_params = list(insert_table = FALSE))\n\n\n\n当前默认为Sex两行，方法与年龄四列。\n\n\n\n\nfacet_previous_layout &lt;- get_facet(facet_current,\n  plot_params = list(flip = FALSE, conf_int = FALSE, base_size = 10, strip_map = strip_current),\n  table_params = list(insert_table = FALSE))\n\n\n\n同一曲线数据转成四行两列。\n\n\n\n\n\n两次调用的sur.data逐项一致，第二次仅重新排版。新标签的映射键必须写&lt;55和≥55，旧键Below 55和Above 55不会匹配当前数据。年龄分组人数仍为148 / 450人；age_cut3/4/5的边界变化另见 数据说明。\n\n返回字段与HTML另存\nget_facet()现在返回sur.data / insert.data / plt / view；attr(res$plt,\"plot_size\")是整个分面页的英寸尺寸，不是单个面板尺寸。get_facet_diff()另保留diff.data / forest.data / plt / cat.obj / view；只拟合不绘图的模式中view=NULL。缺少htmltools或页面构建失败时，view也可为NULL，应先检查再使用。\nnames(facet_current)\nattr(facet_current[[\"plt\"]], \"plot_size\")\nfacet_current[[\"view\"]]\nfmt_page(facet_current[[\"view\"]], save = list(filename = \"facet-results.html\"))\n打开或下载本节实际HTML结果页。页面中的曲线图为PNG预览；原plt仍用于矢量导出。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "效应估计与生存曲线",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
+    ]
+  },
+  {
+    "objectID": "regr/facet-guide.html#models-20261019",
+    "href": "regr/facet-guide.html#models-20261019",
+    "title": "分面生存曲线：get_facet 与分层重拟合",
+    "section": "一次运行多个模型与缓存重绘",
+    "text": "一次运行多个模型与缓存重绘\n2026-10-19 使用已推送 RegR f26e137 在 Windows / WSL R 4.4.3 执行。继续使用本页 598 人队列；下面比较未调整的 KM 与目标事件 CIF，不把两者解释为互补概率。\n\nfacet_models &lt;- get_facet(d, split_var = \"Sex\", cat_var = \"N_4\",\n  adj_var = \"Age\", surv = list(sur = TRUE, cif = FALSE), method = \"unadj\",\n  timepoint = 60, max_t = 120, parallel = 1,\n  plot_params = list(conf_int = FALSE, base_size = 10),\n  table_params = list(insert_table = FALSE))\nnames(facet_models)  # \"sur\" \"cif\"\n\n# 传回结果只重绘；每个模型可使用不同的纵轴与文件名。\nfacet_redraw &lt;- get_facet(facet_models,\n  plot_params = list(conf_int = FALSE, base_size = 10,\n    ylim = list(sur = c(0, 1), cif = c(0, 0.8))),\n  table_params = list(insert_table = FALSE),\n  save = list(filename = c(\n    sur = file.path(tempdir(), \"facet-sur.pdf\"),\n    cif = file.path(tempdir(), \"facet-cif.pdf\"))))\n\nKMCIF\n\n\n\n\n\n男性、女性面板内的 KM 曲线。\n\n\n\n\n\n\n\n相同分组下的目标死亡 CIF。\n\n\n\n\n\n返回对象是 surv_models，每个元素为完整 facet_res；图分别在 facet_redraw[[\"sur\"]][[\"plt\"]] 与 facet_redraw[[\"cif\"]][[\"plt\"]]。按模型命名的 list 字段只作用于对应模型，普通设置则共享；文件名用同名字符向量。打印、重绘和保存均逐模型执行，不会把 KM 与 CIF 叠成一张图。本节核对重绘前后的 sur.data 一致，且两个 PDF 均实际生成。\n修改数据、模型或方法时应从原始数据重新拟合；缓存只用于显示设置。多模型 surv 的混合类型写法见返回结构对照。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "效应估计与生存曲线",
+      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
+    ]
+  },
+  {
     "objectID": "regr/eff-cat-guide.html",
     "href": "regr/eff-cat-guide.html",
     "title": "同一暴露的效应比较：调整模型、结局与分层",
@@ -9368,18 +9428,6 @@
     ]
   },
   {
-    "objectID": "regr/facet-guide.html#current-strata",
-    "href": "regr/facet-guide.html#current-strata",
-    "title": "分面生存曲线：get_facet 与分层重拟合",
-    "section": "层内调整项、奇异拟合与差值区间",
-    "text": "层内调整项、奇异拟合与差值区间\n本节按 RegR 0.1.3 源码 7b71032 实际核对（恒定变量处理始于 40515e1）；这些修复现已推送到GitHub 仓库。复现仍需安装含这些提交的版本。get_facet() 现在会检查每个分析层的调整变量：若某变量只在该层恒定，函数只从该层模型中剔除它并给出含层名的提示，其他层仍保留该变量。曲线和层内表使用同一套实际调整项；不能把所有层描述成完全相同的调整模型。\n# 人为设置示例边界：仅 Female 层中的 Race 恒定。\nd_constant &lt;- d\ni &lt;- d_constant[[\"Sex\"]] == \"Female\"\nd_constant[[\"Race\"]][i] &lt;- levels(d_constant[[\"Race\"]])[1]\nconstant_fit &lt;- get_facet(\n  d_constant, split_var = \"Sex\", cat_var = \"N_4\",\n  adj_var = adj, method = \"direct\", surv = TRUE,\n  timepoint = 60, parallel = 1L, subgroup_model = \"separate\"\n)\n# 检查提示和返回对象；本例更改仅用于验证恒定变量边界。\n\n奇异模型：只在失败层重新拟合\n直接模型出现相关奇异错误后，函数只在该层依次尝试：去掉空因子水平；删除与暴露或较早调整项共线的变量；删除含零目标事件水平的因子；若仍失败，再按最少事件数逐个删减调整变量。每一步只有前一步失败才执行；全模型正常拟合的层保持原设置。其他类型错误保留原有方法回退，不能把所有失败都解释成已成功修复。\n下面人为构造一个边界：Female 层的 Cov2 完全复制 Cov1，且 Site 保留空水平 C；Male 层中两个变量不同。本例用于验证接口，新增变量不代表临床协变量。默认 show_surdiff = TRUE 保留概率与区间计算：能画出点估计不等于区间路径也能拟合。\n\nd_sparse &lt;- d\nd_sparse[[\"Cov1\"]] &lt;- factor(ifelse(seq_len(nrow(d_sparse)) %% 3L == 0L, \"Yes\", \"No\"))\nd_sparse[[\"Cov2\"]] &lt;- d_sparse[[\"Cov1\"]]\nmale &lt;- d_sparse[[\"Sex\"]] == \"Male\"\nflip &lt;- which(male)[seq(1L, sum(male), 4L)]\nd_sparse[[\"Cov2\"]][flip] &lt;- ifelse(d_sparse[[\"Cov2\"]][flip] == \"Yes\", \"No\", \"Yes\")\nd_sparse[[\"Site\"]] &lt;- factor(ifelse(male & seq_len(nrow(d_sparse)) %% 5L == 0L,\n  \"C\", ifelse(seq_len(nrow(d_sparse)) %% 2L == 0L, \"A\", \"B\")), levels = c(\"A\", \"B\", \"C\"))\n\nnotices &lt;- character()\nf_sparse &lt;- withCallingHandlers(\n  get_facet(d_sparse, split_var = \"Sex\", cat_var = \"N_4\",\n    adj_var = c(\"Age\", \"Cov1\", \"Cov2\", \"Site\"), method = \"both\", surv = TRUE,\n    timepoint = 60, max_t = 120, parallel = 1L, subgroup_model = \"separate\",\n    table_params = list(tb.vars = c(\"eve1\", \"HR\"), show_SP.time = FALSE)),\n  message = function(m) {\n    notices &lt;&lt;- c(notices, conditionMessage(m))\n    invokeRestart(\"muffleMessage\")\n  }\n)\nnotices[grepl(\"adjustment model was singular\", notices)]\nf_sparse[[\"plt\"]]\n本次实际提示为 Stratum \"Female\": adjustment model was singular; refitted without Cov2.；Female 的调整曲线与显式去掉 Cov2、空水平后的模型一致，Male 保留全部调整变量。串行与 parallel = 2L 的结果一致，两 worker 的提示也在主会话读到。\n\n\n\nFemale 层去掉共线的 Cov2 后重拟合；Male 层保留原调整项。上行为未调整曲线，下行为直接调整曲线。\n\n\n提示与报告： 提示在合并 worker 结果前由主会话统一输出，源码覆盖 Windows PSOCK 的通知路径；本页实际并行验证在 WSL 完成。用 run_quiet() 或全局抑制消息会隐藏这些提示。应记录层名与实际删减项，并确认 .final_method；各层不能被描述成相同调整集合。删减变量是计算上的兼容处理，不保证调整集合在研究设计上充分。\nget_facet_diff() 的直接 Cox / CSC 概率差使用联合区间；正常多时点路径和兼容回退均保留组间协方差，不能退回“假定两组独立”的区间。下方直接 Cox、CSC 及直接差值示例已于本次重新生成；其他布局图保留原执行记录。",
-    "crumbs": [
-      "RegR · 临床回归",
-      "效应估计与生存曲线",
-      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
-    ]
-  },
-  {
     "objectID": "causalr/ale-guide.html#ale-meaning",
     "href": "causalr/ale-guide.html#ale-meaning",
     "title": "HTE ALE：相关协变量与分类水平的局部效应",
@@ -9473,18 +9521,6 @@
       "RegR · 临床回归",
       "交互与风险分层",
       "<span class='chapter-number'>9</span>  <span class='chapter-title'>RPA 递归分区</span>"
-    ]
-  },
-  {
-    "objectID": "regr/facet-guide.html#axis-labels",
-    "href": "regr/facet-guide.html#axis-labels",
-    "title": "分面生存曲线：get_facet 与分层重拟合",
-    "section": "轴标题与缓存重绘",
-    "text": "轴标题与缓存重绘\nplot_params$xlab / ylab 自已推送提交 e7e8b10 起控制 KM、生存标准化和 CIF 曲线的轴标题。NULL 保留原默认值；\"\" 隐藏；自定义文本原样显示。设置 ylab 后不会自动追加 (95% CI)，需要该信息时自行写入。修改标签不会换算 time，也不会把 0–1 概率乘以 100。\n下面先计算一次未调整 KM，再从 facet_res 重绘两个版本。本次已核对缓存重绘前后的 sur.data 完全一致。\n\nf_axis &lt;- get_facet(d, split_var = \"Sex\", cat_var = \"N_4\", adj_var = adj,\n  surv = TRUE, method = \"unadj\", timepoint = 60, max_t = 120, parallel = 1,\n  plot_params = plot_base, table_params = table_base)\n\n自定义标题隐藏标题\n\n\nf_axis_named &lt;- get_facet(f_axis,\n  plot_params = modifyList(plot_base, list(xlab = \"Months from diagnosis\",\n    ylab = \"Survival probability (95% CI)\")), table_params = table_base)\nf_axis_named[[\"plt\"]]\n\n\n\n缓存重绘使用自定义横纵轴标题，原曲线和 HR 表保持一致。\n\n\n\n\nf_axis_blank &lt;- get_facet(f_axis,\n  plot_params = modifyList(plot_base, list(xlab = \"\", ylab = \"\")),\n  table_params = table_base)\nf_axis_blank[[\"plt\"]]\n\n\n\n空字符串隐藏两侧轴标题，刻度、曲线、区间与内嵌表保留。\n\n\n\n\n\n\n同样设置也适用于 CIF；应把纵轴写为累积发生概率，并保留正确的事件编码。只改绘图 list 可重用结果，改模型、输入时间单位或数据则需要重新拟合。plot_params 现在拒绝未知、重复或未命名字段，拼写错误会显式报错。",
-    "crumbs": [
-      "RegR · 临床回归",
-      "效应估计与生存曲线",
-      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
     ]
   },
   {
@@ -9773,18 +9809,6 @@
       "RegR · 临床回归",
       "效应估计与生存曲线",
       "<span class='chapter-number'>4</span>  <span class='chapter-title'>KM / CIF 组合图</span>"
-    ]
-  },
-  {
-    "objectID": "regr/facet-guide.html#current-defaults",
-    "href": "regr/facet-guide.html#current-defaults",
-    "title": "分面生存曲线：get_facet 与分层重拟合",
-    "section": "当前默认值与分层列名",
-    "text": "当前默认值与分层列名\n接口中现已列出完整的15项 plot_params 和12项 table_params 默认值。部分 list 只覆盖指定字段；list() / NULL 沿用默认。没有指定表格颜色时随曲线颜色同步，model 默认由 surv 推导。save 仍位于两个显示 list 前，末尾参数请按完整名称传入。\n本机开发修复保留名为 group 的分层列，内部 group 表示暴露曲线，分层值保存为避免碰撞的 strata* 字段。下面同一数据只改分层列名；两种写法的曲线数值一致，不能把层标签读为暴露组别。\n\n原始Sex分层分层列命名为group\n\n\nf_group_baseline &lt;- get_facet(d, split_var = \"Sex\", cat_var = \"N_4\",\n  method = \"unadj\", subgroup_model = \"separate\", timepoint = 60,\n  max_t = 120, parallel = 1L, plot_params = plot_base, table_params = table_base)\nf_group_baseline[[\"plt\"]]\n\n\n\n使用Sex列分层，两个面板各保留No CND与CND曲线。\n\n\n\n\nd_group &lt;- d\nd_group[[\"group\"]] &lt;- d_group[[\"Sex\"]]\nf_group_named &lt;- get_facet(d_group, split_var = \"group\", cat_var = \"N_4\",\n  method = \"unadj\", subgroup_model = \"separate\", timepoint = 60,\n  max_t = 120, parallel = 1L, plot_params = plot_base, table_params = table_base)\nf_group_named[[\"plt\"]]\n\n\n\n分层列命名为group仍保留暴露曲线，层标签不会覆盖No CND与CND。\n\n\n\n\n\n旧缓存若已覆盖暴露曲线，必须从原始数据重算。Greenwood标准误修复同样需要重新拟合历史 facet_res / facet_diff_res，影响未调整与PSM生存差值区间及P值，不能靠缓存重绘修复。只调整图形样式时，仍可复用本次生成的正确对象。",
-    "crumbs": [
-      "RegR · 临床回归",
-      "效应估计与生存曲线",
-      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
     ]
   },
   {
@@ -10568,18 +10592,6 @@
     "crumbs": [
       "seerR · SEER 数据处理",
       "<span class='chapter-number'>51</span>  <span class='chapter-title'>SEER 数据处理概览</span>"
-    ]
-  },
-  {
-    "objectID": "regr/facet-guide.html#current-20261018",
-    "href": "regr/facet-guide.html#current-20261018",
-    "title": "分面生存曲线：get_facet 与分层重拟合",
-    "section": "当前标签、默认布局与整页结果",
-    "text": "当前标签、默认布局与整页结果\n2026-10-18 按RegR 7265b31 在Windows / WSL R 4.4.3实际运行。get_facet()的flip默认已改为TRUE，省略或设为NULL也取TRUE。第一项split_var放在行，methods与其他分层放在列；显式FALSE保留原来的方向。\n本页旧示例的plot_base显式设置了FALSE，所以继续保留其旧布局对照。上面的Usage已同步新默认值；此前实图仍为各节原快照，不把转置当成重新拟合。\n\n当前默认TRUE与新标签显式FALSE与缓存复用\n\n\nd_current &lt;- as.data.frame(ToyData::toy_ptc_m1_cnd)\nd_current[[\"N_4\"]] &lt;- stats::relevel(d_current[[\"N_4\"]], ref = \"No CND\")\nstrip_current &lt;- c(\"Female\" = \"Women\", \"Male\" = \"Men\", \"&lt;55\" = \"Age &lt;55\", \"≥55\" = \"Age &gt;=55\",\n  \"Unadjusted survival curves\" = \"KM\", \"Adjusted survival curves\" = \"Adjusted\")\nfacet_current &lt;- get_facet(d_current, split_var = c(\"Sex\", \"age_55\"), cat_var = \"N_4\",\n  adj_var = \"Age\", surv = TRUE, method = c(\"unadj\", \"direct\"),\n  timepoint = 60, max_t = 120, parallel = 1,\n  plot_params = list(conf_int = FALSE, base_size = 10, strip_map = strip_current),\n  table_params = list(insert_table = FALSE))\n\n\n\n当前默认为Sex两行，方法与年龄四列。\n\n\n\n\nfacet_previous_layout &lt;- get_facet(facet_current,\n  plot_params = list(flip = FALSE, conf_int = FALSE, base_size = 10, strip_map = strip_current),\n  table_params = list(insert_table = FALSE))\n\n\n\n同一曲线数据转成四行两列。\n\n\n\n\n\n两次调用的sur.data逐项一致，第二次仅重新排版。新标签的映射键必须写&lt;55和≥55，旧键Below 55和Above 55不会匹配当前数据。年龄分组人数仍为148 / 450人；age_cut3/4/5的边界变化另见 数据说明。\n\n返回字段与HTML另存\nget_facet()现在返回sur.data / insert.data / plt / view；attr(res$plt,\"plot_size\")是整个分面页的英寸尺寸，不是单个面板尺寸。get_facet_diff()另保留diff.data / forest.data / plt / cat.obj / view；只拟合不绘图的模式中view=NULL。缺少htmltools或页面构建失败时，view也可为NULL，应先检查再使用。\nnames(facet_current)\nattr(facet_current[[\"plt\"]], \"plot_size\")\nfacet_current[[\"view\"]]\nfmt_page(facet_current[[\"view\"]], save = list(filename = \"facet-results.html\"))\n打开或下载本节实际HTML结果页。页面中的曲线图为PNG预览；原plt仍用于矢量导出。",
-    "crumbs": [
-      "RegR · 临床回归",
-      "效应估计与生存曲线",
-      "<span class='chapter-number'>5</span>  <span class='chapter-title'>分面生存曲线</span>"
     ]
   },
   {

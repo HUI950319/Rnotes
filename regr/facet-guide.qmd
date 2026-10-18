@@ -2,13 +2,13 @@
 title: "分面生存曲线：get_facet 与分层重拟合"
 description: "get_facet 的模型、分层与缓存详解；以 598 人 M1 PTC 队列比较 KM、调整生存、CIF、嵌套分面、内嵌表和迷你森林图；补充 get_facet_diff 的三张概率差曲线。"
 date: 2026-10-01
-date-modified: 2026-10-18
+date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 directory:
   title: "分面生存曲线：分组标签、默认布局与结果页"
   topic: 回归与生存分析
-  updated: 2026-10-18
+  updated: 2026-10-19
 ---
 
 `get_facet()` 把生存 / 竞争风险曲线、分面条带和每个面板的效应表组织在一张图中。本页沿用 [SHAP 可视化页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，相关参数放在标签页中比较，点击图片可以放大**。
@@ -1021,3 +1021,42 @@ fmt_page(facet_current[["view"]], save = list(filename = "facet-results.html"))
 ```
 
 [打开或下载本节实际HTML结果页](images/facet-guide/20261018-facet-view.html)。页面中的曲线图为PNG预览；原`plt`仍用于矢量导出。
+
+## 一次运行多个模型与缓存重绘 {#models-20261019}
+
+2026-10-19 使用已推送 RegR `f26e137` 在 Windows / WSL R 4.4.3 执行。继续使用本页 598 人队列；下面比较未调整的 KM 与目标事件 CIF，不把两者解释为互补概率。
+
+<!-- rnotes-20261019: facet-models -->
+```r
+facet_models <- get_facet(d, split_var = "Sex", cat_var = "N_4",
+  adj_var = "Age", surv = list(sur = TRUE, cif = FALSE), method = "unadj",
+  timepoint = 60, max_t = 120, parallel = 1,
+  plot_params = list(conf_int = FALSE, base_size = 10),
+  table_params = list(insert_table = FALSE))
+names(facet_models)  # "sur" "cif"
+
+# 传回结果只重绘；每个模型可使用不同的纵轴与文件名。
+facet_redraw <- get_facet(facet_models,
+  plot_params = list(conf_int = FALSE, base_size = 10,
+    ylim = list(sur = c(0, 1), cif = c(0, 0.8))),
+  table_params = list(insert_table = FALSE),
+  save = list(filename = c(
+    sur = file.path(tempdir(), "facet-sur.pdf"),
+    cif = file.path(tempdir(), "facet-cif.pdf"))))
+```
+
+::: {.panel-tabset}
+
+### KM {.unnumbered}
+
+![男性、女性面板内的 KM 曲线。](images/facet-guide/20261019-model-sur.png){fig-alt="多模型get_facet的sur元素：598人队列按Sex分面，CND与No CND的未调整疾病特异生存曲线。"}
+
+### CIF {.unnumbered}
+
+![相同分组下的目标死亡 CIF。](images/facet-guide/20261019-model-cif.png){fig-alt="多模型get_facet的cif元素：相同队列和分面中甲状腺癌死亡的累积发生曲线，考虑其他原因死亡为竞争事件。"}
+
+:::
+
+返回对象是 `surv_models`，每个元素为完整 `facet_res`；图分别在 `facet_redraw[["sur"]][["plt"]]` 与 `facet_redraw[["cif"]][["plt"]]`。按模型命名的 list 字段只作用于对应模型，普通设置则共享；文件名用同名字符向量。打印、重绘和保存均逐模型执行，不会把 KM 与 CIF 叠成一张图。本节核对重绘前后的 `sur.data` 一致，且两个 PDF 均实际生成。
+
+修改数据、模型或方法时应从原始数据重新拟合；缓存只用于显示设置。多模型 `surv` 的混合类型写法见[返回结构对照](forest-guide.qmd#models-20261019)。
