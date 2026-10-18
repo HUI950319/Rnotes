@@ -2,13 +2,13 @@
 title: "ggplot 格式化：主题、坐标、图例、条带与面板标签"
 description: "fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化；实际参数对照与嵌套布局示例。"
 date: 2026-10-09
-date-modified: 2026-10-18
+date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 directory:
   title: "ggplot格式化：参考线、坐标、分布与箱线"
   topic: 绘图与格式化
-  updated: 2026-10-18
+  updated: 2026-10-19
 ---
 
 fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -48,12 +48,12 @@ p_matrix <- wrap_plots(p, p_box, p, p_box, ncol = 2)
 | `fmt_axisText()` | `x/y = NULL`、`size/color/face` | x/y 是角度，自动匹配常用文字对齐 |
 | `fmt_axisTile()` | `colors`、`mode = "tile"`、`axis = "x"`、`tile_height/width`、`text_size/face/angle/color = NULL` | 离散轴用颜色块或文字编码，颜色按轴类别对应；文字样式默认沿用原图，颜色名全部对不上时警告 |
 | `fmt_text()` | `xlab/ylab/title/subtitle/caption`、`title_size/color/hjust` | 文字和样式可按子图向量化 |
-| `fmt_panel()` | `grid = "none"`、`border`、`bg`、`grid_color/linewidth` | 网格可选 none/major/minor/both/x/y |
+| `fmt_panel()` | `grid = "none"`、`border`、`bg`、`grid_color/linewidth` | 网格可选 none/major/minor/both/x/y/keep；keep 保留原网格 |
 | `fmt_legend()` | `legend.position/direction`、`collect = FALSE`、`ncol/nrow`、`scale` | 合并图例需映射与标签一致；缩放影响显示尺寸 |
 | `fmt_tag()` | `labels`、`label_position = c(0.02,0.98)`、`size = 18` | NPC 位置是相对面板位置；tl-out 等关键字放在图外 |
 | `fmt_ref()` | `x/y`、`linetype = "dashed"`、`linewidth = 0.5`、`color` | 按实际数据坐标放参考线，可多个值 |
 | `fmt_strip()` | `label`、`label_fill/color`、`strip = TRUE` | 增加或改条带；FALSE 去掉条带 |
-| `fmt_strip2()` | `top_label/right_label`、`ncol`、`top_fill/right_fill` | 为规则矩阵组合图增加列和行标签 |
+| `fmt_strip2()` | `top_label/right_label`、`ncol`、`top_fill/right_fill`、`label_color="auto"` | 为规则矩阵组合图增加列和行标签；默认按背景选黑字或白字 |
 | `fmt_bg()` | `palcolor/palette`、`alpha = 0.3`、`bg_axis = "x"` | 离散类别背景，与点层填色分别控制 |
 | `fmt_his()` | `type = "histogram"`、`height_ratio = 0.3`、`con_var`、`binwidth/adjust` | 插入分布层；直方图与密度各用不同设置 |
 | `fmt_scale()` | `x/y` 命名 list | breaks、labels、limits、trans 等交给对应 scale；limits 会移除范围外数据；副轴复制后不与原图共用 |
@@ -887,6 +887,48 @@ p_vector_box <- fmt_boxplot(p_vectors, inherit.aes = FALSE)
 
 :::
 
+## 当前列表、网格与自动条带颜色 {#style-20261019}
+
+2026-10-19 使用已推送 UtilsR `0bb52b5` 在 Windows / WSL R 4.4.3 执行。当前完整接口同步本节使用的源码；更多逐函数变更见[优化总结](fmt-optimization-20261018.qmd#behavior-changes)。
+
+<!-- rnotes-20261019: format -->
+```r
+p_grid_current <- ggplot(mtcars, aes(wt, mpg)) + geom_point() +
+  theme_minimal(base_size = 12)
+p_grid_keep <- fmt_panel(p_grid_current, grid = "keep", border = "#2166AC")
+p_grid_none <- fmt_panel(p_grid_current, grid = "none", border = "#2166AC")
+formatted_list <- fmt_plot(list(keep = p_grid_keep, none = p_grid_none),
+  fmt_axis_list = list(x.axis = TRUE))
+headers_current <- fmt_strip2(patchwork::wrap_plots(p_grid_keep, p_grid_none, ncol = 2),
+  top_label = c("Dark background", "Light background"),
+  top_fill = c("#17354A", "#E7EFF6"))  # 默认 label_color="auto"
+
+p_facets_current <- p_grid_current + facet_wrap(~cyl)
+p_named_labels <- fmt_strip(p_facets_current,
+  label = c("4" = "Four cylinders", "6" = "Six cylinders", "8" = "Eight cylinders"))
+p_style_only <- fmt_strip(p_facets_current, label = NULL, label_fill = "#DCECF5")
+```
+
+::: {.panel-tabset}
+
+### 保留与移除网格 {.unnumbered}
+
+![同一输入图的 keep 与 none。](images/format-guide/20261019-grid-keep.png){fig-alt="左图grid等于keep保留theme_minimal网格并加蓝色边框，右图grid等于none移除网格；普通list经fmt_plot处理后仍为list。"}
+
+### 按条带底色选文字 {.unnumbered}
+
+![默认自动选择白字和黑字。](images/format-guide/20261019-auto-strip.png){fig-alt="两个拼图顶部条带：深蓝底自动用白字，浅蓝底自动用黑字，未显式传label_color。"}
+
+### 命名标签与只改样式 {.unnumbered}
+
+![按真实水平匹配分面标签，或保留原标签。](images/format-guide/20261019-named-strip.png){fig-alt="上行分面按cyl水平4、6、8映射成Four、Six、Eight cylinders；下行label等于NULL保留原数字，只改浅蓝条带底色。"}
+
+:::
+
+`grid="keep"` 只保留网格设置，默认仍为 `"none"`。`fmt_plot()` 与 `fmt_plot_base()` 接收普通 list 时逐元素格式化并返回 list，名称保留。`fmt_strip(label=NULL)` 保留原分面名；命名标签按水平匹配，避免顺序变化导致错贴。`fmt_strip2()` 的 `label_color="auto"` 按各条带背景选黑字或白字，显式传 `"black"` 可恢复固定黑字。
+
+`fmt_plot()` 已去掉未使用的 `...`，拼错参数会直接报错；修改分面条请另调 `fmt_strip()`，不能传 `fmt_strip_list`。`fmt_text()` 的默认 `axis_titles="collect"` 仅在设置 `xlab` 或 `ylab` 时生效；标题传 `""` 会删除标题和对应空白。
+
 ## 返回对象、保存与使用边界 {#output}
 
 多数 formatter 支持 ggplot、patchwork 和图列表，尽量保留输入对象类型。插图及图外标签可能把结果组织为 patchwork；`fmt_axisTile()` 两种模式都返回与输入相同的类型。格式化顺序有实际影响：后添加的 theme/scale 可能覆盖前面的设置。
@@ -900,7 +942,7 @@ final_plot <- fmt_legend(p, legend.position = "bottom")
 
 ## 当前完整接口 {#interfaces}
 
-点击展开查看函数参数及默认值；fmt_text()的axis_titles按2026-10-15源码更新，fmt_axisTile()的文字样式默认值按2026-10-18源码更新，其余历史图的执行范围见各节。
+点击展开查看函数参数及默认值；2026-10-19 按已推送 UtilsR `0bb52b5` 同步 fmt_plot、fmt_panel 与 fmt_strip2 的当前签名，其余历史图的执行范围见各节。
 
 <details>
 <summary>公共函数签名</summary>
@@ -908,7 +950,7 @@ final_plot <- fmt_legend(p, legend.position = "bottom")
 ```r
 fmt_plot <-
 function (plot, fmt_axis_list = NULL, fmt_tag_list = NULL, fmt_legend_list = NULL, fmt_ref_list = NULL,
-    plot.margin = NULL, tag_levels = NULL, axis_titles = NULL, ...)
+    plot.margin = NULL, tag_levels = NULL, axis_titles = NULL)
 NULL
 
 fmt_plot_base <-
@@ -939,7 +981,7 @@ function (plot, xlab = NULL, ylab = NULL, title = NULL, subtitle = NULL, caption
 NULL
 
 fmt_panel <-
-function (plot, grid = c("none", "major", "minor", "both", "x", "y"), grid_color = NULL, grid_linewidth = NULL,
+function (plot, grid = c("none", "major", "minor", "both", "x", "y", "keep"), grid_color = NULL, grid_linewidth = NULL,
     grid_linetype = NULL, border = NULL, border_linewidth = 0.5, bg = NULL, ...)
 NULL
 
@@ -966,7 +1008,7 @@ NULL
 
 fmt_strip2 <-
 function (plot, top_label = NULL, right_label = NULL, ncol = NULL, top_fill = NULL, right_fill = NULL,
-    label_color = "black", top_right_fill = c("Grays", "Greens"))
+    label_color = "auto", top_right_fill = c("Grays", "Greens"))
 NULL
 
 fmt_bg <-
