@@ -1,6 +1,6 @@
 ---
-description: "用包内 2025/2026 样例运行甲状腺 ETL，核对 schema、字段、缺失及复发标记的顺序和并列值边界。"
-date-modified: 2026-10-17
+description: "用包内样例运行 SEER ETL 与分析变量派生，核对出版用标签、年龄与肿瘤大小分组边界、缺失及复发标记。"
+date-modified: 2026-10-18
 ---
 
 # seerR 笔记
@@ -106,6 +106,144 @@ head(analysis_2026[, c("Patient_ID", "Age", "His_6", "T_stage", "N_stage",
 :::
 
 两套样例均保留 100 行，字段数随 schema 和派生变量而变。输出的行数不能代替患者数，也不能据此确认结局完整。
+
+## 从 ETL 到分析变量 {#derived-current}
+
+2026-10-18 按已推送 seerR `4e7afb9`、UtilsR `545bf4b`，在 Windows / WSL R 4.4.3 分别运行以下两套2026包内样例，输出规模与边界归属一致。上面的ETL结果仍是原执行快照；本节追加的是后续分析变量步骤。
+
+`pipeline()` 完成字段整理，**不会自动调用 `select_analysis()` 或 `mutate_derived()`**。前者选择常用分析列，并移除 `Patient_ID` 等上游列；后者派生分组、整理标签并新增 `status_tb`。需要追踪患者时，应在选列前保留经过核对的连接键和行对应关系。
+
+::: {.panel-tabset}
+
+### 甲状腺完整步骤
+
+```r
+raw_thy <- readr::read_csv(system.file("extdata", "sample_seer_thyroid_2026.csv",
+  package = "seerR"), show_col_types = FALSE)
+etl_thy <- seer_thyroid_pipeline(raw_thy, schema = "2026")
+selected_thy <- seer_thyroid_select_analysis(etl_thy)
+derived_thy <- seer_thyroid_mutate_derived(selected_thy)
+stopifnot(nrow(derived_thy) == nrow(etl_thy),
+  identical(derived_thy[["DSS"]], selected_thy[["DSS"]]),
+  identical(derived_thy[["time"]], selected_thy[["time"]]))
+levels(derived_thy[["age_55"]])
+levels(derived_thy[["Yea_3"]])
+```
+
+### 胰腺完整步骤
+
+```r
+raw_pan <- readr::read_csv(system.file("extdata", "sample_seer_pancreas_2026.csv",
+  package = "seerR"), show_col_types = FALSE)
+etl_pan <- seer_pancreas_pipeline(raw_pan, schema = "2026")
+selected_pan <- seer_pancreas_select_analysis(etl_pan)
+derived_pan <- seer_pancreas_mutate_derived(selected_pan)
+stopifnot(nrow(derived_pan) == nrow(etl_pan),
+  identical(derived_pan[["DSS"]], selected_pan[["DSS"]]),
+  identical(derived_pan[["time"]], selected_pan[["time"]]))
+levels(derived_pan[["Rad"]])
+levels(derived_pan[["Tum_3"]])
+```
+
+:::
+
+本轮实际输出：
+
+::: {.table-responsive}
+
+|cancer   |step     | rows| columns|
+|:--------|:--------|----:|-------:|
+|thyroid  |ETL      |  100|     128|
+|thyroid  |selected |  100|      71|
+|thyroid  |derived  |  100|      95|
+|pancreas |ETL      |  100|     115|
+|pancreas |selected |  100|      62|
+|pancreas |derived  |  100|      86|
+
+:::
+
+`rows` 是记录行数，不能代替患者数或研究队列人数。运行时仍有数值转换产生NA及对数计算产生NaN的提示，后续派生没有自动解决这些数据质量问题。
+
+### 标签变化与分组规则分开核对
+
+::: {.table-responsive}
+
+| 变量 | 当前行为 | 迁移时检查 |
+|:--|:--|:--|
+| `age_45/50/55/60` | `<N` / `≥N` | N岁进入上组；不要继续匹配`below_54`等旧字符串 |
+| `age_cut3/4/5` | 用N−1作切点 | 边界归属已经改变，分层模型需重新计算，不能只改图中文字 |
+| `Yea_2/3` | 标签从派生步骤输入的最早/最晚诊断年生成 | 甲状腺`Yea_3`切于2009/2015，胰腺切于2010/2017；范围不是固定的旧版年份字符串 |
+| `Che` | `No` / `Yes` | `No`仍包含原`No/Unknown`，不等于治疗情况全部明确 |
+| 胰腺`Rad` | `No` / `Beam` / `Other Radiation` | `No`仍包含原`None/Unknown`，并作为参考水平 |
+| `County_2`、`Income_3`、`Grade` | `Urban/Rural`、`Low/Middle/High`及简化分级 | 筛选条件、名称映射和参考水平都要核对大小写及新标签 |
+| `status_tb` | `Alive`、癌种死亡、`Other causes` | 仅供显示；不能把它当作改变了`DSS/OS/event`的结局定义 |
+
+:::
+
+若在分组前筛选数据，年份标签会采用筛选后输入的范围；若仅在分组后筛选，已有因子标签不会自动重算。`ToyData::toy_ptc_m1_cnd` 的598人、年龄边界实测及同名MTC数据区别见 [数据概览](../toydata/index.qmd#age-cut-current)。
+
+## 肿瘤大小：甲状腺与胰腺不能共用上界 {#tumor-boundary-current}
+
+单位为毫米。甲状腺 `Tum_3` 的上组只含41–90 mm，超过90 mm归`Unknown`，`Tum_5`则得到NA。胰腺的 `Tum_3` 和 `Tum_5` 上组均为`>40`，包含91–200 mm；不能沿用甲状腺90 mm的上界。
+
+以下以两套已选分析列各取一条模板，仅改写 `Tum` 为边界值，实际调用派生函数。它是接口边界演示，不是患者肿瘤大小分布。
+
+```r
+sizes <- c(10, 20, 40, 41, 90, 91, 120, 200, NA_real_)
+check_tumor_bins <- function(selected, derive) {
+  example <- selected[rep(1L, length(sizes)), ]
+  example[["Tum"]] <- sizes
+  out <- derive(example)
+  data.frame(Tum_mm = sizes, Tum_3 = as.character(out[["Tum_3"]]),
+    Tum_5 = as.character(out[["Tum_5"]]))
+}
+check_tumor_bins(selected_thy, seer_thyroid_mutate_derived)
+check_tumor_bins(selected_pan, seer_pancreas_mutate_derived)
+```
+
+::: {.table-responsive}
+
+|cancer   | Tum_mm|Tum_3   |Tum_5 |
+|:--------|------:|:-------|:-----|
+|thyroid  |     10|≤20     |≤10   |
+|thyroid  |     20|≤20     |11-20 |
+|thyroid  |     40|21-40   |31-40 |
+|thyroid  |     41|41-90   |41-90 |
+|thyroid  |     90|41-90   |41-90 |
+|thyroid  |     91|Unknown |NA    |
+|thyroid  |    120|Unknown |NA    |
+|thyroid  |    200|Unknown |NA    |
+|thyroid  |     NA|Unknown |NA    |
+|pancreas |     10|≤20     |≤10   |
+|pancreas |     20|≤20     |11-20 |
+|pancreas |     40|21-40   |31-40 |
+|pancreas |     41|>40     |>40   |
+|pancreas |     90|>40     |>40   |
+|pancreas |     91|>40     |>40   |
+|pancreas |    120|>40     |>40   |
+|pancreas |    200|>40     |>40   |
+|pancreas |     NA|Unknown |NA    |
+
+:::
+
+### 真实包内胰腺数据的影响
+
+对照旧快照 `82b0960` 与当前 `4e7afb9`：包内 `seer_pancreas_2026` 仍为267,244行，结局与随访时间逐行一致；新增`status_tb`后列数85→86。`Tum_3` 的实际计数为：
+
+::: {.table-responsive}
+
+| 旧组定义 | 旧人数 | 当前组定义 | 当前人数 |
+|:--|--:|:--|--:|
+| ≤20 | 22936 | ≤20 | 22936 |
+| 21-40 | 94650 | 21-40 | 94650 |
+| 41-90 | 72906 | >40 | 77015 |
+| Unknown | 76752 | Unknown | 72643 |
+
+:::
+
+旧表第3组为41–90 mm，当前第3组为所有`>40` mm。**4,109条大于90 mm的记录从Unknown归入上组**；`Tum_5` 对这些记录也从NA改为`>40`。这是分组归属变化，涉及肿瘤大小分层或完整病例筛选时，应重建队列并重跑相应模型。它不表示新增了4,109名患者。
+
+[当前分析变量派生源码](https://github.com/HUI950319/seerR/blob/4e7afb9/R/seer_select_vars.R)
 
 ## 检查输出质量 {#quality-current}
 
