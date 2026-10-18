@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；包含 get_fit_ms 的多分类与连续变量整体检验，及 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
 date: 2026-10-09
-date-modified: 2026-10-16
+date-modified: 2026-10-18
 lightbox: true
 toc-depth: 2
 format:
@@ -1606,3 +1606,51 @@ page_int <- fmt_page(int_basic$combined,int_basic$gt,
 ```
 
 完整执行、可下载HTML与PNG/矢量边界见 [结果页教程](function-modules.qmd#fmt-page-current)。前面的combined实图保留原执行提交；本轮只补新返回字段与提前检查说明。
+
+## 当前随机种子与计算复用 {#seed-20261018}
+
+2026-10-18按已推送RegR `7265b31`，在Windows / WSL R 4.4.3实际运行下面含随机森林的轻量示例。公共`seed`现在默认123；各随机分析由该值初始化，分支`*_args$seed`可局部覆盖。非NULL公共seed下调用后恢复调用者随机状态。
+
+```r
+set.seed(1018)
+n <- 180L
+d_seed <- data.frame(Tx = factor(sample(c("No", "Yes"), n, TRUE)),
+  Sex = factor(sample(c("Female", "Male"), n, TRUE)), Marker = rnorm(n))
+d_seed[["time"]] <- rexp(n, exp(-3.5 + 0.4 * d_seed[["Marker"]] * (d_seed[["Tx"]] == "Yes")))
+d_seed[["DSS"]] <- rbinom(n, 1, 0.7)
+int_call <- function() get_int(d_seed, int_var = "Tx", vars = c("Sex", "Marker"), time = 24,
+  ms_args = list(), inter_args = NULL, shp_args = NULL, hte_args = NULL, tree_args = NULL,
+  hst_args = list(num.trees = 80, Num.sample = 100,
+    hstats_args = list(approx = TRUE, grid_size = 10, n_max = 60)))
+seed_before <- .Random.seed
+int_seeded <- int_call()
+int_repeat <- int_call()
+stopifnot(identical(.Random.seed, seed_before),
+  isTRUE(all.equal(int_seeded[["table"]], int_repeat[["table"]], check.attributes = FALSE)))
+int_seeded[["combined"]]
+```
+
+![固定随机森林预算的交互筛查实图。](images/interaction-guide/20261018-int-seeded.png){fig-alt="180条模拟生存记录的整体交互P值与H统计量对照，Sex和Marker按相同伙伴行对齐。"}
+
+两平台均通过随机状态恢复和重复table一致断言。本例只实际计算MS和H统计量，未训练SHAP、HTE或亚组树；H²经过画布缩放，不是临床效应或因果交互量。`seed=NULL`表示不统一固定：SHAP使用并推进会话随机状态，其他分支沿用各自默认种子，不能继续断言全部重复一致。
+
+树分支继续复用首个方法的森林，但当前返回结果仅在第一棵保留供后续reuse使用的森林背景。把后面的树单独传给复用接口时可能需要重新拟合，不能把它当成每棵都携带完整森林的缓存。该内存组织变化与本例的H统计量验证范围分开。
+
+### get_all在knitr中按需构建页面 {#knitr-view-20261018}
+
+`get_all(intc.args=...)`在knitr里先返回分析对象，延后整页view构建，因此`interCanvas$view`可为NULL。图和表应在各自代码块显示；确实需要单页HTML时再调用fmt_page，不必重拟合：
+
+```r
+# 置于Quarto/R Markdown的分析代码块中：
+all_knit <- get_all(com.args = list(data = d_seed, surv = TRUE, time = 24),
+  intc.args = list(int_var = "Tx", vars = c("Sex", "Marker"), inter_args = NULL,
+    shp_args = NULL, hte_args = NULL, tree_args = NULL))
+all_knit[["interCanvas"]][["combined"]]  # 放在单独图代码块
+all_knit[["interCanvas"]][["gt"]]        # 放在单独表代码块
+# 需要整页时显式组合；不是直接打印可能为NULL的view。
+fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
+  Table = all_knit[["interCanvas"]][["gt"]],
+  save = list(filename = file.path(tempdir(), "interaction-page.html")))
+```
+
+本轮在独立R进程模拟`knitr.in.progress=TRUE`，实际确认view为NULL且分析正常完成；没有重跑整本笔记或用户RStudio会话。[固定源码](https://github.com/HUI950319/RegR/blob/7265b31/R/int-get.R)

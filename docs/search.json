@@ -5759,6 +5759,78 @@
     ]
   },
   {
+    "objectID": "regr/interaction-guide.html#cif-mets-update",
+    "href": "regr/interaction-guide.html#cif-mets-update",
+    "title": "交互分析：get_inter、绝对风险与表格导出",
+    "section": "竞争风险更新：mets 联合 CIF 与加速实测",
+    "text": "竞争风险更新：mets 联合 CIF 与加速实测\n\n默认 delta 为什么不再需要抽样？\nget_inter_abs(surv = FALSE) 默认使用 Fine–Gray 工作模型。调整分支先用 mets::cifregFG() 拟合联合暴露状态与协变量，再用 mets::survivalG() 将同一人群标准化到四个暴露状态。它同时获得四个 CIF 的点估计与完整的联合协方差；未调整分支仍为各联合组的 Aalen–Johansen CIF。\n联合协方差保留不同标准化风险之间的相关性，也包含模型拟合与经验标准化人群分布的不确定性。不能把四个风险的标准误平方放在对角线上，就视为调整分支的完整协方差。令 \\(\\mathbf p=(p_{00},p_{01},p_{10},p_{11})^\\top\\)，\\(\\mathbf a=(1,-1,-1,1)^\\top\\)，则：\n\\[\n\\mathrm{IC}=\\mathbf a^\\top\\mathbf p,\\qquad\n\\operatorname{Var}(\\mathrm{IC})=\\mathbf a^\\top V\\mathbf a.\n\\]\n默认 ci_method = \"delta\" 从 \\(V\\) 计算 IC、RERI、AP、SI 与乘性交互的区间；乘性项与 SI 使用对数尺度近似。这个分支不执行 bootstrap，因此提高 n_boot 或 n_cores 不会让它进行更多抽样。mets::survivalG() 的标准化风险与影响函数接口见 官方帮助。\nci_method = \"boot\" 则在每次患者级联合重抽样后，通过同一 mets 模型重新拟合，并对该次抽样人群标准化；四个暴露状态使用同一次抽样，再组合交互指标。无法估计的抽样会整次剔除并警告。显式 cif_args = list(model = \"CSC\") 的调整分支仍使用 bootstrap，选择 delta 时会警告并回退。\n\n\n两种区间方法：同一队列的实际结果\n本节单独按 time、event、Sex、Age、Race 完整病例且 time &gt; 0 筛选，得到 4,387 人：删失 3,207 人、目标事件 597 人、竞争事件 583 人。比较性别与年龄组，调整连续年龄与种族，在 120 月估计目标事件 CIF。连续年龄和年龄分组同时出现，是本次计时固定的调整设置；研究分析应按问题预先确定协变量。\n# 本节代码共用的数据；event: 0=删失，1=目标事件，2=竞争事件\ninter_cif_data &lt;- as.data.frame(RegR::seer_thyroid_mtc_2026)\ncif_vars &lt;- c(\"time\", \"event\", \"Sex\", \"Age\", \"Race\")\ninter_cif_data &lt;- inter_cif_data[\n  complete.cases(inter_cif_data[, cif_vars]) & inter_cif_data$time &gt; 0,\n  cif_vars\n]\ninter_cif_data$Sex &lt;- factor(inter_cif_data$Sex, levels = c(\"Female\", \"Male\"))\ninter_cif_data$AgeH &lt;- factor(\n  ifelse(inter_cif_data$Age &gt;= 55, \"ge55\", \"lt55\"),\n  levels = c(\"lt55\", \"ge55\")\n)\n\ndelta：默认方法boot：可选方法\n\n\ninter_cif_delta &lt;- RegR::run_quiet({\n  get_inter_abs(\n    inter_cif_data, exposure_names = c(\"Sex\", \"AgeH\"),\n    adj_var = c(\"Age\", \"Race\"), surv = FALSE, sur_time = 120,\n    ci_method = \"delta\", cif_args = list(model = \"FGR\")\n  )\n})\nfmt_inter_gt(inter_cif_delta)\n以下为该次调用中四个风险与主要加性交互 IC 的摘要。CIF 乘以 100 显示为百分比；IC 乘以 100 显示为百分点。括号内为 95% CI。\n\n\n\n\n状态或指标\n未调整\n调整年龄与种族\n\n\n\n\nFemale，&lt;55：CIF（%）\n7.67（5.95，9.39）\n10.30（7.83，12.77）\n\n\nFemale，≥55：CIF（%）\n12.78（10.71，14.86）\n10.59（8.80，12.38）\n\n\nMale，&lt;55：CIF（%）\n16.83（13.78，19.87）\n23.12（18.54，27.69）\n\n\nMale，≥55：CIF（%）\n25.17（22.13，28.21）\n20.58（17.66，23.49）\n\n\nIC（百分点）\n3.23（−1.85，8.31）\n−2.82（−8.32，2.67）\n\n\n\n\n\n\nset.seed(171)\ninter_cif_boot &lt;- RegR::run_quiet({\n  get_inter_abs(\n    inter_cif_data, exposure_names = c(\"Sex\", \"AgeH\"),\n    adj_var = c(\"Age\", \"Race\"), surv = FALSE, sur_time = 120,\n    ci_method = \"boot\", cif_args = list(model = \"FGR\"),\n    n_boot = 50, n_cores = 1\n  )\n})\nfmt_inter_gt(inter_cif_boot)\n这里 50 次抽样仅用于示例与计时，不作为正式分析的重复次数建议。正式分析可提高 n_boot，并检查随机种子、区间端点与成功抽样数的稳定性。\n\n\n\n\n状态或指标\n未调整\n调整年龄与种族\n\n\n\n\nFemale，&lt;55：CIF（%）\n7.67（5.93，9.86）\n10.30（8.36，12.24）\n\n\nFemale，≥55：CIF（%）\n12.78（10.53，14.59）\n10.59（8.80，12.22）\n\n\nMale，&lt;55：CIF（%）\n16.83（14.08，19.90）\n23.12（20.19，25.76）\n\n\nMale，≥55：CIF（%）\n25.17（22.30，27.77）\n20.58（17.91，22.71）\n\n\nIC（百分点）\n3.23（−2.88，8.76）\n−2.82（−7.42，1.38）\n\n\n\n\n\n\n\n两种方法的点估计完全一致，区间方法不同。该例调整后的 IC 为 −2.82 个百分点，两种区间均跨 0；应结合估计量、时间点与调整设置解释。bootstrap 不会自动解决分母接近 0、稀疏联合组或工作模型不合适的问题，尤其 SI 等比值可能不稳定。\n\n\n优化前后的完整调用耗时\n2026-10-02 在 WSL Ubuntu-22.04、R 4.4.3、mets 1.3.13 下实测。比较更新前模块 aac87ba 与更新后模块 cefc1a5；其余依赖相同。每种设置在独立进程中顺序运行，n_cores = 1，BLAS / OpenMP 线程数均设为 1。预热后计时覆盖完整 get_inter_abs() 调用及其自动表格格式化，不计包加载、数据准备与结果保存。\n\n\n\n\n\n\n\n\n\n\n\n\n样本量\n区间设置\n优化前（秒）\n优化后（秒）\n加速倍数\n时间减少\n\n\n\n\n1,000\ndelta，旧版回退 50 次抽样\n2.740\n0.231\n11.9×\n91.57%\n\n\n1,000\n两版均 boot，50 次\n2.984\n2.981\n1.00×\n0.10%\n\n\n4,387\ndelta，旧版回退 50 次抽样\n18.863\n0.390\n48.4×\n97.93%\n\n\n4,387\n两版均 boot，50 次\n19.305\n9.211\n2.10×\n52.29%\n\n\n4,387\n默认 delta，旧版回退 500 次抽样\n185.535\n0.411\n451.4×\n99.78%\n\n\n\n\n50 次抽样的各项分别重复 3 次，表中为中位数。默认 500 次的旧版实测 1 次，新版重复 3 次、范围 0.338–0.504 秒；这些是实际计时，未按 50 次结果外推。1,000 人是同一完整队列按 set.seed(20261002) 固定抽取的无放回子样本。单次结果展示与计时的调用种子从 171 起。\n\n\n\n\n\n\n注记如何理解 451 倍加速\n\n\n\n最大的收益来自默认路径省去了 500 次 bootstrap，改用联合协方差计算 delta 区间。因此 451 倍包含区间方法变化的收益；它不表示单次 Fine–Gray 拟合加速了 451 倍。相同 50 次 bootstrap 下，完整队列约快 2.1 倍，1,000 人子样本没有明显提速。具体耗时受样本量、事件数、协变量、机器与抽样次数影响。\n数值核对中，新版 delta / boot 的点估计完全一致；新旧未调整风险一致，调整后风险最大差异约 0.030 个百分点。新后端在请求时间恰逢事件时纳入该时间全部并列事件，且不跨越下一个事件时间；仅核对点估计不能证明两种区间具有相同覆盖率。\n\n\n下载计时汇总 CSV · 下载逐次计时 CSV\n本机复测新版时，可在上述数据准备后运行以下代码。固定 n_boot = 50 使 bootstrap 检查较快；delta 不使用这个抽样次数。包加载和首次预热不计入后续计时，返回的是当前机器的运行结果。\nmeasure_cif &lt;- function(mode) {\n  RegR::run_quiet({\n    get_inter_abs(\n      inter_cif_data, exposure_names = c(\"Sex\", \"AgeH\"),\n      adj_var = c(\"Age\", \"Race\"), surv = FALSE, sur_time = 120,\n      ci_method = mode, n_boot = 50, n_cores = 1\n    )\n  })\n}\ninvisible(measure_cif(\"delta\"))\ninvisible(measure_cif(\"boot\"))\ncif_timing &lt;- do.call(rbind, lapply(c(\"delta\", \"boot\"), function(mode) {\n  times &lt;- vapply(1:3, function(i) {\n    gc()\n    set.seed(170 + i)\n    unname(system.time(invisible(measure_cif(mode)))[\"elapsed\"])\n  }, numeric(1))\n  data.frame(ci_method = mode, median_seconds = median(times))\n}))\ncif_timing",
+    "crumbs": [
+      "RegR · 临床回归",
+      "交互与风险分层",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
+    ]
+  },
+  {
+    "objectID": "regr/interaction-guide.html#get-fit-ms",
+    "href": "regr/interaction-guide.html#get-fit-ms",
+    "title": "交互分析：get_inter、绝对风险与表格导出",
+    "section": "get_fit_ms()：保留完整编码的整体乘法交互检验",
+    "text": "get_fit_ms()：保留完整编码的整体乘法交互检验\n本节按 RegR 0.1.3 源码 40515e1 核对，复用本页完整案例队列，在 WSL R 4.4.3 中实际执行。get_fit_ms() 不把多分类变量拆成多次二分类比较，而是为每个“暴露 × 修饰变量”拟合嵌套模型，检验全部交互项。\nget_fit_ms(data, exposure_names, adj_var = NULL, surv = TRUE,\n  test = c(\"LRT\", \"Wald\"))\nexposure_names 的第一个变量是暴露，其余变量按顺序逐一作为修饰变量。二分类、多分类、连续 × 分类、连续 × 连续均保留完整编码；数字编码的分类变量应先转为 factor，否则按线性连续项建模。\nCox / Logistic 默认使用 LRT；Fine–Gray 使用联合 Wald 检验，显式要求 LRT 会提示并改用 Wald。输出给出实际使用的 test、statistic、df、p.value、n 与 events。同一变量对的未调整和调整模型使用同一批完整案例，保证差异来自调整设置。\nms_cox &lt;- get_fit_ms(inter_data, exposure_names = c(\"Sex\", \"Race\", \"Age\"),\n  adj_var = \"Age\", surv = TRUE)\ninter_data[[\"status\"]] &lt;- factor(inter_data[[\"event\"]], levels = 0:2)\nms_fg &lt;- get_fit_ms(inter_data, exposure_names = c(\"Age\", \"Race\"),\n  adj_var = \"Sex\", surv = FALSE, test = \"Wald\")\n\nCox：二分类 × 三分类 / 连续变量\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nexposure\nmodifier\nmodel\ntype\nn\nevents\ntest\nstatistic\ndf\np.value\n\n\n\n\nSex\nRace\nUnadj\n2 x 3\n4387\n597\nLRT\n0.960\n2\n0.619\n\n\nSex\nRace\nAdjus\n2 x 3\n4387\n597\nLRT\n1.198\n2\n0.549\n\n\nSex\nAge\nUnadj\n2 x continuous\n4387\n597\nLRT\n0.416\n1\n0.519\n\n\n\n\n\n\nFine–Gray：连续变量 × 三分类\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nexposure\nmodifier\nmodel\ntype\nn\nevents\ntest\nstatistic\ndf\np.value\n\n\n\n\nAge\nRace\nUnadj\ncontinuous x 3\n4387\n597\nWald\n1.212\n2\n0.546\n\n\nAge\nRace\nAdjus\ncontinuous x 3\n4387\n597\nWald\n0.825\n2\n0.662\n\n\n\n\n这是模型比值尺度上的整体交互检验，不给出 RERI、AP、SI，也不等于绝对风险差的交互检验。若要展示每个组合的效应和加法指标，继续使用本页的 get_inter() / get_inter_abs()；若要判断保留完整编码后的整体乘法交互，使用 get_fit_ms()。\n空组合会导致不可估计项被剔除并减少实际 df；分类组合内无事件或无非事件会使 Wald 统计量和 P 值成为 NA 并给出提示。不能把 NA 当作“不存在交互”。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "交互与风险分层",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
+    ]
+  },
+  {
+    "objectID": "regr/interaction-guide.html#get-int-current",
+    "href": "regr/interaction-guide.html#get-int-current",
+    "title": "交互分析：get_inter、绝对风险与表格导出",
+    "section": "get_int：统一分析与分层画布",
+    "text": "get_int：统一分析与分层画布\n前两张图按2026-10-15的RegR 2d4d83c 在WSL执行。2026-10-16复核：已推送5956139包含这些接口；按该提交重新运行轻量例，table统计量与前快照逐项一致。当前默认已开启亚组树，下面代码显式设置tree_args=NULL；只凭0.1.3版本号不能判断旧安装。\n两图只开启MS和标准交互分支；没有训练SHAP/HTE或树。先运行第一标签页，再运行分层标签页。返回的table保留统计量、contrast和model，results保留各分支对象，combined是画布、gt是完整交互表；分层返回strata、combined和gt，各层结果放在strata中。\nmean_rank按已运行分析的伙伴强度平均排名，first按首分析，none保留vars顺序；排名不能当作因果证据。此模拟中函数提示有预防性暴露，解释RERI前须核对参照编码及比值方向。默认cont_cut=“median”只改变规定分支，不是所有模型都统一二分类。\n\n统一交互面板并保留原始结果分层画布共享伙伴顺序\n\n\n当前5956139默认开启MS、标准交互、SHAP、HTE及亚组树；H统计量和paired-VIMP默认关闭。NULL关闭对应分析，list()使用默认值，命名list传控制参数。本例显式关闭SHAP和HTE，只计算MS及乘法/加法交互；各量不是同一效应尺度。\nset.seed(20261015)\nd_int &lt;- data.frame(z = rep(0:1, 240), x = rnorm(480), marker = rnorm(480),\n  sex = factor(rep(c(\"F\", \"F\", \"M\", \"M\"), 120)), region = factor(rep(c(\"North\", \"South\"), each = 240)))\nd_int$outcome &lt;- rbinom(480, 1, plogis(-0.3 + 0.4 * d_int$z + 0.5 * d_int$x + 0.8 * d_int$z * d_int$x))\nint_basic &lt;- get_int(d_int, int_var = \"z\", vars = c(\"x\", \"sex\", \"marker\"),\n  adj_var = c(\"x\", \"sex\", \"marker\"), surv = \"outcome\", shp_args = NULL,\n  hte_args = NULL, tree_args = NULL, order_by = \"mean_rank\", detail = \"table\")\nint_basic$combined\n\n\n\n统一交互面板并保留原始结果。\n\n\n\n\nsplit_var对每个层独立分析，但每个伙伴跨层放在同一行。连续伙伴默认按全数据中位数切分用于标准交互和亚组森林，MS等分支保留各自分析定义。top_n只限制画图，table仍保留完整结果；无法估计的伙伴或分层可记录于failures。\nint_split &lt;- get_int(d_int, int_var = \"z\", vars = c(\"x\", \"sex\", \"marker\"),\n  adj_var = c(\"x\", \"sex\", \"marker\"), split_var = \"region\", surv = \"outcome\",\n  shp_args = NULL, hte_args = NULL, tree_args = NULL, top_n = 3, detail = \"table\")\nint_split$combined\n\n\n\n分层画布共享伙伴顺序。\n\n\n\n\n\n当前已推送公共控制的补充：vars=NULL取adj_var；vars/adj_var中的int_var及split_var会剔除。surv=TRUE时use.DSS=FALSE改用OS；time默认120月，conf.level默认0.95，分支list的time/conf_level可覆盖公共值。5956139已包含这些参数。\ntree_args当前默认list()，NULL明确关闭。默认六法为maxt、ctree_rel、ctree_abs、ctree_dr、ctree_r、ctree_cate；后者基于森林CATE的两阶段分裂P值偏乐观，只作探索。也可显式选择其他带检验的mob_或ctree_方法。后续树复用首棵的森林背景，树图在画布底部按宽度换行。需要二分类int_var、非Fine–Gray结局及相应grf/partykit/ggparty依赖。\n省略tree_args时走默认安静模式：只有至少一棵树分裂才显示树行；无分裂的树仍保留在results/table，分裂P不加入伙伴排名，失败或缺包用message报告。显式传list()则请求正常树行为，与省略参数不完全相同。完整默认调用可能明显更耗时。\n当前交互式print在Viewer显示整张画布并附完整表，可滚动、点击看原尺寸，同时在Plots中将整张PNG缩小显示；非交互会输出表并画图。导出应读取combined或使用save=list(filename=“…”)，按plot_size保留原尺寸，避免把Plots缩略预览当成导出质量。本页实图直接导出combined，没有打开RStudio Viewer。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "交互与风险分层",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
+    ]
+  },
+  {
+    "objectID": "regr/interaction-guide.html#intc-current",
+    "href": "regr/interaction-guide.html#intc-current",
+    "title": "交互分析：get_inter、绝对风险与表格导出",
+    "section": "get_all交互画布与紧凑gt表格",
+    "text": "get_all交互画布与紧凑gt表格\n2026-10-16按已推送RegR 5956139 实际运行以下新例。intc.args调用get_int()并返回interCanvas；原int.args仍是get_inter()统计表分支，返回interTable。data、adj_var、surv、time、conf.level来自com.args，use.DSS也在公共层处理；共同split_var优先，分支只能重复相同值。\nfmt_eff_inter_gt()同样支持compact。5956139还改为按模型项定位get_inter()的交互系数，旧结果对象须重新计算才会使用新逻辑。本节新例已重算，其他历史结果保留其原快照。\n\n统一入口的轻量画布默认紧凑gt恢复gt常规间距\n\n\n复用前节d_int，显式关闭SHAP、HTE和树。返回的interCanvas保留table/results/gt/combined。\nint_from_all &lt;- get_all(com.args = list(data = d_int, surv = \"outcome\",\n  adj_var = c(\"x\", \"sex\", \"marker\")),\n  intc.args = list(int_var = \"z\", vars = c(\"x\", \"sex\", \"marker\"),\n    shp_args = NULL, hte_args = NULL, tree_args = NULL, detail = NULL))\nint_from_all$interCanvas$combined\n\n\n\n统一入口的轻量画布。\n\n\n\n\n新建1600人的独立模拟数据作样式对照；两表使用同一结果，核对底层数据完全相同且没有NaN估计。compact=TRUE默认使用13px和较小单元格间距，只控制视觉密度。\nset.seed(20261016)\nd_table &lt;- data.frame(a = rep(0:1, 800), b = rep(c(0, 0, 1, 1), 400), score = rnorm(1600))\nd_table$outcome &lt;- rbinom(1600, 1, plogis(-2 + 0.8 * d_table$a + 0.9 * d_table$b +\n  0.7 * d_table$a * d_table$b + 0.1 * d_table$score))\ninter_table_new &lt;- get_inter(d_table, exposure_names = c(\"a\", \"b\"),\n  adj_var = \"score\", surv = \"outcome\")\ngt_compact &lt;- fmt_inter_gt(inter_table_new)\ngt_spaced &lt;- fmt_inter_gt(inter_table_new, compact = FALSE)\ngt_compact\n\n\n\n默认紧凑gt。\n\n\n\n\n复用前一标签页的gt_spaced；两表统计量和区间一致。\ngt_spaced\n\n\n\n恢复gt常规间距。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "交互与风险分层",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
+    ]
+  },
+  {
+    "objectID": "regr/interaction-guide.html#int-view-current",
+    "href": "regr/interaction-guide.html#int-view-current",
+    "title": "交互分析：get_inter、绝对风险与表格导出",
+    "section": "分层前检查与可保存结果页",
+    "text": "分层前检查与可保存结果页\n2026-10-16按RegR a8a6eb8核对。至少两层的提前检查和结果环境整理已包含于远端1dc3b2f：split_var过滤缺失后若仅剩一层，会在任何拟合前报错。应先检查完整病例中的层数，不能等待运行完再将单层结果称为“分层分析”。结果不再因局部工作环境意外保存整份调用数据；results中的拟合、表和图仍有分析所需信息，不是匿名化对象。\nget_int/get_int_split现在另有view字段，由fmt_page(combined,gt)构建。打印view可重显结果页，saveRDS保留该页；HTML导出用fmt_page的save。split结果的顶层有整页，各strata内部通常view=NULL，避免重复保存同一画布。缺htmltools或结果页构建失败时view可为NULL，应检查消息和该字段。\n# 接前面int_basic，交互会话或Quarto独立代码块中显示：\nint_basic$view\n# 保存完整图与表的HTML；不会重新拟合模型。\npage_int &lt;- fmt_page(int_basic$combined,int_basic$gt,\n  save=list(filename=file.path(tempdir(),\"interaction-results\")))\n完整执行、可下载HTML与PNG/矢量边界见 结果页教程。前面的combined实图保留原执行提交；本轮只补新返回字段与提前检查说明。",
+    "crumbs": [
+      "RegR · 临床回归",
+      "交互与风险分层",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
+    ]
+  },
+  {
+    "objectID": "regr/interaction-guide.html#seed-20261018",
+    "href": "regr/interaction-guide.html#seed-20261018",
+    "title": "交互分析：get_inter、绝对风险与表格导出",
+    "section": "当前随机种子与计算复用",
+    "text": "当前随机种子与计算复用\n2026-10-18按已推送RegR 7265b31，在Windows / WSL R 4.4.3实际运行下面含随机森林的轻量示例。公共seed现在默认123；各随机分析由该值初始化，分支*_args$seed可局部覆盖。非NULL公共seed下调用后恢复调用者随机状态。\nset.seed(1018)\nn &lt;- 180L\nd_seed &lt;- data.frame(Tx = factor(sample(c(\"No\", \"Yes\"), n, TRUE)),\n  Sex = factor(sample(c(\"Female\", \"Male\"), n, TRUE)), Marker = rnorm(n))\nd_seed[[\"time\"]] &lt;- rexp(n, exp(-3.5 + 0.4 * d_seed[[\"Marker\"]] * (d_seed[[\"Tx\"]] == \"Yes\")))\nd_seed[[\"DSS\"]] &lt;- rbinom(n, 1, 0.7)\nint_call &lt;- function() get_int(d_seed, int_var = \"Tx\", vars = c(\"Sex\", \"Marker\"), time = 24,\n  ms_args = list(), inter_args = NULL, shp_args = NULL, hte_args = NULL, tree_args = NULL,\n  hst_args = list(num.trees = 80, Num.sample = 100,\n    hstats_args = list(approx = TRUE, grid_size = 10, n_max = 60)))\nseed_before &lt;- .Random.seed\nint_seeded &lt;- int_call()\nint_repeat &lt;- int_call()\nstopifnot(identical(.Random.seed, seed_before),\n  isTRUE(all.equal(int_seeded[[\"table\"]], int_repeat[[\"table\"]], check.attributes = FALSE)))\nint_seeded[[\"combined\"]]\n\n\n\n固定随机森林预算的交互筛查实图。\n\n\n两平台均通过随机状态恢复和重复table一致断言。本例只实际计算MS和H统计量，未训练SHAP、HTE或亚组树；H²经过画布缩放，不是临床效应或因果交互量。seed=NULL表示不统一固定：SHAP使用并推进会话随机状态，其他分支沿用各自默认种子，不能继续断言全部重复一致。\n树分支继续复用首个方法的森林，但当前返回结果仅在第一棵保留供后续reuse使用的森林背景。把后面的树单独传给复用接口时可能需要重新拟合，不能把它当成每棵都携带完整森林的缓存。该内存组织变化与本例的H统计量验证范围分开。\n\nget_all在knitr中按需构建页面\nget_all(intc.args=...)在knitr里先返回分析对象，延后整页view构建，因此interCanvas$view可为NULL。图和表应在各自代码块显示；确实需要单页HTML时再调用fmt_page，不必重拟合：\n# 置于Quarto/R Markdown的分析代码块中：\nall_knit &lt;- get_all(com.args = list(data = d_seed, surv = TRUE, time = 24),\n  intc.args = list(int_var = \"Tx\", vars = c(\"Sex\", \"Marker\"), inter_args = NULL,\n    shp_args = NULL, hte_args = NULL, tree_args = NULL))\nall_knit[[\"interCanvas\"]][[\"combined\"]]  # 放在单独图代码块\nall_knit[[\"interCanvas\"]][[\"gt\"]]        # 放在单独表代码块\n# 需要整页时显式组合；不是直接打印可能为NULL的view。\nfmt_page(Plot = all_knit[[\"interCanvas\"]][[\"combined\"]],\n  Table = all_knit[[\"interCanvas\"]][[\"gt\"]],\n  save = list(filename = file.path(tempdir(), \"interaction-page.html\")))\n本轮在独立R进程模拟knitr.in.progress=TRUE，实际确认view为NULL且分析正常完成；没有重跑整本笔记或用户RStudio会话。固定源码",
+    "crumbs": [
+      "RegR · 临床回归",
+      "交互与风险分层",
+      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
+    ]
+  },
+  {
     "objectID": "regr/facet-guide.html",
     "href": "regr/facet-guide.html",
     "title": "分面生存曲线：get_facet 与分层重拟合",
@@ -7016,18 +7088,6 @@
     "crumbs": [
       "跨包性能评估",
       "<span class='chapter-number'>71</span>  <span class='chapter-title'>RPA 生存路径的耗时：校正 Cox 曲线、HR 与时点生存率</span>"
-    ]
-  },
-  {
-    "objectID": "regr/interaction-guide.html#cif-mets-update",
-    "href": "regr/interaction-guide.html#cif-mets-update",
-    "title": "交互分析：get_inter、绝对风险与表格导出",
-    "section": "竞争风险更新：mets 联合 CIF 与加速实测",
-    "text": "竞争风险更新：mets 联合 CIF 与加速实测\n\n默认 delta 为什么不再需要抽样？\nget_inter_abs(surv = FALSE) 默认使用 Fine–Gray 工作模型。调整分支先用 mets::cifregFG() 拟合联合暴露状态与协变量，再用 mets::survivalG() 将同一人群标准化到四个暴露状态。它同时获得四个 CIF 的点估计与完整的联合协方差；未调整分支仍为各联合组的 Aalen–Johansen CIF。\n联合协方差保留不同标准化风险之间的相关性，也包含模型拟合与经验标准化人群分布的不确定性。不能把四个风险的标准误平方放在对角线上，就视为调整分支的完整协方差。令 \\(\\mathbf p=(p_{00},p_{01},p_{10},p_{11})^\\top\\)，\\(\\mathbf a=(1,-1,-1,1)^\\top\\)，则：\n\\[\n\\mathrm{IC}=\\mathbf a^\\top\\mathbf p,\\qquad\n\\operatorname{Var}(\\mathrm{IC})=\\mathbf a^\\top V\\mathbf a.\n\\]\n默认 ci_method = \"delta\" 从 \\(V\\) 计算 IC、RERI、AP、SI 与乘性交互的区间；乘性项与 SI 使用对数尺度近似。这个分支不执行 bootstrap，因此提高 n_boot 或 n_cores 不会让它进行更多抽样。mets::survivalG() 的标准化风险与影响函数接口见 官方帮助。\nci_method = \"boot\" 则在每次患者级联合重抽样后，通过同一 mets 模型重新拟合，并对该次抽样人群标准化；四个暴露状态使用同一次抽样，再组合交互指标。无法估计的抽样会整次剔除并警告。显式 cif_args = list(model = \"CSC\") 的调整分支仍使用 bootstrap，选择 delta 时会警告并回退。\n\n\n两种区间方法：同一队列的实际结果\n本节单独按 time、event、Sex、Age、Race 完整病例且 time &gt; 0 筛选，得到 4,387 人：删失 3,207 人、目标事件 597 人、竞争事件 583 人。比较性别与年龄组，调整连续年龄与种族，在 120 月估计目标事件 CIF。连续年龄和年龄分组同时出现，是本次计时固定的调整设置；研究分析应按问题预先确定协变量。\n# 本节代码共用的数据；event: 0=删失，1=目标事件，2=竞争事件\ninter_cif_data &lt;- as.data.frame(RegR::seer_thyroid_mtc_2026)\ncif_vars &lt;- c(\"time\", \"event\", \"Sex\", \"Age\", \"Race\")\ninter_cif_data &lt;- inter_cif_data[\n  complete.cases(inter_cif_data[, cif_vars]) & inter_cif_data$time &gt; 0,\n  cif_vars\n]\ninter_cif_data$Sex &lt;- factor(inter_cif_data$Sex, levels = c(\"Female\", \"Male\"))\ninter_cif_data$AgeH &lt;- factor(\n  ifelse(inter_cif_data$Age &gt;= 55, \"ge55\", \"lt55\"),\n  levels = c(\"lt55\", \"ge55\")\n)\n\ndelta：默认方法boot：可选方法\n\n\ninter_cif_delta &lt;- RegR::run_quiet({\n  get_inter_abs(\n    inter_cif_data, exposure_names = c(\"Sex\", \"AgeH\"),\n    adj_var = c(\"Age\", \"Race\"), surv = FALSE, sur_time = 120,\n    ci_method = \"delta\", cif_args = list(model = \"FGR\")\n  )\n})\nfmt_inter_gt(inter_cif_delta)\n以下为该次调用中四个风险与主要加性交互 IC 的摘要。CIF 乘以 100 显示为百分比；IC 乘以 100 显示为百分点。括号内为 95% CI。\n\n\n\n\n状态或指标\n未调整\n调整年龄与种族\n\n\n\n\nFemale，&lt;55：CIF（%）\n7.67（5.95，9.39）\n10.30（7.83，12.77）\n\n\nFemale，≥55：CIF（%）\n12.78（10.71，14.86）\n10.59（8.80，12.38）\n\n\nMale，&lt;55：CIF（%）\n16.83（13.78，19.87）\n23.12（18.54，27.69）\n\n\nMale，≥55：CIF（%）\n25.17（22.13，28.21）\n20.58（17.66，23.49）\n\n\nIC（百分点）\n3.23（−1.85，8.31）\n−2.82（−8.32，2.67）\n\n\n\n\n\n\nset.seed(171)\ninter_cif_boot &lt;- RegR::run_quiet({\n  get_inter_abs(\n    inter_cif_data, exposure_names = c(\"Sex\", \"AgeH\"),\n    adj_var = c(\"Age\", \"Race\"), surv = FALSE, sur_time = 120,\n    ci_method = \"boot\", cif_args = list(model = \"FGR\"),\n    n_boot = 50, n_cores = 1\n  )\n})\nfmt_inter_gt(inter_cif_boot)\n这里 50 次抽样仅用于示例与计时，不作为正式分析的重复次数建议。正式分析可提高 n_boot，并检查随机种子、区间端点与成功抽样数的稳定性。\n\n\n\n\n状态或指标\n未调整\n调整年龄与种族\n\n\n\n\nFemale，&lt;55：CIF（%）\n7.67（5.93，9.86）\n10.30（8.36，12.24）\n\n\nFemale，≥55：CIF（%）\n12.78（10.53，14.59）\n10.59（8.80，12.22）\n\n\nMale，&lt;55：CIF（%）\n16.83（14.08，19.90）\n23.12（20.19，25.76）\n\n\nMale，≥55：CIF（%）\n25.17（22.30，27.77）\n20.58（17.91，22.71）\n\n\nIC（百分点）\n3.23（−2.88，8.76）\n−2.82（−7.42，1.38）\n\n\n\n\n\n\n\n两种方法的点估计完全一致，区间方法不同。该例调整后的 IC 为 −2.82 个百分点，两种区间均跨 0；应结合估计量、时间点与调整设置解释。bootstrap 不会自动解决分母接近 0、稀疏联合组或工作模型不合适的问题，尤其 SI 等比值可能不稳定。\n\n\n优化前后的完整调用耗时\n2026-10-02 在 WSL Ubuntu-22.04、R 4.4.3、mets 1.3.13 下实测。比较更新前模块 aac87ba 与更新后模块 cefc1a5；其余依赖相同。每种设置在独立进程中顺序运行，n_cores = 1，BLAS / OpenMP 线程数均设为 1。预热后计时覆盖完整 get_inter_abs() 调用及其自动表格格式化，不计包加载、数据准备与结果保存。\n\n\n\n\n\n\n\n\n\n\n\n\n样本量\n区间设置\n优化前（秒）\n优化后（秒）\n加速倍数\n时间减少\n\n\n\n\n1,000\ndelta，旧版回退 50 次抽样\n2.740\n0.231\n11.9×\n91.57%\n\n\n1,000\n两版均 boot，50 次\n2.984\n2.981\n1.00×\n0.10%\n\n\n4,387\ndelta，旧版回退 50 次抽样\n18.863\n0.390\n48.4×\n97.93%\n\n\n4,387\n两版均 boot，50 次\n19.305\n9.211\n2.10×\n52.29%\n\n\n4,387\n默认 delta，旧版回退 500 次抽样\n185.535\n0.411\n451.4×\n99.78%\n\n\n\n\n50 次抽样的各项分别重复 3 次，表中为中位数。默认 500 次的旧版实测 1 次，新版重复 3 次、范围 0.338–0.504 秒；这些是实际计时，未按 50 次结果外推。1,000 人是同一完整队列按 set.seed(20261002) 固定抽取的无放回子样本。单次结果展示与计时的调用种子从 171 起。\n\n\n\n\n\n\n注记如何理解 451 倍加速\n\n\n\n最大的收益来自默认路径省去了 500 次 bootstrap，改用联合协方差计算 delta 区间。因此 451 倍包含区间方法变化的收益；它不表示单次 Fine–Gray 拟合加速了 451 倍。相同 50 次 bootstrap 下，完整队列约快 2.1 倍，1,000 人子样本没有明显提速。具体耗时受样本量、事件数、协变量、机器与抽样次数影响。\n数值核对中，新版 delta / boot 的点估计完全一致；新旧未调整风险一致，调整后风险最大差异约 0.030 个百分点。新后端在请求时间恰逢事件时纳入该时间全部并列事件，且不跨越下一个事件时间；仅核对点估计不能证明两种区间具有相同覆盖率。\n\n\n下载计时汇总 CSV · 下载逐次计时 CSV\n本机复测新版时，可在上述数据准备后运行以下代码。固定 n_boot = 50 使 bootstrap 检查较快；delta 不使用这个抽样次数。包加载和首次预热不计入后续计时，返回的是当前机器的运行结果。\nmeasure_cif &lt;- function(mode) {\n  RegR::run_quiet({\n    get_inter_abs(\n      inter_cif_data, exposure_names = c(\"Sex\", \"AgeH\"),\n      adj_var = c(\"Age\", \"Race\"), surv = FALSE, sur_time = 120,\n      ci_method = mode, n_boot = 50, n_cores = 1\n    )\n  })\n}\ninvisible(measure_cif(\"delta\"))\ninvisible(measure_cif(\"boot\"))\ncif_timing &lt;- do.call(rbind, lapply(c(\"delta\", \"boot\"), function(mode) {\n  times &lt;- vapply(1:3, function(i) {\n    gc()\n    set.seed(170 + i)\n    unname(system.time(invisible(measure_cif(mode)))[\"elapsed\"])\n  }, numeric(1))\n  data.frame(ci_method = mode, median_seconds = median(times))\n}))\ncif_timing",
-    "crumbs": [
-      "RegR · 临床回归",
-      "交互与风险分层",
-      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
     ]
   },
   {
@@ -9167,18 +9227,6 @@
     ]
   },
   {
-    "objectID": "regr/interaction-guide.html#get-fit-ms",
-    "href": "regr/interaction-guide.html#get-fit-ms",
-    "title": "交互分析：get_inter、绝对风险与表格导出",
-    "section": "get_fit_ms()：保留完整编码的整体乘法交互检验",
-    "text": "get_fit_ms()：保留完整编码的整体乘法交互检验\n本节按 RegR 0.1.3 源码 40515e1 核对，复用本页完整案例队列，在 WSL R 4.4.3 中实际执行。get_fit_ms() 不把多分类变量拆成多次二分类比较，而是为每个“暴露 × 修饰变量”拟合嵌套模型，检验全部交互项。\nget_fit_ms(data, exposure_names, adj_var = NULL, surv = TRUE,\n  test = c(\"LRT\", \"Wald\"))\nexposure_names 的第一个变量是暴露，其余变量按顺序逐一作为修饰变量。二分类、多分类、连续 × 分类、连续 × 连续均保留完整编码；数字编码的分类变量应先转为 factor，否则按线性连续项建模。\nCox / Logistic 默认使用 LRT；Fine–Gray 使用联合 Wald 检验，显式要求 LRT 会提示并改用 Wald。输出给出实际使用的 test、statistic、df、p.value、n 与 events。同一变量对的未调整和调整模型使用同一批完整案例，保证差异来自调整设置。\nms_cox &lt;- get_fit_ms(inter_data, exposure_names = c(\"Sex\", \"Race\", \"Age\"),\n  adj_var = \"Age\", surv = TRUE)\ninter_data[[\"status\"]] &lt;- factor(inter_data[[\"event\"]], levels = 0:2)\nms_fg &lt;- get_fit_ms(inter_data, exposure_names = c(\"Age\", \"Race\"),\n  adj_var = \"Sex\", surv = FALSE, test = \"Wald\")\n\nCox：二分类 × 三分类 / 连续变量\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nexposure\nmodifier\nmodel\ntype\nn\nevents\ntest\nstatistic\ndf\np.value\n\n\n\n\nSex\nRace\nUnadj\n2 x 3\n4387\n597\nLRT\n0.960\n2\n0.619\n\n\nSex\nRace\nAdjus\n2 x 3\n4387\n597\nLRT\n1.198\n2\n0.549\n\n\nSex\nAge\nUnadj\n2 x continuous\n4387\n597\nLRT\n0.416\n1\n0.519\n\n\n\n\n\n\nFine–Gray：连续变量 × 三分类\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nexposure\nmodifier\nmodel\ntype\nn\nevents\ntest\nstatistic\ndf\np.value\n\n\n\n\nAge\nRace\nUnadj\ncontinuous x 3\n4387\n597\nWald\n1.212\n2\n0.546\n\n\nAge\nRace\nAdjus\ncontinuous x 3\n4387\n597\nWald\n0.825\n2\n0.662\n\n\n\n\n这是模型比值尺度上的整体交互检验，不给出 RERI、AP、SI，也不等于绝对风险差的交互检验。若要展示每个组合的效应和加法指标，继续使用本页的 get_inter() / get_inter_abs()；若要判断保留完整编码后的整体乘法交互，使用 get_fit_ms()。\n空组合会导致不可估计项被剔除并减少实际 df；分类组合内无事件或无非事件会使 Wald 统计量和 P 值成为 NA 并给出提示。不能把 NA 当作“不存在交互”。",
-    "crumbs": [
-      "RegR · 临床回归",
-      "交互与风险分层",
-      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
-    ]
-  },
-  {
     "objectID": "regr/eff-cat-guide.html#dat-adj-ps",
     "href": "regr/eff-cat-guide.html#dat-adj-ps",
     "title": "同一暴露的效应比较：调整模型、结局与分层",
@@ -9864,18 +9912,6 @@
     ]
   },
   {
-    "objectID": "regr/interaction-guide.html#get-int-current",
-    "href": "regr/interaction-guide.html#get-int-current",
-    "title": "交互分析：get_inter、绝对风险与表格导出",
-    "section": "get_int：统一分析与分层画布",
-    "text": "get_int：统一分析与分层画布\n前两张图按2026-10-15的RegR 2d4d83c 在WSL执行。2026-10-16复核：已推送5956139包含这些接口；按该提交重新运行轻量例，table统计量与前快照逐项一致。当前默认已开启亚组树，下面代码显式设置tree_args=NULL；只凭0.1.3版本号不能判断旧安装。\n两图只开启MS和标准交互分支；没有训练SHAP/HTE或树。先运行第一标签页，再运行分层标签页。返回的table保留统计量、contrast和model，results保留各分支对象，combined是画布、gt是完整交互表；分层返回strata、combined和gt，各层结果放在strata中。\nmean_rank按已运行分析的伙伴强度平均排名，first按首分析，none保留vars顺序；排名不能当作因果证据。此模拟中函数提示有预防性暴露，解释RERI前须核对参照编码及比值方向。默认cont_cut=“median”只改变规定分支，不是所有模型都统一二分类。\n\n统一交互面板并保留原始结果分层画布共享伙伴顺序\n\n\n当前5956139默认开启MS、标准交互、SHAP、HTE及亚组树；H统计量和paired-VIMP默认关闭。NULL关闭对应分析，list()使用默认值，命名list传控制参数。本例显式关闭SHAP和HTE，只计算MS及乘法/加法交互；各量不是同一效应尺度。\nset.seed(20261015)\nd_int &lt;- data.frame(z = rep(0:1, 240), x = rnorm(480), marker = rnorm(480),\n  sex = factor(rep(c(\"F\", \"F\", \"M\", \"M\"), 120)), region = factor(rep(c(\"North\", \"South\"), each = 240)))\nd_int$outcome &lt;- rbinom(480, 1, plogis(-0.3 + 0.4 * d_int$z + 0.5 * d_int$x + 0.8 * d_int$z * d_int$x))\nint_basic &lt;- get_int(d_int, int_var = \"z\", vars = c(\"x\", \"sex\", \"marker\"),\n  adj_var = c(\"x\", \"sex\", \"marker\"), surv = \"outcome\", shp_args = NULL,\n  hte_args = NULL, tree_args = NULL, order_by = \"mean_rank\", detail = \"table\")\nint_basic$combined\n\n\n\n统一交互面板并保留原始结果。\n\n\n\n\nsplit_var对每个层独立分析，但每个伙伴跨层放在同一行。连续伙伴默认按全数据中位数切分用于标准交互和亚组森林，MS等分支保留各自分析定义。top_n只限制画图，table仍保留完整结果；无法估计的伙伴或分层可记录于failures。\nint_split &lt;- get_int(d_int, int_var = \"z\", vars = c(\"x\", \"sex\", \"marker\"),\n  adj_var = c(\"x\", \"sex\", \"marker\"), split_var = \"region\", surv = \"outcome\",\n  shp_args = NULL, hte_args = NULL, tree_args = NULL, top_n = 3, detail = \"table\")\nint_split$combined\n\n\n\n分层画布共享伙伴顺序。\n\n\n\n\n\n当前已推送公共控制的补充：vars=NULL取adj_var；vars/adj_var中的int_var及split_var会剔除。surv=TRUE时use.DSS=FALSE改用OS；time默认120月，conf.level默认0.95，分支list的time/conf_level可覆盖公共值。5956139已包含这些参数。\ntree_args当前默认list()，NULL明确关闭。默认六法为maxt、ctree_rel、ctree_abs、ctree_dr、ctree_r、ctree_cate；后者基于森林CATE的两阶段分裂P值偏乐观，只作探索。也可显式选择其他带检验的mob_或ctree_方法。后续树复用首棵的森林背景，树图在画布底部按宽度换行。需要二分类int_var、非Fine–Gray结局及相应grf/partykit/ggparty依赖。\n省略tree_args时走默认安静模式：只有至少一棵树分裂才显示树行；无分裂的树仍保留在results/table，分裂P不加入伙伴排名，失败或缺包用message报告。显式传list()则请求正常树行为，与省略参数不完全相同。完整默认调用可能明显更耗时。\n当前交互式print在Viewer显示整张画布并附完整表，可滚动、点击看原尺寸，同时在Plots中将整张PNG缩小显示；非交互会输出表并画图。导出应读取combined或使用save=list(filename=“…”)，按plot_size保留原尺寸，避免把Plots缩略预览当成导出质量。本页实图直接导出combined，没有打开RStudio Viewer。",
-    "crumbs": [
-      "RegR · 临床回归",
-      "交互与风险分层",
-      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
-    ]
-  },
-  {
     "objectID": "mlr/interaction-guide.html#targeted-current",
     "href": "mlr/interaction-guide.html#targeted-current",
     "title": "变量交互：H 统计量、paired-VIMP 与 VIV 图谱",
@@ -9983,18 +10019,6 @@
     ]
   },
   {
-    "objectID": "regr/interaction-guide.html#intc-current",
-    "href": "regr/interaction-guide.html#intc-current",
-    "title": "交互分析：get_inter、绝对风险与表格导出",
-    "section": "get_all交互画布与紧凑gt表格",
-    "text": "get_all交互画布与紧凑gt表格\n2026-10-16按已推送RegR 5956139 实际运行以下新例。intc.args调用get_int()并返回interCanvas；原int.args仍是get_inter()统计表分支，返回interTable。data、adj_var、surv、time、conf.level来自com.args，use.DSS也在公共层处理；共同split_var优先，分支只能重复相同值。\nfmt_eff_inter_gt()同样支持compact。5956139还改为按模型项定位get_inter()的交互系数，旧结果对象须重新计算才会使用新逻辑。本节新例已重算，其他历史结果保留其原快照。\n\n统一入口的轻量画布默认紧凑gt恢复gt常规间距\n\n\n复用前节d_int，显式关闭SHAP、HTE和树。返回的interCanvas保留table/results/gt/combined。\nint_from_all &lt;- get_all(com.args = list(data = d_int, surv = \"outcome\",\n  adj_var = c(\"x\", \"sex\", \"marker\")),\n  intc.args = list(int_var = \"z\", vars = c(\"x\", \"sex\", \"marker\"),\n    shp_args = NULL, hte_args = NULL, tree_args = NULL, detail = NULL))\nint_from_all$interCanvas$combined\n\n\n\n统一入口的轻量画布。\n\n\n\n\n新建1600人的独立模拟数据作样式对照；两表使用同一结果，核对底层数据完全相同且没有NaN估计。compact=TRUE默认使用13px和较小单元格间距，只控制视觉密度。\nset.seed(20261016)\nd_table &lt;- data.frame(a = rep(0:1, 800), b = rep(c(0, 0, 1, 1), 400), score = rnorm(1600))\nd_table$outcome &lt;- rbinom(1600, 1, plogis(-2 + 0.8 * d_table$a + 0.9 * d_table$b +\n  0.7 * d_table$a * d_table$b + 0.1 * d_table$score))\ninter_table_new &lt;- get_inter(d_table, exposure_names = c(\"a\", \"b\"),\n  adj_var = \"score\", surv = \"outcome\")\ngt_compact &lt;- fmt_inter_gt(inter_table_new)\ngt_spaced &lt;- fmt_inter_gt(inter_table_new, compact = FALSE)\ngt_compact\n\n\n\n默认紧凑gt。\n\n\n\n\n复用前一标签页的gt_spaced；两表统计量和区间一致。\ngt_spaced\n\n\n\n恢复gt常规间距。",
-    "crumbs": [
-      "RegR · 临床回归",
-      "交互与风险分层",
-      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
-    ]
-  },
-  {
     "objectID": "mlr/imp-guide.html#importance-repeat-current",
     "href": "mlr/imp-guide.html#importance-repeat-current",
     "title": "特征重要性：get_imp 与 9 个绘图函数",
@@ -10064,18 +10088,6 @@
       "RegR · 临床回归",
       "交互与风险分层",
       "<span class='chapter-number'>9</span>  <span class='chapter-title'>RPA 递归分区</span>"
-    ]
-  },
-  {
-    "objectID": "regr/interaction-guide.html#int-view-current",
-    "href": "regr/interaction-guide.html#int-view-current",
-    "title": "交互分析：get_inter、绝对风险与表格导出",
-    "section": "分层前检查与可保存结果页",
-    "text": "分层前检查与可保存结果页\n2026-10-16按RegR a8a6eb8核对。至少两层的提前检查和结果环境整理已包含于远端1dc3b2f：split_var过滤缺失后若仅剩一层，会在任何拟合前报错。应先检查完整病例中的层数，不能等待运行完再将单层结果称为“分层分析”。结果不再因局部工作环境意外保存整份调用数据；results中的拟合、表和图仍有分析所需信息，不是匿名化对象。\nget_int/get_int_split现在另有view字段，由fmt_page(combined,gt)构建。打印view可重显结果页，saveRDS保留该页；HTML导出用fmt_page的save。split结果的顶层有整页，各strata内部通常view=NULL，避免重复保存同一画布。缺htmltools或结果页构建失败时view可为NULL，应检查消息和该字段。\n# 接前面int_basic，交互会话或Quarto独立代码块中显示：\nint_basic$view\n# 保存完整图与表的HTML；不会重新拟合模型。\npage_int &lt;- fmt_page(int_basic$combined,int_basic$gt,\n  save=list(filename=file.path(tempdir(),\"interaction-results\")))\n完整执行、可下载HTML与PNG/矢量边界见 结果页教程。前面的combined实图保留原执行提交；本轮只补新返回字段与提前检查说明。",
-    "crumbs": [
-      "RegR · 临床回归",
-      "交互与风险分层",
-      "<span class='chapter-number'>6</span>  <span class='chapter-title'>交互分析</span>"
     ]
   },
   {
