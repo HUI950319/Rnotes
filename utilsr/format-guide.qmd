@@ -2,7 +2,7 @@
 title: "ggplot 格式化：主题、坐标、图例、条带与面板标签"
 description: "fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化；实际参数对照与嵌套布局示例。"
 date: 2026-10-09
-date-modified: 2026-10-16
+date-modified: 2026-10-18
 lightbox: true
 toc-depth: 2
 ---
@@ -361,7 +361,7 @@ fmt_bg(p_box, palcolor = c("#E8F1F8", "#FFF1D6", "#E4F3EA"), alpha = 0.45)
 
 ### 抖动点与白边 {.unnumbered}
 
-点层横向抖动减少遮挡，纵向不抖动；白边通过可填色点形实现。
+点层横向抖动减少遮挡，纵向不抖动；下图保留原执行快照，当前白边与点形规则见本页后续更新。
 
 ```r
 fmt_point(p_box, type = "jitter", size = 1.6, white_border = TRUE,
@@ -1123,3 +1123,84 @@ ref_nested
 ```
 
 ![分面与嵌套组合](images/format-guide/20261016-reference-nested.png){fig-alt="分面与嵌套组合；固定输入、按注明源码快照实际运行的示例。"}
+
+## 当前点层：联合分组、分面与随机状态 {#point-20261018}
+
+2026-10-18 按已推送UtilsR `545bf4b`，在Windows / WSL R 4.4.3实际构建并绘制本节图形。旧图保留原执行快照，以下用新模拟数据核验当前规则。
+
+`sample_n`是每个抽样层的上限。显式`group`优先；否则离散colour/fill形成联合层，再加入已有分面变量。缺失分组单独保留，连续colour/fill不据此分组；底层dplyr分组也不会自动改变抽样数。data函数或公式在build时先解析，再抽样。
+
+```r
+set.seed(1018)
+point_data <- expand.grid(panel = c("P1", "P2"), category = c("A", "B"),
+  sex = c("Female", "Male", NA_character_), repeat_id = seq_len(20))
+point_data[["category"]] <- factor(point_data[["category"]])
+point_data[["sex"]] <- factor(point_data[["sex"]])
+point_data[["value"]] <- rnorm(nrow(point_data)) + as.integer(point_data[["category"]])
+point_base <- ggplot(point_data, aes(category, value, colour = sex, fill = category)) +
+  facet_wrap(~panel) + theme_bw()
+sampled_points <- fmt_point(point_base, type = "point", shape = 21, size = 2.4,
+  sample_n = 5, seed = 42)
+seed_before <- .Random.seed
+built_points <- ggplot_build(sampled_points)[["data"]][[1]]
+stopifnot(nrow(built_points) == 60L, identical(.Random.seed, seed_before))
+table(built_points[["PANEL"]])  # 每个分面30个点
+sampled_points
+```
+
+![每个分面、颜色与填充联合层抽5个点，缺失分组没有丢失。](images/format-guide/20261018-point-strata.png){fig-alt="240条模拟记录按两分面、两category和Female/Male/缺失三种sex联合抽样，各层最多5点，每个分面30点，共60点。"}
+
+本例没有随机位置图层，抽样构建前后调用者的随机状态相同。按行的外部向量在抽样后无法可靠对齐，应先放入data并映射列；不要把它们作为固定颜色、大小或mapping环境向量继续传入。
+
+### 白边保留原来的点形和颜色
+
+```r
+set.seed(1020)
+shape_data <- data.frame(x = rep(1:12, 4), y = rnorm(48),
+  symbol = factor(rep(c("circle", "triangle", "diamond", "plus"), each = 12)))
+shape_base <- ggplot(shape_data, aes(x, y, colour = symbol, shape = symbol)) +
+  scale_shape_manual(values = c(circle = 16, triangle = 17, diamond = 18, plus = 3)) + theme_bw()
+shape_plain <- fmt_point(shape_base, size = 2.5) + ggtitle("Original symbols")
+shape_white <- fmt_point(shape_base, size = 2.5, white_border = TRUE) + ggtitle("White border / underlay")
+shape_plain | shape_white
+```
+
+![可填色点形使用白色描边，其他符号保留原形并叠白色衬底。](images/format-guide/20261018-point-shapes.png){fig-alt="圆、三角、菱形和加号的原始与白边版本对照，保留颜色映射和原始点形。"}
+
+省略shape/size保留已有映射，显式设置才覆盖；`pch`是shape别名，point/jitter中的`cex`是size别名。显式`position`优先于自动定位，每个子图保留自己的position设置。白边不再只限于21–24这几种可填色点。
+
+## 当前箱线：已有统计量的自动来源 {#boxplot-20261018}
+
+`inherit.aes=FALSE`时，`stat="identity"`不再要求同时提供一整套显式mapping：首个完整来源的映射与固定统计量可以组合。显式NULL仍按原生ggplot2处理，不被默认值覆盖；需要原始x/y的位置映射会取staged表达式的原始数据部分。
+
+```r
+box_data <- data.frame(label = c("A", "B"), low = c(1, 1), q1 = c(2, 4),
+  mid = c(5, 6), high = c(10, 10))
+box_mapping <- aes(x = label, ymin = low, lower = q1, middle = mid, ymax = high)
+box_source <- ggplot(box_data, box_mapping) + geom_blank() + theme_bw()
+box_auto <- fmt_boxplot(box_source, list(stat = "identity", upper = 8), inherit.aes = FALSE)
+box_native <- box_source + geom_boxplot(data = box_data, mapping = box_mapping,
+  stat = "identity", upper = 8, inherit.aes = FALSE,
+  width = 0.3, alpha = 0.2, na.rm = TRUE, outlier.shape = NA)
+stopifnot(identical(ggplot_build(box_auto)[["data"]], ggplot_build(box_native)[["data"]]))
+(box_native + ggtitle("Native identity")) | (box_auto + ggtitle("Mapped and fixed summaries"))
+```
+
+![mapping与固定upper组合后，结果与原生geom_boxplot逐项一致。](images/format-guide/20261018-box-identity.png){fig-alt="左右分别是原生identity箱线与fmt_boxplot自动来源版本，两组的上下须、四分位数和中位数一致。"}
+
+### identity的宽度与显式离群点
+
+```r
+width_data <- data.frame(label = c("A", "B"), low = c(1, 11), q1 = c(3, 13),
+  mid = c(5.5, 15.5), q3 = c(8, 18), high = c(10, 20), rw = c(1, 2))
+width_source <- ggplot(width_data, aes(x = label, ymin = low, lower = q1, middle = mid,
+  upper = q3, ymax = high, relvarwidth = rw)) + geom_boxplot(stat = "identity") + theme_bw()
+width_auto <- fmt_boxplot(width_source, list(stat = "identity", varwidth = TRUE), inherit.aes = FALSE)
+width_auto
+```
+
+![identity叠加层保留来源中1比2的相对宽度。](images/format-guide/20261018-box-widths.png){fig-alt="两组已有统计量的箱线叠加，第二组的相对宽度大于第一组，保留来源relvarwidth。"}
+
+当前ggplot2可能提示`Ignoring unknown aesthetics: relvarwidth`，本轮对应原生geom也有同一提示，build数据逐项一致。`notch=TRUE`时同样复制来源的notch边界；显式请求outlier.shape时保留来源离群点映射，但`outliers=FALSE`仍会关闭它们。样本来源有歧义时显式提供data和aes()。
+
+源码：[点层](https://github.com/HUI950319/UtilsR/blob/545bf4b/R/fmt_point.R)、[箱线与其他格式化](https://github.com/HUI950319/UtilsR/blob/545bf4b/R/fmt_plot.R)。本轮没有重新测量速度，不把正确性修复解释成新的性能倍数。
