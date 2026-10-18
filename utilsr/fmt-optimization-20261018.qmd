@@ -1,0 +1,329 @@
+---
+title: "fmt_* 优化总结：2026-10-07 至 10-18"
+description: "UtilsR 20 个 ggplot 修饰函数与 fmt_flatten() 的 335 次提交汇总：七条主线、14 项行为变化、逐函数改动、每日提交与来源边界。"
+date: 2026-10-18
+toc: true
+---
+
+本页属于 [跨包性能评估](../regr/performance-evaluation.qmd#utilsr-fmt)，汇总 2026-10-07 至 10-18 对 UtilsR 20 个 ggplot 修饰函数和 `fmt_flatten()` 的修复与优化。内容来自 UtilsR 的 git 历史与 [`NEWS.md`](https://github.com/HUI950319/UtilsR/blob/232a641d71573551db68274da060d6d5c9da53ab/NEWS.md)（0.6.8 段），统计截至已推送提交 [`232a641`](https://github.com/HUI950319/UtilsR/commit/232a641d71573551db68274da060d6d5c9da53ab)（2026-10-18 10:32）。各函数的用法、参数对照与实图见 [ggplot 格式化](format-guide.qmd)，参考文档见 [UtilsR pkgdown](https://hui950319.github.io/UtilsR/)。
+
+## 概况 {#overview}
+
+| 指标 | 数值 |
+|:--|--:|
+| 改动 fmt_* 源码或测试的提交 | 335 |
+| 涉及的导出函数 | 21（20 个 ggplot 修饰函数 + `fmt_flatten()`） |
+| fmt_* 测试用例（`test_that()`） | 9 → 493 |
+| 源码行数变化（4 个 R 文件） | +5,518 / −1,479 |
+| 测试代码新增 | 约 10,340 行，19 个测试文件 |
+
+## 七条主线 {#themes}
+
+各函数的改动内容不同，但大多可以归入下面七类。
+
+:::: {.grid}
+::: {.g-col-12 .g-col-md-6 .border .rounded .p-3}
+**1. 嵌套拼图全覆盖**
+
+每个格式化函数都会递归进入嵌套的 patchwork 和普通列表，逐个处理其中的数据图。spacer、guide area、inset 和 `wrap_elements()` 生成的固定图会被跳过，也不占编号；原有的布局、注释和列表名都保留。
+:::
+::: {.g-col-12 .g-col-md-6 .border .rounded .p-3}
+**2. 不提前求值**
+
+数据回调函数、`after_stat()` 映射、active binding 都推迟到绘图时才求值；格式化过程中不消耗调用者的随机数流。因此加了修饰的图与原图抽样结果相同，数据函数也不会被多执行一次。
+:::
+::: {.g-col-12 .g-col-md-6 .border .rounded .p-3}
+**3. 保留已有设置**
+
+只改动用户指定的那一项：`fmt_scale()` 不再整体替换原有 scale；`fmt_expand()` 保留原有的变换和副轴；`fmt_text()` 保留 ggtext 富文本；`fmt_strip()` 保留自定义 labeller；`fmt_legend()` 保留色条和 guide 的设置。
+:::
+::: {.g-col-12 .g-col-md-6 .border .rounded .p-3}
+**4. 控制对象体积**
+
+图层构造和闭包放在隔离的环境里，返回的图不再夹带其他子图的数据或函数调用帧。例如一张 21 MB 的图用 `fmt_strip()` 改 3 次标签后，序列化体积从 **90 MB 降到 22 MB**。
+:::
+::: {.g-col-12 .g-col-md-6 .border .rounded .p-3}
+**5. 速度与文件大小**
+
+没有改动时直接返回原对象，批量处理时缓存主题，内存栅格不再经过 PNG 文件中转。`fmt_raster()` 输出的 PDF 从 **103 KB 降到 31 KB**；`"image"` 模式在 RStudio 中重绘约**快 8 倍**。
+:::
+::: {.g-col-12 .g-col-md-6 .border .rounded .p-3}
+**6. 参数校验与报错**
+
+在开始绘图前就检查参数，报错信息直接指出是哪个参数出错，不再抛出底层图形错误或静默忽略。例如 `fmt_plot()` 去掉了 `...`，`fmt_ref()` 拒绝 `colour`，`fmt_axisTile()` 在颜色名都对不上时给出警告。
+:::
+::: {.g-col-12 .g-col-md-6 .border .rounded .p-3}
+**7. 兼容性**
+
+同时兼容 ggplot2 3.5 和 4.x，以及 ggnewscale、ggtext `element_markdown()`、ggh4x 主题分面条，并支持 `coord_polar()`、`coord_radial()`、翻转坐标、变换轴，以及 Windows 上较旧的 ggpp 0.5.8.1。
+:::
+::: {.g-col-12 .g-col-md-6 .border .rounded .p-3}
+**代表性数字**
+
+- ggrastr 后端只栅格化点和 tile 层，PDF 从 103 KB 降到 31 KB
+- ragg 后端处理 20 万点的分面图，PDF 约小 40%
+- `fmt_strip()` 改 3 次标签后，序列化体积从 90 MB 降到 22 MB
+- `fmt_strip2()` 深灰底色上的文字自动改用白字（原黑字对比度仅 3.5:1）
+:::
+::::
+
+## 需要留意的行为变化 {#behavior-changes}
+
+大部分改动是修复或优化，原有用法照常可用。下表列出的几项会改变默认结果或函数接口，旧脚本的输出可能与以前不同。
+
+::: {.table-responsive}
+
+| 函数（类型） | 变化 | 恢复旧行为 |
+|:--|:--|:--|
+| `fmt_axisTile()`<br>（默认值） | `text_size`、`text_face`、`text_angle`、`text_color` 的默认值改为 `NULL`，即沿用图本身的轴文字样式。原默认值是 9 号、plain、x 轴旋转 45°、黑色，导致只想给标签上色的 `mode = "text"` 也会把文字改小、改黑并旋转。 | `text_angle = 45` 等 |
+| `fmt_axisTile()`<br>（返回类型） | `mode = "tile"` 时输入 ggplot 返回 ggplot，输入 ggplot 列表返回列表；以前会包成 patchwork。 | — |
+| `fmt_strip2()`<br>（默认值） | `label_color` 默认值改为 `"auto"`，按每个表头的底色自动选黑字或白字。 | `label_color = "black"` |
+| `fmt_text()`<br>（新参数） | 新增 `axis_titles` 参数，默认 `"collect"`，所有子图共用的轴标题只画一次。只有设置了 `xlab` 或 `ylab` 时才生效。 | `axis_titles = NULL` |
+| `fmt_text()` / `fmt_legend()`<br>（修复） | 传 `""` 会真正删除标题，不再留出约 5–6 mm 的空白。 | — |
+| `fmt_plot()`<br>（接口） | 删除了没有用到的 `...`。参数拼错（如 `fmt_strip_list`）时会报 “unused argument” 错误，不再被静默忽略。 | — |
+| `fmt_plot()` / `fmt_plot_base()`<br>（修复） | 输入普通列表时逐个格式化并返回列表，以前返回 `NULL`。`fmt_plot_base()` 的 scale 设置改由 `fmt_scale()` 应用，`scale_y_log10()` 不会再变回线性轴。 | — |
+| `fmt_raster()`<br>（默认后端） | 默认的 ggrastr 后端只栅格化点和 tile 层，线、柱、多边形保持矢量。注意：开发中途一度把这些层也栅格化，后来又改回。 | — |
+| `fmt_raster()`<br>（新模式） | 新增 `method = "image"`，把整张图（含文字）渲染为一张图片，适合屏幕预览，不适合出版导出。 | — |
+| `fmt_panel()`<br>（新选项） | 新增 `grid = "keep"`，可以只改边框或背景而不动网格线。默认值仍是 `"none"`。 | — |
+| `fmt_strip()`<br>（修复） | `label = NULL` 时保留分面标签、只改样式（以前全部改名为 `Figure1`）。命名的 `label` 改为按分面水平匹配，以前按位置匹配，会把标签贴错面板。 | — |
+| `fmt_legend()`<br>（修复） | `legend.position = c(0.5, y)` 时图例真正居中（以前是左边缘对齐中线）。通过 `...` 传入的 justification 也会保留。 | — |
+| `fmt_ref()`<br>（接口） | 传 `colour` 或 `xintercept` / `yintercept` 会直接报错，并提示改用 `color` 和 `x` / `y`。 | — |
+| `fmt_flatten()`<br>（新名称） | 这是 `flatten_patchwork()` 的新名字，便于和其他 `fmt_*` 函数放在一起查找。旧名仍可使用，不会出现弃用警告。 | — |
+
+:::
+
+以下各节按函数列出主要改动。“提交”指标题中带有该函数名的提交数，“测试”指对应测试文件里的 `test_that()` 数量。
+
+## 坐标轴 {#axis}
+
+### `fmt_axis()` {#fmt-axis}
+
+[提交 13 · 测试 16 · 10-09 至 10-18]{.small .text-muted}　在多图拼接中隐藏多余的坐标轴。
+
+- 自动选轴改为按 patchwork 单元格位置计算，支持按列填充、spacer、guide area、嵌套布局和跨格设计，inset 不占格。
+- 由 `guides()`、scale、副轴的局部主题设置的样式也能隐藏，包括径向坐标的 theta/r 轴和 minor ticks。
+- 只构建需要的轴主题，x、y 合并后每张图只改一次；没有选中任何轴时直接返回原对象。
+- `plot_dims` 与平铺拼图的布局不一致时给出警告。以前在 2×2 布局上传 `c(4, 1)` 会被静默当成 `c(2, 2)`。
+- 校验逻辑选择器和整数索引，拒绝缺失、小数或越界的索引。
+
+### `fmt_axisText()` {#fmt-axistext}
+
+[提交 10 · 测试 18 · 10-10]{.small .text-muted}　设置刻度标签的旋转角度和样式。
+
+- 没有传任何格式参数时直接返回输入，省去构建空主题和查找元素树。
+- 保留富文本元素，包括全局主题、各轴侧元素和 guide 层面的设置，全局主题本身不被修改。
+- 格式通过 plot、scale 和副轴的 guide 生效，支持翻转坐标和径向坐标。
+- 按每个轴侧分别自动计算对齐方式；只设 hjust/vjust 时不必同时给角度。
+- 角度、对齐、字号、颜色、字体参数在调用时立即校验，报错指明是哪个参数。
+
+### `fmt_axisTile()` {#fmt-axistile}
+
+[提交 11 · 测试 23 · 10-10 至 10-18]{.small .text-muted}　给离散轴加彩色色块，或给轴文字上色。
+
+- 按 scale 训练后的刻度值上色，遵守刻度顺序、breaks、显示标签、未使用的水平和 NA；两种模式都通过 axis guide 实现，到绘图时才求值。
+- 改用原生 guide 实现，不再为每张子图另建一张色块图；文本模式直接按位置匹配颜色。
+- patchwork 合并坐标轴时色块跟着 guide 走；使用不同调色板的子图各自保留自己的色块。
+- `colors` 里的名字一个都对不上轴上的值时，绘图时警告一次（以前只会画出灰色色块，没有任何提示）。
+- 默认沿用图本身的轴文字样式；tile 模式输入 ggplot 返回 ggplot（见[行为变化](#behavior-changes)）。
+
+### `fmt_scale()` {#fmt-scale}
+
+[提交 16 · 测试 23 · 10-13 至 10-18]{.small .text-muted}　按轴类型自动套用 scale 参数。
+
+- 只更新传入的设置，不再整体替换已有 scale，原有的 limits、breaks、labels、变换、expansion 和副轴都保留。
+- 由统计变换生成的轴使用原生 scale；动态映射推迟到构建时求值，函数调用次数和随机数状态不变。
+- 支持已有的 binned 位置 scale；没有改动的 scale 直接复用，有改动的每张图只 clone 一次。
+- 更新后的 scale 拥有独立的副轴副本。以前与输入图共用 `dup_axis()`，绘制结果图时会把输入图的副轴刻度一起改掉。
+- 参数缩写按匹配到的完整参数名合并，`trans` 和 `transform` 均可使用。
+
+### `fmt_expand()` {#fmt-expand}
+
+[提交 20 · 测试 40 · 10-13 至 10-18]{.small .text-muted}　设置坐标轴的 expansion。
+
+- 保留已有位置 scale 的变换、limits、自定义标签、离散顺序、binned scale 和副轴。
+- 区分 date、datetime、time 三种类型；支持统计变换生成的轴，以及扩展类自己的 `scale_type()` 分派。
+- 函数映射、active binding 和数据回调都推迟到绘图时求值，不改变随机数状态。
+- 没有改动的 scale 直接复用，有改动的每张图只 clone 一次，重复调用不会形成越来越长的 clone 链。
+- 坐标系设置了 `expand = FALSE` 时给出警告，因为此时 ggplot2 会忽略 expansion。
+
+## 文字、图例与标号 {#text}
+
+### `fmt_text()` {#fmt-text}
+
+[提交 7 · 测试 8 · 10-13 至 10-18]{.small .text-muted}　设置标题、轴标题、图例标题及其样式。
+
+- 新增 `axis_titles = "collect"`：所有子图共用的轴标题只画一次，只在设置了 xlab/ylab 时生效。
+- 对嵌套拼图里的每张数据图分别设置，跳过 spacer、guide area 和 inset，逐图标签不会贴到 spacer 上。
+- 直接修改 `ggtext::element_markdown()` 富文本元素，不再报 “Only elements of the same class can be merged”。
+- `legend_title` 复用 `fmt_legend()` 的标题逻辑：连续色条仍是色条，传向量时逐图设置。
+- `axis_title_*` 对主题中已单独设置样式的轴侧同样生效（RegR 的不少图属于这种情况）。
+
+### `fmt_legend()` {#fmt-legend}
+
+[提交 33 · 测试 42 · 10-11 至 10-18]{.small .text-muted}　设置图例位置和样式，收集拼图中的图例。
+
+- 没有传格式参数时直接返回原对象；缩放系数为 1 视为不变，避免反复 clone guide。
+- guide 和 scale 的继承环境与工作中的图隔离，重复调用后对象体积不再膨胀。
+- 缩放时直接按倍数放大已有单位，不再先换算成 lines；margins、间距和图例图形一并缩放，兼容 ggplot2 3.5 与 4.x。
+- 收集图例时逐个检查各收集范围内的可见 guide；遇到面板内图例时给出警告并保留，不再静默丢失。
+- 识别 ggnewscale 重命名后的美学映射；保留连续色条、binned 色阶和已禁用的 guide。
+
+### `fmt_tag()` {#fmt-tag}
+
+[提交 17 · 测试 22 · 09-29 至 10-18]{.small .text-muted}　给子图加 A/B/C 带框标号。
+
+- 嵌套容器按叶子顺序编号，spacer、guide area 和 inset 不占编号；`wrap_elements()` 生成的固定图跳过并给出警告。
+- 重复调用只替换自己加的标号，用户自己加的注释保留；字母用完 Z 后接着用 AA、AB。
+- 每个面板只画一个面板内标号，避免文字重复和底色透明度叠加。
+- 标号使用主题 `plot.tag` 的字体族。以前 Windows 上的 ggpp 0.5.8.1 一律用设备默认字体。
+- 输入已带 patchwork 自动标号时给出警告；帮助页说明 `"-out"` 标号不占用版面，可能盖住标题。
+
+## 面板、背景与分面条 {#panel}
+
+### `fmt_panel()` {#fmt-panel}
+
+[提交 21 · 测试 27 · 10-14 至 10-18]{.small .text-muted}　设置网格线、边框和面板背景。
+
+- 批量处理时缓存已解析的主题设置，缓存有上限，连续多次不命中就停止查找。
+- 恢复网格线时自动保证与背景有对比：白网格配白背景时改为 grey70，`theme_void()` 下改为 grey85。
+- 线宽改用绝对毫米；恢复网格线时不把继承来的样式写死到各轴的元素上。
+- 新增 `grid = "keep"`，可以只改边框或背景。
+- 传入 theme、aes 等非绘图对象时直接报错，不再返回一个 theme 或静默返回 `NULL`。
+
+### `fmt_bg()` {#fmt-bg}
+
+[提交 17 · 测试 24 · 10-11]{.small .text-muted}　按分类水平给背景加色条。
+
+- 色条与训练后的分类位置、scale limits、未使用和缺失的分类、free scale 分面以及翻转坐标对齐，不再撑大原面板的范围。
+- 所有面板共用同一套颜色映射；先完成坐标变换再计算边界，对数轴上也能正常显示；修复了 polar 和 radial 坐标下的报错。
+- 重复调用时替换自己上次加的背景层，透明度不会越叠越深；`alpha = 0` 时直接跳过。
+- 闭包里只保存轴和颜色设置，旧的绘图对象不会在序列化时越积越多。
+- 使用手动颜色时不再需要安装 plotthis。
+
+### `fmt_strip()` {#fmt-strip}
+
+[提交 17 · 测试与 fmt_strip2 共用 33 · 09-24 至 10-18]{.small .text-muted}　加分面条标签或修改分面条样式。
+
+- 返回的图不再携带函数调用帧：一张 21 MB 的图改 3 次标签，序列化体积从 90 MB 降到 22 MB。
+- `label = NULL` 时保留分面标签；命名的标签按分面水平匹配，名字对不上时给出警告。
+- `strip = FALSE` 不再构建整张图，也不执行数据函数；之后用 `strip = TRUE` 可以恢复。
+- 合成的分面用常量表达式实现，不覆盖数据列；保留自定义 labeller，反复改标签不会层层包装。
+- 设置了 `label_fill` 时保留主题自带的分面条边框。
+
+### `fmt_strip2()` {#fmt-strip2}
+
+[提交 12 · 测试与 fmt_strip 共用 33 · 10-08 至 10-18]{.small .text-muted}　给拼图网格加 facet_grid 风格的顶部和右侧分面条。
+
+- `label_color = "auto"`：按底色自动选黑字或白字（#636363 底色上黑字的对比度只有 3.5:1）。
+- 沿用 ggh4x 主题分面条的字号、角度和颜色。
+- 支持对齐的嵌套矩形网格和 patchwork 默认的按列填充；行不满时标在该行最后一个面板上。
+- 只为实际显示的方向生成调色板，同一次调用中相同的调色板只生成一次；没有标签时跳过布局计算。
+- 不再往数据里写 `.top.` / `.right.` 列，支持空图和函数形式的数据。
+
+## 叠加图层 {#layers}
+
+### `fmt_point()` {#fmt-point}
+
+[提交 29 · 测试 36 · 10-17]{.small .text-muted}　叠加散点、jitter 或 beeswarm 点。
+
+- 抽样时先抽行号再切片，减少数据复制；按离散 colour/fill 与分面的组合分层抽样，跳过没有数据的因子水平。
+- 连续颜色变量不再按每个取值各成一组；抽样不改变调用者的随机数状态。
+- 遵守图层自己的映射和 `inherit.aes`；按构建后的数据决定 dodge 分组；兼容 ggplot2 3.5 中只按 group 做 jitter-dodge。
+- `white_border = TRUE` 保留经 scale 映射后的颜色，不可填充的点形状用白色底层衬托。
+- 图层在隔离的环境中构造，单独取出某张子图时不会附带其他图。
+
+### `fmt_boxplot()` {#fmt-boxplot}
+
+[提交 28 · 测试 61 · 10-15 至 10-17]{.small .text-muted}　在小提琴图等图层上叠加箱线图。
+
+- 独立叠加的箱线层从已有图层的数据和位置映射中自动找数据来源，跳过文本、标注和参考线图层；x 或 y 为常数时也能对齐。
+- 支持已汇总好的 identity 统计箱线图，横向、纵向都可以，并保留 notch、可变宽度和离群点映射。
+- 一次遍历处理所有子图；显式给了数据和完整映射时跳过数据来源查找。
+- 构造环境相互隔离，用完的临时绑定及时释放，避免序列化时多存一份数据；position 对象按子图分别复制。
+- 参数名精确匹配；显式传入的 `NULL` 予以保留，不会被替换成包装函数的默认值。
+
+### `fmt_his()` {#fmt-his}
+
+[提交 25 · 测试 37 · 10-14 至 10-15]{.small .text-muted}　叠加缩放后的直方图或密度曲线。
+
+- 每个分面单独缩放；分布层不参与位置 scale 的训练，原坐标轴保持不变。
+- 叠加层的缩放推迟到正常构建时进行，少算一次原统计和数据回调；之后改动坐标轴时，叠加层高度会跟着调整。
+- 支持翻转坐标、固定比例坐标、变换轴、反向 y 轴、负的 y 范围、时间差数据和 `I()` 映射。
+- 每次构建时，每个图层的 x 映射只求值一次，结果供后续统计复用。
+- 之后再添加或替换分面时，分布层及其各自的设置保留不变。
+
+### `fmt_ref()` {#fmt-ref}
+
+[提交 10 · 测试 21 · 10-16]{.small .text-muted}　加横向或纵向参考线。
+
+- 同一方向的多条参考线合并为一个图层，仍保留每条线的样式、在各分面的复制以及已有的颜色 scale。
+- 每张子图有各自独立的参考线图层，改动其中一张不会影响其他子图。
+- 映射和图层自成一体，单独取出子图时不会附带其他图的数据。
+- 传 `colour` 或 `xintercept` / `yintercept` 时报错并提示正确写法。
+
+### `fmt_com()` {#fmt-com}
+
+[提交 17 · 测试 18 · 10-12]{.small .text-muted}　加两两比较的显著性括号。
+
+- 按实际观测到的组和训练后的轴位置确定比较对象，因子中有缺失水平时不会错选成别的组。
+- 单侧检验的方向固定按自定义配对、参照组或原始映射顺序确定，调整轴顺序不会反转备择假设。
+- 配对检验在剔除缺失值和 scale 过滤后仍保持配对关系；可用 `method.args$id` 指定受试者 ID。
+- 各分组子集的水平数不同时，校正后的 P 值和标签照常保留；Dunn、Tukey、Games-Howell 检验也能选择比较哪些组对。
+- 括号位置按数据单位换算，比例位置在各面板自己的 y 范围内计算；统计闭包只保留当前这张图的配置。
+
+## 整体与输出 {#whole}
+
+### `fmt_plot()` / `fmt_plot_base()` {#fmt-plot}
+
+[提交 3 + 3 · 测试 3 · 10-18]{.small .text-muted}　总入口和 patchwork 批量套用。
+
+- 输入普通列表时逐个格式化并返回列表，以前返回 `NULL`（patchwork 的 `&` 对非 patchwork 对象会退化成 `+`）。
+- `fmt_plot()` 去掉了 `...`，参数拼错会直接报错。
+- `fmt_plot_base()` 的 scale 设置改由 `fmt_scale()` 应用：离散轴和日期轴不再报 “Discrete value supplied to a continuous scale”。
+- 帮助页中的 Markdown 能正常渲染；同时给了 `fmt_tag_list` 和 `tag_levels` 时以前者为准，并给出警告。
+
+### `fmt_raster()` {#fmt-raster}
+
+[提交 20 · 测试 22 · 10-07 至 10-18]{.small .text-muted}　栅格化几何图层以减小 PDF/SVG 文件。
+
+- 新增 `method = "image"`：整张图渲染成一张图片，RStudio 中重绘约快 8 倍；还能处理 grob、base 图以及有 print 方法的对象，如 `RegR::plt_eff2()` 的森林图。
+- ragg 后端：在内存中直接读取栅格缓冲区，不再写 PNG 文件，也不再依赖 png 包；面板背景网格和边框保持矢量，20 万点的分面图 PDF 约小 40%。
+- ggrastr 后端（默认）：只栅格化点和 tile 层，PDF 从 103 KB 降到 31 KB（全部矢量时为 13 KB）。
+- 不改变随机数状态（ragg 1.5.1 之前的版本会消耗随机数）；`pdf()` 设备下栅格图不再继承前一个元素的透明度。
+- 保留所有面板、坐标轴、标签和原有的绘制顺序；完成后恢复原来的活动图形设备。
+
+### `fmt_flatten()` {#fmt-flatten}
+
+[提交 18（含旧名 flatten_patchwork）· 测试 19 · 10-18 改名]{.small .text-muted}　把嵌套 patchwork 展平成一层布局。
+
+- 作为 `flatten_patchwork()` 的新名字，旧名仍然可用。
+- 先把 inset 和宿主图绑定再展开，覆盖位置保持不变；`free()` 容器、顶层注释和收集设置都保留。
+- 校验选择索引和行交错索引；字符型布局设计中会合并重复单元名时直接报错，避免静默丢失。
+- 报错信息使用 `fmt_flatten()` 的名字，并给出不支持元素的类型。
+
+## 每日提交 {#daily}
+
+按天统计改动 fmt_* 源码或测试的提交，共 335 次。10-11 集中处理 `fmt_legend()` 和 `fmt_bg()`；10-17 集中处理 `fmt_point()` 和 `fmt_boxplot()`；10-18 主要处理各函数的行为细节和默认值。
+
+```{=html}
+<div role="img" aria-label="2026-10-07 至 10-18 每日提交数：14、17、32、18、46、30、27、37、29、10、42、33" style="max-width:560px;margin:0.5rem 0 1.25rem;">
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-07</span><span style="display:block;height:0.9rem;width:30%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">14</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-08</span><span style="display:block;height:0.9rem;width:37%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">17</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-09</span><span style="display:block;height:0.9rem;width:70%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">32</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-10</span><span style="display:block;height:0.9rem;width:39%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">18</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-11</span><span style="display:block;height:0.9rem;width:100%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">46</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-12</span><span style="display:block;height:0.9rem;width:65%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">30</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-13</span><span style="display:block;height:0.9rem;width:59%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">27</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-14</span><span style="display:block;height:0.9rem;width:80%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">37</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-15</span><span style="display:block;height:0.9rem;width:63%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">29</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-16</span><span style="display:block;height:0.9rem;width:22%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">10</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-17</span><span style="display:block;height:0.9rem;width:91%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">42</span></div>
+<div style="display:flex;align-items:center;gap:0.6rem;margin:3px 0;"><span style="flex:none;width:3.2em;font-size:0.85rem;opacity:0.75;">10-18</span><span style="display:block;height:0.9rem;width:72%;background:var(--bs-info);border-radius:3px;"></span><span style="flex:none;font-size:0.85rem;">33</span></div>
+</div>
+```
+
+## 来源与边界 {#sources}
+
+- 本页反映已推送提交 `232a641`（2026-10-18 10:32）时的状态；之后的提交不在本页内。
+- 这些改动都记录在 `NEWS.md` 的 0.6.8 段下，但 `DESCRIPTION` 的版本号自 2026-09-05 起一直是 0.6.8。安装时请按提交核对，不要只看版本号。
+- 函数分组、提交数和日期来自 `git log`，改动内容来自 `NEWS.md`。本页没有重新运行测试或基准测试，文中的体积、文件大小和倍数均引自 NEWS 原文；对应的实际用法与实图见 [ggplot 格式化](format-guide.qmd) 和 [图形组合与导出](composition-guide.qmd)。
