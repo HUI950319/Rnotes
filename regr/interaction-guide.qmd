@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；包含 get_fit_ms 的多分类与连续变量整体检验，及 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
 date: 2026-10-09
-date-modified: 2026-10-18
+date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "联合交互：get_int、分层画布与紧凑表格"
   topic: 回归与生存分析
-  updated: 2026-10-18
+  updated: 2026-10-19
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -1156,3 +1156,41 @@ fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
 ```
 
 本轮在独立R进程模拟`knitr.in.progress=TRUE`，实际确认view为NULL且分析正常完成；没有重跑整本笔记或用户RStudio会话。对应函数：`get_int()`（RegR 函数参考站点尚未收录）。
+
+## 多模型交互分析与逐模型 Word 导出 {#models-20261019}
+
+2026-10-19 按已推送 RegR `f26e137` 在 Windows / WSL R 4.4.3 执行。沿用本页 `inter_data`、Sex 与 Age_group 的参考组；比较 Cox HR 与 Fine–Gray sHR 的模型比值尺度交互。
+
+<!-- rnotes-20261019: inter-models -->
+```r
+inter_models <- run_quiet(get_inter(inter_data,
+  exposure_names = c("Sex", "Age_group"), adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE)))
+inter_tables <- save_tb_inter(inter_models,
+  title = c(sur = file.path(tempdir(), "interaction-sur.docx"),
+            cif = file.path(tempdir(), "interaction-cif.docx")),
+  note = c(sur = "Cox HR; other-cause deaths are censored.",
+           cif = "Fine-Gray sHR; other-cause deaths compete."),
+  show_ap_si = TRUE, show_subeffect = "both")
+names(inter_tables)  # "sur" "cif"
+```
+
+::: {.panel-tabset}
+
+### Cox {.unnumbered}
+
+![Cox 交互表的实际导出预览。](images/interaction-guide/20261019-model-sur.png){fig-alt="Cox模型的Sex与Age_group交互表，保留RERI、AP、SI及行列内效应；结果来自本节实际拟合。"}
+
+[查看 HTML](images/interaction-guide/20261019-model-sur.html){target="_blank"} · [下载 Word](images/interaction-guide/20261019-model-sur.docx)
+
+### Fine–Gray {.unnumbered}
+
+![Fine–Gray 交互表的实际导出预览。](images/interaction-guide/20261019-model-cif.png){fig-alt="同一多模型调用的Fine–Gray交互表，使用sHR并保留RERI、AP、SI，脚注说明竞争事件处理。"}
+
+[查看 HTML](images/interaction-guide/20261019-model-cif.html){target="_blank"} · [下载 Word](images/interaction-guide/20261019-model-cif.docx)
+
+:::
+
+`get_inter()` 返回带 `surv_models` 类的命名 list；`save_tb_inter()` 识别该结果，分别返回 flextable 并输出 Word。`title`、`note` 可用按模型命名的字符向量或 list，其他参数按模型分别设置时使用同名 list。单个已有 flextable 的保存行为不变。
+
+本节显式设置 AP/SI 和行列摘要，复现时不依赖默认显示选项。模型各自使用其所需变量的完整案例；HR 与 sHR 的加法派生指标不等于绝对风险交互。需要后者时继续使用本页 `get_inter_abs()` 的原始数据工作流，本节不把它作为多模型接口示例。
