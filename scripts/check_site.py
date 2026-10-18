@@ -23,11 +23,22 @@ def chapters(items):
             yield from chapters(item.get("chapters", []))
 
 
+def part_pages(items):
+    for item in items:
+        if isinstance(item, dict):
+            if str(item.get("part", "")).endswith(".qmd"):
+                yield item["part"]
+            yield from part_pages(item.get("chapters", []))
+
+
 def check(root):
     config = yaml.safe_load((root / "_quarto.yml").read_text(encoding="utf-8-sig"))
     docs = (root / config["project"]["output-dir"]).resolve()
     base = urlparse(config["book"]["site-url"])
     expected = [Path(p).with_suffix(".html").as_posix() for p in chapters(config["book"]["chapters"])]
+    # Quarto numbers figures by chapter but gives part pages no number of their own.
+    parts = {Path(p).with_suffix(".html").as_posix() for p in part_pages(config["book"]["chapters"])}
+    numbers = {name: i - sum(p in parts for p in expected[:i]) for i, name in enumerate(expected)}
     errors = []
     figure_numbers = {}
 
@@ -99,8 +110,8 @@ def check(root):
             if not match:
                 continue
             number = match[1]
-            if int(number.split(".")[0]) != i:
-                errors.append(f"{name}: figure {number} does not match chapter {i}")
+            if int(number.split(".")[0]) != numbers[name]:
+                errors.append(f"{name}: figure {number} does not match chapter {numbers[name]}")
             if number in figure_numbers:
                 errors.append(f"Duplicate figure number {number}: {figure_numbers[number]} and {name}")
             else:
