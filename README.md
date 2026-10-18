@@ -22,6 +22,9 @@ quarto render
 渲染后自动运行 `scripts/prepare_images.py`：正文图片使用懒加载、异步解码和原始宽高，
 PNG 同时提供更小的无损 WebP 预览。预览逐像素核验；原 PNG 与放大链接继续保留。
 已有预览按原 PNG 的内容哈希复用，无需重新编码。也可单独运行该脚本更新已生成页面。
+首页“笔记目录”不手工维护：渲染前 `scripts/build_directory.py` 按 `_quarto.yml` 的章节顺序，
+从每页 front matter 的 `directory`（`title`、`topic`、`updated`，必要时 `package`）生成 `_note-directory.md`，
+`index.qmd` 引入该文件。不进目录的章节写 `directory: false`；两者都没有时渲染会报错，避免新页漏登。
 `scripts/prepare_directory.py` 随后从搜索索引提取各页的函数名，补充首页目录的筛选关键词。
 新增教程或更新函数后，正常渲染即可同步；也可单独运行该脚本更新已有目录。
 窄屏下正文行内代码允许换行；多行代码块和宽表继续在各自区域内横向滚动。
