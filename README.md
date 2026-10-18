@@ -25,6 +25,8 @@ PNG 同时提供更小的无损 WebP 预览。预览逐像素核验；原 PNG �
 `scripts/prepare_directory.py` 随后从搜索索引提取各页的函数名，补充首页目录的筛选关键词。
 新增教程或更新函数后，正常渲染即可同步；也可单独运行该脚本更新已有目录。
 窄屏下正文行内代码允许换行；多行代码块和宽表继续在各自区域内横向滚动。
+新增或重新生成 iframe 交互图（自包含的 htmlwidget 页面）后运行 `python scripts/share_widget_libs.py`：
+多页重复内联的 plotly.js、jQuery 等脚本移到 `assets/widget-libs/` 共用，源文件与 `docs/` 副本同步改写。
 
 发布前检查已生成的站点（不重跑模型分析；R 检查只解析代码并执行小型基础示例）：
 
