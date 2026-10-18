@@ -4295,6 +4295,54 @@
     ]
   },
   {
+    "objectID": "utilsr/composition-guide.html#current-raster",
+    "href": "utilsr/composition-guide.html#current-raster",
+    "title": "图形组合与导出：展平、grob、插图和栅格化",
+    "section": "三种栅格化后端与递归输入",
+    "text": "三种栅格化后端与递归输入\n本节按 UtilsR 0.6.8 源码 6b498cc 核对，三组新增示例和既有 ragg 示例已在 WSL R 4.4.3 中执行。其他组合图及 PDF 字节表保留 2026-10-01 的记录。\n\n\n\n\n\n\n\n\n\n后端\n栅格化范围\n选择与边界\n\n\n\n\nggrastr\n支持的 geom 层\n保留其他层和图形文字；适合密集点层的混合矢量导出\n\n\nragg\n检测到的面板，递归处理嵌套 gtable\n保留检测到的文字组件；宽高指定面板尺寸，导出按返回的 size 设置画布\n\n\nimage\n整张图一次绘制后捕获\n标题、图例和文字一起变成位图；适合交互预览，宽高指定整图尺寸\n\n\n\n\n三种方法都可递归处理普通 list，并保留名称。嵌套布局若无法满足显式面板尺寸，应省略 width/height，让函数按当前布局推算，不能强行指定互相冲突的尺寸。ragg 和 image 通过内存捕获，不需要中转 PNG。栅格化后的图不能继续编辑已经转换的内部图层；完整矢量交付仍应保存原图。\n\n命名 list 的 ragg 结果嵌套组合整图预览\n\n\nraster_list &lt;- fmt_raster(list(scatter = p1, dense = dense),\n  method = \"ragg\", dpi = 150, width = 4, height = 3)\nstopifnot(identical(names(raster_list), c(\"scatter\", \"dense\")))\nwrap_plots(raster_list, ncol = 2)\n\n\n\n普通命名 list 的两张图分别栅格化后组合，名称保持。\n\n\n\n\nnested_raster &lt;- fmt_raster(nested, method = \"ragg\", dpi = 150)\nnested_raster\n# 导出时读取 attr(nested_raster, \"size\") 的整图宽高。\n\n\n\n嵌套 patchwork 的四个面板及外层标题保留。\n\n\n\n\nimage_preview &lt;- fmt_raster(nested, method = \"image\", dpi = 150,\n  width = 9, height = 6)\nimage_preview\n\n\n\nimage 后端将整个组合图捕获为一张位图。",
+    "crumbs": [
+      "UtilsR · 通用工具",
+      "数据整理与图形导出",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>图形组合与导出</span>"
+    ]
+  },
+  {
+    "objectID": "utilsr/composition-guide.html#flatten-current",
+    "href": "utilsr/composition-guide.html#flatten-current",
+    "title": "图形组合与导出：展平、grob、插图和栅格化",
+    "section": "当前展平合同：命名、插图与收集",
+    "text": "当前展平合同：命名、插图与收集\n展平后的索引对应完整网格单元：普通图、spacer、guide area 和 wrapped 图均计入；插图随主图作为一个选择单元，free() 容器也保持完整。返回对象仍遵循 patchwork 原生子对象索引，因此含插图时 length() 不等于可选择的单元数。\n\n嵌套命名 list 与 design插图随主图重排先展平再收集坐标标题保留内部 guide 作用域\n\n\np_named &lt;- flatten_patchwork(list(B = p2, list(A = p1, C = p3)), design = \"AAB\\nAAC\")\np_named\n\n\n\nlist顺序为B A C，但命名design将A放左侧两行，B C放右侧。\n\n\n\n\nhost &lt;- p1 + inset_element(inset, 0.55, 0.02, 0.98, 0.45)\np_inset_order &lt;- flatten_patchwork(list(host, p3), select_inds = c(2, 1), nrow = 1)\np_inset_order\n\n\n\n先放直方图，再放散点主图；右下角插图仍属于散点图。\n\n\n\n\nsame_axes &lt;- ((p1 | p1) / (p1 | p1)) +\n  plot_annotation(title = \"Shared axis titles\", tag_levels = \"A\")\np_axes &lt;- flatten_patchwork(same_axes, ncol = 2, axis_titles = \"collect\", guides = \"collect\") &\n  theme(legend.position = \"bottom\")\np_axes\n\n\n\n四幅散点图位于同一布局层，保留总标题和tag，共用坐标标题与底部图例。\n\n\n\n\nkept &lt;- (p1 | p2) + plot_layout(guides = \"keep\")\np_scope &lt;- flatten_patchwork(list(wrap_elements(full = kept), p4),\n  ncol = 2, guides = \"collect\")\np_scope\n\n\n\n左侧两图用wrap_elements作为一个单元保留内部keep，右侧密度图参与外层收集。\n\n\n\n\n\n正索引可重复选择，负索引排除，0忽略；不接受缺失、小数、正负混用或越界索引。nrow_inds_order 在选择之后重排，不设置最终行数。字符 design 匹配到重复单元名时会报错，按位置重复排图可使用无名 list。\n普通嵌套容器展平后，内部 guides=\"keep\"/\"collect\" 的作用域随容器消失；以保留的最外层设置及 ... 为准。需要保留整个内部布局时用上面的 wrap_elements()。只保留输入 patchwork 的最外层注释，内部标题和 tag 作用域不会自动提升；原设计、宽高比例也不会自动沿用。\n源码：flatten_patchwork 当前实现。本次实际构建了所有新增组合，并核对输入对象、插图归属和选择顺序。",
+    "crumbs": [
+      "UtilsR · 通用工具",
+      "数据整理与图形导出",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>图形组合与导出</span>"
+    ]
+  },
+  {
+    "objectID": "utilsr/composition-guide.html#text-axis-current",
+    "href": "utilsr/composition-guide.html#text-axis-current",
+    "title": "图形组合与导出：展平、grob、插图和栅格化",
+    "section": "文字格式化的共享轴默认值",
+    "text": "文字格式化的共享轴默认值\n2026-10-15按已推送UtilsR b2b2000 实际构建本节新图。原有展平、插图及栅格化示例保持各自执行快照。\n需要每格保留轴标题的旧代码，应显式设置 axis_titles=\"keep\"；有意沿用已有布局设置时使用NULL。这个参数控制标题收集，不会把不同刻度轴合并，也不改变绘图数据。源码：fmt_text。\n\nfmt_text默认收集共享坐标标题\n\n\nfmt_text()现在对patchwork默认axis_titles=“collect”。keep保留每张图的标题；NULL不改变原布局设置。单张图及普通list不使用这个布局参数。复杂嵌套先展平，再按所需布局收集。\np_text0 &lt;- ggplot(mtcars, aes(wt, mpg)) + geom_point() + theme_bw()\np_text_pair &lt;- p_text0 | p_text0\np_text_keep &lt;- fmt_text(p_text_pair, xlab = \"Weight\", ylab = \"Miles per gallon\", axis_titles = \"keep\")\np_text_collect &lt;- fmt_text(p_text_pair, xlab = \"Weight\", ylab = \"Miles per gallon\")\nwrap_elements(full = p_text_keep) / wrap_elements(full = p_text_collect) +\n  plot_annotation(title = \"Top: keep; bottom: collect (default)\")\n\n\n\nfmt_text默认收集共享坐标标题。",
+    "crumbs": [
+      "UtilsR · 通用工具",
+      "数据整理与图形导出",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>图形组合与导出</span>"
+    ]
+  },
+  {
+    "objectID": "utilsr/composition-guide.html#raster-20261018",
+    "href": "utilsr/composition-guide.html#raster-20261018",
+    "title": "图形组合与导出：展平、grob、插图和栅格化",
+    "section": "当前栅格化：PDF透明度、矢量框线与随机状态",
+    "text": "当前栅格化：PDF透明度、矢量框线与随机状态\n2026-10-18 按已推送UtilsR 545bf4b 在Windows / WSL R 4.4.3实际构建及导出。本节新增PDF与示例图，原有文件大小表及历史图片保留原快照，不据此报告新的速度或压缩倍数。\nmethod=\"ragg\"把面板内几何转为位图，文字、网格背景和边框保留矢量；混有文字的grob树仍按原布局保留。当前实现还处理了pdf()可能继承前一个grob透明度的问题。method=\"image\"则捕获整图，包括文字，返回图不再另加plot margin。\nset.seed(1019)\ndense_data &lt;- data.frame(x = rnorm(20000), y = rnorm(20000))\ndense_plot &lt;- ggplot(dense_data, aes(x, y)) +\n  geom_point(alpha = 0.2, size = 0.5, colour = \"#2166AC\") +\n  geom_hline(yintercept = 0, alpha = 0.2) + theme_bw() +\n  labs(title = \"Vector labels and panel frame\", x = \"Marker X\", y = \"Marker Y\")\nseed_before &lt;- .Random.seed\npanel_raster &lt;- fmt_raster(dense_plot, method = \"ragg\", width = 5, height = 3.5, dpi = 150)\nstopifnot(identical(.Random.seed, seed_before))\nsz &lt;- attr(panel_raster, \"size\")\npdf(\"raster-vector.pdf\", width = sz[[\"width\"]], height = sz[[\"height\"]])\nprint(panel_raster)\ndev.off()\n\n\n\n几何栅格化后保留文字与面板框线。\n\n\n下载本轮实际PDF。WSL的pdftotext实际读回标题和轴文字；pdfimages -list读出750×525像素的面板图及其透明蒙版，对应5×3.5英寸、150 dpi。PDF按返回的整图size保存，不能把面板尺寸当成整图尺寸。\nimage_raster &lt;- fmt_raster(dense_plot, method = \"image\", width = 6.2, height = 4.5, dpi = 150)\nimage_raster\n\n\n\nimage后端整张图均为位图，没有额外外边距。\n\n\n本例数据预先生成、图层没有随机定位，构建前后调用者的RNG状态相同。若图层自身使用随机抖动，仍需按其position/seed控制复现；不要把设备不额外消耗随机数理解成冻结所有图层。\n需要后续调整数据或统计层时，保留原ggplot并先完成这些修改，再执行立即捕获的ragg/image。需要矢量文字时选择面板ragg路径，不能把image中的文字当作可编辑矢量。\n本轮栅格化源码",
+    "crumbs": [
+      "UtilsR · 通用工具",
+      "数据整理与图形导出",
+      "<span class='chapter-number'>49</span>  <span class='chapter-title'>图形组合与导出</span>"
+    ]
+  },
+  {
     "objectID": "regr/rpa-guide.html",
     "href": "regr/rpa-guide.html",
     "title": "RPA：建树、终末节点与生存和二分类输出",
@@ -9029,18 +9077,6 @@
     ]
   },
   {
-    "objectID": "utilsr/composition-guide.html#current-raster",
-    "href": "utilsr/composition-guide.html#current-raster",
-    "title": "图形组合与导出：展平、grob、插图和栅格化",
-    "section": "三种栅格化后端与递归输入",
-    "text": "三种栅格化后端与递归输入\n本节按 UtilsR 0.6.8 源码 6b498cc 核对，三组新增示例和既有 ragg 示例已在 WSL R 4.4.3 中执行。其他组合图及 PDF 字节表保留 2026-10-01 的记录。\n\n\n\n\n\n\n\n\n\n后端\n栅格化范围\n选择与边界\n\n\n\n\nggrastr\n支持的 geom 层\n保留其他层和图形文字；适合密集点层的混合矢量导出\n\n\nragg\n检测到的面板，递归处理嵌套 gtable\n保留检测到的文字组件；宽高指定面板尺寸，导出按返回的 size 设置画布\n\n\nimage\n整张图一次绘制后捕获\n标题、图例和文字一起变成位图；适合交互预览，宽高指定整图尺寸\n\n\n\n\n三种方法都可递归处理普通 list，并保留名称。嵌套布局若无法满足显式面板尺寸，应省略 width/height，让函数按当前布局推算，不能强行指定互相冲突的尺寸。ragg 和 image 通过内存捕获，不需要中转 PNG。栅格化后的图不能继续编辑已经转换的内部图层；完整矢量交付仍应保存原图。\n\n命名 list 的 ragg 结果嵌套组合整图预览\n\n\nraster_list &lt;- fmt_raster(list(scatter = p1, dense = dense),\n  method = \"ragg\", dpi = 150, width = 4, height = 3)\nstopifnot(identical(names(raster_list), c(\"scatter\", \"dense\")))\nwrap_plots(raster_list, ncol = 2)\n\n\n\n普通命名 list 的两张图分别栅格化后组合，名称保持。\n\n\n\n\nnested_raster &lt;- fmt_raster(nested, method = \"ragg\", dpi = 150)\nnested_raster\n# 导出时读取 attr(nested_raster, \"size\") 的整图宽高。\n\n\n\n嵌套 patchwork 的四个面板及外层标题保留。\n\n\n\n\nimage_preview &lt;- fmt_raster(nested, method = \"image\", dpi = 150,\n  width = 9, height = 6)\nimage_preview\n\n\n\nimage 后端将整个组合图捕获为一张位图。",
-    "crumbs": [
-      "UtilsR · 通用工具",
-      "数据整理与图形导出",
-      "<span class='chapter-number'>49</span>  <span class='chapter-title'>图形组合与导出</span>"
-    ]
-  },
-  {
     "objectID": "regr/interaction-guide.html#get-fit-ms",
     "href": "regr/interaction-guide.html#get-fit-ms",
     "title": "交互分析：get_inter、绝对风险与表格导出",
@@ -9482,18 +9518,6 @@
     ]
   },
   {
-    "objectID": "utilsr/composition-guide.html#flatten-current",
-    "href": "utilsr/composition-guide.html#flatten-current",
-    "title": "图形组合与导出：展平、grob、插图和栅格化",
-    "section": "当前展平合同：命名、插图与收集",
-    "text": "当前展平合同：命名、插图与收集\n展平后的索引对应完整网格单元：普通图、spacer、guide area 和 wrapped 图均计入；插图随主图作为一个选择单元，free() 容器也保持完整。返回对象仍遵循 patchwork 原生子对象索引，因此含插图时 length() 不等于可选择的单元数。\n\n嵌套命名 list 与 design插图随主图重排先展平再收集坐标标题保留内部 guide 作用域\n\n\np_named &lt;- flatten_patchwork(list(B = p2, list(A = p1, C = p3)), design = \"AAB\\nAAC\")\np_named\n\n\n\nlist顺序为B A C，但命名design将A放左侧两行，B C放右侧。\n\n\n\n\nhost &lt;- p1 + inset_element(inset, 0.55, 0.02, 0.98, 0.45)\np_inset_order &lt;- flatten_patchwork(list(host, p3), select_inds = c(2, 1), nrow = 1)\np_inset_order\n\n\n\n先放直方图，再放散点主图；右下角插图仍属于散点图。\n\n\n\n\nsame_axes &lt;- ((p1 | p1) / (p1 | p1)) +\n  plot_annotation(title = \"Shared axis titles\", tag_levels = \"A\")\np_axes &lt;- flatten_patchwork(same_axes, ncol = 2, axis_titles = \"collect\", guides = \"collect\") &\n  theme(legend.position = \"bottom\")\np_axes\n\n\n\n四幅散点图位于同一布局层，保留总标题和tag，共用坐标标题与底部图例。\n\n\n\n\nkept &lt;- (p1 | p2) + plot_layout(guides = \"keep\")\np_scope &lt;- flatten_patchwork(list(wrap_elements(full = kept), p4),\n  ncol = 2, guides = \"collect\")\np_scope\n\n\n\n左侧两图用wrap_elements作为一个单元保留内部keep，右侧密度图参与外层收集。\n\n\n\n\n\n正索引可重复选择，负索引排除，0忽略；不接受缺失、小数、正负混用或越界索引。nrow_inds_order 在选择之后重排，不设置最终行数。字符 design 匹配到重复单元名时会报错，按位置重复排图可使用无名 list。\n普通嵌套容器展平后，内部 guides=\"keep\"/\"collect\" 的作用域随容器消失；以保留的最外层设置及 ... 为准。需要保留整个内部布局时用上面的 wrap_elements()。只保留输入 patchwork 的最外层注释，内部标题和 tag 作用域不会自动提升；原设计、宽高比例也不会自动沿用。\n源码：flatten_patchwork 当前实现。本次实际构建了所有新增组合，并核对输入对象、插图归属和选择顺序。",
-    "crumbs": [
-      "UtilsR · 通用工具",
-      "数据整理与图形导出",
-      "<span class='chapter-number'>49</span>  <span class='chapter-title'>图形组合与导出</span>"
-    ]
-  },
-  {
     "objectID": "regr/cat-guide.html#km-greenwood",
     "href": "regr/cat-guide.html#km-greenwood",
     "title": "KM/CIF 组合图：get_cat 与 3 个绘图函数",
@@ -9743,18 +9767,6 @@
     "crumbs": [
       "R 问题排查",
       "<span class='chapter-number'>85</span>  <span class='chapter-title'>BTW MCP 自动注册</span>"
-    ]
-  },
-  {
-    "objectID": "utilsr/composition-guide.html#text-axis-current",
-    "href": "utilsr/composition-guide.html#text-axis-current",
-    "title": "图形组合与导出：展平、grob、插图和栅格化",
-    "section": "文字格式化的共享轴默认值",
-    "text": "文字格式化的共享轴默认值\n2026-10-15按已推送UtilsR b2b2000 实际构建本节新图。原有展平、插图及栅格化示例保持各自执行快照。\n需要每格保留轴标题的旧代码，应显式设置 axis_titles=\"keep\"；有意沿用已有布局设置时使用NULL。这个参数控制标题收集，不会把不同刻度轴合并，也不改变绘图数据。源码：fmt_text。\n\nfmt_text默认收集共享坐标标题\n\n\nfmt_text()现在对patchwork默认axis_titles=“collect”。keep保留每张图的标题；NULL不改变原布局设置。单张图及普通list不使用这个布局参数。复杂嵌套先展平，再按所需布局收集。\np_text0 &lt;- ggplot(mtcars, aes(wt, mpg)) + geom_point() + theme_bw()\np_text_pair &lt;- p_text0 | p_text0\np_text_keep &lt;- fmt_text(p_text_pair, xlab = \"Weight\", ylab = \"Miles per gallon\", axis_titles = \"keep\")\np_text_collect &lt;- fmt_text(p_text_pair, xlab = \"Weight\", ylab = \"Miles per gallon\")\nwrap_elements(full = p_text_keep) / wrap_elements(full = p_text_collect) +\n  plot_annotation(title = \"Top: keep; bottom: collect (default)\")\n\n\n\nfmt_text默认收集共享坐标标题。",
-    "crumbs": [
-      "UtilsR · 通用工具",
-      "数据整理与图形导出",
-      "<span class='chapter-number'>49</span>  <span class='chapter-title'>图形组合与导出</span>"
     ]
   },
   {

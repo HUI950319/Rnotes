@@ -2,7 +2,7 @@
 title: "图形组合与导出：展平、grob、插图和栅格化"
 description: "嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较；实际参数对照与递归栅格化示例。"
 date: 2026-10-09
-date-modified: 2026-10-15
+date-modified: 2026-10-18
 lightbox: true
 toc-depth: 2
 ---
@@ -698,3 +698,42 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 当前栅格化：PDF透明度、矢量框线与随机状态 {#raster-20261018}
+
+2026-10-18 按已推送UtilsR `545bf4b` 在Windows / WSL R 4.4.3实际构建及导出。本节新增PDF与示例图，原有文件大小表及历史图片保留原快照，不据此报告新的速度或压缩倍数。
+
+`method="ragg"`把面板内几何转为位图，文字、网格背景和边框保留矢量；混有文字的grob树仍按原布局保留。当前实现还处理了`pdf()`可能继承前一个grob透明度的问题。`method="image"`则捕获整图，包括文字，返回图不再另加plot margin。
+
+```r
+set.seed(1019)
+dense_data <- data.frame(x = rnorm(20000), y = rnorm(20000))
+dense_plot <- ggplot(dense_data, aes(x, y)) +
+  geom_point(alpha = 0.2, size = 0.5, colour = "#2166AC") +
+  geom_hline(yintercept = 0, alpha = 0.2) + theme_bw() +
+  labs(title = "Vector labels and panel frame", x = "Marker X", y = "Marker Y")
+seed_before <- .Random.seed
+panel_raster <- fmt_raster(dense_plot, method = "ragg", width = 5, height = 3.5, dpi = 150)
+stopifnot(identical(.Random.seed, seed_before))
+sz <- attr(panel_raster, "size")
+pdf("raster-vector.pdf", width = sz[["width"]], height = sz[["height"]])
+print(panel_raster)
+dev.off()
+```
+
+![几何栅格化后保留文字与面板框线。](images/composition-guide/20261018-raster-panel.png){fig-alt="两万个模拟散点的面板栅格化预览，横纵轴标题、刻度、网格和黑色面板边框保留。"}
+
+[下载本轮实际PDF](images/composition-guide/20261018-raster-vector.pdf)。WSL的`pdftotext`实际读回标题和轴文字；`pdfimages -list`读出750×525像素的面板图及其透明蒙版，对应5×3.5英寸、150 dpi。PDF按返回的整图size保存，不能把面板尺寸当成整图尺寸。
+
+```r
+image_raster <- fmt_raster(dense_plot, method = "image", width = 6.2, height = 4.5, dpi = 150)
+image_raster
+```
+
+![image后端整张图均为位图，没有额外外边距。](images/composition-guide/20261018-raster-image.png){fig-alt="同一绘图用image后端捕获完整画布，标题、坐标文字和几何均在一张位图中。"}
+
+本例数据预先生成、图层没有随机定位，构建前后调用者的RNG状态相同。若图层自身使用随机抖动，仍需按其position/seed控制复现；不要把设备不额外消耗随机数理解成冻结所有图层。
+
+需要后续调整数据或统计层时，保留原ggplot并先完成这些修改，再执行立即捕获的ragg/image。需要矢量文字时选择面板ragg路径，不能把image中的文字当作可编辑矢量。
+
+[本轮栅格化源码](https://github.com/HUI950319/UtilsR/blob/545bf4b/R/fmt_raster.R)
