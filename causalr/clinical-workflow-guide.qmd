@@ -2,7 +2,7 @@
 title: "观察性研究工作流：平衡、效应、HTE 与敏感性"
 description: "用完整模拟队列串联 PSM、PSW、get_bal、HTE 和未测量混杂敏感性，展示计算与绘图的重要参数。"
 date: 2026-10-02
-date-modified: 2026-10-16
+date-modified: 2026-10-18
 lightbox: true
 toc-depth: 2
 ---
@@ -304,3 +304,79 @@ p_rows_compact
 2026-10-16核对：树图样式及绘图环境整理已推送到causalR `f3f7ecc`。仅保存plt_hte_tree/plt_hte_icf的图对象时，绘图环境不再连带保存整个拟合；图仍含绘图所需数据，这不是匿名化功能。既有图片和数值保留各自执行日期，本轮没有重跑历史分析。
 
 2026-10-17 核对的远端 `ceb2003` 已包含 `e389a75` 与 `f505185` 的改名，四个入口均使用 `tree_var`，不再是仅本机可用的接口。本站 `72d6139` 与 `b0f67c1` 的代码拼写已与之统一。当前源码已在 Windows R 4.4.3 核对四个签名，并实际执行 `get_hte_unihtee(method="glm", tree_var=...)`。旧安装可用 `names(formals(causalR::get_hte_tree))` 等检查；`candidate_var` 与 `tree_var` 应按安装接口选择，不同时传入。历史模型、表格与图片保持原执行快照，本轮没有重算历史森林。
+
+## 当前亚组森林：表头、百分点与汇总菱形 {#subgroup-20261018}
+
+2026-10-18 按已推送causalR `e4b86c66`，在Windows R 4.4.3实际执行本节。此前各节保留原计算与图片快照。本节另生成400条模拟生存记录，Tx为随机分配的No/Yes；仅展示当前接口，不作为治疗效果证据。
+
+```r
+library(causalR)
+set.seed(20261018)
+n <- 400L
+d_hte <- data.frame(Tx = factor(sample(c("No", "Yes"), n, TRUE), levels = c("No", "Yes")),
+  sex = factor(sample(c("Female", "Male"), n, TRUE)), x = rnorm(n))
+event_time <- rexp(n, exp(-3.8 - 0.3 * (d_hte[["Tx"]] == "Yes") + 0.25 * d_hte[["x"]]))
+censor_time <- rexp(n, 0.01)
+d_hte[["time"]] <- pmin(event_time, censor_time)
+d_hte[["DSS"]] <- as.integer(event_time <= censor_time)
+hte_current <- get_hte(d_hte, "Tx", sub_var = "sex", adj_var = c("x", "sex"),
+  surv = TRUE, time = 24, grf_args = list(num.trees = 400, num.threads = 1, seed = 20261018))
+```
+
+::: {.table-responsive}
+
+| 控制项 | 当前写法 | 使用边界 |
+|:--|:--|:--|
+| 轴范围与刻度 | `axis_args=list(xlim=..., xticks=...)` | 仍用原始估计尺度；`0.2`表示20个百分点，不要写成20 |
+| 百分比显示 | `axis_args=list(percent=TRUE)`，默认开启 | 概率差按百分点显示；不用于RMST、连续结局或比值 |
+| 方向标签 | `axis_args=list(direction_labels=TRUE)` | 可关闭或传两个字符串；按结局及效应量确定方向 |
+| 列头 | `header_list=list(label=..., count=..., effect=...)` | `effect`用换行可形成多行表头；默认表头不再自动附区间水平 |
+| 点形 | `ci_shape=c("normal","summary")` | 亚组为按逆方差缩放的方块，总体为汇总菱形及加粗行 |
+| 配色 | `box_col=c("blue4","#B2182B")` | 分别控制亚组和总体 |
+
+:::
+
+旧标量参数`xlim`、`ticks_at`应迁入`axis_args$xlim/xticks`。`est_label`只在一个兼容周期内保留并警告，改用`header_list$effect`；它们不是可以随意放进`...`的其他参数。
+
+::: {.panel-tabset}
+
+### 百分点与汇总行
+
+```r
+p_percent <- plt_hte_sub(hte_current, sub_var = "sex", show_pvalue = TRUE, show_pinter = TRUE,
+  header_list = list(effect = "2-year DSS difference, %\n(95% CI)"),
+  axis_args = list(xlim = c(-0.3, 0.3), xticks = c(-0.2, 0, 0.2)),
+  ci_shape = c("normal", "summary"), box_col = c("blue4", "#B2182B"))
+```
+
+![当前概率差按百分点显示，CI表头另起一行。](images/clinical-workflow-guide/20261018-hte-percent-summary.png){fig-alt="400条模拟记录的两年DSS概率差森林图，总体为红色汇总菱形并加粗，女性男性为蓝色方块，方向标签位于参考线两侧。"}
+
+### 原始比例与关闭方向标签
+
+```r
+p_proportion <- plt_hte_sub(hte_current, sub_var = "sex",
+  axis_args = list(percent = FALSE, direction_labels = FALSE))
+stopifnot(isTRUE(all.equal(attr(p_percent, "subgroup"),
+  attr(p_proportion, "subgroup"), check.attributes = FALSE)))
+```
+
+![关闭百分比显示后仍使用同一份估计。](images/clinical-workflow-guide/20261018-hte-proportion.png){fig-alt="同一HTE结果改以0到1概率尺度显示差值，方向标签关闭，原始亚组估计保持一致。"}
+
+:::
+
+这里总体差约7.5个百分点对应原始概率差约0.075。改变`percent`、标题或点形不会改变模型结果。本图是同一队列的总体与亚组，**不是独立研究的荟萃分析**；汇总菱形只是显示样式。
+
+### get_bal 的图内图例与名称映射 {#balance-legend-20261018}
+
+沿用本节模拟数据，明确把右下角坐标与图例自身的右下锚点配对：
+
+```r
+balance_current <- get_bal(d_hte, "Tx", adj_var = c("x", "sex"), methods = c("ATE", "ATO"),
+  var_names = c(x = "Marker", sex = "Sex"),
+  love_args = list(legend_position = c(0.98, 0.02), legend_justification = c(1, 0)))
+balance_current[["plt"]]
+```
+
+![图内图例按指定的右下锚点放置。](images/clinical-workflow-guide/20261018-balance-inside.png){fig-alt="未调整、ATE加权和ATO重叠加权的协变量绝对SMD，图例位于图内右下方，变量显示为Marker和Sex。"}
+
+`get_bal()`及`plt_hte_unihtee()`的`var_names`默认现在为`character()`；RegR可用时仍合并它的名称映射，用户同名项优先。`NULL`保留原列名。图内定位使用`legend_justification`，不会更改平衡计算值。
