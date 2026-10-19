@@ -1,12 +1,13 @@
 ---
-description: "RegR 的 FGR / CSC 竞争风险后端比较，记录 get_eff、get_cat、get_facet 的耗时、区间构造与 CIF 结果差异。"
+description: "区分当前FGR、CSC、CRR的模型和推断路径，提供已执行的sHR后端对照；原FGR/CSC耗时矩阵保留为历史记录。"
 title: "竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异"
-subtitle: "get_eff · get_cat · get_facet 中 cif_args 与 show_surdiff 在不同样本量下的基准评估"
+subtitle: "当前 CRR 后端边界与历史 FGR / CSC 性能记录"
 date: 2026-10-09
+date-modified: 2026-10-19
 directory:
-  title: "FGR 与 CSC：历史耗时比较与当前 CIF 区间说明"
+  title: "CIF后端：FGR、CSC、CRR与历史耗时边界"
   topic: 性能评估
-  updated: 2026-10-09
+  updated: 2026-10-19
 ---
 
 ```{r}
@@ -27,16 +28,83 @@ f2 <- function(x) ifelse(x < 10, sprintf("%.2f", x), sprintf("%.1f", x))
 
 CSC 仍通过各原因 Cox 模型标准化；直接概率差已使用 `riskRegression::ate()` 的联合方差，包含组间协方差。默认 FGR 和 CSC 的工作模型假设不同，解析推断并不保证两种模型产生完全相同的数值。
 
-2026-10-19（RegR `c903aae`）起，`show_surdiff` 改名为 `show_sur`，`get_eff()` 默认改为 `FALSE`（`get_facet()` 仍为 `TRUE`）。下文是历史记录，保留当时的参数名和默认值。
+2026-10-19（RegR `c903aae`）起，`show_surdiff` 改名为 `show_sur`，旧名已在 `571dc88` 移除；`get_eff()` 默认改为 `FALSE`，需要概率表时显式传 TRUE，`get_facet()` 仍为 TRUE。后面的历史矩阵保留当时的参数名和默认值，不能直接作为当前调用复制。
 
-当前调用和 `fit_info` 的检查方法见 [效应估计教程](forest-guide.qmd#current-inference)。本次只核对源码与文档，没有重做下方性能矩阵；历史输入、重复次数、区间、P 值和耗时均保留原始记录。需要当前耗时比较时，应在当前源码与固定依赖下重新执行两种配置，分别记录正常解析路径与回退路径。
+当前调用和 `fit_info` 检查方法见[效应估计教程](forest-guide.qmd#current-inference)。本次执行了下一节的比值后端对照，没有重做后面的性能矩阵；历史输入、重复次数、区间、P值和耗时均保留原始记录。当前耗时必须在固定源码、依赖和相同分析配置下重新测量，并区分正常解析路径与回退路径。
+
+下方历史图表本次只从原有汇总CSV重新渲染；原建模、重采样和计时脚本仍为 `eval: false`，没有重新运行。
+
+### 当前三个后端的区别 {#crr-20261019}
+
+按已推送 RegR `4034a97`（含 CRR 支持提交 `5488117`）核对。`CRR` 保留 Fine–Gray 模型及其估计目标，采用旧拟合路线重现 crr 结果。月单位等重复事件时间下，mets 与 crr 的数值可能不同；direct概率还会进入相应的bootstrap路径，耗时须单独测量。
+
+::: {.table-responsive}
+
+| `cif_args$model` | Fine–Gray 比值 / 交互 | `get_eff/get_cat/get_facet` 的 direct CIF |
+|:--|:--|:--|
+| `FGR`（默认） | 优先mets，失败时兼容回退 | mets标准化与影响函数方差；失败时才进入兼容/重采样路径 |
+| `CSC` | 仍沿用默认Fine–Gray比值拟合 | 各原因Cox标准化与解析方差，模型假设与FGR不同 |
+| `CRR` | `tidycmprsk::crr()`，包含该次调用的sHR、交互与RERI | adjustedCurves对 `riskRegression::FGR()` 的bootstrap路径 |
+
+:::
+
+`get_inter()` 没有绘制 direct CIF，故选CSC不改变其Fine–Gray比值模型；选CRR会改变拟合后端。`get_inter_abs()` 的调整CIF另有合同：FGR可做mets联合delta或同模型bootstrap，CSC与CRR使用联合bootstrap，不能照搬上表的解析推断结论。其 `n_boot/n_cores` 控制实际重采样。`get_facet_diff()` 同样接受CRR，切换后端须从原始数据拟合，缓存不能换模型。
+
+接口的 `list(model = c("FGR", "CSC", "CRR"))` 表示可选值列表，默认只取第一个；不是依次拟合三个模型。`NULL`、`list()`、旧的双选项写法 `list(model = c("FGR", "CSC"))` 都仍表示默认FGR。
+
+### 实测：只比较比值拟合，不计算 CIF 概率
+
+下面在 Windows / WSL R 4.4.3 使用相同598人 PTC 队列与 Age 调整项执行。只生成sHR表，避免把概率bootstrap混入这个接口检查；不据此推算性能提升。CRR另外与直接调用 `tidycmprsk::crr()` 的结果核对。
+
+<!-- rnotes-refresh: cif -->
+```r
+dat_now <- as.data.frame(ToyData::toy_ptc_m1_cnd)
+dat_now[["N_4"]] <- stats::relevel(dat_now[["N_4"]], ref = "No CND")
+dat_now[["status"]] <- factor(dat_now[["event"]], levels = c(0, 1, 2))
+backends <- c("FGR", "CSC", "CRR")
+eff_backend <- stats::setNames(lapply(backends, function(m) {
+  run_quiet(get_eff(dat_now, cat_var = "N_4", adj_var = "Age",
+    surv = FALSE, methods = "direct", show_sur = FALSE, all = NULL,
+    cif_args = list(model = m)))
+}), backends)
+comparison <- do.call(rbind, lapply(backends, function(m) {
+  tab <- eff_backend[[m]][["haz_direct"]]
+  keep <- tab[["variable"]] == "N_4" & tab[["label"]] == "CND"
+  data.frame(backend = m,
+    tab[keep, c("estimate", "conf.low", "conf.high"), drop = FALSE])
+}))
+comparison
+
+crr_reference <- tidycmprsk::crr(
+  survival::Surv(time, status) ~ Age + N_4, data = dat_now)
+crr_tidy <- broom::tidy(crr_reference, conf.int = TRUE, exponentiate = TRUE)
+crr_tidy[crr_tidy[["term"]] == "N_4CND", c("estimate", "conf.low", "conf.high")]
+```
+
+<!-- rnotes-refresh-cif-results -->
+
+::: {.table-responsive}
+
+| 后端 | 年龄调整sHR | 95% CI下限 | 95% CI上限 |
+|:--|--:|--:|--:|
+| FGR | 0.781518 | 0.571535 | 1.068648 |
+| CSC | 0.781518 | 0.571535 | 1.068648 |
+| CRR | 0.781962 | 0.572179 | 1.068660 |
+
+:::
+
+这是两端一致的本次执行结果，未四舍五入的CRR估计及区间与直接crr调用在 `1e-8` 容差内一致。
+
+这里的FGR与CSC比值来自相同默认拟合路线；CRR与直接crr调用核验一致。表中sHR不是CIF，数值差异也不能解释为某后端更正确。旧概率图及下方历史计时并未用这次结果替换。
+
+## 历史性能记录：7f2aced {#historical-benchmark}
 
 本页历史评估对象是 RegR 0.1.3（commit `7f2aced`）的 `get_eff()`、`get_cat()` 和 `get_facet()`，在竞争风险分析（`surv = FALSE`）中比较两个设置：
 
 - `cif_args = list(model = c("FGR", "CSC"))`：调整后 CIF（`method = "direct"`）的工作模型。`"FGR"`（默认）是 Fine-Gray 模型，在该历史版本中使用 50 次 bootstrap 求 CI；`"CSC"` 是各原因 Cox 模型，用 `riskRegression::ate()` 的解析方差。三个函数的 sHR/HR 列都固定来自 `tidycmprsk::crr`，不受 `cif_args` 影响。
 - `show_surdiff = TRUE / FALSE`：是否生成 CIF / ΔCIF 表（`get_eff` 的 `sur_*`，`get_facet` 内嵌表的 SP/SD 列）。`get_cat()` 固定生成，没有这个开关。
 
-## 历史版本的测量结论
+### 历史版本的测量结论
 
 1. **CSC 比 FGR 快得多，而且样本越大差距越大。**单看 CIF 表新增的耗时，FGR 是 CSC 的 5 倍（n = 500）、10 倍（n = 4387，完整真实数据）、约 96 倍（n = 35096）。整次调用的总耗时差距是 4–8 倍，因为 sHR 表两个后端都要算，把差距摊薄了。
 2. **FGR 的耗时几乎全花在 50 次 bootstrap 上。**它随 n 近似按 n^1.7^ 增长，5 个 fork worker 一起跑：n = 35096 时墙钟 211 s，CPU 时间 929 s。CSC 的 CIF 部分在 n = 35096 时也只多 2 s 左右。
@@ -46,7 +114,7 @@ CSC 仍通过各原因 Cox 模型标准化；直接概率差已使用 `riskRegre
 6. **`get_cat()` 里差距更大。**FGR 要做 3 次 bootstrap（整条曲线、单时点表、多时点表），n ≤ 4387 时是 CSC 的 3–5 倍，n = 35096 时 602 s 对 41 s。两条曲线的最大点差不超过 0.83 个百分点。n = 1000 时，同一份数据、同一个 10 年 ΔCIF 点估计，FGR 的 bootstrap P 在 `get_eff` 中是 0.056，在 `get_cat` 的多时点表中是 0.031；CSC 两处都是 0.080。
 7. **`get_facet()`（`method = "direct"`）里差距较小。**各分层并行计算，FGR 是 CSC 的 1.9–5.4 倍（n = 35096 时 169 s 对 31 s）。`show_surdiff = TRUE` 在 FGR 下让耗时增加 60–80%，在 CSC 下只多 0.4–3 s。各层 HR 完全相同，SP/SD 的显著性结论在所有样本量下一致。
 
-## 测试设置
+### 测试设置
 
 - **环境：**WSL Ubuntu-22.04，R 4.4.3，24 逻辑核；adjustedCurves 0.11.4.9000，riskRegression 2023.12.21，tidycmprsk 1.1.0。已核对 WSL 安装版 RegR 与源码 HEAD 一致。
 - **数据：**`RegR::seer_thyroid_mtc_2026`（n = 4387；`event` 0/1/2 = 3207/597/583）。n ≤ 4387 用无放回抽样；n = 8774、17548、35096 用有放回重抽样放大（表中标 \*），重复行会带来结，只用于看耗时的增长趋势。
@@ -55,7 +123,7 @@ CSC 仍通过各原因 Cox 模型标准化；直接概率差已使用 `riskRegre
 - **重复：**n ≤ 4387 每格 5 次，更大的 n 每格 3 次；每个 n 内部配置顺序随机打乱，正式计时前先预热一次。报告取墙钟时间中位数。
 - **并行：**单个 `cat_var` 时外层串行。FGR 的 `adjustedcif(bootstrap = TRUE, n_boot = 50, n_cores = 5)` 在 Linux 上走 fork 后端。
 
-## 耗时结果
+### 耗时结果
 
 ```{r}
 #| label: fig-timing
@@ -89,6 +157,8 @@ p + th("#1d2421", "white", "grey90")
 p + th("#dee2e6", "#222222", "#3a3f44")
 ```
 
+::: {.table-responsive}
+
 ```{r}
 #| label: tbl-timing
 #| echo: false
@@ -105,11 +175,15 @@ knitr::kable(data.frame(
   check.names = FALSE), align = "rrrrrrrr")
 ```
 
+:::
+
 n 从 4387 增到 35096（8 倍）时，拟合出的幂律指数：FGR 总耗时约 n^1.74^，FGR 的 CIF 增量约 n^1.73^，`show_surdiff = FALSE`（即 crr 的 sHR 表）约 n^1.90^，CSC 的 CIF 增量约 n^0.63^。大样本下，CSC 调用的总耗时基本就是 crr 拟合 sHR 表的耗时。
 
 CPU 时间说明了 FGR 贵在哪里：n = 35096 时，FGR 墙钟 211 s、CPU 929 s（约 4.4 个核满载）；CSC 墙钟 25 s、CPU 63 s。在共享服务器或 Windows PSOCK 环境下，FGR 的实际代价会比这里的墙钟时间更明显。
 
-## show_surdiff 开和关
+### show_surdiff 开和关
+
+::: {.table-responsive}
 
 ```{r}
 #| label: tbl-surdiff
@@ -126,11 +200,13 @@ knitr::kable(data.frame(
   check.names = FALSE), align = "rrrrrrr")
 ```
 
+:::
+
 - **竞争风险 + FGR（默认）：**打开 `show_surdiff` 后总耗时是关闭时的 9–13 倍，这是最值得优化的地方。
 - **竞争风险 + CSC：**打开后在 n ≤ 2000 时约为关闭时的 3 倍，但绝对值不到 0.5 s；n 越大越接近 1 倍。
 - **Cox：**打开后每次多 0.14–0.7 s，基本可以忽略。
 
-## FGR 与 CSC 的结果差异
+### FGR 与 CSC 的结果差异
 
 固定条件：完整数据 n = 4387，`cat_var = c("Sex", "Race", "Che", "M")`，`adj_var = c("Age", "Sur")`，分别在 60 个月和 120 个月比较 `sur_direct`。
 
@@ -138,6 +214,8 @@ knitr::kable(data.frame(
 - ΔCIF 的方向约定：`estimate` = 参照组 CIF − 该组 CIF，所以 Male、M1 等风险更高的组显示为负值。
 
 ::: {.nowrap .column-page}
+
+::: {.table-responsive}
 
 | 月 | 变量 | 水平 | AJ | FGR CIF (95% CI) | CSC CIF (95% CI) | 点差 | CI 宽 FGR / CSC |
 |--:|:--|:--|--:|--:|--:|--:|--:|
@@ -162,7 +240,11 @@ knitr::kable(data.frame(
 | 120 | M | M1 | 0.6383 | 0.6137 (0.5409, 0.6616) | 0.6236 (0.5615, 0.6856) | **+0.0099** | 0.121 / 0.124 |
 | 120 | M | Unknown | 0.2519 | 0.1936 (0.1216, 0.2639) | 0.1852 (0.1116, 0.2589) | **−0.0084** | 0.142 / 0.147 |
 
+:::
+
 : 调整后 CIF。AJ 为未调整的 Aalen–Johansen 估计，作参考；点差 = CSC − FGR，≥ 0.8 个百分点的加粗。FGR 为 `set.seed(1)` 下的一次结果。 {#tbl-agree}
+
+::: {.table-responsive}
 
 | 月 | 对比（相对参照组） | FGR ΔCIF (95% CI) | FGR P | CSC ΔCIF (95% CI) | CSC P |
 |--:|:--|--:|--:|--:|--:|
@@ -179,13 +261,17 @@ knitr::kable(data.frame(
 | 120 | M: M1 | −0.5140 (−0.5774, −0.4506) | 8.1e-57 | −0.5236 (−0.5869, −0.4604) | 3.6e-59 |
 | 120 | M: Unknown | −0.0939 (−0.1768, −0.0111) | 0.026 | −0.0853 (−0.1600, −0.0106) | 0.025 |
 
+:::
+
 : ΔCIF（参照组 CIF − 该组 CIF）与 P 值。 {#tbl-agree-diff}
 
 :::
 
-### FGR 随机种子造成的波动
+#### FGR 随机种子造成的波动
 
 在 120 个月、同一数据上用 5 个种子（101–105）重跑 FGR：点估计完全不变（点估计不依赖 bootstrap），但 CI 和 P 值都会变。
+
+::: {.table-responsive}
 
 | 变量 | 水平 | FGR CIF 的 CI 宽度 | CSC CI 宽度 | FGR ΔCIF CI 下限 | FGR ΔCIF CI 上限 | FGR P | CSC P |
 |:--|:--|--:|--:|--:|--:|--:|--:|
@@ -197,9 +283,13 @@ knitr::kable(data.frame(
 | M | M1 | 0.102 … 0.127 | 0.124 | −0.586 … −0.568 | −0.460 … −0.442 | 2e-77 … 4e-44 | 3.6e-59 |
 | M | Unknown | 0.130 … 0.174 | 0.147 | −0.186 … −0.166 | −0.022 … −0.002 | 0.011 … 0.046 | 0.025 |
 
+:::
+
 : FGR 在 5 个种子下的取值范围，与 CSC 的单次（确定性）结果对照。 {#tbl-seed}
 
-### 样本量变化时的一致性（Sex，120 个月）
+#### 样本量变化时的一致性（Sex，120 个月）
+
+::: {.table-responsive}
 
 | n | Female FGR / CSC | Male FGR / CSC | FGR ΔCIF (95% CI) · P | CSC ΔCIF (95% CI) · P |
 |--:|--:|--:|--:|--:|
@@ -211,13 +301,17 @@ knitr::kable(data.frame(
 | 17548\* | 0.1291 / 0.1322 | 0.1860 / 0.1824 | −0.0569 (−0.0678, −0.0461) · 7.5e-25 | −0.0502 (−0.0619, −0.0385) · 4.8e-17 |
 | 35096\* | 0.1292 / 0.1317 | 0.1976 / 0.1950 | −0.0683 (−0.0765, −0.0602) · 1.8e-60 | −0.0633 (−0.0717, −0.0549) · 1.2e-49 |
 
+:::
+
 : 计时实验第 1 次重复的结果（adj = Age, Race, M）。 {#tbl-sexn}
 
 两个后端的 ΔCIF 始终同号、显著性判断相同。FGR 的 |ΔCIF| 系统性地大 0.3–0.7 个百分点，原因是两者的工作模型不同（比例子分布风险 vs 各原因比例风险），不是随机误差。n = 500 和 1000 时两个后端都不显著（P ≈ 0.06–0.08）。
 
-## get_cat 中的 FGR 与 CSC
+### get_cat 中的 FGR 与 CSC
 
 `get_cat()` 的结果分三块，`cif_args` 只作用于其中 `method = "direct"` 的 CIF：
+
+::: {.table-responsive}
 
 | 组成部分 | 内容 | CSC 是否生效 |
 |:--|:--|:--|
@@ -225,9 +319,13 @@ knitr::kable(data.frame(
 | `cat$UM` | 内部调用一次 `get_eff(show_surdiff = TRUE)`：sHR 表和 `timepoint` 时刻的 CIF/ΔCIF 表 | sHR 不受影响；`sur_direct` 生效 |
 | `cat$Mul` | 二分类暴露在 60/120/180 个月的 ΔCIF | 生效 |
 
+:::
+
 : get_cat 的组成和 cif_args 的作用范围。 {#tbl-getcat-parts}
 
 所以一次 `get_cat()` 调用里，FGR 要跑 3 次 50 次重抽样的 bootstrap（曲线、单时点表、多时点表各一次），CSC 一次也不跑。计时调用为 `get_cat(d, cat_var = "Sex", adj_var = c("Age", "Race", "M"), surv = FALSE, cif_args = list(model = m))`，其余参数用默认值；数据与 `get_eff` 基准是同一批抽样，n ≤ 4387 重复 3 次，更大的 n 重复 2 次。
+
+::: {.table-responsive}
 
 ```{r}
 #| label: tbl-getcat-timing
@@ -246,10 +344,12 @@ knitr::kable(data.frame(
   check.names = FALSE), align = "rrrrrr")
 ```
 
+:::
+
 - **差距随 n 扩大。**n ≤ 4387 时 FGR 是 CSC 的 3–5 倍；n = 35096 时 FGR 要 602 s（CPU 2775 s），CSC 41 s（CPU 203 s），相差约 15 倍。
 - **CSC 在 `get_cat` 里比在 `get_eff` 里慢**（n = 4387 时 5.5 s 对 1.0 s）：整条曲线要在所有时间点上算 `riskRegression::ate()` 的影响函数，这一块占了 CSC 调用的大部分时间，但仍远低于 FGR 的 3 次 bootstrap。
 
-### 曲线与多时点 ΔCIF 的一致性
+#### 曲线与多时点 ΔCIF 的一致性
 
 ```{r}
 #| label: fig-getcat-curves
@@ -273,6 +373,8 @@ pc + th("#1d2421", "white", "grey90")
 pc + th("#dee2e6", "#222222", "#3a3f44")
 ```
 
+::: {.table-responsive}
+
 ```{r}
 #| label: tbl-getcat-curve-agree
 #| echo: false
@@ -292,7 +394,11 @@ ag <- do.call(rbind, lapply(sort(unique(cv$n)), function(nn) {
 knitr::kable(ag, align = "rrrrr")
 ```
 
+:::
+
 两条曲线在整个随访期内几乎重合：最大点差在 n = 500 时为 0.83 个百分点，其余样本量都不超过 0.51 个百分点，且都出现在随访末段（160 个月以后）风险集很小的地方。除 n = 4387 时 CSC 的 CI 平均窄 5% 外，其余样本量 CSC 的 CI 平均比 FGR 宽 6–18%。
+
+::: {.table-responsive}
 
 ```{r}
 #| label: tbl-getcat-mul
@@ -315,13 +421,17 @@ tab[flip, ] <- lapply(tab[flip, ], function(x) paste0("**", x, "**"))
 knitr::kable(tab, align = "rlrrrr")
 ```
 
+:::
+
 n = 1000 时出现了结论不一致：FGR 在 5、10、15 年都显著（P = 0.031–0.045），CSC 都不显著（P ≈ 0.08–0.09）。这主要不是模型差异造成的：同一份 n = 1000 数据上，`get_eff` 基准（@tbl-sexn）的 FGR 10 年 ΔCIF 同样是 −0.0495，但 bootstrap 给出的 CI 是 (−0.1003, 0.0012)、P = 0.056；这里 `cat$Mul` 的 bootstrap 给出 (−0.0947, −0.0044)、P = 0.031。点估计相同，只是两次 bootstrap 抽到的样本不同。CSC 在两处给出完全相同的 −0.0465 (−0.0985, 0.0055)、P = 0.080。也就是说，用 FGR 时，同一次 `get_cat()` 返回的 `cat$UM$sur_direct` 和 `cat$Mul$direct` 对同一个对比可能给出不同的 CI 和 P。
 
-## get_facet 中的 FGR 与 CSC
+### get_facet 中的 FGR 与 CSC
 
 `get_facet()` 在 `split_var` 的每一层画 CIF 曲线并嵌入一张小表。`cif_args` 只在 `method` 含 `"direct"` 时起作用，影响曲线（`sur.data`）和表中的 SP（`timepoint` 时刻各组 CIF）、SD（组间差）列；表中的 HR 列来自 `tidycmprsk::crr`，不受影响。`show_surdiff = FALSE` 跳过 SP/SD，曲线不变（实测 `sur.data` 在开、关两种设置下完全相同）。
 
 计时调用为 `get_facet(d, split_var = "age_55", cat_var = "Sex", adj_var = c("Age", "Race", "M"), surv = FALSE, method = "direct", cif_args = list(model = m), show_surdiff = s, timepoint = 120)`，共 2 个分层；`subgroup_model` 用默认的 `"interaction"`，`parallel = NULL` 在 WSL 上解析为 4 个外层 worker。数据与前两节是同一批抽样，n ≤ 4387 重复 3 次，更大的 n 重复 2 次。
+
+::: {.table-responsive}
 
 ```{r}
 #| label: tbl-getfacet-timing
@@ -342,11 +452,15 @@ knitr::kable(data.frame(
   check.names = FALSE), align = "rrrrrrrr")
 ```
 
+:::
+
 - **FGR 是 CSC 的 1.9–5.4 倍**，比 `get_eff`、`get_cat` 里的差距小：两个分层的 bootstrap 同时在不同 worker 上跑，墙钟时间被并行摊薄了。CPU 时间的差距仍然很大，n = 35096 时 FGR 1122 s，CSC 166 s。
 - **`show_surdiff` 的代价取决于后端。**FGR 下打开后总耗时是关闭时的 1.6–1.8 倍，因为 SP/SD 要再做一次 bootstrap；CSC 下只多 0.4–3 s。只想看曲线和 HR 时，FGR 用户关掉 `show_surdiff` 收益明显。
 - **CSC 关闭 `show_surdiff` 时，大样本的耗时主要在 HR。**n = 35096 时 CSC 关闭也要 28 s，大部分花在全数据上的 `crr` 交互模型（`subgroup_model = "interaction"`），与 `cif_args` 无关。
 
-### 分层结果的一致性
+#### 分层结果的一致性
+
+::: {.table-responsive}
 
 ```{r}
 #| label: tbl-getfacet-agree
@@ -361,6 +475,10 @@ knitr::kable(data.frame(
   `HR（两者相同）` = trimws(ft$HR), check.names = FALSE), align = "rlrrrrr")
 ```
 
+:::
+
+::: {.table-responsive}
+
 ```{r}
 #| label: tbl-getfacet-curve
 #| echo: false
@@ -372,10 +490,12 @@ knitr::kable(data.frame(
   `CI 宽度比 CSC/FGR` = sprintf("%.2f", fc$width_ratio), check.names = FALSE), align = "rrrr")
 ```
 
+:::
+
 - **SD 在所有样本量和分层下都是同号，显著性结论一致。**两者的差不超过 0.9 个百分点（n = 8774 和 17548 的 above_54 层），除 n = 500 的 below_54 层外都是 FGR 的 |SD| 略大，与 `get_eff` 中观察到的系统性差异方向一致。
 - **曲线最大点差在 n = 500 时为 1.03 个百分点，其余不超过 0.71 个百分点**，都出现在 210 个月以后风险集很小的随访末段。CSC 的 CI 平均比 FGR 宽 2–20%。
 
-### 三个函数放在一起看
+#### 三个函数放在一起看
 
 ```{r}
 #| label: fig-three-funcs
@@ -406,7 +526,7 @@ p3 + th("#1d2421", "white", "grey90")
 p3 + th("#dee2e6", "#222222", "#3a3f44")
 ```
 
-## 建议
+### 建议
 
 - **n ≥ 5000、多个 `cat_var`，或有 `sub_var` / `split_var`（每个亚组都要重做一次 bootstrap）时，用 `cif_args = list(model = "CSC")`。**点估计差异在 1 个百分点以内，结果可复现，不受随机种子影响。
 - 要与既往结果对齐，或想让 CIF 曲线与 sHR 表出自同一个 Fine-Gray 模型时，保留默认的 FGR。此时固定 `set.seed()`，并留意 P 接近 0.05 的对比（n_boot = 50 的 bootstrap P 值精度有限）。
@@ -415,14 +535,14 @@ p3 + th("#dee2e6", "#222222", "#3a3f44")
 - **`get_facet()` 用 FGR 时，只看曲线和 HR 就关掉 `show_surdiff`**，可以省下约 40% 的时间；用 CSC 时开关基本不影响耗时。
 - 帮助页里 "CSC roughly 15x faster" 的说法与实测大致相符（仅 CIF 部分：`get_eff` 在 n = 4387 时约 10 倍，n 越大倍数越高），但在 `get_facet` 这类并行分层的函数里墙钟差距只有 2–5 倍，可以补充说明这个倍数随 n 和函数而变。
 
-## 局限
+### 局限
 
 - 只测了 WSL（Linux fork 后端）。Windows R 上 bootstrap 走 PSOCK，每次都要启动进程；`get_facet(surv = FALSE)` 在没有 fork 后端时还会退回 `parallel = 1`，分层改为串行。所以 Windows 上 FGR 的额外开销预计更大，本次没有测量。
 - 计时只用了一个二分类暴露（Sex）、`get_facet` 只有 2 个分层的场景。多个 `cat_var` 或更多分层时外层会并行（上限 4 个 worker × 内层 5 核），耗时不能简单按变量数或分层数线性相乘。
 - `get_facet` 的耗时包含拼图（ggplot 组图），这一部分与后端无关。
 - n > 4387 的数据是重抽样放大的，只用于看耗时的增长趋势，不应拿来解释效应量。
 
-## 复现脚本
+### 复现脚本
 
 所有脚本都在 WSL 的 Rscript 下运行，输出写到当前工作目录。本页的图表直接读取 [`regr/bench/`](https://github.com/HUI950319/Rnotes/tree/main/regr/bench) 下的 CSV：`bench_timing.csv`（get_eff 计时）、`getcat_*.csv`（get_cat 计时、曲线、多时点 ΔCIF）、`getfacet_*.csv`（get_facet 计时和一致性汇总）。这些文件只含汇总结果，不含个体数据。
 

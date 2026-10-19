@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="RegR 的 FGR / CSC 竞争风险后端比较，记录 get_eff、get_cat、get_facet 的耗时、区间构造与 CIF 结果差异。">
+<meta name="description" content="区分当前FGR、CSC、CRR的模型和推断路径，提供已执行的sHR后端对照；原FGR/CSC耗时矩阵保留为历史记录。">
 
 <title>竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异 – R 包开发笔记</title>
 <style>
@@ -1064,28 +1064,24 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <h2 id="toc-title">目录</h2>
 
   <ul>
-  <li><a href="#current-backend" id="toc-current-backend" class="nav-link active" data-scroll-target="#current-backend">当前实现与历史记录的区别</a></li>
+  <li><a href="#current-backend" id="toc-current-backend" class="nav-link active" data-scroll-target="#current-backend">当前实现与历史记录的区别</a>
+  <ul class="collapse">
+  <li><a href="#crr-20261019" id="toc-crr-20261019" class="nav-link" data-scroll-target="#crr-20261019">当前三个后端的区别</a></li>
+  <li><a href="#实测只比较比值拟合不计算-cif-概率" id="toc-实测只比较比值拟合不计算-cif-概率" class="nav-link" data-scroll-target="#实测只比较比值拟合不计算-cif-概率">实测：只比较比值拟合，不计算 CIF 概率</a></li>
+  </ul></li>
+  <li><a href="#historical-benchmark" id="toc-historical-benchmark" class="nav-link" data-scroll-target="#historical-benchmark">历史性能记录：7f2aced</a>
+  <ul class="collapse">
   <li><a href="#历史版本的测量结论" id="toc-历史版本的测量结论" class="nav-link" data-scroll-target="#历史版本的测量结论">历史版本的测量结论</a></li>
   <li><a href="#测试设置" id="toc-测试设置" class="nav-link" data-scroll-target="#测试设置">测试设置</a></li>
   <li><a href="#耗时结果" id="toc-耗时结果" class="nav-link" data-scroll-target="#耗时结果">耗时结果</a></li>
   <li><a href="#show_surdiff-开和关" id="toc-show_surdiff-开和关" class="nav-link" data-scroll-target="#show_surdiff-开和关">show_surdiff 开和关</a></li>
-  <li><a href="#fgr-与-csc-的结果差异" id="toc-fgr-与-csc-的结果差异" class="nav-link" data-scroll-target="#fgr-与-csc-的结果差异">FGR 与 CSC 的结果差异</a>
-  <ul class="collapse">
-  <li><a href="#fgr-随机种子造成的波动" id="toc-fgr-随机种子造成的波动" class="nav-link" data-scroll-target="#fgr-随机种子造成的波动">FGR 随机种子造成的波动</a></li>
-  <li><a href="#样本量变化时的一致性sex120-个月" id="toc-样本量变化时的一致性sex120-个月" class="nav-link" data-scroll-target="#样本量变化时的一致性sex120-个月">样本量变化时的一致性（Sex，120 个月）</a></li>
-  </ul></li>
-  <li><a href="#get_cat-中的-fgr-与-csc" id="toc-get_cat-中的-fgr-与-csc" class="nav-link" data-scroll-target="#get_cat-中的-fgr-与-csc">get_cat 中的 FGR 与 CSC</a>
-  <ul class="collapse">
-  <li><a href="#曲线与多时点-δcif-的一致性" id="toc-曲线与多时点-δcif-的一致性" class="nav-link" data-scroll-target="#曲线与多时点-δcif-的一致性">曲线与多时点 ΔCIF 的一致性</a></li>
-  </ul></li>
-  <li><a href="#get_facet-中的-fgr-与-csc" id="toc-get_facet-中的-fgr-与-csc" class="nav-link" data-scroll-target="#get_facet-中的-fgr-与-csc">get_facet 中的 FGR 与 CSC</a>
-  <ul class="collapse">
-  <li><a href="#分层结果的一致性" id="toc-分层结果的一致性" class="nav-link" data-scroll-target="#分层结果的一致性">分层结果的一致性</a></li>
-  <li><a href="#三个函数放在一起看" id="toc-三个函数放在一起看" class="nav-link" data-scroll-target="#三个函数放在一起看">三个函数放在一起看</a></li>
-  </ul></li>
+  <li><a href="#fgr-与-csc-的结果差异" id="toc-fgr-与-csc-的结果差异" class="nav-link" data-scroll-target="#fgr-与-csc-的结果差异">FGR 与 CSC 的结果差异</a></li>
+  <li><a href="#get_cat-中的-fgr-与-csc" id="toc-get_cat-中的-fgr-与-csc" class="nav-link" data-scroll-target="#get_cat-中的-fgr-与-csc">get_cat 中的 FGR 与 CSC</a></li>
+  <li><a href="#get_facet-中的-fgr-与-csc" id="toc-get_facet-中的-fgr-与-csc" class="nav-link" data-scroll-target="#get_facet-中的-fgr-与-csc">get_facet 中的 FGR 与 CSC</a></li>
   <li><a href="#建议" id="toc-建议" class="nav-link" data-scroll-target="#建议">建议</a></li>
   <li><a href="#局限" id="toc-局限" class="nav-link" data-scroll-target="#局限">局限</a></li>
   <li><a href="#复现脚本" id="toc-复现脚本" class="nav-link" data-scroll-target="#复现脚本">复现脚本</a></li>
+  </ul></li>
   </ul>
 <div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/regr/get-eff-cif-benchmark.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
     </div>
@@ -1096,7 +1092,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="../regr/performance-evaluation.html">跨包性能评估</a></li><li class="breadcrumb-item"><a href="../regr/get-eff-cif-benchmark.html"><span class="chapter-title">竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异</span></a></li></ol></nav>
 <div class="quarto-title">
 <h1 class="title"><span class="chapter-title">竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异</span></h1>
-<p class="subtitle lead">get_eff · get_cat · get_facet 中 cif_args 与 show_surdiff 在不同样本量下的基准评估</p>
+<p class="subtitle lead">当前 CRR 后端边界与历史 FGR / CSC 性能记录</p>
 </div>
 
 
@@ -1111,6 +1107,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     </div>
   </div>
 
+    <div>
+    <div class="quarto-title-meta-heading">修改于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date-modified">2026年10月19日</p>
+    </div>
+  </div>
 
   </div>
 
@@ -1123,15 +1125,119 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="current-backend">当前实现与历史记录的区别</h2>
 <p>截至 2026-10-09，RegR 0.1.3（源码 <code>40515e1</code>）的默认 FGR 标准化使用 <code>mets::cifregFG()</code> / <code>mets::survivalG()</code>，由影响函数标准误构造 Wald 区间。失败时才进入兼容后端和 bootstrap 回退；sHR 拟合也优先使用 mets，失败后使用 <code>tidycmprsk::crr()</code>。因此，下方“50 次 bootstrap”“固定 crr 后端”及相应倍数属于 <code>7f2aced</code> 的历史记录，不能直接用来预测当前运行速度或结果。</p>
 <p>CSC 仍通过各原因 Cox 模型标准化；直接概率差已使用 <code>riskRegression::ate()</code> 的联合方差，包含组间协方差。默认 FGR 和 CSC 的工作模型假设不同，解析推断并不保证两种模型产生完全相同的数值。</p>
-<p>当前调用和 <code>fit_info</code> 的检查方法见 <a href="../regr/forest-guide.html#current-inference">效应估计教程</a>。本次只核对源码与文档，没有重做下方性能矩阵；历史输入、重复次数、区间、P 值和耗时均保留原始记录。需要当前耗时比较时，应在当前源码与固定依赖下重新执行两种配置，分别记录正常解析路径与回退路径。</p>
+<p>2026-10-19（RegR <code>c903aae</code>）起，<code>show_surdiff</code> 改名为 <code>show_sur</code>，旧名已在 <code>571dc88</code> 移除；<code>get_eff()</code> 默认改为 <code>FALSE</code>，需要概率表时显式传 TRUE，<code>get_facet()</code> 仍为 TRUE。后面的历史矩阵保留当时的参数名和默认值，不能直接作为当前调用复制。</p>
+<p>当前调用和 <code>fit_info</code> 检查方法见<a href="../regr/forest-guide.html#current-inference">效应估计教程</a>。本次执行了下一节的比值后端对照，没有重做后面的性能矩阵；历史输入、重复次数、区间、P值和耗时均保留原始记录。当前耗时必须在固定源码、依赖和相同分析配置下重新测量，并区分正常解析路径与回退路径。</p>
+<p>下方历史图表本次只从原有汇总CSV重新渲染；原建模、重采样和计时脚本仍为 <code>eval: false</code>，没有重新运行。</p>
+<section id="crr-20261019" class="level3">
+<h3 class="anchored" data-anchor-id="crr-20261019">当前三个后端的区别</h3>
+<p>按已推送 RegR <code>4034a97</code>（含 CRR 支持提交 <code>5488117</code>）核对。<code>CRR</code> 保留 Fine–Gray 模型及其估计目标，采用旧拟合路线重现 crr 结果。月单位等重复事件时间下，mets 与 crr 的数值可能不同；direct概率还会进入相应的bootstrap路径，耗时须单独测量。</p>
+<div class="table-responsive">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;"><code>cif_args$model</code></th>
+<th style="text-align: left;">Fine–Gray 比值 / 交互</th>
+<th style="text-align: left;"><code>get_eff/get_cat/get_facet</code> 的 direct CIF</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><code>FGR</code>（默认）</td>
+<td style="text-align: left;">优先mets，失败时兼容回退</td>
+<td style="text-align: left;">mets标准化与影响函数方差；失败时才进入兼容/重采样路径</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>CSC</code></td>
+<td style="text-align: left;">仍沿用默认Fine–Gray比值拟合</td>
+<td style="text-align: left;">各原因Cox标准化与解析方差，模型假设与FGR不同</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>CRR</code></td>
+<td style="text-align: left;"><code>tidycmprsk::crr()</code>，包含该次调用的sHR、交互与RERI</td>
+<td style="text-align: left;">adjustedCurves对 <code>riskRegression::FGR()</code> 的bootstrap路径</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code>get_inter()</code> 没有绘制 direct CIF，故选CSC不改变其Fine–Gray比值模型；选CRR会改变拟合后端。<code>get_inter_abs()</code> 的调整CIF另有合同：FGR可做mets联合delta或同模型bootstrap，CSC与CRR使用联合bootstrap，不能照搬上表的解析推断结论。其 <code>n_boot/n_cores</code> 控制实际重采样。<code>get_facet_diff()</code> 同样接受CRR，切换后端须从原始数据拟合，缓存不能换模型。</p>
+<p>接口的 <code>list(model = c("FGR", "CSC", "CRR"))</code> 表示可选值列表，默认只取第一个；不是依次拟合三个模型。<code>NULL</code>、<code>list()</code>、旧的双选项写法 <code>list(model = c("FGR", "CSC"))</code> 都仍表示默认FGR。</p>
+</section>
+<section id="实测只比较比值拟合不计算-cif-概率" class="level3">
+<h3 class="anchored" data-anchor-id="实测只比较比值拟合不计算-cif-概率">实测：只比较比值拟合，不计算 CIF 概率</h3>
+<p>下面在 Windows / WSL R 4.4.3 使用相同598人 PTC 队列与 Age 调整项执行。只生成sHR表，避免把概率bootstrap混入这个接口检查；不据此推算性能提升。CRR另外与直接调用 <code>tidycmprsk::crr()</code> 的结果核对。</p>
+<!-- rnotes-refresh: cif -->
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>dat_now <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(ToyData<span class="sc">::</span>toy_ptc_m1_cnd)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>dat_now[[<span class="st">"N_4"</span>]] <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">relevel</span>(dat_now[[<span class="st">"N_4"</span>]], <span class="at">ref =</span> <span class="st">"No CND"</span>)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>dat_now[[<span class="st">"status"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(dat_now[[<span class="st">"event"</span>]], <span class="at">levels =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">1</span>, <span class="dv">2</span>))</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>backends <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"FGR"</span>, <span class="st">"CSC"</span>, <span class="st">"CRR"</span>)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>eff_backend <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">setNames</span>(<span class="fu">lapply</span>(backends, <span class="cf">function</span>(m) {</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">run_quiet</span>(<span class="fu">get_eff</span>(dat_now, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> <span class="st">"Age"</span>,</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">methods =</span> <span class="st">"direct"</span>, <span class="at">show_sur =</span> <span class="cn">FALSE</span>, <span class="at">all =</span> <span class="cn">NULL</span>,</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> m)))</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>}), backends)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>comparison <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, <span class="fu">lapply</span>(backends, <span class="cf">function</span>(m) {</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  tab <span class="ot">&lt;-</span> eff_backend[[m]][[<span class="st">"haz_direct"</span>]]</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  keep <span class="ot">&lt;-</span> tab[[<span class="st">"variable"</span>]] <span class="sc">==</span> <span class="st">"N_4"</span> <span class="sc">&amp;</span> tab[[<span class="st">"label"</span>]] <span class="sc">==</span> <span class="st">"CND"</span></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.frame</span>(<span class="at">backend =</span> m,</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    tab[keep, <span class="fu">c</span>(<span class="st">"estimate"</span>, <span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>), <span class="at">drop =</span> <span class="cn">FALSE</span>])</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>}))</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>comparison</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>crr_reference <span class="ot">&lt;-</span> tidycmprsk<span class="sc">::</span><span class="fu">crr</span>(</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  survival<span class="sc">::</span><span class="fu">Surv</span>(time, status) <span class="sc">~</span> Age <span class="sc">+</span> N_4, <span class="at">data =</span> dat_now)</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>crr_tidy <span class="ot">&lt;-</span> broom<span class="sc">::</span><span class="fu">tidy</span>(crr_reference, <span class="at">conf.int =</span> <span class="cn">TRUE</span>, <span class="at">exponentiate =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>crr_tidy[crr_tidy[[<span class="st">"term"</span>]] <span class="sc">==</span> <span class="st">"N_4CND"</span>, <span class="fu">c</span>(<span class="st">"estimate"</span>, <span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>)]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<!-- rnotes-refresh-cif-results -->
+<div class="table-responsive">
+<table class="caption-top table">
+<thead>
+<tr class="header">
+<th style="text-align: left;">后端</th>
+<th style="text-align: right;">年龄调整sHR</th>
+<th style="text-align: right;">95% CI下限</th>
+<th style="text-align: right;">95% CI上限</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">FGR</td>
+<td style="text-align: right;">0.781518</td>
+<td style="text-align: right;">0.571535</td>
+<td style="text-align: right;">1.068648</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">CSC</td>
+<td style="text-align: right;">0.781518</td>
+<td style="text-align: right;">0.571535</td>
+<td style="text-align: right;">1.068648</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">CRR</td>
+<td style="text-align: right;">0.781962</td>
+<td style="text-align: right;">0.572179</td>
+<td style="text-align: right;">1.068660</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>这是两端一致的本次执行结果，未四舍五入的CRR估计及区间与直接crr调用在 <code>1e-8</code> 容差内一致。</p>
+<p>这里的FGR与CSC比值来自相同默认拟合路线；CRR与直接crr调用核验一致。表中sHR不是CIF，数值差异也不能解释为某后端更正确。旧概率图及下方历史计时并未用这次结果替换。</p>
+</section>
+</section>
+<section id="historical-benchmark" class="level2 page-columns page-full">
+<h2 class="anchored" data-anchor-id="historical-benchmark">历史性能记录：7f2aced</h2>
 <p>本页历史评估对象是 RegR 0.1.3（commit <code>7f2aced</code>）的 <code>get_eff()</code>、<code>get_cat()</code> 和 <code>get_facet()</code>，在竞争风险分析（<code>surv = FALSE</code>）中比较两个设置：</p>
 <ul>
 <li><code>cif_args = list(model = c("FGR", "CSC"))</code>：调整后 CIF（<code>method = "direct"</code>）的工作模型。<code>"FGR"</code>（默认）是 Fine-Gray 模型，在该历史版本中使用 50 次 bootstrap 求 CI；<code>"CSC"</code> 是各原因 Cox 模型，用 <code>riskRegression::ate()</code> 的解析方差。三个函数的 sHR/HR 列都固定来自 <code>tidycmprsk::crr</code>，不受 <code>cif_args</code> 影响。</li>
 <li><code>show_surdiff = TRUE / FALSE</code>：是否生成 CIF / ΔCIF 表（<code>get_eff</code> 的 <code>sur_*</code>，<code>get_facet</code> 内嵌表的 SP/SD 列）。<code>get_cat()</code> 固定生成，没有这个开关。</li>
 </ul>
-</section>
-<section id="历史版本的测量结论" class="level2">
-<h2 class="anchored" data-anchor-id="历史版本的测量结论">历史版本的测量结论</h2>
+<section id="历史版本的测量结论" class="level3">
+<h3 class="anchored" data-anchor-id="历史版本的测量结论">历史版本的测量结论</h3>
 <ol type="1">
 <li><strong>CSC 比 FGR 快得多，而且样本越大差距越大。</strong>单看 CIF 表新增的耗时，FGR 是 CSC 的 5 倍（n = 500）、10 倍（n = 4387，完整真实数据）、约 96 倍（n = 35096）。整次调用的总耗时差距是 4–8 倍，因为 sHR 表两个后端都要算，把差距摊薄了。</li>
 <li><strong>FGR 的耗时几乎全花在 50 次 bootstrap 上。</strong>它随 n 近似按 n<sup>1.7</sup> 增长，5 个 fork worker 一起跑：n = 35096 时墙钟 211 s，CPU 时间 929 s。CSC 的 CIF 部分在 n = 35096 时也只多 2 s 左右。</li>
@@ -1142,8 +1248,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><strong><code>get_facet()</code>（<code>method = "direct"</code>）里差距较小。</strong>各分层并行计算，FGR 是 CSC 的 1.9–5.4 倍（n = 35096 时 169 s 对 31 s）。<code>show_surdiff = TRUE</code> 在 FGR 下让耗时增加 60–80%，在 CSC 下只多 0.4–3 s。各层 HR 完全相同，SP/SD 的显著性结论在所有样本量下一致。</li>
 </ol>
 </section>
-<section id="测试设置" class="level2">
-<h2 class="anchored" data-anchor-id="测试设置">测试设置</h2>
+<section id="测试设置" class="level3">
+<h3 class="anchored" data-anchor-id="测试设置">测试设置</h3>
 <ul>
 <li><strong>环境：</strong>WSL Ubuntu-22.04，R 4.4.3，24 逻辑核；adjustedCurves 0.11.4.9000，riskRegression 2023.12.21，tidycmprsk 1.1.0。已核对 WSL 安装版 RegR 与源码 HEAD 一致。</li>
 <li><strong>数据：</strong><code>RegR::seer_thyroid_mtc_2026</code>（n = 4387；<code>event</code> 0/1/2 = 3207/597/583）。n ≤ 4387 用无放回抽样；n = 8774、17548、35096 用有放回重抽样放大（表中标 *），重复行会带来结，只用于看耗时的增长趋势。</li>
@@ -1153,8 +1259,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li><strong>并行：</strong>单个 <code>cat_var</code> 时外层串行。FGR 的 <code>adjustedcif(bootstrap = TRUE, n_boot = 50, n_cores = 5)</code> 在 Linux 上走 fork 后端。</li>
 </ul>
 </section>
-<section id="耗时结果" class="level2">
-<h2 class="anchored" data-anchor-id="耗时结果">耗时结果</h2>
+<section id="耗时结果" class="level3">
+<h3 class="anchored" data-anchor-id="耗时结果">耗时结果</h3>
 <div class="cell" data-renderings="[&quot;light&quot;,&quot;dark&quot;]">
 <div class="light-content">
 <div id="fig-timing-1" class="quarto-float quarto-figure quarto-figure-center anchored" alt="单次 get_eff() 调用的墙钟耗时中位数（秒），双对数坐标。虚线右侧为重抽样放大的样本。">
@@ -1181,6 +1287,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 </div>
+<div class="table-responsive">
 <div class="cell">
 <div id="tbl-timing" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
@@ -1290,11 +1397,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 </div>
+</div>
 <p>n 从 4387 增到 35096（8 倍）时，拟合出的幂律指数：FGR 总耗时约 n<sup>1.74</sup>，FGR 的 CIF 增量约 n<sup>1.73</sup>，<code>show_surdiff = FALSE</code>（即 crr 的 sHR 表）约 n<sup>1.90</sup>，CSC 的 CIF 增量约 n<sup>0.63</sup>。大样本下，CSC 调用的总耗时基本就是 crr 拟合 sHR 表的耗时。</p>
 <p>CPU 时间说明了 FGR 贵在哪里：n = 35096 时，FGR 墙钟 211 s、CPU 929 s（约 4.4 个核满载）；CSC 墙钟 25 s、CPU 63 s。在共享服务器或 Windows PSOCK 环境下，FGR 的实际代价会比这里的墙钟时间更明显。</p>
 </section>
-<section id="show_surdiff-开和关" class="level2">
-<h2 class="anchored" data-anchor-id="show_surdiff-开和关">show_surdiff 开和关</h2>
+<section id="show_surdiff-开和关" class="level3">
+<h3 class="anchored" data-anchor-id="show_surdiff-开和关">show_surdiff 开和关</h3>
+<div class="table-responsive">
 <div class="cell">
 <div id="tbl-surdiff" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
@@ -1386,26 +1495,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 </div>
+</div>
 <ul>
 <li><strong>竞争风险 + FGR（默认）：</strong>打开 <code>show_surdiff</code> 后总耗时是关闭时的 9–13 倍，这是最值得优化的地方。</li>
 <li><strong>竞争风险 + CSC：</strong>打开后在 n ≤ 2000 时约为关闭时的 3 倍，但绝对值不到 0.5 s；n 越大越接近 1 倍。</li>
 <li><strong>Cox：</strong>打开后每次多 0.14–0.7 s，基本可以忽略。</li>
 </ul>
 </section>
-<section id="fgr-与-csc-的结果差异" class="level2 page-columns page-full">
-<h2 class="anchored" data-anchor-id="fgr-与-csc-的结果差异">FGR 与 CSC 的结果差异</h2>
+<section id="fgr-与-csc-的结果差异" class="level3 page-columns page-full">
+<h3 class="anchored" data-anchor-id="fgr-与-csc-的结果差异">FGR 与 CSC 的结果差异</h3>
 <p>固定条件：完整数据 n = 4387，<code>cat_var = c("Sex", "Race", "Che", "M")</code>，<code>adj_var = c("Age", "Sur")</code>，分别在 60 个月和 120 个月比较 <code>sur_direct</code>。</p>
 <ul>
 <li><code>haz_unadj</code>、<code>haz_direct</code> 两张表在 FGR 与 CSC 之间 <code>identical()</code> 为 <code>TRUE</code>，<code>sur_unadj</code>（Aalen–Johansen）也完全相同。<code>cif_args</code> 只影响 <code>sur_direct</code>。</li>
 <li>ΔCIF 的方向约定：<code>estimate</code> = 参照组 CIF − 该组 CIF，所以 Male、M1 等风险更高的组显示为负值。</li>
 </ul>
 <div class="nowrap column-page">
-<div id="tbl-agree" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-tbl figure">
-<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-agree-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.3: 调整后 CIF。AJ 为未调整的 Aalen–Johansen 估计，作参考；点差 = CSC − FGR，≥ 0.8 个百分点的加粗。FGR 为 <code>set.seed(1)</code> 下的一次结果。
-</figcaption>
-<div aria-describedby="tbl-agree-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="table-responsive">
 <table class="caption-top table">
 <colgroup>
 <col style="width: 12%">
@@ -1633,14 +1738,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tbody>
 </table>
 </div>
-</figure>
-</div>
-<div id="tbl-agree-diff" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-tbl figure">
-<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-agree-diff-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.4: ΔCIF（参照组 CIF − 该组 CIF）与 P 值。
-</figcaption>
-<div aria-describedby="tbl-agree-diff-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<p>: 调整后 CIF。AJ 为未调整的 Aalen–Johansen 估计，作参考；点差 = CSC − FGR，≥ 0.8 个百分点的加粗。FGR 为 <code>set.seed(1)</code> 下的一次结果。 {#tbl-agree}</p>
+<div class="table-responsive">
 <table class="caption-top table">
 <colgroup>
 <col style="width: 16%">
@@ -1760,18 +1859,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tbody>
 </table>
 </div>
-</figure>
+<p>: ΔCIF（参照组 CIF − 该组 CIF）与 P 值。 {#tbl-agree-diff}</p>
 </div>
-</div>
-<section id="fgr-随机种子造成的波动" class="level3">
-<h3 class="anchored" data-anchor-id="fgr-随机种子造成的波动">FGR 随机种子造成的波动</h3>
+<section id="fgr-随机种子造成的波动" class="level4">
+<h4 class="anchored" data-anchor-id="fgr-随机种子造成的波动">FGR 随机种子造成的波动</h4>
 <p>在 120 个月、同一数据上用 5 个种子（101–105）重跑 FGR：点估计完全不变（点估计不依赖 bootstrap），但 CI 和 P 值都会变。</p>
-<div id="tbl-seed" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-tbl figure">
-<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-seed-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.5: FGR 在 5 个种子下的取值范围，与 CSC 的单次（确定性）结果对照。
-</figcaption>
-<div aria-describedby="tbl-seed-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="table-responsive">
 <table class="caption-top table">
 <colgroup>
 <col style="width: 12%">
@@ -1869,17 +1962,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tbody>
 </table>
 </div>
-</figure>
-</div>
+<p>: FGR 在 5 个种子下的取值范围，与 CSC 的单次（确定性）结果对照。 {#tbl-seed}</p>
 </section>
-<section id="样本量变化时的一致性sex120-个月" class="level3">
-<h3 class="anchored" data-anchor-id="样本量变化时的一致性sex120-个月">样本量变化时的一致性（Sex，120 个月）</h3>
-<div id="tbl-sexn" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-tbl figure">
-<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-sexn-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.6: 计时实验第 1 次重复的结果（adj = Age, Race, M）。
-</figcaption>
-<div aria-describedby="tbl-sexn-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<section id="样本量变化时的一致性sex120-个月" class="level4">
+<h4 class="anchored" data-anchor-id="样本量变化时的一致性sex120-个月">样本量变化时的一致性（Sex，120 个月）</h4>
+<div class="table-responsive">
 <table class="caption-top table">
 <colgroup>
 <col style="width: 20%">
@@ -1950,20 +2037,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tbody>
 </table>
 </div>
-</figure>
-</div>
+<p>: 计时实验第 1 次重复的结果（adj = Age, Race, M）。 {#tbl-sexn}</p>
 <p>两个后端的 ΔCIF 始终同号、显著性判断相同。FGR 的 |ΔCIF| 系统性地大 0.3–0.7 个百分点，原因是两者的工作模型不同（比例子分布风险 vs 各原因比例风险），不是随机误差。n = 500 和 1000 时两个后端都不显著（P ≈ 0.06–0.08）。</p>
 </section>
 </section>
-<section id="get_cat-中的-fgr-与-csc" class="level2">
-<h2 class="anchored" data-anchor-id="get_cat-中的-fgr-与-csc">get_cat 中的 FGR 与 CSC</h2>
+<section id="get_cat-中的-fgr-与-csc" class="level3">
+<h3 class="anchored" data-anchor-id="get_cat-中的-fgr-与-csc">get_cat 中的 FGR 与 CSC</h3>
 <p><code>get_cat()</code> 的结果分三块，<code>cif_args</code> 只作用于其中 <code>method = "direct"</code> 的 CIF：</p>
-<div id="tbl-getcat-parts" class="quarto-float quarto-figure quarto-figure-center anchored">
-<figure class="quarto-float quarto-float-tbl figure">
-<figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-getcat-parts-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.7: get_cat 的组成和 cif_args 的作用范围。
-</figcaption>
-<div aria-describedby="tbl-getcat-parts-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<div class="table-responsive">
 <table class="caption-top table">
 <colgroup>
 <col style="width: 33%">
@@ -1996,14 +2077,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tbody>
 </table>
 </div>
-</figure>
-</div>
+<p>: get_cat 的组成和 cif_args 的作用范围。 {#tbl-getcat-parts}</p>
 <p>所以一次 <code>get_cat()</code> 调用里，FGR 要跑 3 次 50 次重抽样的 bootstrap（曲线、单时点表、多时点表各一次），CSC 一次也不跑。计时调用为 <code>get_cat(d, cat_var = "Sex", adj_var = c("Age", "Race", "M"), surv = FALSE, cif_args = list(model = m))</code>，其余参数用默认值；数据与 <code>get_eff</code> 基准是同一批抽样，n ≤ 4387 重复 3 次，更大的 n 重复 2 次。</p>
+<div class="table-responsive">
 <div class="cell">
 <div id="tbl-getcat-timing" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-getcat-timing-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.8: get_cat() 墙钟耗时中位数（秒）。额外耗时 = get_cat − 同一数据上的 get_eff（show_surdiff = TRUE），即曲线和多时点 ΔCIF 两块多花的时间。
+表&nbsp;71.3: get_cat() 墙钟耗时中位数（秒）。额外耗时 = get_cat − 同一数据上的 get_eff（show_surdiff = TRUE），即曲线和多时点 ΔCIF 两块多花的时间。
 </figcaption>
 <div aria-describedby="tbl-getcat-timing-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div class="cell-output-display">
@@ -2082,12 +2163,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 </div>
+</div>
 <ul>
 <li><strong>差距随 n 扩大。</strong>n ≤ 4387 时 FGR 是 CSC 的 3–5 倍；n = 35096 时 FGR 要 602 s（CPU 2775 s），CSC 41 s（CPU 203 s），相差约 15 倍。</li>
 <li><strong>CSC 在 <code>get_cat</code> 里比在 <code>get_eff</code> 里慢</strong>（n = 4387 时 5.5 s 对 1.0 s）：整条曲线要在所有时间点上算 <code>riskRegression::ate()</code> 的影响函数，这一块占了 CSC 调用的大部分时间，但仍远低于 FGR 的 3 次 bootstrap。</li>
 </ul>
-<section id="曲线与多时点-δcif-的一致性" class="level3">
-<h3 class="anchored" data-anchor-id="曲线与多时点-δcif-的一致性">曲线与多时点 ΔCIF 的一致性</h3>
+<section id="曲线与多时点-δcif-的一致性" class="level4">
+<h4 class="anchored" data-anchor-id="曲线与多时点-δcif-的一致性">曲线与多时点 ΔCIF 的一致性</h4>
 <div class="cell" data-renderings="[&quot;light&quot;,&quot;dark&quot;]">
 <div class="light-content">
 <div id="fig-getcat-curves-1" class="quarto-float quarto-figure quarto-figure-center anchored" alt="n = 4387（完整数据）时 get_cat() 画出的调整后 CIF 曲线：FGR（bootstrap CI）与 CSC（解析 CI）叠加。">
@@ -2114,11 +2196,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 </div>
+<div class="table-responsive">
 <div class="cell">
 <div id="tbl-getcat-curve-agree" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-getcat-curve-agree-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.9: 整条曲线上 FGR 与 CSC 的差异。最大点差取所有时间点、两个组中 |CIF(FGR) − CIF(CSC)| 的最大值；CI 宽度比取 12 个月以后各时间点 CSC/FGR 宽度比的均值。
+表&nbsp;71.4: 整条曲线上 FGR 与 CSC 的差异。最大点差取所有时间点、两个组中 |CIF(FGR) − CIF(CSC)| 的最大值；CI 宽度比取 12 个月以后各时间点 CSC/FGR 宽度比的均值。
 </figcaption>
 <div aria-describedby="tbl-getcat-curve-agree-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div class="cell-output-display">
@@ -2189,12 +2272,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 </div>
+</div>
 <p>两条曲线在整个随访期内几乎重合：最大点差在 n = 500 时为 0.83 个百分点，其余样本量都不超过 0.51 个百分点，且都出现在随访末段（160 个月以后）风险集很小的地方。除 n = 4387 时 CSC 的 CI 平均窄 5% 外，其余样本量 CSC 的 CI 平均比 FGR 宽 6–18%。</p>
+<div class="table-responsive">
 <div class="cell">
 <div id="tbl-getcat-mul" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-getcat-mul-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.10: cat$Mul：Female − Male 的 ΔCIF（95% CI）与 P。加粗行为两个后端在 α = 0.05 下结论不同。
+表&nbsp;71.5: cat$Mul：Female − Male 的 ΔCIF（95% CI）与 P。加粗行为两个后端在 α = 0.05 下结论不同。
 </figcaption>
 <div aria-describedby="tbl-getcat-mul-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div class="cell-output-display">
@@ -2393,18 +2478,20 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 </div>
-<p>n = 1000 时出现了结论不一致：FGR 在 5、10、15 年都显著（P = 0.031–0.045），CSC 都不显著（P ≈ 0.08–0.09）。这主要不是模型差异造成的：同一份 n = 1000 数据上，<code>get_eff</code> 基准（<a href="#tbl-sexn" class="quarto-xref">表&nbsp;<span>71.6</span></a>）的 FGR 10 年 ΔCIF 同样是 −0.0495，但 bootstrap 给出的 CI 是 (−0.1003, 0.0012)、P = 0.056；这里 <code>cat$Mul</code> 的 bootstrap 给出 (−0.0947, −0.0044)、P = 0.031。点估计相同，只是两次 bootstrap 抽到的样本不同。CSC 在两处给出完全相同的 −0.0465 (−0.0985, 0.0055)、P = 0.080。也就是说，用 FGR 时，同一次 <code>get_cat()</code> 返回的 <code>cat$UM$sur_direct</code> 和 <code>cat$Mul$direct</code> 对同一个对比可能给出不同的 CI 和 P。</p>
+</div>
+<p>n = 1000 时出现了结论不一致：FGR 在 5、10、15 年都显著（P = 0.031–0.045），CSC 都不显著（P ≈ 0.08–0.09）。这主要不是模型差异造成的：同一份 n = 1000 数据上，<code>get_eff</code> 基准（<span class="quarto-unresolved-ref">?tbl-sexn</span>）的 FGR 10 年 ΔCIF 同样是 −0.0495，但 bootstrap 给出的 CI 是 (−0.1003, 0.0012)、P = 0.056；这里 <code>cat$Mul</code> 的 bootstrap 给出 (−0.0947, −0.0044)、P = 0.031。点估计相同，只是两次 bootstrap 抽到的样本不同。CSC 在两处给出完全相同的 −0.0465 (−0.0985, 0.0055)、P = 0.080。也就是说，用 FGR 时，同一次 <code>get_cat()</code> 返回的 <code>cat$UM$sur_direct</code> 和 <code>cat$Mul$direct</code> 对同一个对比可能给出不同的 CI 和 P。</p>
 </section>
 </section>
-<section id="get_facet-中的-fgr-与-csc" class="level2">
-<h2 class="anchored" data-anchor-id="get_facet-中的-fgr-与-csc">get_facet 中的 FGR 与 CSC</h2>
+<section id="get_facet-中的-fgr-与-csc" class="level3">
+<h3 class="anchored" data-anchor-id="get_facet-中的-fgr-与-csc">get_facet 中的 FGR 与 CSC</h3>
 <p><code>get_facet()</code> 在 <code>split_var</code> 的每一层画 CIF 曲线并嵌入一张小表。<code>cif_args</code> 只在 <code>method</code> 含 <code>"direct"</code> 时起作用，影响曲线（<code>sur.data</code>）和表中的 SP（<code>timepoint</code> 时刻各组 CIF）、SD（组间差）列；表中的 HR 列来自 <code>tidycmprsk::crr</code>，不受影响。<code>show_surdiff = FALSE</code> 跳过 SP/SD，曲线不变（实测 <code>sur.data</code> 在开、关两种设置下完全相同）。</p>
 <p>计时调用为 <code>get_facet(d, split_var = "age_55", cat_var = "Sex", adj_var = c("Age", "Race", "M"), surv = FALSE, method = "direct", cif_args = list(model = m), show_surdiff = s, timepoint = 120)</code>，共 2 个分层；<code>subgroup_model</code> 用默认的 <code>"interaction"</code>，<code>parallel = NULL</code> 在 WSL 上解析为 4 个外层 worker。数据与前两节是同一批抽样，n ≤ 4387 重复 3 次，更大的 n 重复 2 次。</p>
+<div class="table-responsive">
 <div class="cell">
 <div id="tbl-getfacet-timing" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-getfacet-timing-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.11: get_facet() 墙钟耗时中位数（秒）。「开」「关」指 show_surdiff；增量 = 开 − 关。
+表&nbsp;71.6: get_facet() 墙钟耗时中位数（秒）。「开」「关」指 show_surdiff；增量 = 开 − 关。
 </figcaption>
 <div aria-describedby="tbl-getfacet-timing-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div class="cell-output-display">
@@ -2509,18 +2596,20 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 </div>
+</div>
 <ul>
 <li><strong>FGR 是 CSC 的 1.9–5.4 倍</strong>，比 <code>get_eff</code>、<code>get_cat</code> 里的差距小：两个分层的 bootstrap 同时在不同 worker 上跑，墙钟时间被并行摊薄了。CPU 时间的差距仍然很大，n = 35096 时 FGR 1122 s，CSC 166 s。</li>
 <li><strong><code>show_surdiff</code> 的代价取决于后端。</strong>FGR 下打开后总耗时是关闭时的 1.6–1.8 倍，因为 SP/SD 要再做一次 bootstrap；CSC 下只多 0.4–3 s。只想看曲线和 HR 时，FGR 用户关掉 <code>show_surdiff</code> 收益明显。</li>
 <li><strong>CSC 关闭 <code>show_surdiff</code> 时，大样本的耗时主要在 HR。</strong>n = 35096 时 CSC 关闭也要 28 s，大部分花在全数据上的 <code>crr</code> 交互模型（<code>subgroup_model = "interaction"</code>），与 <code>cif_args</code> 无关。</li>
 </ul>
-<section id="分层结果的一致性" class="level3">
-<h3 class="anchored" data-anchor-id="分层结果的一致性">分层结果的一致性</h3>
+<section id="分层结果的一致性" class="level4">
+<h4 class="anchored" data-anchor-id="分层结果的一致性">分层结果的一致性</h4>
+<div class="table-responsive">
 <div class="cell">
 <div id="tbl-getfacet-agree" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-getfacet-agree-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.12: get_facet 内嵌表中 Male 行的 SD（Female − Male 的 120 个月 CIF 差，95% CI）与 P。HR 列在两个后端之间完全相同，只列一次。
+表&nbsp;71.7: get_facet 内嵌表中 Male 行的 SD（Female − Male 的 120 个月 CIF 差，95% CI）与 P。HR 列在两个后端之间完全相同，只列一次。
 </figcaption>
 <div aria-describedby="tbl-getfacet-agree-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div class="cell-output-display">
@@ -2679,11 +2768,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 </div>
+</div>
+<div class="table-responsive">
 <div class="cell">
 <div id="tbl-getfacet-curve" class="cell quarto-float quarto-figure quarto-figure-center anchored">
 <figure class="quarto-float quarto-float-tbl figure">
 <figcaption class="quarto-float-caption-top quarto-float-caption quarto-float-tbl" id="tbl-getfacet-curve-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-表&nbsp;71.13: get_facet 曲线（sur.data）上 FGR 与 CSC 的差异：两个分层、两个组、所有时间点中的最大 |CIF 差|，以及 12 个月以后 CI 宽度比（CSC/FGR）的均值。
+表&nbsp;71.8: get_facet 曲线（sur.data）上 FGR 与 CSC 的差异：两个分层、两个组、所有时间点中的最大 |CIF 差|，以及 12 个月以后 CI 宽度比（CSC/FGR）的均值。
 </figcaption>
 <div aria-describedby="tbl-getfacet-curve-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 <div class="cell-output-display">
@@ -2746,19 +2837,20 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 </div>
+</div>
 <ul>
 <li><strong>SD 在所有样本量和分层下都是同号，显著性结论一致。</strong>两者的差不超过 0.9 个百分点（n = 8774 和 17548 的 above_54 层），除 n = 500 的 below_54 层外都是 FGR 的 |SD| 略大，与 <code>get_eff</code> 中观察到的系统性差异方向一致。</li>
 <li><strong>曲线最大点差在 n = 500 时为 1.03 个百分点，其余不超过 0.71 个百分点</strong>，都出现在 210 个月以后风险集很小的随访末段。CSC 的 CI 平均比 FGR 宽 2–20%。</li>
 </ul>
 </section>
-<section id="三个函数放在一起看" class="level3">
-<h3 class="anchored" data-anchor-id="三个函数放在一起看">三个函数放在一起看</h3>
+<section id="三个函数放在一起看" class="level4">
+<h4 class="anchored" data-anchor-id="三个函数放在一起看">三个函数放在一起看</h4>
 <div class="cell" data-renderings="[&quot;light&quot;,&quot;dark&quot;]">
 <div class="light-content">
 <div id="fig-three-funcs-1" class="quarto-float quarto-figure quarto-figure-center anchored" alt="三个函数在 FGR 与 CSC 下的墙钟耗时中位数（秒），双对数坐标。get_eff 与 get_facet 均为 show_surdiff = TRUE。">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-three-funcs-1-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="get-eff-cif-benchmark_files/figure-html/fig-three-funcs-1.png" class="img-fluid figure-img" alt="三个函数在 FGR 与 CSC 下的墙钟耗时中位数（秒），双对数坐标。get_eff 与 get_facet 均为 show_surdiff = TRUE。" width="720" loading="lazy" decoding="async" height="768" srcset="../assets/figure-previews/71a033f3f67b255e59c5c4fd26e49035.webp">
+<img src="get-eff-cif-benchmark_files/figure-html/fig-three-funcs-1.png" class="img-fluid figure-img" alt="三个函数在 FGR 与 CSC 下的墙钟耗时中位数（秒），双对数坐标。get_eff 与 get_facet 均为 show_surdiff = TRUE。" width="720" loading="lazy" decoding="async" height="768" srcset="../assets/figure-previews/765eb6b18a5140561d0aed3b7f2979d8.webp">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-three-funcs-1-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 图&nbsp;71.5: 三个函数在 FGR 与 CSC 下的墙钟耗时中位数（秒），双对数坐标。get_eff 与 get_facet 均为 show_surdiff = TRUE。
@@ -2770,7 +2862,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div id="fig-three-funcs-2" class="quarto-float quarto-figure quarto-figure-center anchored" alt="三个函数在 FGR 与 CSC 下的墙钟耗时中位数（秒），双对数坐标。get_eff 与 get_facet 均为 show_surdiff = TRUE。">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-three-funcs-2-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<img src="get-eff-cif-benchmark_files/figure-html/fig-three-funcs-2.png" class="img-fluid figure-img" alt="三个函数在 FGR 与 CSC 下的墙钟耗时中位数（秒），双对数坐标。get_eff 与 get_facet 均为 show_surdiff = TRUE。" width="720" loading="lazy" decoding="async" height="768" srcset="../assets/figure-previews/08a1e0f57768cbde55e33e7fb9f3cf43.webp">
+<img src="get-eff-cif-benchmark_files/figure-html/fig-three-funcs-2.png" class="img-fluid figure-img" alt="三个函数在 FGR 与 CSC 下的墙钟耗时中位数（秒），双对数坐标。get_eff 与 get_facet 均为 show_surdiff = TRUE。" width="720" loading="lazy" decoding="async" height="768" srcset="../assets/figure-previews/422200482517920b5db57f24d693bb74.webp">
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-three-funcs-2-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 图&nbsp;71.6: 三个函数在 FGR 与 CSC 下的墙钟耗时中位数（秒），双对数坐标。get_eff 与 get_facet 均为 show_surdiff = TRUE。
@@ -2781,8 +2873,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </section>
 </section>
-<section id="建议" class="level2">
-<h2 class="anchored" data-anchor-id="建议">建议</h2>
+<section id="建议" class="level3">
+<h3 class="anchored" data-anchor-id="建议">建议</h3>
 <ul>
 <li><strong>n ≥ 5000、多个 <code>cat_var</code>，或有 <code>sub_var</code> / <code>split_var</code>（每个亚组都要重做一次 bootstrap）时，用 <code>cif_args = list(model = "CSC")</code>。</strong>点估计差异在 1 个百分点以内，结果可复现，不受随机种子影响。</li>
 <li>要与既往结果对齐，或想让 CIF 曲线与 sHR 表出自同一个 Fine-Gray 模型时，保留默认的 FGR。此时固定 <code>set.seed()</code>，并留意 P 接近 0.05 的对比（n_boot = 50 的 bootstrap P 值精度有限）。</li>
@@ -2792,8 +2884,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>帮助页里 “CSC roughly 15x faster” 的说法与实测大致相符（仅 CIF 部分：<code>get_eff</code> 在 n = 4387 时约 10 倍，n 越大倍数越高），但在 <code>get_facet</code> 这类并行分层的函数里墙钟差距只有 2–5 倍，可以补充说明这个倍数随 n 和函数而变。</li>
 </ul>
 </section>
-<section id="局限" class="level2">
-<h2 class="anchored" data-anchor-id="局限">局限</h2>
+<section id="局限" class="level3">
+<h3 class="anchored" data-anchor-id="局限">局限</h3>
 <ul>
 <li>只测了 WSL（Linux fork 后端）。Windows R 上 bootstrap 走 PSOCK，每次都要启动进程；<code>get_facet(surv = FALSE)</code> 在没有 fork 后端时还会退回 <code>parallel = 1</code>，分层改为串行。所以 Windows 上 FGR 的额外开销预计更大，本次没有测量。</li>
 <li>计时只用了一个二分类暴露（Sex）、<code>get_facet</code> 只有 2 个分层的场景。多个 <code>cat_var</code> 或更多分层时外层会并行（上限 4 个 worker × 内层 5 核），耗时不能简单按变量数或分层数线性相乘。</li>
@@ -2801,217 +2893,218 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>n &gt; 4387 的数据是重抽样放大的，只用于看耗时的增长趋势，不应拿来解释效应量。</li>
 </ul>
 </section>
-<section id="复现脚本" class="level2">
-<h2 class="anchored" data-anchor-id="复现脚本">复现脚本</h2>
+<section id="复现脚本" class="level3">
+<h3 class="anchored" data-anchor-id="复现脚本">复现脚本</h3>
 <p>所有脚本都在 WSL 的 Rscript 下运行，输出写到当前工作目录。本页的图表直接读取 <a href="https://github.com/HUI950319/Rnotes/tree/main/regr/bench"><code>regr/bench/</code></a> 下的 CSV：<code>bench_timing.csv</code>（get_eff 计时）、<code>getcat_*.csv</code>（get_cat 计时、曲线、多时点 ΔCIF）、<code>getfacet_*.csv</code>（get_facet 计时和一致性汇总）。这些文件只含汇总结果，不含个体数据。</p>
 <div class="cell">
 <details class="code-fold">
 <summary>bench.R：耗时基准</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressMessages</span>(<span class="fu">library</span>(RegR))</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="cn">NULL</span>)</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>out_csv <span class="ot">&lt;-</span> <span class="st">"bench_timing.csv"</span>; <span class="cf">if</span> (<span class="fu">file.exists</span>(out_csv)) <span class="fu">file.remove</span>(out_csv)</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>d0 <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(RegR<span class="sc">::</span>seer_thyroid_mtc_2026)</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>d0<span class="sc">$</span>DSS <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(d0<span class="sc">$</span>DSS)</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">2000</span>, <span class="dv">4387</span>, <span class="dv">8774</span>, <span class="dv">17548</span>, <span class="dv">35096</span>)</span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>cfgs <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">crr_surdiff_FALSE =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">show_surdiff =</span> <span class="cn">FALSE</span>),</span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">crr_FGR           =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">show_surdiff =</span> <span class="cn">TRUE</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> <span class="st">"FGR"</span>)),</span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">crr_CSC           =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">show_surdiff =</span> <span class="cn">TRUE</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> <span class="st">"CSC"</span>)),</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">cox_surdiff_FALSE =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">TRUE</span>,  <span class="at">show_surdiff =</span> <span class="cn">FALSE</span>),</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">cox_surdiff_TRUE  =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">TRUE</span>,  <span class="at">show_surdiff =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>quiet <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) <span class="fu">suppressWarnings</span>(<span class="fu">suppressMessages</span>(<span class="fu">capture.output</span>(r <span class="ot">&lt;-</span> expr))) </span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>call_eff <span class="ot">&lt;-</span> <span class="cf">function</span>(d, cfg) {</span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>  res <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>  st <span class="ot">&lt;-</span> <span class="fu">system.time</span>(<span class="fu">quiet</span>(res <span class="ot">&lt;-</span> <span class="fu">do.call</span>(get_eff, <span class="fu">c</span>(<span class="fu">list</span>(d, <span class="at">cat_var =</span> <span class="st">"Sex"</span>,</span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>          <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Race"</span>, <span class="st">"M"</span>), <span class="at">time =</span> <span class="dv">120</span>), cfg))))</span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">res =</span> res, <span class="at">st =</span> st)</span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>make_data <span class="ot">&lt;-</span> <span class="cf">function</span>(n) {</span>
-<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set.seed</span>(<span class="dv">20260929</span> <span class="sc">+</span> n)</span>
-<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="fu">nrow</span>(d0)) d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n), ] <span class="cf">else</span> d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n, <span class="at">replace =</span> <span class="cn">TRUE</span>), ]</span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">call_eff</span>(<span class="fu">make_data</span>(<span class="dv">500</span>), cfgs<span class="sc">$</span>crr_CSC)); <span class="fu">invisible</span>(<span class="fu">call_eff</span>(<span class="fu">make_data</span>(<span class="dv">500</span>), cfgs<span class="sc">$</span>cox_surdiff_TRUE))  <span class="co"># warm-up</span></span>
-<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>keep <span class="ot">&lt;-</span> <span class="fu">list</span>(); slow <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
-<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (n <span class="cf">in</span> ns) {</span>
-<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">make_data</span>(n)</span>
-<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>  reps <span class="ot">&lt;-</span> <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="dv">4387</span>) <span class="dv">5</span> <span class="cf">else</span> <span class="dv">3</span></span>
-<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (r <span class="cf">in</span> <span class="fu">seq_len</span>(reps)) <span class="cf">for</span> (nm <span class="cf">in</span> <span class="fu">sample</span>(<span class="fu">names</span>(cfgs))) {</span>
-<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (nm <span class="sc">%in%</span> slow) <span class="cf">next</span></span>
-<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    <span class="fu">set.seed</span>(r)</span>
-<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>    x <span class="ot">&lt;-</span> <span class="fu">call_eff</span>(d, cfgs[[nm]])</span>
-<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    row <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">cfg =</span> nm, <span class="at">rep =</span> r, <span class="at">elapsed =</span> x<span class="sc">$</span>st[[<span class="st">"elapsed"</span>]],</span>
-<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>                      <span class="at">cpu =</span> <span class="fu">sum</span>(x<span class="sc">$</span>st[<span class="fu">c</span>(<span class="st">"user.self"</span>,<span class="st">"sys.self"</span>,<span class="st">"user.child"</span>,<span class="st">"sys.child"</span>)], <span class="at">na.rm =</span> <span class="cn">TRUE</span>))</span>
-<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">write.table</span>(row, out_csv, <span class="at">sep =</span> <span class="st">","</span>, <span class="at">append =</span> <span class="fu">file.exists</span>(out_csv), <span class="at">col.names =</span> <span class="sc">!</span><span class="fu">file.exists</span>(out_csv), <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">"n=%d %-18s rep%d %.2fs</span><span class="sc">\n</span><span class="st">"</span>, n, nm, r, row<span class="sc">$</span>elapsed))</span>
-<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (r <span class="sc">==</span> <span class="dv">1</span> <span class="sc">&amp;&amp;</span> nm <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"crr_FGR"</span>,<span class="st">"crr_CSC"</span>)) keep[[<span class="fu">paste</span>(n, nm)]] <span class="ot">&lt;-</span> x<span class="sc">$</span>res</span>
-<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (nm <span class="cf">in</span> <span class="fu">names</span>(cfgs)) { <span class="co"># stop growing a config once it exceeds 10 min</span></span>
-<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a>    tt <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(out_csv); <span class="cf">if</span> (<span class="fu">any</span>(tt<span class="sc">$</span>cfg <span class="sc">==</span> nm <span class="sc">&amp;</span> tt<span class="sc">$</span>n <span class="sc">==</span> n <span class="sc">&amp;</span> tt<span class="sc">$</span>elapsed <span class="sc">&gt;</span> <span class="dv">600</span>)) slow <span class="ot">&lt;-</span> <span class="fu">c</span>(slow, nm)</span>
-<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(keep, <span class="st">"bench_results.rds"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressMessages</span>(<span class="fu">library</span>(RegR))</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="cn">NULL</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>out_csv <span class="ot">&lt;-</span> <span class="st">"bench_timing.csv"</span>; <span class="cf">if</span> (<span class="fu">file.exists</span>(out_csv)) <span class="fu">file.remove</span>(out_csv)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>d0 <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(RegR<span class="sc">::</span>seer_thyroid_mtc_2026)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>d0<span class="sc">$</span>DSS <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(d0<span class="sc">$</span>DSS)</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">2000</span>, <span class="dv">4387</span>, <span class="dv">8774</span>, <span class="dv">17548</span>, <span class="dv">35096</span>)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>cfgs <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">crr_surdiff_FALSE =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">show_surdiff =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">crr_FGR           =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">show_surdiff =</span> <span class="cn">TRUE</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> <span class="st">"FGR"</span>)),</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">crr_CSC           =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">show_surdiff =</span> <span class="cn">TRUE</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> <span class="st">"CSC"</span>)),</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">cox_surdiff_FALSE =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">TRUE</span>,  <span class="at">show_surdiff =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">cox_surdiff_TRUE  =</span> <span class="fu">list</span>(<span class="at">surv =</span> <span class="cn">TRUE</span>,  <span class="at">show_surdiff =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>quiet <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) <span class="fu">suppressWarnings</span>(<span class="fu">suppressMessages</span>(<span class="fu">capture.output</span>(r <span class="ot">&lt;-</span> expr))) </span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>call_eff <span class="ot">&lt;-</span> <span class="cf">function</span>(d, cfg) {</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>  res <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>  st <span class="ot">&lt;-</span> <span class="fu">system.time</span>(<span class="fu">quiet</span>(res <span class="ot">&lt;-</span> <span class="fu">do.call</span>(get_eff, <span class="fu">c</span>(<span class="fu">list</span>(d, <span class="at">cat_var =</span> <span class="st">"Sex"</span>,</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>          <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Race"</span>, <span class="st">"M"</span>), <span class="at">time =</span> <span class="dv">120</span>), cfg))))</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">res =</span> res, <span class="at">st =</span> st)</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>make_data <span class="ot">&lt;-</span> <span class="cf">function</span>(n) {</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set.seed</span>(<span class="dv">20260929</span> <span class="sc">+</span> n)</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="fu">nrow</span>(d0)) d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n), ] <span class="cf">else</span> d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n, <span class="at">replace =</span> <span class="cn">TRUE</span>), ]</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">call_eff</span>(<span class="fu">make_data</span>(<span class="dv">500</span>), cfgs<span class="sc">$</span>crr_CSC)); <span class="fu">invisible</span>(<span class="fu">call_eff</span>(<span class="fu">make_data</span>(<span class="dv">500</span>), cfgs<span class="sc">$</span>cox_surdiff_TRUE))  <span class="co"># warm-up</span></span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>keep <span class="ot">&lt;-</span> <span class="fu">list</span>(); slow <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (n <span class="cf">in</span> ns) {</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">make_data</span>(n)</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>  reps <span class="ot">&lt;-</span> <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="dv">4387</span>) <span class="dv">5</span> <span class="cf">else</span> <span class="dv">3</span></span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (r <span class="cf">in</span> <span class="fu">seq_len</span>(reps)) <span class="cf">for</span> (nm <span class="cf">in</span> <span class="fu">sample</span>(<span class="fu">names</span>(cfgs))) {</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (nm <span class="sc">%in%</span> slow) <span class="cf">next</span></span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>    <span class="fu">set.seed</span>(r)</span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a>    x <span class="ot">&lt;-</span> <span class="fu">call_eff</span>(d, cfgs[[nm]])</span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a>    row <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">cfg =</span> nm, <span class="at">rep =</span> r, <span class="at">elapsed =</span> x<span class="sc">$</span>st[[<span class="st">"elapsed"</span>]],</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>                      <span class="at">cpu =</span> <span class="fu">sum</span>(x<span class="sc">$</span>st[<span class="fu">c</span>(<span class="st">"user.self"</span>,<span class="st">"sys.self"</span>,<span class="st">"user.child"</span>,<span class="st">"sys.child"</span>)], <span class="at">na.rm =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">write.table</span>(row, out_csv, <span class="at">sep =</span> <span class="st">","</span>, <span class="at">append =</span> <span class="fu">file.exists</span>(out_csv), <span class="at">col.names =</span> <span class="sc">!</span><span class="fu">file.exists</span>(out_csv), <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">"n=%d %-18s rep%d %.2fs</span><span class="sc">\n</span><span class="st">"</span>, n, nm, r, row<span class="sc">$</span>elapsed))</span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (r <span class="sc">==</span> <span class="dv">1</span> <span class="sc">&amp;&amp;</span> nm <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"crr_FGR"</span>,<span class="st">"crr_CSC"</span>)) keep[[<span class="fu">paste</span>(n, nm)]] <span class="ot">&lt;-</span> x<span class="sc">$</span>res</span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (nm <span class="cf">in</span> <span class="fu">names</span>(cfgs)) { <span class="co"># stop growing a config once it exceeds 10 min</span></span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>    tt <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(out_csv); <span class="cf">if</span> (<span class="fu">any</span>(tt<span class="sc">$</span>cfg <span class="sc">==</span> nm <span class="sc">&amp;</span> tt<span class="sc">$</span>n <span class="sc">==</span> n <span class="sc">&amp;</span> tt<span class="sc">$</span>elapsed <span class="sc">&gt;</span> <span class="dv">600</span>)) slow <span class="ot">&lt;-</span> <span class="fu">c</span>(slow, nm)</span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(keep, <span class="st">"bench_results.rds"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
 <div class="cell">
 <details class="code-fold">
 <summary>agree.R：FGR 与 CSC 结果一致性</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressMessages</span>(<span class="fu">library</span>(RegR))</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="cn">NULL</span>)</span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>d <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(RegR<span class="sc">::</span>seer_thyroid_mtc_2026)</span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>quiet <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) <span class="fu">invisible</span>(<span class="fu">suppressWarnings</span>(<span class="fu">suppressMessages</span>(<span class="fu">capture.output</span>(expr))))</span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> <span class="cf">function</span>(m, tm, ...) { res <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">quiet</span>(res <span class="ot">&lt;-</span> <span class="fu">get_eff</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>,<span class="st">"Race"</span>,<span class="st">"Che"</span>,<span class="st">"M"</span>), <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Sur"</span>),</span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>                       <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">time =</span> tm, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> m), ...)); res }</span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>agree <span class="ot">&lt;-</span> <span class="fu">list</span>()</span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (tm <span class="cf">in</span> <span class="fu">c</span>(<span class="dv">60</span>, <span class="dv">120</span>)) <span class="cf">for</span> (m <span class="cf">in</span> <span class="fu">c</span>(<span class="st">"FGR"</span>, <span class="st">"CSC"</span>)) { <span class="fu">set.seed</span>(<span class="dv">1</span>); agree[[<span class="fu">paste</span>(tm, m)]] <span class="ot">&lt;-</span> <span class="fu">fit</span>(m, tm) }</span>
-<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (s <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>) { <span class="fu">set.seed</span>(<span class="dv">100</span> <span class="sc">+</span> s); agree[[<span class="fu">paste0</span>(<span class="st">"seed"</span>, s)]] <span class="ot">&lt;-</span> <span class="fu">fit</span>(<span class="st">"FGR"</span>, <span class="dv">120</span>, <span class="at">methods =</span> <span class="st">"direct"</span>)<span class="sc">$</span>sur_direct }</span>
-<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(agree, <span class="st">"agree_results.rds"</span>); <span class="fu">cat</span>(<span class="st">"DONE</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressMessages</span>(<span class="fu">library</span>(RegR))</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="cn">NULL</span>)</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>d <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(RegR<span class="sc">::</span>seer_thyroid_mtc_2026)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>quiet <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) <span class="fu">invisible</span>(<span class="fu">suppressWarnings</span>(<span class="fu">suppressMessages</span>(<span class="fu">capture.output</span>(expr))))</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> <span class="cf">function</span>(m, tm, ...) { res <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">quiet</span>(res <span class="ot">&lt;-</span> <span class="fu">get_eff</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>,<span class="st">"Race"</span>,<span class="st">"Che"</span>,<span class="st">"M"</span>), <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Sur"</span>),</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>                       <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">time =</span> tm, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> m), ...)); res }</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>agree <span class="ot">&lt;-</span> <span class="fu">list</span>()</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (tm <span class="cf">in</span> <span class="fu">c</span>(<span class="dv">60</span>, <span class="dv">120</span>)) <span class="cf">for</span> (m <span class="cf">in</span> <span class="fu">c</span>(<span class="st">"FGR"</span>, <span class="st">"CSC"</span>)) { <span class="fu">set.seed</span>(<span class="dv">1</span>); agree[[<span class="fu">paste</span>(tm, m)]] <span class="ot">&lt;-</span> <span class="fu">fit</span>(m, tm) }</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (s <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>) { <span class="fu">set.seed</span>(<span class="dv">100</span> <span class="sc">+</span> s); agree[[<span class="fu">paste0</span>(<span class="st">"seed"</span>, s)]] <span class="ot">&lt;-</span> <span class="fu">fit</span>(<span class="st">"FGR"</span>, <span class="dv">120</span>, <span class="at">methods =</span> <span class="st">"direct"</span>)<span class="sc">$</span>sur_direct }</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(agree, <span class="st">"agree_results.rds"</span>); <span class="fu">cat</span>(<span class="st">"DONE</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
 <div class="cell">
 <details class="code-fold">
 <summary>getcat_bench.R：get_cat 耗时与一致性</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># get_cat(surv = FALSE): cif_args FGR vs CSC across sample sizes (WSL Rscript).</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Writes getcat_timing.csv, getcat_curves.csv, getcat_mul.csv.</span></span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressMessages</span>(<span class="fu">library</span>(RegR))</span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="cn">NULL</span>)</span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>d0 <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(RegR<span class="sc">::</span>seer_thyroid_mtc_2026)</span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">2000</span>, <span class="dv">4387</span>, <span class="dv">8774</span>, <span class="dv">17548</span>, <span class="dv">35096</span>)</span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>cat_var <span class="ot">&lt;-</span> <span class="st">"Sex"</span>; adj_var <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Race"</span>, <span class="st">"M"</span>)</span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>quiet <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) <span class="fu">invisible</span>(<span class="fu">suppressWarnings</span>(<span class="fu">suppressMessages</span>(<span class="fu">capture.output</span>(expr))))</span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>make_data <span class="ot">&lt;-</span> <span class="cf">function</span>(n) {  <span class="co"># same subsamples as bench.R</span></span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set.seed</span>(<span class="dv">20260929</span> <span class="sc">+</span> n)</span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="fu">nrow</span>(d0)) d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n), ] <span class="cf">else</span> d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n, <span class="at">replace =</span> <span class="cn">TRUE</span>), ]</span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>append_csv <span class="ot">&lt;-</span> <span class="cf">function</span>(x, f) <span class="fu">write.table</span>(x, f, <span class="at">sep =</span> <span class="st">","</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>                                         <span class="at">append =</span> <span class="fu">file.exists</span>(f), <span class="at">col.names =</span> <span class="sc">!</span><span class="fu">file.exists</span>(f))</span>
-<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (f <span class="cf">in</span> <span class="fu">c</span>(<span class="st">"getcat_timing.csv"</span>, <span class="st">"getcat_curves.csv"</span>, <span class="st">"getcat_mul.csv"</span>))</span>
-<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">file.exists</span>(f)) <span class="fu">file.remove</span>(f)</span>
-<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a><span class="co"># direct CIF curve: point = full-data fit (adj$cif); CI = bootstrap (FGR) or analytic (CSC)</span></span>
-<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>curve_df <span class="ot">&lt;-</span> <span class="cf">function</span>(o) {</span>
-<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  ci <span class="ot">&lt;-</span> <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(o<span class="sc">$</span>boot_adj)) o<span class="sc">$</span>boot_adj <span class="cf">else</span> o<span class="sc">$</span>adj</span>
-<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">merge</span>(o<span class="sc">$</span>adj[, <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"group"</span>, <span class="st">"cif"</span>)], ci[, <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"group"</span>, <span class="st">"ci_lower"</span>, <span class="st">"ci_upper"</span>)],</span>
-<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>             <span class="at">by =</span> <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"group"</span>))</span>
-<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  m[<span class="fu">order</span>(m<span class="sc">$</span>group, m<span class="sc">$</span>time), ]</span>
-<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a><span class="fu">quiet</span>(<span class="fu">get_cat</span>(<span class="fu">make_data</span>(<span class="dv">500</span>), cat_var, adj_var, <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> <span class="st">"CSC"</span>)))  <span class="co"># warm-up</span></span>
-<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>slow <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
-<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (n <span class="cf">in</span> ns) {</span>
-<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">make_data</span>(n)</span>
-<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>  reps <span class="ot">&lt;-</span> <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="dv">4387</span>) <span class="dv">3</span> <span class="cf">else</span> <span class="dv">2</span></span>
-<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (r <span class="cf">in</span> <span class="fu">seq_len</span>(reps)) <span class="cf">for</span> (m <span class="cf">in</span> <span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"FGR"</span>, <span class="st">"CSC"</span>))) {</span>
-<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (m <span class="sc">%in%</span> slow) <span class="cf">next</span></span>
-<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>    <span class="fu">set.seed</span>(r); res <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>    st <span class="ot">&lt;-</span> <span class="fu">system.time</span>(<span class="fu">quiet</span>(res <span class="ot">&lt;-</span> <span class="fu">get_cat</span>(d, cat_var, adj_var, <span class="at">surv =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>                                           <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> m))))</span>
-<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">append_csv</span>(<span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">model =</span> m, <span class="at">rep =</span> r, <span class="at">elapsed =</span> st[[<span class="st">"elapsed"</span>]],</span>
-<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a>                          <span class="at">cpu =</span> <span class="fu">sum</span>(st[<span class="fu">c</span>(<span class="st">"user.self"</span>, <span class="st">"sys.self"</span>, <span class="st">"user.child"</span>, <span class="st">"sys.child"</span>)], <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
-<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>               <span class="st">"getcat_timing.csv"</span>)</span>
-<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">"n=%d %s rep%d %.1fs</span><span class="sc">\n</span><span class="st">"</span>, n, m, r, st[[<span class="st">"elapsed"</span>]]))</span>
-<span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (r <span class="sc">==</span> <span class="dv">1</span>) {</span>
-<span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a>      cv <span class="ot">&lt;-</span> <span class="fu">curve_df</span>(res<span class="sc">$</span>cat<span class="sc">$</span>obj<span class="sc">$</span>direct); cv<span class="sc">$</span>n <span class="ot">&lt;-</span> n; cv<span class="sc">$</span>model <span class="ot">&lt;-</span> m</span>
-<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a>      <span class="fu">append_csv</span>(cv, <span class="st">"getcat_curves.csv"</span>)</span>
-<span id="cb3-43"><a href="#cb3-43" aria-hidden="true" tabindex="-1"></a>      mu <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(res<span class="sc">$</span>cat<span class="sc">$</span>Mul<span class="sc">$</span>direct)</span>
-<span id="cb3-44"><a href="#cb3-44" aria-hidden="true" tabindex="-1"></a>      mu <span class="ot">&lt;-</span> mu[<span class="sc">!</span><span class="fu">is.na</span>(mu<span class="sc">$</span>estimate), <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"estimate"</span>, <span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>, <span class="st">"p_value"</span>)]</span>
-<span id="cb3-45"><a href="#cb3-45" aria-hidden="true" tabindex="-1"></a>      mu<span class="sc">$</span>n <span class="ot">&lt;-</span> n; mu<span class="sc">$</span>model <span class="ot">&lt;-</span> m</span>
-<span id="cb3-46"><a href="#cb3-46" aria-hidden="true" tabindex="-1"></a>      <span class="fu">append_csv</span>(mu, <span class="st">"getcat_mul.csv"</span>)</span>
-<span id="cb3-47"><a href="#cb3-47" aria-hidden="true" tabindex="-1"></a>    }</span>
-<span id="cb3-48"><a href="#cb3-48" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb3-49"><a href="#cb3-49" aria-hidden="true" tabindex="-1"></a>  tt <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(<span class="st">"getcat_timing.csv"</span>)</span>
-<span id="cb3-50"><a href="#cb3-50" aria-hidden="true" tabindex="-1"></a>  slow <span class="ot">&lt;-</span> <span class="fu">unique</span>(<span class="fu">c</span>(slow, tt<span class="sc">$</span>model[tt<span class="sc">$</span>n <span class="sc">==</span> n <span class="sc">&amp;</span> tt<span class="sc">$</span>elapsed <span class="sc">&gt;</span> <span class="dv">900</span>]))</span>
-<span id="cb3-51"><a href="#cb3-51" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb3-52"><a href="#cb3-52" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-53"><a href="#cb3-53" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"DONE</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># get_cat(surv = FALSE): cif_args FGR vs CSC across sample sizes (WSL Rscript).</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Writes getcat_timing.csv, getcat_curves.csv, getcat_mul.csv.</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressMessages</span>(<span class="fu">library</span>(RegR))</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="cn">NULL</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>d0 <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(RegR<span class="sc">::</span>seer_thyroid_mtc_2026)</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">2000</span>, <span class="dv">4387</span>, <span class="dv">8774</span>, <span class="dv">17548</span>, <span class="dv">35096</span>)</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>cat_var <span class="ot">&lt;-</span> <span class="st">"Sex"</span>; adj_var <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Race"</span>, <span class="st">"M"</span>)</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>quiet <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) <span class="fu">invisible</span>(<span class="fu">suppressWarnings</span>(<span class="fu">suppressMessages</span>(<span class="fu">capture.output</span>(expr))))</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>make_data <span class="ot">&lt;-</span> <span class="cf">function</span>(n) {  <span class="co"># same subsamples as bench.R</span></span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set.seed</span>(<span class="dv">20260929</span> <span class="sc">+</span> n)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="fu">nrow</span>(d0)) d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n), ] <span class="cf">else</span> d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n, <span class="at">replace =</span> <span class="cn">TRUE</span>), ]</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>append_csv <span class="ot">&lt;-</span> <span class="cf">function</span>(x, f) <span class="fu">write.table</span>(x, f, <span class="at">sep =</span> <span class="st">","</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>                                         <span class="at">append =</span> <span class="fu">file.exists</span>(f), <span class="at">col.names =</span> <span class="sc">!</span><span class="fu">file.exists</span>(f))</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (f <span class="cf">in</span> <span class="fu">c</span>(<span class="st">"getcat_timing.csv"</span>, <span class="st">"getcat_curves.csv"</span>, <span class="st">"getcat_mul.csv"</span>))</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">file.exists</span>(f)) <span class="fu">file.remove</span>(f)</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a><span class="co"># direct CIF curve: point = full-data fit (adj$cif); CI = bootstrap (FGR) or analytic (CSC)</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>curve_df <span class="ot">&lt;-</span> <span class="cf">function</span>(o) {</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>  ci <span class="ot">&lt;-</span> <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(o<span class="sc">$</span>boot_adj)) o<span class="sc">$</span>boot_adj <span class="cf">else</span> o<span class="sc">$</span>adj</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">merge</span>(o<span class="sc">$</span>adj[, <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"group"</span>, <span class="st">"cif"</span>)], ci[, <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"group"</span>, <span class="st">"ci_lower"</span>, <span class="st">"ci_upper"</span>)],</span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>             <span class="at">by =</span> <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"group"</span>))</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>  m[<span class="fu">order</span>(m<span class="sc">$</span>group, m<span class="sc">$</span>time), ]</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a><span class="fu">quiet</span>(<span class="fu">get_cat</span>(<span class="fu">make_data</span>(<span class="dv">500</span>), cat_var, adj_var, <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> <span class="st">"CSC"</span>)))  <span class="co"># warm-up</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>slow <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (n <span class="cf">in</span> ns) {</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">make_data</span>(n)</span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>  reps <span class="ot">&lt;-</span> <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="dv">4387</span>) <span class="dv">3</span> <span class="cf">else</span> <span class="dv">2</span></span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (r <span class="cf">in</span> <span class="fu">seq_len</span>(reps)) <span class="cf">for</span> (m <span class="cf">in</span> <span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"FGR"</span>, <span class="st">"CSC"</span>))) {</span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (m <span class="sc">%in%</span> slow) <span class="cf">next</span></span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>    <span class="fu">set.seed</span>(r); res <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>    st <span class="ot">&lt;-</span> <span class="fu">system.time</span>(<span class="fu">quiet</span>(res <span class="ot">&lt;-</span> <span class="fu">get_cat</span>(d, cat_var, adj_var, <span class="at">surv =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>                                           <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> m))))</span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">append_csv</span>(<span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">model =</span> m, <span class="at">rep =</span> r, <span class="at">elapsed =</span> st[[<span class="st">"elapsed"</span>]],</span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>                          <span class="at">cpu =</span> <span class="fu">sum</span>(st[<span class="fu">c</span>(<span class="st">"user.self"</span>, <span class="st">"sys.self"</span>, <span class="st">"user.child"</span>, <span class="st">"sys.child"</span>)], <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>               <span class="st">"getcat_timing.csv"</span>)</span>
+<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">"n=%d %s rep%d %.1fs</span><span class="sc">\n</span><span class="st">"</span>, n, m, r, st[[<span class="st">"elapsed"</span>]]))</span>
+<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (r <span class="sc">==</span> <span class="dv">1</span>) {</span>
+<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>      cv <span class="ot">&lt;-</span> <span class="fu">curve_df</span>(res<span class="sc">$</span>cat<span class="sc">$</span>obj<span class="sc">$</span>direct); cv<span class="sc">$</span>n <span class="ot">&lt;-</span> n; cv<span class="sc">$</span>model <span class="ot">&lt;-</span> m</span>
+<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>      <span class="fu">append_csv</span>(cv, <span class="st">"getcat_curves.csv"</span>)</span>
+<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a>      mu <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(res<span class="sc">$</span>cat<span class="sc">$</span>Mul<span class="sc">$</span>direct)</span>
+<span id="cb4-44"><a href="#cb4-44" aria-hidden="true" tabindex="-1"></a>      mu <span class="ot">&lt;-</span> mu[<span class="sc">!</span><span class="fu">is.na</span>(mu<span class="sc">$</span>estimate), <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"estimate"</span>, <span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>, <span class="st">"p_value"</span>)]</span>
+<span id="cb4-45"><a href="#cb4-45" aria-hidden="true" tabindex="-1"></a>      mu<span class="sc">$</span>n <span class="ot">&lt;-</span> n; mu<span class="sc">$</span>model <span class="ot">&lt;-</span> m</span>
+<span id="cb4-46"><a href="#cb4-46" aria-hidden="true" tabindex="-1"></a>      <span class="fu">append_csv</span>(mu, <span class="st">"getcat_mul.csv"</span>)</span>
+<span id="cb4-47"><a href="#cb4-47" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb4-48"><a href="#cb4-48" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb4-49"><a href="#cb4-49" aria-hidden="true" tabindex="-1"></a>  tt <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(<span class="st">"getcat_timing.csv"</span>)</span>
+<span id="cb4-50"><a href="#cb4-50" aria-hidden="true" tabindex="-1"></a>  slow <span class="ot">&lt;-</span> <span class="fu">unique</span>(<span class="fu">c</span>(slow, tt<span class="sc">$</span>model[tt<span class="sc">$</span>n <span class="sc">==</span> n <span class="sc">&amp;</span> tt<span class="sc">$</span>elapsed <span class="sc">&gt;</span> <span class="dv">900</span>]))</span>
+<span id="cb4-51"><a href="#cb4-51" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-52"><a href="#cb4-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-53"><a href="#cb4-53" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"DONE</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
 <div class="cell">
 <details class="code-fold">
 <summary>getfacet_bench.R：get_facet 耗时</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># get_facet(surv = FALSE, method = "direct"): cif_args FGR vs CSC x show_surdiff,</span></span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># across sample sizes (WSL Rscript). Writes getfacet_timing.csv and getfacet_results.rds.</span></span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressMessages</span>(<span class="fu">library</span>(RegR))</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="cn">NULL</span>)</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>d0 <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(RegR<span class="sc">::</span>seer_thyroid_mtc_2026)</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">2000</span>, <span class="dv">4387</span>, <span class="dv">8774</span>, <span class="dv">17548</span>, <span class="dv">35096</span>)</span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>quiet <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) <span class="fu">invisible</span>(<span class="fu">suppressWarnings</span>(<span class="fu">suppressMessages</span>(<span class="fu">capture.output</span>(expr))))</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>make_data <span class="ot">&lt;-</span> <span class="cf">function</span>(n) {  <span class="co"># same subsamples as bench.R</span></span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set.seed</span>(<span class="dv">20260929</span> <span class="sc">+</span> n)</span>
-<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="fu">nrow</span>(d0)) d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n), ] <span class="cf">else</span> d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n, <span class="at">replace =</span> <span class="cn">TRUE</span>), ]</span>
-<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>cfgs <span class="ot">&lt;-</span> <span class="fu">expand.grid</span>(<span class="at">model =</span> <span class="fu">c</span>(<span class="st">"FGR"</span>, <span class="st">"CSC"</span>), <span class="at">show_surdiff =</span> <span class="fu">c</span>(<span class="cn">TRUE</span>, <span class="cn">FALSE</span>), <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>cfgs<span class="sc">$</span>key <span class="ot">&lt;-</span> <span class="fu">paste</span>(cfgs<span class="sc">$</span>model, <span class="fu">ifelse</span>(cfgs<span class="sc">$</span>show_surdiff, <span class="st">"surdiff_TRUE"</span>, <span class="st">"surdiff_FALSE"</span>), <span class="at">sep =</span> <span class="st">"_"</span>)</span>
-<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>run <span class="ot">&lt;-</span> <span class="cf">function</span>(d, k) {</span>
-<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  cf <span class="ot">&lt;-</span> cfgs[cfgs<span class="sc">$</span>key <span class="sc">==</span> k, ]; res <span class="ot">&lt;-</span> <span class="cn">NULL</span>; err <span class="ot">&lt;-</span> <span class="cn">NA_character_</span></span>
-<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  st <span class="ot">&lt;-</span> <span class="fu">system.time</span>(<span class="fu">quiet</span>(<span class="fu">tryCatch</span>(</span>
-<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>    res <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(d, <span class="at">split_var =</span> <span class="st">"age_55"</span>, <span class="at">cat_var =</span> <span class="st">"Sex"</span>, <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Race"</span>, <span class="st">"M"</span>),</span>
-<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>                     <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">method =</span> <span class="st">"direct"</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> cf<span class="sc">$</span>model),</span>
-<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>                     <span class="at">show_surdiff =</span> cf<span class="sc">$</span>show_surdiff, <span class="at">timepoint =</span> <span class="dv">120</span>),</span>
-<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">error =</span> <span class="cf">function</span>(e) err <span class="ot">&lt;&lt;-</span> <span class="fu">conditionMessage</span>(e))))</span>
-<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">res =</span> res, <span class="at">st =</span> st, <span class="at">err =</span> err)</span>
-<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>out <span class="ot">&lt;-</span> <span class="st">"getfacet_timing.csv"</span>; <span class="cf">if</span> (<span class="fu">file.exists</span>(out)) <span class="fu">file.remove</span>(out)</span>
-<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">run</span>(<span class="fu">make_data</span>(<span class="dv">500</span>), <span class="st">"CSC_surdiff_TRUE"</span>))  <span class="co"># warm-up</span></span>
-<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>keep <span class="ot">&lt;-</span> <span class="fu">list</span>(); slow <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
-<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (n <span class="cf">in</span> ns) {</span>
-<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">make_data</span>(n)</span>
-<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>  reps <span class="ot">&lt;-</span> <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="dv">4387</span>) <span class="dv">3</span> <span class="cf">else</span> <span class="dv">2</span></span>
-<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (r <span class="cf">in</span> <span class="fu">seq_len</span>(reps)) <span class="cf">for</span> (k <span class="cf">in</span> <span class="fu">sample</span>(cfgs<span class="sc">$</span>key)) {</span>
-<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (k <span class="sc">%in%</span> slow) <span class="cf">next</span></span>
-<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">set.seed</span>(r); x <span class="ot">&lt;-</span> <span class="fu">run</span>(d, k)</span>
-<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>    row <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">cfg =</span> k, <span class="at">rep =</span> r, <span class="at">elapsed =</span> x<span class="sc">$</span>st[[<span class="st">"elapsed"</span>]],</span>
-<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>                      <span class="at">cpu =</span> <span class="fu">sum</span>(x<span class="sc">$</span>st[<span class="fu">c</span>(<span class="st">"user.self"</span>, <span class="st">"sys.self"</span>, <span class="st">"user.child"</span>, <span class="st">"sys.child"</span>)], <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>                      <span class="at">error =</span> x<span class="sc">$</span>err)</span>
-<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>    <span class="fu">write.table</span>(row, out, <span class="at">sep =</span> <span class="st">","</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>, <span class="at">append =</span> <span class="fu">file.exists</span>(out), <span class="at">col.names =</span> <span class="sc">!</span><span class="fu">file.exists</span>(out))</span>
-<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">"n=%d %-18s rep%d %.1fs %s</span><span class="sc">\n</span><span class="st">"</span>, n, k, r, row<span class="sc">$</span>elapsed, <span class="fu">ifelse</span>(<span class="fu">is.na</span>(x<span class="sc">$</span>err), <span class="st">""</span>, x<span class="sc">$</span>err)))</span>
-<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (r <span class="sc">==</span> <span class="dv">1</span> <span class="sc">&amp;&amp;</span> <span class="sc">!</span><span class="fu">is.null</span>(x<span class="sc">$</span>res)) keep[[<span class="fu">paste</span>(n, k)]] <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">sur.data =</span> x<span class="sc">$</span>res<span class="sc">$</span>sur.data, <span class="at">insert.data =</span> x<span class="sc">$</span>res<span class="sc">$</span>insert.data)</span>
-<span id="cb4-38"><a href="#cb4-38" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb4-39"><a href="#cb4-39" aria-hidden="true" tabindex="-1"></a>  tt <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(out)</span>
-<span id="cb4-40"><a href="#cb4-40" aria-hidden="true" tabindex="-1"></a>  slow <span class="ot">&lt;-</span> <span class="fu">unique</span>(<span class="fu">c</span>(slow, tt<span class="sc">$</span>cfg[tt<span class="sc">$</span>n <span class="sc">==</span> n <span class="sc">&amp;</span> tt<span class="sc">$</span>elapsed <span class="sc">&gt;</span> <span class="dv">900</span>]))</span>
-<span id="cb4-41"><a href="#cb4-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">saveRDS</span>(keep, <span class="st">"getfacet_results.rds"</span>)</span>
-<span id="cb4-42"><a href="#cb4-42" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb4-43"><a href="#cb4-43" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"DONE</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># get_facet(surv = FALSE, method = "direct"): cif_args FGR vs CSC x show_surdiff,</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># across sample sizes (WSL Rscript). Writes getfacet_timing.csv and getfacet_results.rds.</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="fu">suppressMessages</span>(<span class="fu">library</span>(RegR))</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a><span class="fu">pdf</span>(<span class="cn">NULL</span>)</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>d0 <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(RegR<span class="sc">::</span>seer_thyroid_mtc_2026)</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">2000</span>, <span class="dv">4387</span>, <span class="dv">8774</span>, <span class="dv">17548</span>, <span class="dv">35096</span>)</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>quiet <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) <span class="fu">invisible</span>(<span class="fu">suppressWarnings</span>(<span class="fu">suppressMessages</span>(<span class="fu">capture.output</span>(expr))))</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>make_data <span class="ot">&lt;-</span> <span class="cf">function</span>(n) {  <span class="co"># same subsamples as bench.R</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set.seed</span>(<span class="dv">20260929</span> <span class="sc">+</span> n)</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="fu">nrow</span>(d0)) d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n), ] <span class="cf">else</span> d0[<span class="fu">sample</span>(<span class="fu">nrow</span>(d0), n, <span class="at">replace =</span> <span class="cn">TRUE</span>), ]</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>cfgs <span class="ot">&lt;-</span> <span class="fu">expand.grid</span>(<span class="at">model =</span> <span class="fu">c</span>(<span class="st">"FGR"</span>, <span class="st">"CSC"</span>), <span class="at">show_surdiff =</span> <span class="fu">c</span>(<span class="cn">TRUE</span>, <span class="cn">FALSE</span>), <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>cfgs<span class="sc">$</span>key <span class="ot">&lt;-</span> <span class="fu">paste</span>(cfgs<span class="sc">$</span>model, <span class="fu">ifelse</span>(cfgs<span class="sc">$</span>show_surdiff, <span class="st">"surdiff_TRUE"</span>, <span class="st">"surdiff_FALSE"</span>), <span class="at">sep =</span> <span class="st">"_"</span>)</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>run <span class="ot">&lt;-</span> <span class="cf">function</span>(d, k) {</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  cf <span class="ot">&lt;-</span> cfgs[cfgs<span class="sc">$</span>key <span class="sc">==</span> k, ]; res <span class="ot">&lt;-</span> <span class="cn">NULL</span>; err <span class="ot">&lt;-</span> <span class="cn">NA_character_</span></span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  st <span class="ot">&lt;-</span> <span class="fu">system.time</span>(<span class="fu">quiet</span>(<span class="fu">tryCatch</span>(</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>    res <span class="ot">&lt;-</span> <span class="fu">get_facet</span>(d, <span class="at">split_var =</span> <span class="st">"age_55"</span>, <span class="at">cat_var =</span> <span class="st">"Sex"</span>, <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Race"</span>, <span class="st">"M"</span>),</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>                     <span class="at">surv =</span> <span class="cn">FALSE</span>, <span class="at">method =</span> <span class="st">"direct"</span>, <span class="at">cif_args =</span> <span class="fu">list</span>(<span class="at">model =</span> cf<span class="sc">$</span>model),</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>                     <span class="at">show_surdiff =</span> cf<span class="sc">$</span>show_surdiff, <span class="at">timepoint =</span> <span class="dv">120</span>),</span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">error =</span> <span class="cf">function</span>(e) err <span class="ot">&lt;&lt;-</span> <span class="fu">conditionMessage</span>(e))))</span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">res =</span> res, <span class="at">st =</span> st, <span class="at">err =</span> err)</span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>out <span class="ot">&lt;-</span> <span class="st">"getfacet_timing.csv"</span>; <span class="cf">if</span> (<span class="fu">file.exists</span>(out)) <span class="fu">file.remove</span>(out)</span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">run</span>(<span class="fu">make_data</span>(<span class="dv">500</span>), <span class="st">"CSC_surdiff_TRUE"</span>))  <span class="co"># warm-up</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>keep <span class="ot">&lt;-</span> <span class="fu">list</span>(); slow <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (n <span class="cf">in</span> ns) {</span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> <span class="fu">make_data</span>(n)</span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>  reps <span class="ot">&lt;-</span> <span class="cf">if</span> (n <span class="sc">&lt;=</span> <span class="dv">4387</span>) <span class="dv">3</span> <span class="cf">else</span> <span class="dv">2</span></span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (r <span class="cf">in</span> <span class="fu">seq_len</span>(reps)) <span class="cf">for</span> (k <span class="cf">in</span> <span class="fu">sample</span>(cfgs<span class="sc">$</span>key)) {</span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (k <span class="sc">%in%</span> slow) <span class="cf">next</span></span>
+<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">set.seed</span>(r); x <span class="ot">&lt;-</span> <span class="fu">run</span>(d, k)</span>
+<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>    row <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">cfg =</span> k, <span class="at">rep =</span> r, <span class="at">elapsed =</span> x<span class="sc">$</span>st[[<span class="st">"elapsed"</span>]],</span>
+<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a>                      <span class="at">cpu =</span> <span class="fu">sum</span>(x<span class="sc">$</span>st[<span class="fu">c</span>(<span class="st">"user.self"</span>, <span class="st">"sys.self"</span>, <span class="st">"user.child"</span>, <span class="st">"sys.child"</span>)], <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a>                      <span class="at">error =</span> x<span class="sc">$</span>err)</span>
+<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>    <span class="fu">write.table</span>(row, out, <span class="at">sep =</span> <span class="st">","</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>, <span class="at">append =</span> <span class="fu">file.exists</span>(out), <span class="at">col.names =</span> <span class="sc">!</span><span class="fu">file.exists</span>(out))</span>
+<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">"n=%d %-18s rep%d %.1fs %s</span><span class="sc">\n</span><span class="st">"</span>, n, k, r, row<span class="sc">$</span>elapsed, <span class="fu">ifelse</span>(<span class="fu">is.na</span>(x<span class="sc">$</span>err), <span class="st">""</span>, x<span class="sc">$</span>err)))</span>
+<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (r <span class="sc">==</span> <span class="dv">1</span> <span class="sc">&amp;&amp;</span> <span class="sc">!</span><span class="fu">is.null</span>(x<span class="sc">$</span>res)) keep[[<span class="fu">paste</span>(n, k)]] <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">sur.data =</span> x<span class="sc">$</span>res<span class="sc">$</span>sur.data, <span class="at">insert.data =</span> x<span class="sc">$</span>res<span class="sc">$</span>insert.data)</span>
+<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>  tt <span class="ot">&lt;-</span> <span class="fu">read.csv</span>(out)</span>
+<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>  slow <span class="ot">&lt;-</span> <span class="fu">unique</span>(<span class="fu">c</span>(slow, tt<span class="sc">$</span>cfg[tt<span class="sc">$</span>n <span class="sc">==</span> n <span class="sc">&amp;</span> tt<span class="sc">$</span>elapsed <span class="sc">&gt;</span> <span class="dv">900</span>]))</span>
+<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">saveRDS</span>(keep, <span class="st">"getfacet_results.rds"</span>)</span>
+<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"DONE</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
 <div class="cell">
 <details class="code-fold">
 <summary>getfacet_agree.R：get_facet 结果一致性汇总</summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reads getfacet_results.rds written by getfacet_bench.R; writes the two summary CSVs.</span></span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>k <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="st">"getfacet_results.rds"</span>)</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">2000</span>, <span class="dv">4387</span>, <span class="dv">8774</span>, <span class="dv">17548</span>, <span class="dv">35096</span>)</span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>tb_rows <span class="ot">&lt;-</span> <span class="fu">list</span>(); cv_rows <span class="ot">&lt;-</span> <span class="fu">list</span>(); hr_same <span class="ot">&lt;-</span> <span class="fu">c</span>()</span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (n <span class="cf">in</span> ns) {</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  f <span class="ot">&lt;-</span> k[[<span class="fu">paste</span>(n, <span class="st">"FGR_surdiff_TRUE"</span>)]]; c <span class="ot">&lt;-</span> k[[<span class="fu">paste</span>(n, <span class="st">"CSC_surdiff_TRUE"</span>)]]</span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (i <span class="cf">in</span> <span class="fu">seq_along</span>(f<span class="sc">$</span>insert.data<span class="sc">$</span>table_tb)) {</span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>    tf <span class="ot">&lt;-</span> f<span class="sc">$</span>insert.data<span class="sc">$</span>table_tb[[i]]; tc <span class="ot">&lt;-</span> c<span class="sc">$</span>insert.data<span class="sc">$</span>table_tb[[i]]</span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    hr_same <span class="ot">&lt;-</span> <span class="fu">c</span>(hr_same, <span class="fu">identical</span>(tf<span class="sc">$</span>HR, tc<span class="sc">$</span>HR) <span class="sc">&amp;&amp;</span> <span class="fu">identical</span>(tf<span class="sc">$</span>p_HR, tc<span class="sc">$</span>p_HR))</span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>    j <span class="ot">&lt;-</span> <span class="dv">2</span>  <span class="co"># Male row (non-reference)</span></span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    tb_rows[[<span class="fu">length</span>(tb_rows) <span class="sc">+</span> <span class="dv">1</span>]] <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">stratum =</span> <span class="fu">as.character</span>(f<span class="sc">$</span>insert.data<span class="sc">$</span>strata[i]),</span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>      <span class="at">SP_F_Female =</span> tf<span class="sc">$</span>SP[<span class="dv">1</span>], <span class="at">SP_C_Female =</span> tc<span class="sc">$</span>SP[<span class="dv">1</span>], <span class="at">SP_F_Male =</span> tf<span class="sc">$</span>SP[j], <span class="at">SP_C_Male =</span> tc<span class="sc">$</span>SP[j],</span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>      <span class="at">SD_FGR =</span> tf<span class="sc">$</span>SD[j], <span class="at">p_FGR =</span> tf<span class="sc">$</span>p_SD[j], <span class="at">SD_CSC =</span> tc<span class="sc">$</span>SD[j], <span class="at">p_CSC =</span> tc<span class="sc">$</span>p_SD[j], <span class="at">HR =</span> tf<span class="sc">$</span>HR[j])</span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  }</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  sf <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(f<span class="sc">$</span>sur.data); sc <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(c<span class="sc">$</span>sur.data)</span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">merge</span>(sf[, <span class="fu">c</span>(<span class="st">"strata"</span>, <span class="st">"group"</span>, <span class="st">"time"</span>, <span class="st">"cif"</span>, <span class="st">"ci_lower"</span>, <span class="st">"ci_upper"</span>)],</span>
-<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>             sc[, <span class="fu">c</span>(<span class="st">"strata"</span>, <span class="st">"group"</span>, <span class="st">"time"</span>, <span class="st">"cif"</span>, <span class="st">"ci_lower"</span>, <span class="st">"ci_upper"</span>)],</span>
-<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>             <span class="at">by =</span> <span class="fu">c</span>(<span class="st">"strata"</span>, <span class="st">"group"</span>, <span class="st">"time"</span>), <span class="at">suffixes =</span> <span class="fu">c</span>(<span class="st">".f"</span>, <span class="st">".c"</span>))</span>
-<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> m[m<span class="sc">$</span>time <span class="sc">&gt;</span> <span class="dv">0</span>, ]; dd <span class="ot">&lt;-</span> <span class="fu">abs</span>(m<span class="sc">$</span>cif.f <span class="sc">-</span> m<span class="sc">$</span>cif.c); kk <span class="ot">&lt;-</span> m<span class="sc">$</span>time <span class="sc">&gt;=</span> <span class="dv">12</span></span>
-<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  cv_rows[[<span class="fu">length</span>(cv_rows) <span class="sc">+</span> <span class="dv">1</span>]] <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">max_diff =</span> <span class="fu">max</span>(dd),</span>
-<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">where =</span> <span class="fu">sprintf</span>(<span class="st">"%s / %s, %d"</span>, m<span class="sc">$</span>strata[<span class="fu">which.max</span>(dd)], m<span class="sc">$</span>group[<span class="fu">which.max</span>(dd)], m<span class="sc">$</span>time[<span class="fu">which.max</span>(dd)]),</span>
-<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">width_ratio =</span> <span class="fu">mean</span>((m<span class="sc">$</span>ci_upper.c <span class="sc">-</span> m<span class="sc">$</span>ci_lower.c)[kk] <span class="sc">/</span> (m<span class="sc">$</span>ci_upper.f <span class="sc">-</span> m<span class="sc">$</span>ci_lower.f)[kk], <span class="at">na.rm =</span> <span class="cn">TRUE</span>))</span>
-<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"HR identical FGR vs CSC in every stratum:"</span>, <span class="fu">all</span>(hr_same), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
-<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>tb <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, tb_rows); cv <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, cv_rows)</span>
-<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="co"># same curves with show_surdiff TRUE vs FALSE?</span></span>
-<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"sur.data identical surdiff TRUE/FALSE (CSC, 4387):"</span>,</span>
-<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>    <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(k[[<span class="st">"4387 CSC_surdiff_TRUE"</span>]]<span class="sc">$</span>sur.data, k[[<span class="st">"4387 CSC_surdiff_FALSE"</span>]]<span class="sc">$</span>sur.data)), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
-<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a><span class="fu">write.csv</span>(tb, <span class="st">"getfacet_table.csv"</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>); <span class="fu">write.csv</span>(cv, <span class="st">"getfacet_curve_agree.csv"</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">width =</span> <span class="dv">220</span>); <span class="fu">print</span>(tb, <span class="at">row.names =</span> <span class="cn">FALSE</span>); <span class="fu">print</span>(cv, <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reads getfacet_results.rds written by getfacet_bench.R; writes the two summary CSVs.</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>k <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="st">"getfacet_results.rds"</span>)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">500</span>, <span class="dv">1000</span>, <span class="dv">2000</span>, <span class="dv">4387</span>, <span class="dv">8774</span>, <span class="dv">17548</span>, <span class="dv">35096</span>)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>tb_rows <span class="ot">&lt;-</span> <span class="fu">list</span>(); cv_rows <span class="ot">&lt;-</span> <span class="fu">list</span>(); hr_same <span class="ot">&lt;-</span> <span class="fu">c</span>()</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (n <span class="cf">in</span> ns) {</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  f <span class="ot">&lt;-</span> k[[<span class="fu">paste</span>(n, <span class="st">"FGR_surdiff_TRUE"</span>)]]; c <span class="ot">&lt;-</span> k[[<span class="fu">paste</span>(n, <span class="st">"CSC_surdiff_TRUE"</span>)]]</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (i <span class="cf">in</span> <span class="fu">seq_along</span>(f<span class="sc">$</span>insert.data<span class="sc">$</span>table_tb)) {</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    tf <span class="ot">&lt;-</span> f<span class="sc">$</span>insert.data<span class="sc">$</span>table_tb[[i]]; tc <span class="ot">&lt;-</span> c<span class="sc">$</span>insert.data<span class="sc">$</span>table_tb[[i]]</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    hr_same <span class="ot">&lt;-</span> <span class="fu">c</span>(hr_same, <span class="fu">identical</span>(tf<span class="sc">$</span>HR, tc<span class="sc">$</span>HR) <span class="sc">&amp;&amp;</span> <span class="fu">identical</span>(tf<span class="sc">$</span>p_HR, tc<span class="sc">$</span>p_HR))</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    j <span class="ot">&lt;-</span> <span class="dv">2</span>  <span class="co"># Male row (non-reference)</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    tb_rows[[<span class="fu">length</span>(tb_rows) <span class="sc">+</span> <span class="dv">1</span>]] <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">stratum =</span> <span class="fu">as.character</span>(f<span class="sc">$</span>insert.data<span class="sc">$</span>strata[i]),</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>      <span class="at">SP_F_Female =</span> tf<span class="sc">$</span>SP[<span class="dv">1</span>], <span class="at">SP_C_Female =</span> tc<span class="sc">$</span>SP[<span class="dv">1</span>], <span class="at">SP_F_Male =</span> tf<span class="sc">$</span>SP[j], <span class="at">SP_C_Male =</span> tc<span class="sc">$</span>SP[j],</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>      <span class="at">SD_FGR =</span> tf<span class="sc">$</span>SD[j], <span class="at">p_FGR =</span> tf<span class="sc">$</span>p_SD[j], <span class="at">SD_CSC =</span> tc<span class="sc">$</span>SD[j], <span class="at">p_CSC =</span> tc<span class="sc">$</span>p_SD[j], <span class="at">HR =</span> tf<span class="sc">$</span>HR[j])</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>  sf <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(f<span class="sc">$</span>sur.data); sc <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(c<span class="sc">$</span>sur.data)</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> <span class="fu">merge</span>(sf[, <span class="fu">c</span>(<span class="st">"strata"</span>, <span class="st">"group"</span>, <span class="st">"time"</span>, <span class="st">"cif"</span>, <span class="st">"ci_lower"</span>, <span class="st">"ci_upper"</span>)],</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>             sc[, <span class="fu">c</span>(<span class="st">"strata"</span>, <span class="st">"group"</span>, <span class="st">"time"</span>, <span class="st">"cif"</span>, <span class="st">"ci_lower"</span>, <span class="st">"ci_upper"</span>)],</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>             <span class="at">by =</span> <span class="fu">c</span>(<span class="st">"strata"</span>, <span class="st">"group"</span>, <span class="st">"time"</span>), <span class="at">suffixes =</span> <span class="fu">c</span>(<span class="st">".f"</span>, <span class="st">".c"</span>))</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>  m <span class="ot">&lt;-</span> m[m<span class="sc">$</span>time <span class="sc">&gt;</span> <span class="dv">0</span>, ]; dd <span class="ot">&lt;-</span> <span class="fu">abs</span>(m<span class="sc">$</span>cif.f <span class="sc">-</span> m<span class="sc">$</span>cif.c); kk <span class="ot">&lt;-</span> m<span class="sc">$</span>time <span class="sc">&gt;=</span> <span class="dv">12</span></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>  cv_rows[[<span class="fu">length</span>(cv_rows) <span class="sc">+</span> <span class="dv">1</span>]] <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">n =</span> n, <span class="at">max_diff =</span> <span class="fu">max</span>(dd),</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>    <span class="at">where =</span> <span class="fu">sprintf</span>(<span class="st">"%s / %s, %d"</span>, m<span class="sc">$</span>strata[<span class="fu">which.max</span>(dd)], m<span class="sc">$</span>group[<span class="fu">which.max</span>(dd)], m<span class="sc">$</span>time[<span class="fu">which.max</span>(dd)]),</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">width_ratio =</span> <span class="fu">mean</span>((m<span class="sc">$</span>ci_upper.c <span class="sc">-</span> m<span class="sc">$</span>ci_lower.c)[kk] <span class="sc">/</span> (m<span class="sc">$</span>ci_upper.f <span class="sc">-</span> m<span class="sc">$</span>ci_lower.f)[kk], <span class="at">na.rm =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"HR identical FGR vs CSC in every stratum:"</span>, <span class="fu">all</span>(hr_same), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>tb <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, tb_rows); cv <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, cv_rows)</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a><span class="co"># same curves with show_surdiff TRUE vs FALSE?</span></span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"sur.data identical surdiff TRUE/FALSE (CSC, 4387):"</span>,</span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>    <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(k[[<span class="st">"4387 CSC_surdiff_TRUE"</span>]]<span class="sc">$</span>sur.data, k[[<span class="st">"4387 CSC_surdiff_FALSE"</span>]]<span class="sc">$</span>sur.data)), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a><span class="fu">write.csv</span>(tb, <span class="st">"getfacet_table.csv"</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>); <span class="fu">write.csv</span>(cv, <span class="st">"getfacet_curve_agree.csv"</span>, <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">width =</span> <span class="dv">220</span>); <span class="fu">print</span>(tb, <span class="at">row.names =</span> <span class="cn">FALSE</span>); <span class="fu">print</span>(cv, <span class="at">row.names =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </div>
 
 
+</section>
 </section>
 
 </main> <!-- /main -->
