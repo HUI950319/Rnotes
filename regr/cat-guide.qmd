@@ -6,7 +6,7 @@ date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 directory:
-  title: "KM/CIF组合：自适应尺寸、共享网格与PDF"
+  title: "KM/CIF组合：自动坐标、内嵌表与PDF"
   topic: 回归与生存分析
   updated: 2026-10-19
 ---
@@ -14,6 +14,67 @@ directory:
 先用 `get_cat()` 计算曲线和效应表，再用 `plt_cat1()`、`plt_cat2()` 或 `plt_cat3()` 选择布局。本页参照 [MLR 的 SHAP 页面](../mlr/shap-guide.qmd)：**每个参数选项配可复制代码与实绘图片，在标签页中切换比较，点击图片可放大。**
 
 **核对记录：** 本次用 WSL R 4.4.3 和 RegR 本机开发源码 `d54e60f`，从原始示例队列重新拟合 KM 主分析与 Race 分组，并刷新所有生存模式图片，新增 `sur_h` 布局。CIF 图保留前次 CSC 执行快照。包版本仍为 0.1.3；本页不提供患者级数据下载。
+
+## 自动坐标与内嵌森林图位置 {#auto-axes-20261019}
+
+2026-10-19 使用已推送 RegR `4034a97`，在 Windows / WSL R 4.4.3 重新执行本节。新增示例使用与[森林图页](forest-guide.qmd#data)相同的598人 PTC 队列，参考组为 No CND；本页其余 MTC 图片保留原记录。两种曲线方法为未调整与年龄调整，概率表均对应36月。
+
+<!-- rnotes-refresh: cat -->
+```r
+dat_now <- as.data.frame(ToyData::toy_ptc_m1_cnd)
+dat_now[["N_4"]] <- stats::relevel(dat_now[["N_4"]], ref = "No CND")
+cat_axes <- run_quiet(get_cat(dat_now, cat_var = "N_4", adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
+  timepoint = 36, time_dif = c(36, 60)))
+
+auto_cat_sur <- plt_cat1(cat_axes[["sur"]], display = "v",
+  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = "auto",
+  max_t = 120, xbreaks = seq(0, 120, 24))
+auto_cat_cif <- plt_cat1(cat_axes[["cif"]], display = "v",
+  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = "auto",
+  max_t = 120, xbreaks = seq(0, 120, 24))
+auto_cat_risk <- plt_cat3(cat_axes[["sur"]], display = "s+f",
+  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = 0.2,
+  risk_table_args = list(size = 3.5, fontface = "plain", height = 0.3,
+    theme = ggplot2::theme(axis.text.y = ggplot2::element_text(size = 9))),
+  max_t = 120, xbreaks = seq(0, 120, 24))
+```
+
+::: {.panel-tabset}
+
+### KM 与自动森林坐标 {.unnumbered}
+
+![未调整与年龄调整生存曲线使用自动坐标。](images/cat-guide/20261019-refresh-cat-sur.png){fig-alt="598人PTC队列未调整与年龄调整的DSS生存曲线，内嵌HR与36月生存概率差的森林坐标根据置信区间自动生成。"}
+
+[下载 PDF](images/cat-guide/20261019-refresh-cat-sur.pdf)
+
+### CIF 与全称条带 {.unnumbered}
+
+![竞争风险图的条带明确写为 cumulative incidence。](images/cat-guide/20261019-refresh-cat-cif.png){fig-alt="同一队列的目标死亡CIF组合图，分别显示未调整与年龄标准化结果；条带写出累积发生全称，内嵌sHR及36月CIF差。"}
+
+[下载 PDF](images/cat-guide/20261019-refresh-cat-cif.pdf)
+
+### KM 与在险人数 {.unnumbered}
+
+![plt_cat3 保留在险人数表，将森林表独立放在右侧。](images/cat-guide/20261019-refresh-cat-risk.png){fig-alt="左侧为相同KM与年龄调整曲线及在险人数，右侧为独立森林表，避免宽表覆盖曲线或时间刻度。"}
+
+[下载 PDF](images/cat-guide/20261019-refresh-cat-risk.pdf)
+
+:::
+
+| 设置 | 作用与边界 |
+|:--|:--|
+| `sur_arg$ylim = "auto"` | 取打印结果推荐的曲线范围和刻度，依据概率点估计；置信带可能超出显示范围 |
+| `sur_arg$xlim = "auto"` | 内嵌森林图的效应坐标；HR/sHR纳入参考值1、差值纳入0，各自取范围 |
+| `ybre / ticks_at / ticks_digits` | 显式设置时保留；分别控制曲线刻度、森林刻度和小数位数 |
+| `plt_cat1(fmt.fst.h = "auto")` | 在曲线和置信带留出的上、下空间中选择森林图位置；仍需检查宽表与长标签 |
+| `forest.position` | 显式提供时优先；此时不触发自动位置选择 |
+
+这些设置只重绘缓存，不改变 `timepoint`、调整项或估计量。`sur_arg$xlim` 不表示随访时间窗，时间窗用 `max_t`。`plt_cat1()` 与 `plt_cat3()` 都支持上述自动坐标；不能把它照搬到 `plt_cat2()` 的其他参数结构。当前 `plt_cat3()` 的在险人数偏移路径对 `fmt.fst.h = "auto"` 会报数值运算错误，所以本例明确使用数值 `0.2`。图中DSS与CIF不是互补概率，在险人数表只用于生存模式。
+
+在险人数示例使用 `display = "s+f"` 将宽森林表放在右侧，并缩小人数文字。调整曲线下方的人数仍是原队列的观测在险人数，不是标准化后假想人群的人数；底层会提示这一解释边界，本页保留该提示。
+
+当前 `get_cat()` 内部明确请求概率表，不受 `get_eff(show_sur = FALSE)` 新默认值影响。默认 CIF direct 为 mets/FGR 解析路线；新 `cif_args = list(model = "CRR")` 会选择 crr 比值拟合和 FGR bootstrap 概率路线，详细边界见[当前 CIF 后端](get-eff-cif-benchmark.qmd#current-backend)。
 
 ## 2026-10-09：当前推断与结果更新 {#current-inference}
 
@@ -91,7 +152,7 @@ DSS 生存概率与竞争风险 CIF 是不同的统计量：存在其他死因�
 get_cat(
   data, cat_var = NULL, adj_var = NULL,
   surv = TRUE, conf_level = 0.95,
-  cif_args = list(model = c("FGR", "CSC")),
+  cif_args = list(model = c("FGR", "CSC", "CRR")),
   timepoint = 120, time_dif = c(60, 120, 180),
   methods = c("unadj", "direct"),
   methods_obj = methods,
