@@ -6,7 +6,7 @@ date-modified: 2026-10-19
 lightbox: true
 toc-depth: 2
 directory:
-  title: "效应估计与森林图：当前标签与模型表头"
+  title: "效应估计与森林图：概率开关与自动坐标"
   topic: 回归与生存分析
   updated: 2026-10-19
 ---
@@ -18,6 +18,61 @@ directory:
 24 张主教程图已于 2026-10-09 更新；此前执行记录不再用于说明当前默认后端或区间。下方 `cat_var_rpa` 补充示例按 2026-10-05 源码 `3411eb0` 实际运行，使用另外的 800 人 MTC 演示样本。
 
 2026-10-19（RegR `c903aae`）起，`get_eff()` 的 `show_surdiff` 改名为 `show_sur`，默认改为 `FALSE`；旧名已在 `571dc88` 删除，再传会报 `unused argument`。本页代码已同步改名，用到概率表的调用写明 `show_sur = TRUE`；图形未因改名重新生成。
+
+## 当前概率开关与自动森林坐标 {#defaults-auto-20261019}
+
+2026-10-19 使用已推送 RegR `4034a97`，在 Windows / WSL R 4.4.3 核验本节。这里重新读取当前598人 PTC 队列，将 No CND 设为参考；两张新图使用同一份未调整及年龄调整 Cox 结果。既有图保留各自注明的执行快照。
+
+<!-- rnotes-refresh: forest -->
+```r
+dat_now <- as.data.frame(ToyData::toy_ptc_m1_cnd)
+dat_now[["N_4"]] <- stats::relevel(dat_now[["N_4"]], ref = "No CND")
+eff_ratio <- run_quiet(get_eff(dat_now, cat_var = "N_4",
+  methods = "unadj", all = NULL))
+names(eff_ratio)  # "haz_unadj"：默认不生成 sur_* 表
+eff_prob <- run_quiet(get_eff(dat_now, cat_var = "N_4",
+  methods = "unadj", all = NULL, time = 60, show_sur = TRUE))
+names(eff_prob)   # "haz_unadj" "sur_unadj"
+
+eff_axes <- run_quiet(get_eff(dat_now, cat_var = "N_4", adj_var = "Age",
+  methods = c("unadj", "direct"), all = NULL))
+p_axis <- plt_eff(eff_axes, xlim = "auto", fixed_size = 12, base_size = 11,
+  header_list = list(label = "CND group", eve1 = "Events/N",
+    header_title = c("Unadjusted", "Age adjusted")),
+  title = "Cox HR: automatic axis")
+p_classic_axis <- plt_eff2(eff_axes, which = c("haz_unadj", "haz_direct"),
+  axis_args = list(xlim = "auto"),
+  label_column_list = list(N_4 = "CND group"),
+  header_list = list(effect = "HR (95% CI)"),
+  title = "Cox HR: automatic axis")
+```
+
+::: {.panel-tabset}
+
+### 组合森林图 {.unnumbered}
+
+![plt_eff 使用自动范围与刻度。](images/forest-guide/20261019-refresh-axis.png){fig-alt="598人PTC队列中CND相对No CND的未调整及年龄调整Cox危险比分列显示，自动坐标包含参考值1与置信区间。"}
+
+### 经典森林图 {.unnumbered}
+
+![相同估计交给 plt_eff2，坐标配置放在 axis_args。](images/forest-guide/20261019-refresh-axis-classic.png){fig-alt="相同两份Cox结果在经典森林图叠加，自动选择范围、刻度和小数位数。"}
+
+:::
+
+[组合图 PDF](images/forest-guide/20261019-refresh-axis.pdf) · [经典图 PDF](images/forest-guide/20261019-refresh-axis-classic.pdf)
+
+`xlim = "auto"` 使用结果打印时推荐的范围，向外取整并包含参考线，给出约2–3个易读刻度及相应小数位数；`plt_eff2()` 必须写在 `axis_args` 内。显式提供 `ticks_at`（经典图为 `xticks`）或 `ticks_digits` 时保留该设置。它只改变显示，不重算模型或区间。
+
+本轮实测 `forestploter 1.1.3` 下，`plt_eff()` 的单森林面板配 `xlim = "auto"` 会报范围校验错误；本节使用已通过验证的双方法布局。只有一个面板时先用数值范围（例如 `plt_eff(eff_ratio, xlim = c(0.5, 1.1), fixed_size = FALSE)`，须按自己的区间调整），或使用 `plt_eff2(axis_args = list(xlim = "auto"))`。
+
+| 任务 | 当前写法 |
+|:--|:--|
+| 只需 HR/sHR/OR | 默认 `show_sur = FALSE`；不要再读取 `sur_*` |
+| 需要概率、概率差或 `plt_eff_sur()` | 原始数据调用显式加 `show_sur = TRUE` |
+| 只需概率表 | `show_sur = TRUE, methods_haz = character(), methods_sur = "unadj"` |
+| 未命名的多模型 | `surv = list(TRUE, FALSE, "DSS")` 自动命名为 `sur / cif / log_DSS` |
+
+`get_facet()` 仍默认 `show_sur = TRUE`，不能照搬 `get_eff()` 的默认值；`get_cat()` 没有此开关。旧名 `show_surdiff` 已移除，只有更换参数名并重新拟合才能给旧对象补出缺失的概率表。
 
 ## 2026-10-12：KM 推断、表头和叠加样式 {#current-forest}
 
@@ -148,8 +203,8 @@ get_eff(
   methods = c("unadj", "direct"),
   methods_haz = methods, methods_sur = methods,
   conf_level = 0.95,
-  cif_args = list(model = c("FGR", "CSC")),
-  time = 120, show_sur = TRUE,
+  cif_args = list(model = c("FGR", "CSC", "CRR")),
+  time = 120, show_sur = FALSE,
   group_1 = NULL, group_2 = NULL,
   all = "Age",
   cat_var_combine = NULL, cat_var_rpa = NULL, split_var = NULL,
@@ -194,7 +249,7 @@ get_eff(
 
 `methods` 是两个结果家族的默认方法列表。默认只给比值（`show_sur = FALSE`）；要概率结果加 `show_sur = TRUE`，只要概率结果时再用 `methods_haz = character()` 并指定 `methods_sur`。本页实际比较 **unadj 与 direct**；加权 / 匹配示例还需要完成相应设计和诊断。
 
-`cif_args` 仅控制 **竞争风险的 direct 概率路径**：`FGR` 默认用 `mets::cifregFG()` 拟合、`mets::survivalG()` 标准化，使用影响函数标准误构造 Wald 区间；只有该路径失败时才尝试兼容后端及 bootstrap。`CSC` 使用各原因 Cox 模型标准化和 `riskRegression::ate()` 的解析方差。这不把 `haz_direct` 的 sHR 改成原因特异 HR。后端、耗时与区间的详细比较见 [CIF 的 FGR 与 CSC](get-eff-cif-benchmark.qmd)。本页竞争风险概率图实际使用未调整的 Aalen–Johansen 结果。
+默认 `FGR` 与 `CSC` 的选择控制 **竞争风险的 direct 概率路径**：`FGR` 默认用 `mets::cifregFG()` 拟合、`mets::survivalG()` 标准化，使用影响函数标准误构造 Wald 区间；只有该路径失败时才尝试兼容后端及 bootstrap。`CSC` 使用各原因 Cox 模型标准化和 `riskRegression::ate()` 的解析方差。这不把 `haz_direct` 的 sHR 改成原因特异 HR。后端、耗时与区间的详细比较见 [CIF 的 FGR 与 CSC](get-eff-cif-benchmark.qmd)。本页竞争风险概率图实际使用未调整的 Aalen–Johansen 结果。新增的 `CRR` 则会把该次调用的 Fine–Gray 比值、交互与 direct CIF 切到旧 crr/FGR 路线；它不只是更换概率区间，见[当前后端边界](get-eff-cif-benchmark.qmd#current-backend)。
 
 ### 区间、拟合信息与输入边界 {#current-inference}
 
