@@ -17,6 +17,8 @@ directory:
 
 24 张主教程图已于 2026-10-09 更新；此前执行记录不再用于说明当前默认后端或区间。下方 `cat_var_rpa` 补充示例按 2026-10-05 源码 `3411eb0` 实际运行，使用另外的 800 人 MTC 演示样本。
 
+2026-10-19（RegR `c903aae`）起，`get_eff()` 的 `show_surdiff` 改名为 `show_sur`，默认改为 `FALSE`；旧名仍可用一个周期，会给弃用警告。本页代码已同步改名，用到概率表的调用写明 `show_sur = TRUE`；图形未因改名重新生成。
+
 ## 2026-10-12：KM 推断、表头和叠加样式 {#current-forest}
 
 本次在 WSL R 4.4.3 使用 RegR 本机开发源码 `d54e60f` 重新拟合本页 `eff_sub`，刷新含 KM 生存差值的森林图与组别概率图。Greenwood 标准误修复会改变未调整 / PSM 生存差值的区间和 P 值，组别概率、其区间、HR、direct 与 IPTW 不受此修复影响。历史 `get_eff()` 对象应从原始数据重算，单独重画旧表无法修复推断。
@@ -37,7 +39,7 @@ d_labels <- as.data.frame(ToyData::toy_ptc_m1_cnd)
 d_labels[["N_4"]] <- stats::relevel(d_labels[["N_4"]], ref = "No CND")
 eff_labels <- run_quiet(get_eff(d_labels, cat_var = "N_4", sub_var = "age_55",
   adj_var = c("Age", "Sex"), surv = TRUE, methods = "direct",
-  subgroup_model = "interaction", show_surdiff = FALSE))
+  subgroup_model = "interaction", show_sur = FALSE))
 plt_eff2(eff_labels, which = 1L,
   header_list = list(label = "Age group", effect = "HR (95% CI)"),
   label_column_list = list(age_55 = "Age group"), base_size = 11,
@@ -101,7 +103,7 @@ plt_eff2(eff_labels, which = 1L,
 ```r
 eff_models <- run_quiet(get_eff(d, cat_var = "N_4",
   surv = list(sur = TRUE, cif = FALSE, log = "DSS"),
-  methods = "unadj", show_surdiff = FALSE, all = NULL))
+  methods = "unadj", show_sur = FALSE, all = NULL))
 names(eff_models)  # "sur" "cif" "log"
 names(eff_models[["sur"]])
 p_eff_sur <- plt_eff(eff_models[["sur"]], fixed_size = FALSE,
@@ -147,7 +149,7 @@ get_eff(
   methods_haz = methods, methods_sur = methods,
   conf_level = 0.95,
   cif_args = list(model = c("FGR", "CSC")),
-  time = 120, show_surdiff = TRUE,
+  time = 120, show_sur = TRUE,
   group_1 = NULL, group_2 = NULL,
   all = "Age",
   cat_var_combine = NULL, cat_var_rpa = NULL, split_var = NULL,
@@ -190,7 +192,7 @@ get_eff(
 
 :::
 
-`methods` 是两个结果家族的默认方法列表。若只要比值，使用 `show_surdiff = FALSE`；若只要概率结果，使用 `methods_haz = character()` 并指定 `methods_sur`。本页实际比较 **unadj 与 direct**；加权 / 匹配示例还需要完成相应设计和诊断。
+`methods` 是两个结果家族的默认方法列表。默认只给比值（`show_sur = FALSE`）；要概率结果加 `show_sur = TRUE`，只要概率结果时再用 `methods_haz = character()` 并指定 `methods_sur`。本页实际比较 **unadj 与 direct**；加权 / 匹配示例还需要完成相应设计和诊断。
 
 `cif_args` 仅控制 **竞争风险的 direct 概率路径**：`FGR` 默认用 `mets::cifregFG()` 拟合、`mets::survivalG()` 标准化，使用影响函数标准误构造 Wald 区间；只有该路径失败时才尝试兼容后端及 bootstrap。`CSC` 使用各原因 Cox 模型标准化和 `riskRegression::ate()` 的解析方差。这不把 `haz_direct` 的 sHR 改成原因特异 HR。后端、耗时与区间的详细比较见 [CIF 的 FGR 与 CSC](get-eff-cif-benchmark.qmd)。本页竞争风险概率图实际使用未调整的 Aalen–Johansen 结果。
 
@@ -255,7 +257,7 @@ set.seed(20261005)
 d_scheme <- droplevels(d_scheme[sample.int(nrow(d_scheme), 800L), ])
 eff_scheme <- run_quiet(get_eff(d_scheme,
   cat_var_rpa = c("stage", "size_stage"), adj_var = c("Age", "Sex"),
-  show_surdiff = FALSE))
+  show_sur = FALSE))
 plt_eff(eff_scheme, show.sur = FALSE, fixed_size = FALSE)
 ```
 
@@ -353,27 +355,27 @@ labels <- list(
 # 多变量比值表：direct 同时包含 N_4、Sex、Tum_3、Age 和 Race。
 eff_um <- get_eff(
   d, cat_var = c("N_4", "Sex", "Tum_3"), adj_var = c("Age", "Race"),
-  surv = TRUE, methods = c("unadj", "direct"), show_surdiff = FALSE
+  surv = TRUE, methods = c("unadj", "direct"), show_sur = FALSE
 )
 
 # 二分类暴露的亚组：HR 与 60 月生存概率差。
 eff_sub <- get_eff(
   d, cat_var = "N_4", sub_var = c("Sex", "age_55"), adj_var = adj,
   surv = TRUE, methods = c("unadj", "direct"), time = 60,
-  group_1 = "CND", group_2 = "No CND", subgroup_model = "interaction"
+  group_1 = "CND", group_2 = "No CND", subgroup_model = "interaction", show_sur = TRUE
 )
 
 # 外层按年龄分层，内层看 Sex 亚组。
 eff_split <- get_eff(
   d, cat_var = "N_4", sub_var = "Sex", adj_var = adj,
   split_var = "age_55", surv = TRUE, methods = c("unadj", "direct"),
-  show_surdiff = FALSE, subgroup_model = "interaction"
+  show_sur = FALSE, subgroup_model = "interaction"
 )
 
 # Fine–Gray 比值；本调用关闭调整后的 CIF 概率表。
 eff_cif <- get_eff(
   d, cat_var = "N_4", sub_var = c("Sex", "age_55"), adj_var = adj,
-  surv = FALSE, methods = c("unadj", "direct"), show_surdiff = FALSE,
+  surv = FALSE, methods = c("unadj", "direct"), show_sur = FALSE,
   subgroup_model = "interaction"
 )
 
@@ -381,26 +383,26 @@ eff_cif <- get_eff(
 eff_cif_prob <- get_eff(
   d, cat_var = "N_4", sub_var = c("Sex", "age_55"), surv = FALSE,
   methods_haz = character(), methods_sur = "unadj", time = 60,
-  group_1 = "CND", group_2 = "No CND"
+  group_1 = "CND", group_2 = "No CND", show_sur = TRUE
 )
 
 # 多水平主要分组：用于四组概率展示。
 eff_multi_prob <- get_eff(
   d, cat_var = "Tum_3", sub_var = "Sex", surv = TRUE,
-  methods_haz = character(), methods_sur = "unadj", time = 60, all = NULL
+  methods_haz = character(), methods_sur = "unadj", time = 60, all = NULL, show_sur = TRUE
 )
 
 # 同一个队列的三种调整方案。
 eff_crude <- get_eff(
-  d, cat_var = "N_4", surv = TRUE, methods = "unadj", show_surdiff = FALSE
+  d, cat_var = "N_4", surv = TRUE, methods = "unadj", show_sur = FALSE
 )
 eff_age <- get_eff(
   d, cat_var = "N_4", adj_var = "Age", surv = TRUE,
-  methods = "direct", show_surdiff = FALSE
+  methods = "direct", show_sur = FALSE
 )
 eff_full <- get_eff(
   d, cat_var = "N_4", adj_var = adj, surv = TRUE,
-  methods = "direct", show_surdiff = FALSE
+  methods = "direct", show_sur = FALSE
 )
 model_blocks <- list(
   Crude = eff_crude, "Age adjusted" = eff_age, "Full model" = eff_full
@@ -969,7 +971,7 @@ set_eff **会改变结果表的数值**，适用于注明来源的外部估计�
 
 ```r
 eff_crude <- run_quiet(get_eff(d, cat_var = "N_4", surv = TRUE,
-  methods = "unadj", show_surdiff = FALSE))
+  methods = "unadj", show_sur = FALSE))
 eff90 <- set_eff(eff_crude, CND = "conf_0.90", which = "haz_unadj", inplace = FALSE)
 # 只用于说明替换接口的虚拟敏感性结果，不是重新拟合的临床估计。
 eff_scenario <- set_eff(eff_crude, CND = "1.20 (0.90, 1.60)",
@@ -1136,7 +1138,7 @@ p_pair_even
 
 ```r
 eff90_prob <- run_quiet(get_eff(d, cat_var = "N_4", sub_var = "Sex", surv = TRUE,
-  methods_haz = character(), methods_sur = "unadj", time = 90))
+  methods_haz = character(), methods_sur = "unadj", time = 90, show_sur = TRUE))
 p_sur_header <- plt_eff_sur(eff90_prob,
   header_list = list(label = "Groups", header_title = "Unadjusted KM"),
   forest_nchar = 40, base_size = 10, core_size = c(10, 3))
@@ -1198,7 +1200,7 @@ grDevices::dev.off()
 
 ### get_all转入累计调整并添加Overall
 
-eff.args$adj_var_step把该分支切换为get_eff_cat()；这时不使用com.args$adj_var。分层时默认add_overall=TRUE，可显式关闭；仅此路线接受该开关。methods/show_surdiff沿用模板时会剔除，自定义不兼容值会报错。
+eff.args$adj_var_step把该分支切换为get_eff_cat()；这时不使用com.args$adj_var。分层时默认add_overall=TRUE，可显式关闭；仅此路线接受该开关。methods/show_sur沿用模板时会剔除，自定义不兼容值会报错。
 
 ```r
 set.seed(20261015)
@@ -1243,9 +1245,9 @@ d_sparse <- d_view
 d_sparse$Treat <- factor(d_sparse$Treat, levels = c("No", "Yes", "Unused treatment"))
 d_sparse$Sex <- factor(d_sparse$Sex, levels = c("Female", "Male", "Unused subgroup"))
 eff_sparse <- get_eff(d_sparse, cat_var = "Treat", sub_var = "Sex", adj_var = "Age",
-  surv = TRUE, methods = "direct", show_surdiff = FALSE, all = NULL)
+  surv = TRUE, methods = "direct", show_sur = FALSE, all = NULL)
 eff_clean <- get_eff(droplevels(d_sparse), cat_var = "Treat", sub_var = "Sex", adj_var = "Age",
-  surv = TRUE, methods = "direct", show_surdiff = FALSE, all = NULL)
+  surv = TRUE, methods = "direct", show_sur = FALSE, all = NULL)
 isTRUE(all.equal(eff_sparse, eff_clean, check.attributes = FALSE))  # TRUE
 ```
 
@@ -1268,7 +1270,7 @@ isTRUE(all.equal(eff_sparse, eff_clean, check.attributes = FALSE))  # TRUE
 d_one <- d_sparse[d_sparse$Treat == "Yes", ]
 tryCatch(
   get_eff(d_one, cat_var = "Treat", adj_var = "Age", surv = TRUE,
-    methods = "iptw", show_surdiff = FALSE),
+    methods = "iptw", show_sur = FALSE),
   error = function(e) conditionMessage(e)
 )
 ```
