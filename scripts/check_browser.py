@@ -17,6 +17,9 @@ PAGES = [
     "regr/rcs-guide.html", "regr/cut-guide.html", "regr/flow-guide.html",
     "regr/model-evaluation-guide.html", "regr/effect-comparison-guide.html",
     "utilsr/format-guide.html", "utilsr/flow-guide.html", "mlr/couple-guide.html",
+    "regr/forest-guide.html", "regr/cat-guide.html", "regr/function-modules.html",
+    "regr/performance-evaluation.html", "regr/get-eff-cif-benchmark.html",
+    "regr/rpa-cox-benchmark.html", "regr/cox-cif-optimization-20261002.html",
 ]
 
 
@@ -30,6 +33,18 @@ def check_width(page, label):
         viewport: innerWidth, document: document.documentElement.scrollWidth
     })""")
     assert size["document"] <= size["viewport"] + 2, f"{label}: horizontal page overflow {size}"
+
+
+def toggle_color_scheme(page):
+    # Wide figures can turn the sidebar into a collapsed floating menu.
+    # Open that menu before using its toolbar; the original controls are disabled.
+    floating = page.locator("#quarto-sidebarnav-toggle:visible")
+    if floating.count():
+        if not floating.evaluate("el => el.classList.contains('expanded')"):
+            floating.locator(".quarto-sidebar-toggle-title").click()
+        floating.locator(".quarto-color-scheme-toggle").click()
+    else:
+        page.locator("#quarto-sidebar .quarto-color-scheme-toggle").click()
 
 
 def check(root):
@@ -61,7 +76,7 @@ def check(root):
                     page.set_viewport_size({"width": 1280, "height": 900})
                     is_dark = page.locator("body").evaluate("el => el.classList.contains('quarto-dark')")
                     if is_dark != dark:
-                        page.locator(".quarto-color-scheme-toggle:visible").first.click()
+                        toggle_color_scheme(page)
                     page.wait_for_function("dark => document.body.classList.contains('quarto-dark') === dark", arg=dark)
                     # Quarto changes the body class before the alternate CSS loads.
                     page.wait_for_function("""dark => {
