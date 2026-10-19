@@ -17,6 +17,72 @@ directory:
 
 2026-10-19（RegR `c903aae`）起，`show_surdiff` 改名为 `show_sur`；`get_facet()` 默认仍为 `TRUE`（`get_eff()` 改为 `FALSE`）；旧名已在 `571dc88` 删除，再传会报 `unused argument`。本页代码已同步改名，图形未因改名重新生成。
 
+## 当前自动布局与逐模型参数 {#auto-models-20261019}
+
+2026-10-19 按已推送 RegR `4034a97` 在 Windows / WSL R 4.4.3 重新运行本节；原有图保留各自的执行记录。当前默认图例为 `leg_position = "auto"`，放在首面板左边缘的中部；内嵌表的 `fmt.fst.h = "auto"` 根据曲线和置信带留下的空间统一选择上、下位置。只传部分 `plot_params` 时，遗漏字段也继承接口默认值。
+
+下面使用598人 PTC 队列，按 Sex 分面，同时拟合未调整 KM 与 Aalen–Johansen CIF。两者不是互补概率。`xlim = 120` 是 `c(0,120)`；单个 `xbre = 24`、`ybre = 0.2` 是刻度间隔。`timepoint = 36` 控制 SP 表的时间点，独立于曲线显示终点。
+
+<!-- rnotes-refresh: facet -->
+```r
+dat_now <- as.data.frame(ToyData::toy_ptc_m1_cnd)
+dat_now[["N_4"]] <- stats::relevel(dat_now[["N_4"]], ref = "No CND")
+facet_now <- get_facet(dat_now, split_var = "Sex", cat_var = "N_4",
+  adj_var = "Age", surv = c(TRUE, FALSE), method = "unadj",
+  timepoint = 36, max_t = 120, parallel = 1,
+  plot_params = list(xlim = 120, xbre = 24, ybre = 0.2, base_size = 11),
+  table_params = list(tb.vars = c("eve1", "HR", "SP"),
+    base_size_table = 7, add_p_value = "none"))
+
+facet_files <- file.path(tempdir(),
+  c("20261019-refresh-facet-sur.pdf", "20261019-refresh-facet-cif.pdf"))
+facet_ordered <- get_facet(facet_now,
+  plot_params = list(xlim = 120, xbre = 24, ybre = 0.2, base_size = 11,
+    ylim = list(c(0.2, 1), c(0, 0.8))),
+  table_params = list(tb.vars = c("eve1", "HR", "SP"),
+    tb.vars_name = list(Groups = "CND group",
+      HR = c("HR (95% CI)", "sHR (95% CI)"),
+      SP = c("3-year DSS", "3-year CIF")),
+    base_size_table = 7, add_p_value = "none"),
+  save = list(filename = facet_files))
+
+# 拆出第2个模型，仍按原模型顺序选择第2组纵轴和文件名。
+facet_cif_only <- get_facet(facet_now[[2]],
+  plot_params = list(xlim = 120, xbre = 24,
+    ylim = list(c(0.2, 1), c(0, 0.8))),
+  table_params = list(insert_table = FALSE, add_p_value = "none"),
+  save = list(filename = sub("\\.pdf$", "-only.pdf", facet_files)))
+```
+
+::: {.panel-tabset}
+
+### 生存概率 {.unnumbered}
+
+![KM、自动表位置与36月生存概率。](images/facet-guide/20261019-refresh-facet-sur.png){fig-alt="598人PTC队列按Sex分面的KM曲线，内嵌表含事件人数、HR和3年DSS；CND group同时作为表头与图例标题。"}
+
+[下载 PDF](images/facet-guide/20261019-refresh-facet-sur.pdf)
+
+### 目标事件 CIF {.unnumbered}
+
+![同一调用的 CIF 使用独立纵轴和表头。](images/facet-guide/20261019-refresh-facet-cif.png){fig-alt="同一队列的甲状腺癌死亡累积发生曲线，表头明确区分sHR与3年CIF，纵轴范围按第2模型设置。"}
+
+[下载 PDF](images/facet-guide/20261019-refresh-facet-cif.pdf)
+
+:::
+
+| 设置 | 当前合同 |
+|:--|:--|
+| `ylim = list(sur = ..., cif = ...)` | 按模型名匹配；改变模型顺序时更便于维护 |
+| `ylim = list(..., ...)` | 无名 list 按原模型顺序；数值 `c(0,1)` 是共享范围 |
+| `save$filename = c("a.pdf", "b.pdf")` | 无名字符向量逐模型匹配；也可使用命名向量 |
+| `facet_now[2]` / `facet_now[[2]]` | 保留原模型顺序信息，仍选择第2份设置 |
+| `tb.vars_name = list(SP = c(..., ...))` | 每个列名键可按模型顺序提供表头；长度1则共享 |
+| 暴露列标题 | 默认 `Groups`；按实际暴露名或 `Groups` 改标题时，图例标题同步改变 |
+
+默认 SP 表头按拟合的 `timepoint` 和结局生成，如36月显示3年、18月显示18月；上例再显式给出 DSS / CIF 名称。这里明确选择三列，不依赖默认列集合。缓存重绘只改显示，已核验曲线和内嵌估计保持不变；首次 `show_sur = FALSE` 时，重绘不能补算 SP/SD。
+
+`fmt.fst.h = 0` 保留固定锚点：生存图为0.1、CIF为0.9，数值偏移向上为正。自动位置考虑当前 `ylim` 内的空间，不保证所有宽表都避开曲线，仍须检查导出图。P值文字随表放在朝向面板中部的一侧，`fmt.p_value.h` 在该位置上偏移。新的 CIF 条带使用全称 cumulative incidence。
+
 ## 示例准备与读图规则 {#data}
 
 继续使用 [森林图页](forest-guide.qmd) 的 `ToyData::toy_ptc_m1_cnd`：**598 人 M1 乳头状甲状腺癌（PTC）队列**，CND 233 人、No CND 365 人。甲状腺癌死亡 175 人、其他原因死亡 95 人，存活 / 删失 328 人；随访单位为月，范围 1–239。CND 是原研究依据登记字段定义的操作性分组，来源和字段说明见 [ToyData 数据介绍](../toydata/index.qmd)。
@@ -146,7 +212,7 @@ get_facet(
   surv = TRUE,
   method = "unadj",
   conf_level = 0.95,
-  cif_args = list(model = c("FGR", "CSC")),
+  cif_args = list(model = c("FGR", "CSC", "CRR")),
   parallel = NULL,
   timepoint = 120,
   show_sur = TRUE,
@@ -156,9 +222,9 @@ get_facet(
   save = list(),
   plot_params = list(color = UtilsR::pal_lancet, xlim = NULL, xbre = NULL, xlab = NULL,
     ylim = NULL, ybre = NULL, ylab = NULL, conf_int = TRUE, base_size = 12, unadj_steps =
-    TRUE, leg_position = "top", flip = TRUE, strip_merge = TRUE, strip_map = NULL,
+    TRUE, leg_position = "auto", flip = TRUE, strip_merge = TRUE, strip_map = NULL,
     hcl_colors = c("Reds", "Blues", "Greens", "Purples 2")),
-  table_params = list(base_size_table = 8, core_table = c(0.8, 0.6), fmt.fst.h = 0,
+  table_params = list(base_size_table = 8, core_table = c(0.8, 0.6), fmt.fst.h = "auto",
     tb.vars = c("eve1", "HR"), tb.vars_name = NULL, insert_table = TRUE, add_p_value =
     "HR", fmt.p_value.h = 0, text_size = 12, show_SP.time = FALSE, model = if
     (is.character(surv)) "Log" else if (isFALSE(surv)) "Crr" else "Cox", color =
@@ -615,7 +681,7 @@ f_full_table <- get_facet(
 
 :::
 
-`base_size_table` 控制表格字体，`core_table` 控制单元格内边距，`fmt.fst.h` 是表格相对默认位置的竖向偏移。生存图默认靠下，CIF 默认靠上。`show_SP.time = TRUE` 当前使用固定的 10-year 前缀；本页保持 FALSE 并用 `tb.vars_name` 明确实际时间点。
+`base_size_table` 控制表格字体，`core_table` 控制单元格内边距。这里的历史示例显式使用数值 `fmt.fst.h`，以生存图靠下、CIF靠上的固定锚点为基准偏移。当前默认的自动位置及时间表头见[新布局示例](#auto-models-20261019)。`show_SP.time = TRUE` 的旧逻辑使用固定10-year前缀；当前自动表头会覆盖它，不应靠这个开关声明分析时点。
 
 ### 用独立文字展示 P 值
 
@@ -902,16 +968,16 @@ ggplot2::ggsave("CND-by-Sex-survival.png", f_both[["plt"]],
 | `color` | 颜色向量或支持的调色板名；没有单独指定表颜色时，表格底色随曲线同步 |
 | `hcl_colors` | 分面条带的 HCL 调色板名向量，与曲线颜色是两套设置 |
 | `xlab, ylab` | NULL 保留默认标题；空字符串隐藏；自定义字符串原样使用，不追加 CI 后缀，不换算时间或概率 |
-| `xlim, xbre, ylim, ybre` | 数值范围与刻度向量；本页按月和原始比例显示 |
+| `xlim, xbre, ylim, ybre` | 范围与刻度向量；`xlim` 单值为从0开始的上限，`xbre/ybre` 单值为间隔；按月和原始比例显示 |
 | `conf_int` | TRUE / FALSE，显示 / 隐藏曲线区间 |
 | `unadj_steps` | TRUE / FALSE，未调整曲线的阶梯 / 线段画法 |
-| `leg_position` | `"top"`、`"left"` 或两个 0–1 数值 |
+| `leg_position` | 默认 `"auto"`；也接受 `"top"`、`"left"` 或两个0–1数值 |
 | `flip` | TRUE / FALSE；或 `list(rows = ..., cols = ...)` 指定分面方向 |
 | `strip_merge, strip_map` | 是否合并外层条带；旧标签到新标签的命名字符向量 |
 | `base_size` | 主图字体大小，与表格字体分别设置 |
 | `tb.vars, tb.vars_name` | 内嵌表字段选择与标题映射 |
 | `base_size_table, core_table` | 表格字体与内边距 |
-| `fmt.fst.h` | 内嵌表 / 森林图的竖向偏移 |
+| `fmt.fst.h` | 默认 `"auto"`；数值为固定锚点上的竖向偏移 |
 | `insert_table` | TRUE 显示表；FALSE 在已有森林图组件时显示森林图，否则仅保留曲线 |
 | `add_p_value` | `"none"`、`"HR"`、`"HR1"`、`"SD"`、`"SD1"`、`"all"` |
 | `fmt.p_value.h, text_size` | P 值文字位置与字号 |
