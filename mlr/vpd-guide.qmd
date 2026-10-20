@@ -4,16 +4,16 @@ description: "get_exp、get_vpd、get_vpd_pnl 与 get_ale2 的工作流；比较
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-10-16
+date-modified: 2026-10-20
 directory:
   title: "变量分布、PDP与二阶ALE：网格与统一入口"
   topic: 模型解释
-  updated: 2026-10-16
+  updated: 2026-10-20
 ---
 
 `get_exp()` 构建预测解释器，`get_vpd()` 将变量分布（VD）与部分依赖（PD）放在一起。本页用实际图形解释两块面板的差别，并对照主要任务和分组路径。
 
-**版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出本页 **12 张参数对照图**。Cox、Logistic 和生存随机森林均实际训练，图形来自公开入口；使用已有临床示例和模拟二分类数据，未执行外部临床验证。
+**版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出原主教程 **12 张参数对照图**。Cox、Logistic 和生存随机森林均实际训练，图形来自公开入口；使用已有临床示例和模拟二分类数据，未执行外部临床验证。
 
 
 ## 示例准备与读图规则 {#data}
@@ -330,6 +330,69 @@ get_vpd(list(data = dc, vars = cvars, surv = "Outcome"), exp_var = "Marker")
 
 :::
 
+
+## 当前按内容保存：变量预测剖面 {#save-20261020}
+
+2026-10-20 按已推送 MLR `e915077e`（接口自 `bcd7ede`）与 RegR `da6157be`，在 Windows / WSL R 4.4.3 实际运行下例。上方历史结果保留原执行记录；本节另用 180 行固定种子模拟数据，较小计算预算只用于接口演示。
+
+当前 `plt_vpd_log()`、`plt_vpd_sur()`、`plt_interboot()` 支持 `save = list(filename = ...)`。省略 `width` / `height` 时，按面板、轴文字、条带和图例估算 PDF 画布；控制台打印尺寸，返回图携带 `attr(p, "plot_size")`。`list()` 或 `NULL` 不写文件；明确给出的尺寸覆盖对应维度，单位是英寸。相同包版本号的旧安装可能还没有此接口，应核对提交和 `names(formals(...))`。
+
+<!-- refresh-20261020: vpd_save -->
+```r
+library(MLR)
+library(mlr3)
+library(mlr3learners)
+set.seed(20261020)
+n_save <- 180L
+d_save <- data.frame(Age = rnorm(n_save, 55, 10), Marker = rnorm(n_save),
+  Sex = factor(rep(c("Female", "Male"), n_save / 2)))
+d_save[["Outcome"]] <- factor(ifelse(runif(n_save) < plogis(
+  -0.3 + 0.04 * (d_save[["Age"]] - 55) + 0.5 * d_save[["Marker"]]),
+  "Yes", "No"), levels = c("No", "Yes"))
+task_save <- as_task_classif(d_save, target = "Outcome", positive = "Yes")
+d_save[["time"]] <- rexp(nrow(d_save), exp(-3.6 + 0.015 * (d_save[["Age"]] - 55)))
+d_save[["DSS"]] <- rbinom(nrow(d_save), 1, 0.7)
+exp_log_save <- get_exp(d_save, vars = c("Age", "Sex", "Marker"), surv = "Outcome")
+exp_sur_save <- get_exp(d_save, vars = c("Age", "Sex", "Marker"), surv = 24)
+p_log <- plt_vpd_log(exp_log_save, exp_var = "Sex",
+  save = list(filename = file.path(tempdir(), "20261020-refresh-vpd-log.pdf")))
+p_saved <- plt_vpd_sur(exp_sur_save, exp_var = "Sex", cores = 1,
+  save = list(filename = file.path(tempdir(), "20261020-refresh-vpd-sur.pdf")))
+# 独立的模拟分布例子，只演示已有数值的绘图保存，不执行 bootstrap。
+distribution_save <- data.frame(group = factor(rep(c("A", "B"), each = 30)),
+  value = c(rnorm(30), rnorm(30, 0.4)))
+p_distribution <- plt_interboot(distribution_save, x = group, y = value,
+  centrality.plotting = FALSE, point.path = FALSE,
+  save = list(filename = file.path(tempdir(), "20261020-refresh-interboot.pdf")))
+size <- attr(p_saved, "plot_size")
+stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
+size
+```
+<!-- /refresh-20261020: vpd_save -->
+
+::: {.panel-tabset}
+
+### 生存解释器 {.unnumbered}
+
+![生存解释器的实际 PDF 预览。](images/vpd-guide/20261020-refresh-vpd-sur.png){fig-alt="固定模拟数据的生存解释器保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。"}
+
+[下载 PDF](images/vpd-guide/20261020-refresh-vpd-sur.pdf)
+
+### 二分类解释器 {.unnumbered}
+
+![二分类解释器的实际 PDF 预览。](images/vpd-guide/20261020-refresh-vpd-log.png){fig-alt="固定模拟数据的二分类解释器保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。"}
+
+[下载 PDF](images/vpd-guide/20261020-refresh-vpd-log.pdf)
+
+### 已有数值分布 {.unnumbered}
+
+![已有数值分布的实际 PDF 预览。](images/vpd-guide/20261020-refresh-interboot.png){fig-alt="固定模拟数据的已有数值分布保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。"}
+
+[下载 PDF](images/vpd-guide/20261020-refresh-interboot.pdf)
+
+:::
+
+`plt_vpd_log()` 和 `plt_vpd_sur()` 保存现有解释器的 VD / PD 组合；预测时间、解释对象和原始拟合仍由上游决定。本节原始数据为180行，Female / Male各90行；PD对每个性别值使用全部180个参考行，图中PD的n是参考行数，不能相加或当作原始分组人数。`plt_interboot()` 只是把传入的数值画成组间分布，本例没有运行 bootstrap，也不是交互项显著性检验。
 
 ## 参数调整、保存与使用边界 {#parameters}
 
