@@ -2,13 +2,13 @@
 title: "观察性研究工作流：平衡、效应、HTE 与敏感性"
 description: "用完整模拟队列串联 PSM、PSW、get_bal、HTE 和未测量混杂敏感性，展示计算与绘图的重要参数。"
 date: 2026-10-02
-date-modified: 2026-10-18
+date-modified: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
   title: "观察性工作流：HTE坐标、表头与平衡诊断"
   topic: 因果推断与 HTE
-  updated: 2026-10-18
+  updated: 2026-10-20
 ---
 
 ::: {.callout-note title="运行前核对树变量参数"}
@@ -384,3 +384,65 @@ balance_current[["plt"]]
 ![图内图例按指定的右下锚点放置。](images/clinical-workflow-guide/20261018-balance-inside.png){fig-alt="未调整、ATE加权和ATO重叠加权的协变量绝对SMD，图例位于图内右下方，变量显示为Marker和Sex。"}
 
 `get_bal()`及`plt_hte_unihtee()`的`var_names`默认现在为`character()`；RegR可用时仍合并它的名称映射，用户同名项优先。`NULL`保留原列名。图内定位使用`legend_justification`，不会更改平衡计算值。
+
+## 当前替换亚组行：总体行随之更新 {#overall-edit-20261020}
+
+2026-10-20 按已推送 causalR `7a983f1d`，在 Windows / WSL R 4.4.3 实际拟合和导出本节。这里另用 400 行模拟连续结局，**人工替换数值只用于演示显示接口，不是重新估计的结果，不能用于临床结论**。上方工作流保留各自的历史执行记录。
+
+`plt_hte_sub(effect = ...)` 原本就支持替换已绘制的亚组估计或区间；现在若没有单独指定 `"All patients"`，总体行会跟随被改的亚组。对于差值，变化量是该组患者占比 × 该组估计变化量；有森林观测权重时用权重占比。仅给点估计保留其标准误；给区间则也按 delta 方法传播方差的变化。
+
+<!-- refresh-20261020: hte_overall -->
+```r
+library(causalR)
+set.seed(20261020)
+d_edit <- data.frame(Tx = factor(rep(c("No", "Yes"), 200)),
+  sex = factor(rep(c("Female", "Male"), each = 200)), x = rnorm(400))
+d_edit[["y"]] <- 0.2 * d_edit[["x"]] +
+  (0.4 + 0.2 * (d_edit[["sex"]] == "Male")) * (d_edit[["Tx"]] == "Yes") + rnorm(400)
+hte_edit <- get_hte(d_edit, "Tx", sub_var = "sex", adj_var = c("sex", "x"), surv = "y",
+  grf_args = list(num.trees = 400, num.threads = 1, seed = 20261020))
+p_original <- plt_hte_sub(hte_edit, sub_var = "sex", axis_args = list(percent = FALSE))
+original_rows <- attr(p_original, "subgroup")
+male_row <- original_rows[original_rows[["level"]] == "Male", ]
+replacement <- round(male_row[["estimate"]] + 0.1, 3)
+edit_text <- sprintf("%.3f", replacement)
+p_follow <- plt_hte_sub(hte_edit, sub_var = "sex", effect = list(sex = c(Male = edit_text)),
+  axis_args = list(percent = FALSE), title = "Display example: edited Male row; overall follows",
+  save = list(filename = file.path(tempdir(), "20261020-refresh-hte-follow.pdf")))
+p_keep <- plt_hte_sub(hte_edit, sub_var = "sex",
+  effect = list(sex = c(Male = edit_text), "All patients" = "conf_0.95"),
+  axis_args = list(percent = FALSE), title = "Display example: edited Male row; original overall",
+  save = list(filename = file.path(tempdir(), "20261020-refresh-hte-keep.pdf")))
+ov <- hte_edit[["stats"]][hte_edit[["stats"]][["measure"]] == "diff", ]
+expected_overall <- ov[["estimate"]] + mean(d_edit[["sex"]] == "Male") *
+  (replacement - male_row[["estimate"]])
+validation_values <- data.frame(original_overall = ov[["estimate"]],
+  original_male = male_row[["estimate"]], replacement = replacement,
+  expected_overall = expected_overall)
+stopifnot(identical(attr(p_follow, "subgroup"), attr(p_keep, "subgroup")),
+          isTRUE(all.equal(hte_edit[["stats"]][["estimate"]][1], ov[["estimate"]])))
+validation_values
+```
+<!-- /refresh-20261020: hte_overall -->
+
+本例男性占50%，估计从0.625066人工改为0.725，总体从0.605828随之变为0.655795；两端数值一致。图中按两位小数显示，第二张图明确保留原总体。这里只核对显示层的运算，不把人工数值当作模型推断。
+
+::: {.panel-tabset}
+
+### 总体跟随替换行 {.unnumbered}
+
+![演示替换男性亚组数值后，总体行也更新。](images/clinical-workflow-guide/20261020-refresh-hte-follow.png){fig-alt="模拟连续结局的展示示例，标题明确标注男性亚组为人工替换，All patients按患者占比随之改变；不代表重新拟合森林。"}
+
+[下载 PDF](images/clinical-workflow-guide/20261020-refresh-hte-follow.pdf)
+
+### 明确保留原总体 {.unnumbered}
+
+![相同的替换行，明确保留森林的总体行。](images/clinical-workflow-guide/20261020-refresh-hte-keep.png){fig-alt="相同人工替换示例另行传All patients conf_0.95，保留原始森林总体及区间；男性亚组显示值与另一图相同。"}
+
+[下载 PDF](images/clinical-workflow-guide/20261020-refresh-hte-keep.pdf)
+
+:::
+
+`"conf_0.95"` 只改变该行的区间水平，不移动总体；同时替换两个分组变量的估计会有两套总体修正，必须也指定 `"All patients"`，例如上例保留原总体。比值和 OR 会保留该组对照臂均值，再调整处理臂，不使用上述简单差值公式；无效的总体或方差会报错。
+
+函数不重新训练森林，原始 `hte_edit` 不变；其他变量的亚组行不变，`P for interaction` 和 `cate_mean` 也保留森林结果。应明确标注替换的来源与用途，不能把未重算的交互检验当作人工替换后的检验。

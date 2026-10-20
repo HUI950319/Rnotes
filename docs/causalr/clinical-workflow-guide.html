@@ -1079,6 +1079,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#row-height-current" id="toc-row-height-current" class="nav-link" data-scroll-target="#row-height-current">亚组森林表的固定行高</a></li>
   <li><a href="#release-20261016" id="toc-release-20261016" class="nav-link" data-scroll-target="#release-20261016">发布状态与树变量名称</a></li>
   <li><a href="#subgroup-20261018" id="toc-subgroup-20261018" class="nav-link" data-scroll-target="#subgroup-20261018">当前亚组森林：表头、百分点与汇总菱形</a></li>
+  <li><a href="#overall-edit-20261020" id="toc-overall-edit-20261020" class="nav-link" data-scroll-target="#overall-edit-20261020">当前替换亚组行：总体行随之更新</a></li>
   </ul>
 <div class="toc-actions"><ul class="collapse"><li><a href="https://github.com/HUI950319/Rnotes/blob/main/causalr/clinical-workflow-guide.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
     </div>
@@ -1106,7 +1107,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <div>
     <div class="quarto-title-meta-heading">修改于</div>
     <div class="quarto-title-meta-contents">
-      <p class="date-modified">2026年10月18日</p>
+      <p class="date-modified">2026年10月20日</p>
     </div>
   </div>
 
@@ -1845,9 +1846,71 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 <p><code>get_bal()</code>及<code>plt_hte_unihtee()</code>的<code>var_names</code>默认现在为<code>character()</code>；RegR可用时仍合并它的名称映射，用户同名项优先。<code>NULL</code>保留原列名。图内定位使用<code>legend_justification</code>，不会更改平衡计算值。</p>
-
-
 </section>
+</section>
+<section id="overall-edit-20261020" class="level2">
+<h2 class="anchored" data-anchor-id="overall-edit-20261020">当前替换亚组行：总体行随之更新</h2>
+<p>2026-10-20 按已推送 causalR <code>7a983f1d</code>，在 Windows / WSL R 4.4.3 实际拟合和导出本节。这里另用 400 行模拟连续结局，<strong>人工替换数值只用于演示显示接口，不是重新估计的结果，不能用于临床结论</strong>。上方工作流保留各自的历史执行记录。</p>
+<p><code>plt_hte_sub(effect = ...)</code> 原本就支持替换已绘制的亚组估计或区间；现在若没有单独指定 <code>"All patients"</code>，总体行会跟随被改的亚组。对于差值，变化量是该组患者占比 × 该组估计变化量；有森林观测权重时用权重占比。仅给点估计保留其标准误；给区间则也按 delta 方法传播方差的变化。</p>
+<!-- refresh-20261020: hte_overall -->
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(causalR)</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261020</span>)</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>d_edit <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Tx =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>), <span class="dv">200</span>)),</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">sex =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), <span class="at">each =</span> <span class="dv">200</span>)), <span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">400</span>))</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>d_edit[[<span class="st">"y"</span>]] <span class="ot">&lt;-</span> <span class="fl">0.2</span> <span class="sc">*</span> d_edit[[<span class="st">"x"</span>]] <span class="sc">+</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>  (<span class="fl">0.4</span> <span class="sc">+</span> <span class="fl">0.2</span> <span class="sc">*</span> (d_edit[[<span class="st">"sex"</span>]] <span class="sc">==</span> <span class="st">"Male"</span>)) <span class="sc">*</span> (d_edit[[<span class="st">"Tx"</span>]] <span class="sc">==</span> <span class="st">"Yes"</span>) <span class="sc">+</span> <span class="fu">rnorm</span>(<span class="dv">400</span>)</span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>hte_edit <span class="ot">&lt;-</span> <span class="fu">get_hte</span>(d_edit, <span class="st">"Tx"</span>, <span class="at">sub_var =</span> <span class="st">"sex"</span>, <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"sex"</span>, <span class="st">"x"</span>), <span class="at">surv =</span> <span class="st">"y"</span>,</span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">grf_args =</span> <span class="fu">list</span>(<span class="at">num.trees =</span> <span class="dv">400</span>, <span class="at">num.threads =</span> <span class="dv">1</span>, <span class="at">seed =</span> <span class="dv">20261020</span>))</span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>p_original <span class="ot">&lt;-</span> <span class="fu">plt_hte_sub</span>(hte_edit, <span class="at">sub_var =</span> <span class="st">"sex"</span>, <span class="at">axis_args =</span> <span class="fu">list</span>(<span class="at">percent =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>original_rows <span class="ot">&lt;-</span> <span class="fu">attr</span>(p_original, <span class="st">"subgroup"</span>)</span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>male_row <span class="ot">&lt;-</span> original_rows[original_rows[[<span class="st">"level"</span>]] <span class="sc">==</span> <span class="st">"Male"</span>, ]</span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>replacement <span class="ot">&lt;-</span> <span class="fu">round</span>(male_row[[<span class="st">"estimate"</span>]] <span class="sc">+</span> <span class="fl">0.1</span>, <span class="dv">3</span>)</span>
+<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>edit_text <span class="ot">&lt;-</span> <span class="fu">sprintf</span>(<span class="st">"%.3f"</span>, replacement)</span>
+<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>p_follow <span class="ot">&lt;-</span> <span class="fu">plt_hte_sub</span>(hte_edit, <span class="at">sub_var =</span> <span class="st">"sex"</span>, <span class="at">effect =</span> <span class="fu">list</span>(<span class="at">sex =</span> <span class="fu">c</span>(<span class="at">Male =</span> edit_text)),</span>
+<span id="cb20-15"><a href="#cb20-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">axis_args =</span> <span class="fu">list</span>(<span class="at">percent =</span> <span class="cn">FALSE</span>), <span class="at">title =</span> <span class="st">"Display example: edited Male row; overall follows"</span>,</span>
+<span id="cb20-16"><a href="#cb20-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-hte-follow.pdf"</span>)))</span>
+<span id="cb20-17"><a href="#cb20-17" aria-hidden="true" tabindex="-1"></a>p_keep <span class="ot">&lt;-</span> <span class="fu">plt_hte_sub</span>(hte_edit, <span class="at">sub_var =</span> <span class="st">"sex"</span>,</span>
+<span id="cb20-18"><a href="#cb20-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">effect =</span> <span class="fu">list</span>(<span class="at">sex =</span> <span class="fu">c</span>(<span class="at">Male =</span> edit_text), <span class="st">"All patients"</span> <span class="ot">=</span> <span class="st">"conf_0.95"</span>),</span>
+<span id="cb20-19"><a href="#cb20-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">axis_args =</span> <span class="fu">list</span>(<span class="at">percent =</span> <span class="cn">FALSE</span>), <span class="at">title =</span> <span class="st">"Display example: edited Male row; original overall"</span>,</span>
+<span id="cb20-20"><a href="#cb20-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-hte-keep.pdf"</span>)))</span>
+<span id="cb20-21"><a href="#cb20-21" aria-hidden="true" tabindex="-1"></a>ov <span class="ot">&lt;-</span> hte_edit[[<span class="st">"stats"</span>]][hte_edit[[<span class="st">"stats"</span>]][[<span class="st">"measure"</span>]] <span class="sc">==</span> <span class="st">"diff"</span>, ]</span>
+<span id="cb20-22"><a href="#cb20-22" aria-hidden="true" tabindex="-1"></a>expected_overall <span class="ot">&lt;-</span> ov[[<span class="st">"estimate"</span>]] <span class="sc">+</span> <span class="fu">mean</span>(d_edit[[<span class="st">"sex"</span>]] <span class="sc">==</span> <span class="st">"Male"</span>) <span class="sc">*</span></span>
+<span id="cb20-23"><a href="#cb20-23" aria-hidden="true" tabindex="-1"></a>  (replacement <span class="sc">-</span> male_row[[<span class="st">"estimate"</span>]])</span>
+<span id="cb20-24"><a href="#cb20-24" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">original_overall =</span> ov[[<span class="st">"estimate"</span>]],</span>
+<span id="cb20-25"><a href="#cb20-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">original_male =</span> male_row[[<span class="st">"estimate"</span>]], <span class="at">replacement =</span> replacement,</span>
+<span id="cb20-26"><a href="#cb20-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">expected_overall =</span> expected_overall)</span>
+<span id="cb20-27"><a href="#cb20-27" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(<span class="fu">attr</span>(p_follow, <span class="st">"subgroup"</span>), <span class="fu">attr</span>(p_keep, <span class="st">"subgroup"</span>)),</span>
+<span id="cb20-28"><a href="#cb20-28" aria-hidden="true" tabindex="-1"></a>          <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(hte_edit[[<span class="st">"stats"</span>]][[<span class="st">"estimate"</span>]][<span class="dv">1</span>], ov[[<span class="st">"estimate"</span>]])))</span>
+<span id="cb20-29"><a href="#cb20-29" aria-hidden="true" tabindex="-1"></a>validation_values</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<!-- /refresh-20261020: hte_overall -->
+<p>本例男性占50%，估计从0.625066人工改为0.725，总体从0.605828随之变为0.655795；两端数值一致。图中按两位小数显示，第二张图明确保留原总体。这里只核对显示层的运算，不把人工数值当作模型推断。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">总体跟随替换行</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">明确保留原总体</a></li></ul>
+<div class="tab-content">
+<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/clinical-workflow-guide/20261020-refresh-hte-follow.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="演示替换男性亚组数值后，总体行也更新。"><img src="images/clinical-workflow-guide/20261020-refresh-hte-follow.png" class="img-fluid figure-img" alt="模拟连续结局的展示示例，标题明确标注男性亚组为人工替换，All patients按患者占比随之改变；不代表重新拟合森林。" loading="lazy" decoding="async" width="1914" height="419" srcset="../assets/figure-previews/0acb22f86d6dc4b5b24bd373b0f40d46.webp"></a></p>
+<figcaption>演示替换男性亚组数值后，总体行也更新。</figcaption>
+</figure>
+</div>
+<p><a href="images/clinical-workflow-guide/20261020-refresh-hte-follow.pdf">下载 PDF</a></p>
+</div>
+<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/clinical-workflow-guide/20261020-refresh-hte-keep.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="相同的替换行，明确保留森林的总体行。"><img src="images/clinical-workflow-guide/20261020-refresh-hte-keep.png" class="img-fluid figure-img" alt="相同人工替换示例另行传All patients conf_0.95，保留原始森林总体及区间；男性亚组显示值与另一图相同。" loading="lazy" decoding="async" width="1914" height="419" srcset="../assets/figure-previews/bb28f5b99fbcb95cca79e6ebb05f7b7d.webp"></a></p>
+<figcaption>相同的替换行，明确保留森林的总体行。</figcaption>
+</figure>
+</div>
+<p><a href="images/clinical-workflow-guide/20261020-refresh-hte-keep.pdf">下载 PDF</a></p>
+</div>
+</div>
+</div>
+<p><code>"conf_0.95"</code> 只改变该行的区间水平，不移动总体；同时替换两个分组变量的估计会有两套总体修正，必须也指定 <code>"All patients"</code>，例如上例保留原总体。比值和 OR 会保留该组对照臂均值，再调整处理臂，不使用上述简单差值公式；无效的总体或方差会报错。</p>
+<p>函数不重新训练森林，原始 <code>hte_edit</code> 不变；其他变量的亚组行不变，<code>P for interaction</code> 和 <code>cate_mean</code> 也保留森林结果。应明确标注替换的来源与用途，不能把未重算的交互检验当作人工替换后的检验。</p>
+
+
 </section>
 
 </main> <!-- /main -->
