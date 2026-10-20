@@ -2,13 +2,13 @@
 title: "分面生存曲线：get_facet 与分层重拟合"
 description: "get_facet 的模型、分层与缓存详解；以 598 人 M1 PTC 队列比较 KM、调整生存、CIF、嵌套分面、内嵌表和迷你森林图；补充 get_facet_diff 的三张概率差曲线。"
 date: 2026-10-01
-date-modified: 2026-10-19
+date-modified: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
   title: "分面生存曲线：分组标签、默认布局与结果页"
   topic: 回归与生存分析
-  updated: 2026-10-19
+  updated: 2026-10-20
 ---
 
 `get_facet()` 把生存 / 竞争风险曲线、分面条带和每个面板的效应表组织在一张图中。本页沿用 [SHAP 可视化页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，相关参数放在标签页中比较，点击图片可以放大**。
@@ -82,6 +82,70 @@ facet_cif_only <- get_facet(facet_now[[2]],
 默认 SP 表头按拟合的 `timepoint` 和结局生成，如36月显示3年、18月显示18月；上例再显式给出 DSS / CIF 名称。这里明确选择三列，不依赖默认列集合。缓存重绘只改显示，已核验曲线和内嵌估计保持不变；首次 `show_sur = FALSE` 时，重绘不能补算 SP/SD。
 
 `fmt.fst.h = 0` 保留固定锚点：生存图为0.1、CIF为0.9，数值偏移向上为正。自动位置考虑当前 `ylim` 内的空间，不保证所有宽表都避开曲线，仍须检查导出图。P值文字随表放在朝向面板中部的一侧，`fmt.p_value.h` 在该位置上偏移。新的 CIF 条带使用全称 cumulative incidence。
+
+## 当前默认：未调整并列直接调整 {#defaults-20261020}
+
+2026-10-20 按已推送 RegR `da6157be`（默认值自 `547db52`、`c9c4a99`、`2f7815e`），在 Windows / WSL R 4.4.3 实跑本节。旧图继续使用各自明确写出的设置。
+
+| 设置 | 当前省略时的行为 | 复现旧设置 |
+|:--|:--|:--|
+| `method` | `"both"`，即 `c("unadj", "direct")`，未调整与直接调整并列 | `method = "unadj"` |
+| `table_params$tb.vars` | `c("eve1", "HR", "SP")`，事件、比值、指定时间概率 | `c("eve1", "HR")` |
+| `table_params$add_p_value` | `"none"`，不在表旁另写 P 值 | `"HR"` |
+| 部分 `table_params` | 遗漏的列选择及 P 值设置使用上述默认值 | 需要旧样式时写全 |
+| `show_sur = FALSE` | 缓存的 SP/SD/p_SD 仍为 NA，内嵌表提示后移除这些空列 | 需要概率时重新拟合 |
+
+默认 direct 会按 `adj_var` 调整；`adj_var = NULL` 时请明确选 `method = "unadj"`，避免重复展示没有调整变量的曲线。下面另用 480 行固定模拟记录，时间单位作为月解释，比较一个变量分面的当前默认与联合分组。
+
+<!-- refresh-20261020: facet_defaults -->
+```r
+library(RegR)
+set.seed(20261020)
+d_refresh <- expand.grid(Tx = factor(c("No", "Yes")),
+  Group = factor(c("Low", "High"), levels = c("Low", "High")),
+  Site = factor(c("A", "B")), id = 1:60)
+d_refresh[["Age"]] <- rnorm(nrow(d_refresh), 55, 10)
+tx <- as.integer(d_refresh[["Tx"]] == "Yes")
+gr <- as.integer(d_refresh[["Group"]] == "High")
+event_time <- rexp(nrow(d_refresh), exp(-3.8 + 0.6 * tx + 0.4 * gr +
+  0.2 * tx * gr + 0.01 * (d_refresh[["Age"]] - 55)))
+censor_time <- rexp(nrow(d_refresh), 0.012)
+d_refresh[["time"]] <- pmin(event_time, censor_time)
+d_refresh[["DSS"]] <- as.integer(event_time <= censor_time)
+d_refresh[["Outcome"]] <- factor(ifelse(runif(nrow(d_refresh)) < plogis(
+  -1 + 0.7 * tx + 0.4 * gr + 0.02 * (d_refresh[["Age"]] - 55)), "Yes", "No"),
+  levels = c("No", "Yes"))
+facet_default <- get_facet(d_refresh, split_var = "Site", cat_var = "Tx", adj_var = "Age",
+  surv = TRUE, timepoint = 24, max_t = 60, parallel = 1,
+  plot_params = list(xlim = 60, xbre = 12, ybre = 0.2, base_size = 11),
+  table_params = list(base_size_table = 7),
+  save = list(filename = file.path(tempdir(), "20261020-refresh-facet-defaults.pdf")))
+facet_joint <- get_facet(d_refresh, split_var = "Site",
+  cat_var_combine = c("Tx", "Group"), adj_var = "Age", surv = TRUE,
+  timepoint = 24, max_t = 60, parallel = 1, show_sur = FALSE,
+  plot_params = list(conf_int = FALSE, xlim = 60, xbre = 12, base_size = 11),
+  table_params = list(base_size_table = 7),
+  save = list(filename = file.path(tempdir(), "20261020-refresh-facet-joint.pdf")))
+```
+<!-- /refresh-20261020: facet_defaults -->
+
+::: {.panel-tabset}
+
+### 当前默认三列 {.unnumbered}
+
+![默认未调整与直接调整并列，内嵌事件、HR和两年DSS。](images/facet-guide/20261020-refresh-facet-defaults.png){fig-alt="480行模拟记录按Site分面的生存曲线，默认both显示未调整与直接调整两行，内嵌表含事件人数、HR和2年生存概率，表旁不另列P值。"}
+
+[下载 PDF](images/facet-guide/20261020-refresh-facet-defaults.pdf)
+
+### 联合四组与关闭概率 {.unnumbered}
+
+![联合分组可以按面板拟合，关闭概率后移除空列。](images/facet-guide/20261020-refresh-facet-joint.png){fig-alt="Tx和Group构成四个联合组，按Site分别拟合，未调整与直接调整并列；show_sur FALSE使内嵌表仅显示事件和HR。"}
+
+[下载 PDF](images/facet-guide/20261020-refresh-facet-joint.pdf)
+
+:::
+
+`cat_var_combine` 超过两个实际组合时，当前自动使用 `subgroup_model = "separate"`，每个面板的组合因子模型相当于组合暴露的饱和交互模型；显式要求 `"interaction"` 会收到提示。只有两个组合时仍按请求的模式处理。联合组的 HR 是相对参考组合的联合效应，不是某一暴露在另一暴露层内的简单效应；逐单元核对见[联合效应检查](interaction-guide.qmd#joint-check-20261020)。
 
 ## 示例准备与读图规则 {#data}
 
