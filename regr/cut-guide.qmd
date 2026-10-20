@@ -2,13 +2,13 @@
 title: "切点分析：get_cut、get_cut_ci 与 get_cut_plot"
 description: "原始结局、bootstrap 切点区间和 RCS/VPD 曲线阈值的区别；Cox、Logistic、线性模型与面板选择的实际表格和图形示例。"
 date: 2026-10-01
-date-modified: 2026-10-18
+date-modified: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
   title: "切点分析：原始结局、曲线网格与结果页"
   topic: 回归与生存分析
-  updated: 2026-10-18
+  updated: 2026-10-20
 ---
 
 这三个入口共享两段回归思路，但分析对象与返回值不同。先辨认要分析的是原始结局还是模型曲线，再决定是否需要切点本身的区间。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的标签页展示方式，配实际表格、代码与放大图；RCS 组合模式见 [get_rcs_all 教程](rcs-guide.qmd)。
@@ -24,6 +24,51 @@ directory:
 .cut-web-table span { font-size: 13px !important; }
 </style>
 ```
+
+## 当前 P 值：从未舍入区间计算 {#unrounded-p-20261020}
+
+2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 验证。`get_cut()` 现在使用未舍入的 Wald 区间计算 P，再格式化文字；不再从三位小数的效应文本倒推。每单位 HR 接近 1 时，打印为 `1.000 (1.000–1.001)` 不代表区间真的退化。
+
+<!-- latest-20261020: cut_precision -->
+```r
+library(RegR)
+set.seed(20260808)
+x <- 10 * runif(150)^2
+failure <- rexp(150, 0.03 * exp(0.05 * x + 0.8 * pmax(x - 6, 0)))
+censor <- rexp(150, 0.015)
+d_precision <- data.frame(time = pmin(failure, censor),
+  DSS = as.integer(failure <= censor), x = 100 * x)
+cut_precision <- get_cut(d_precision, "x", surv = TRUE, breakpoint = 600)
+body <- cut_precision[["body"]][["dataset"]]
+one_slope <- survival::coxph(survival::Surv(time, DSS) ~ x, data = d_precision)
+d_precision[["X1"]] <- pmin(d_precision[["x"]] - 600, 0)
+d_precision[["X2"]] <- pmax(d_precision[["x"]] - 600, 0)
+two_slopes <- survival::coxph(survival::Surv(time, DSS) ~ X1 + X2, data = d_precision)
+raw_p <- c(summary(one_slope)[["coefficients"]]["x", "Pr(>|z|)"],
+           summary(two_slopes)[["coefficients"]][c("X1", "X2"), "Pr(>|z|)"])
+expected <- UtilsR::stat_pval(raw_p, map_signif = c("***" = 0.001, "**" = 0.01, "*" = 0.05))
+stopifnot(identical(unname(body[["P.value_Unadj"]][c(1, 4, 5)]), unname(expected)))
+validation_values <- data.frame(model = c("one slope", "left slope", "right slope"),
+  raw_wald_p = raw_p, displayed_p = expected)
+validation_values
+# 本例使用预设切点，替换通用模板中“切点由数据估计”的脚注。
+cut_precision <- flextable::add_footer_lines(
+  flextable::delete_part(cut_precision, part = "footer"),
+  values = c("Note: breakpoint fixed at 600 (6 before rescaling); it was not estimated in this example.",
+    "P values use unrounded Wald intervals. CI: confidence interval; HR: hazard ratio.",
+    "Significance levels: *** p < 0.001, ** p < 0.01, * p < 0.05."))
+flextable::save_as_docx(cut_precision,
+  path = file.path(tempdir(), "20261020-latest-cut-precision.docx"))
+flextable::save_as_html(cut_precision,
+  path = file.path(tempdir(), "20261020-latest-cut-precision.html"))
+```
+<!-- /latest-20261020: cut_precision -->
+
+![当前切点表的真实 flextable 网页预览。](images/cut-guide/20261020-latest-cut-precision.png){fig-alt="150行模拟Cox数据的单斜率与600切点两段回归表，左段每单位HR接近1，P值仍来自未舍入的Wald区间。"}
+
+[下载 Word 表](images/cut-guide/20261020-latest-cut-precision.docx)
+
+代码把同一变量放大100倍、把固定切点同步设为600，核对单斜率及左右两段 P 与 `coxph()` 原始 Wald 检验的格式化值一致。它只演示单位与显示精度，不是新切点发现，也不改变 `get_cut_ci()` 的 bootstrap 定义。单位放大后，每单位 HR 更接近1，不能只看三位小数判断效应是否为零。
 
 ## 三个入口如何选择 {#overview}
 
