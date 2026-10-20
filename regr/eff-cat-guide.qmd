@@ -2,13 +2,13 @@
 title: "同一暴露的效应比较：调整模型、结局与分层"
 description: "get_eff_cat 的多调整模型、多结局、60 月绝对效应、sub_var/split_var、dat_adj_ps 独立队列场景及联合暴露；plt_eff 实际参数对照。"
 date: 2026-10-09
-date-modified: 2026-10-19
+date-modified: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
   title: "同一暴露的效应比较：累计调整、单森林与多结局"
   topic: 回归与生存分析
-  updated: 2026-10-19
+  updated: 2026-10-20
 ---
 
 
@@ -517,7 +517,76 @@ ps90[["haz_cox_DSS"]][c("model_label", "estimate", "conf.low", "conf.high",
 
 ::::
 
-`ps_robust = FALSE` 保留旧推断路径；`ps_methods = NULL` 时此参数不生效。自定义加权 CIF 的绝对效应在 bootstrap 内重新拟合 PS，与上面的相对效应面板不同。原页历史结果不作为新推断口径的数值对照。
+`ps_robust = FALSE` 保留旧推断路径；未启用任何 PS 模型时此参数不生效；当前 `ps_var` 自动预设规则见下节。自定义加权 CIF 的绝对效应在 bootstrap 内重新拟合 PS，与上面的相对效应面板不同。原页历史结果不作为新推断口径的数值对照。
+
+## 当前 PS 预设与自动启用边界 {#ps-presets-20261020}
+
+2026-10-20 按已推送 RegR `da6157be`，在 Windows / WSL R 4.4.3 实跑本节。`ps_methods` 现在可用预设名称的字符向量，按给定顺序成为模型行名；自定义参数或改行名仍用具名 list。
+
+| 预设名称 | 规格与目标 |
+|:--|:--|
+| `PS matching (nearest, ATT)` | 最近邻匹配，ATT，ratio=1、caliper=0.2 |
+| `Stabilized IPTW (ATE)` | GLM 稳定化权重，ATE |
+| `SMR weighting (ATT)` | GLM，ATT |
+| `Overlap weighting (ATO)` | GLM，ATO |
+| `Entropy weighting (EW)` | GLM，EW |
+
+只给非空 `ps_var` 而省略 `ps_methods`，当前二分类暴露自动运行以上五种，多分类只运行 ATE 和 ATO；`ps_methods = list()` 明确关闭。两者均为 NULL 时不启用 PS。`dat_adj_ps` 仍由每个场景自行指定，不自动补预设；顶层设置不能替场景做决定。
+
+<!-- refresh-20261020: ps_presets -->
+```r
+library(RegR)
+set.seed(20261020)
+d_refresh <- expand.grid(Tx = factor(c("No", "Yes")),
+  Group = factor(c("Low", "High"), levels = c("Low", "High")),
+  Site = factor(c("A", "B")), id = 1:60)
+d_refresh[["Age"]] <- rnorm(nrow(d_refresh), 55, 10)
+tx <- as.integer(d_refresh[["Tx"]] == "Yes")
+gr <- as.integer(d_refresh[["Group"]] == "High")
+event_time <- rexp(nrow(d_refresh), exp(-3.8 + 0.6 * tx + 0.4 * gr +
+  0.2 * tx * gr + 0.01 * (d_refresh[["Age"]] - 55)))
+censor_time <- rexp(nrow(d_refresh), 0.012)
+d_refresh[["time"]] <- pmin(event_time, censor_time)
+d_refresh[["DSS"]] <- as.integer(event_time <= censor_time)
+d_refresh[["Outcome"]] <- factor(ifelse(runif(nrow(d_refresh)) < plogis(
+  -1 + 0.7 * tx + 0.4 * gr + 0.02 * (d_refresh[["Age"]] - 55)), "Yes", "No"),
+  levels = c("No", "Yes"))
+old_plot_option <- getOption("RegR.eff_cat.plot")
+options(RegR.eff_cat.plot = FALSE)
+presets <- c("Stabilized IPTW (ATE)", "Overlap weighting (ATO)")
+ps_selected <- get_eff_cat(d_refresh, cat_var = "Tx", adj_var = "Age",
+  ps_var = c("Age", "Group"), ps_methods = presets, surv = "Outcome")
+ps_auto <- get_eff_cat(d_refresh, cat_var = "Tx", ps_var = c("Age", "Group"), surv = "Outcome")
+ps_off <- get_eff_cat(d_refresh, cat_var = "Tx", ps_var = c("Age", "Group"),
+  ps_methods = list(), surv = "Outcome")
+collect_rows <- function(x) {
+  rows <- do.call(rbind, lapply(x, as.data.frame))
+  rows[rows[["status"]] == "estimated", c("model_label", "estimate", "conf.low", "conf.high")]
+}
+selected_rows <- collect_rows(ps_selected)
+auto_rows <- collect_rows(ps_auto)
+off_rows <- collect_rows(ps_off)
+stopifnot(all(presets %in% selected_rows[["model_label"]]), nrow(auto_rows) == 6L,
+          identical(as.character(off_rows[["model_label"]]), "Unadjusted"))
+# 多分类只自动启用 ATE / ATO；场景列表仍不自动补 PS。
+d_refresh[["Exposure3"]] <- factor(rep(c("A", "B", "C"), length.out = nrow(d_refresh)))
+ps_multi <- get_eff_cat(d_refresh, cat_var = "Exposure3", ps_var = c("Age", "Group"), surv = "Outcome")
+ps_scenario <- get_eff_cat(d_refresh, cat_var = "Tx", ps_var = c("Age", "Group"), surv = "Outcome",
+  dat_adj_ps = list(One_cohort = list(data = d_refresh)))
+stopifnot(setequal(unique(collect_rows(ps_multi)[["model_label"]]), c("Unadjusted", presets)),
+          identical(as.character(collect_rows(ps_scenario)[["model_label"]]), "Unadjusted"))
+p_ps <- plt_eff(ps_selected, fixed_size = TRUE, show_pinter = "none", base_size = 10,
+  save = list(filename = file.path(tempdir(), "20261020-refresh-ps-presets.pdf")))
+options(RegR.eff_cat.plot = old_plot_option)
+selected_rows
+```
+<!-- /refresh-20261020: ps_presets -->
+
+![具名预设进入调整模型比较表。](images/eff-cat-guide/20261020-refresh-ps-presets.png){fig-alt="480行模拟二分类数据的OR森林图，包含未调整、Age调整、稳定化ATE权重和ATO重叠权重四行；不同目标人群明确保留在行名。"}
+
+[下载 PDF](images/eff-cat-guide/20261020-refresh-ps-presets.pdf)
+
+本例完整模型有 4 行，自动预设有未调整 + 5 种 PS 共 6 行，明确关闭后仅有未调整行。新增默认会增加拟合工作量，也会改变输出行；旧脚本若曾只给 `ps_var` 却未计划加权，需现在显式传 `list()`。本节只核对接口，不以五种结果接近证明无混杂；匹配/权重、平衡、有效样本量及 ATE / ATT / ATO / EW 的目标人群仍须分别报告。此处 OR 仅指模拟二分类结局，不解释成固定时间生存风险比。
 
 ## 使用边界、保存与复现记录
 
