@@ -2,17 +2,18 @@
 title: "校准与 DCA：概率方向、重采样范围与阈值"
 description: "比较校准分组、三种校正范围、时间筛选、原生/映射概率和表观/OOB 决策曲线。"
 date: 2026-10-01
+date-modified: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
   title: "校准与 DCA：概率方向、重采样范围与阈值，14 张参数对照图"
   topic: 模型评估与验证
-  updated: 2026-10-01
+  updated: 2026-10-20
 ---
 
 校准评估预测概率与观测概率是否一致，DCA 根据决策阈值计算净获益。本页分两组实际图展示参数如何改变估计对象和显示，避免把校准、区分和决策价值混为一个结论。
 
-**版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出本页 **14 张参数对照图**。实际运行生存与二分类的校准/DCA；使用 12 次重采样演示分组、correction_scope、来源、区间、平滑及 crank 近似映射，生成 14 张图。
+**版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出原主教程 **14 张参数对照图**。实际运行生存与二分类的校准/DCA；使用 12 次重采样演示分组、correction_scope、来源、区间、平滑及 crank 近似映射，生成 14 张图。
 
 
 ## 示例准备与读图规则 {#data}
@@ -344,6 +345,61 @@ plt_model_dca(dscrank, smooth = FALSE)
 
 :::
 
+
+## 当前按内容保存：校准与决策曲线 {#save-20261020}
+
+2026-10-20 按已推送 MLR `e915077e`（接口自 `bcd7ede`）与 RegR `da6157be`，在 Windows / WSL R 4.4.3 实际运行下例。上方历史结果保留原执行记录；本节另用 180 行固定种子模拟数据，较小计算预算只用于接口演示。
+
+当前 `plt_model_calibration()`、`plt_model_dca()` 支持 `save = list(filename = ...)`。省略 `width` / `height` 时，按面板、轴文字、条带和图例估算 PDF 画布；控制台打印尺寸，返回图携带 `attr(p, "plot_size")`。`list()` 或 `NULL` 不写文件；明确给出的尺寸覆盖对应维度，单位是英寸。相同包版本号的旧安装可能还没有此接口，应核对提交和 `names(formals(...))`。
+
+<!-- refresh-20261020: calibration_save -->
+```r
+library(MLR)
+library(mlr3)
+library(mlr3learners)
+set.seed(20261020)
+n_save <- 180L
+d_save <- data.frame(Age = rnorm(n_save, 55, 10), Marker = rnorm(n_save),
+  Sex = factor(rep(c("Female", "Male"), n_save / 2)))
+d_save[["Outcome"]] <- factor(ifelse(runif(n_save) < plogis(
+  -0.3 + 0.04 * (d_save[["Age"]] - 55) + 0.5 * d_save[["Marker"]]),
+  "Yes", "No"), levels = c("No", "Yes"))
+task_save <- as_task_classif(d_save, target = "Outcome", positive = "Yes")
+cal_save <- get_model_calibration(task_save,
+  learner = lrn("classif.log_reg", predict_type = "prob"), n_groups = 4,
+  R = 4, correction_scope = "calibration", backend = "sequential", seed = 20261020)
+dca_learner <- lrn("classif.log_reg", predict_type = "prob")
+dca_learner[["id"]] <- "Logit"
+dca_save <- get_model_dca(task_save,
+  learner = dca_learner,
+  thresholds = seq(0.05, 0.5, 0.05), backend = "sequential", seed = 20261020)
+p_saved <- plt_model_calibration(cal_save,
+  save = list(filename = file.path(tempdir(), "20261020-refresh-calibration.pdf")))
+p_dca <- plt_model_dca(dca_save, source = "apparent", smooth = FALSE,
+  save = list(filename = file.path(tempdir(), "20261020-refresh-dca.pdf")))
+size <- attr(p_saved, "plot_size")
+stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
+size
+```
+<!-- /refresh-20261020: calibration_save -->
+
+::: {.panel-tabset}
+
+### 校准 {.unnumbered}
+
+![校准的实际 PDF 预览。](images/calibration-dca-guide/20261020-refresh-calibration.png){fig-alt="固定模拟数据的校准保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。"}
+
+[下载 PDF](images/calibration-dca-guide/20261020-refresh-calibration.pdf)
+
+### 表观 DCA {.unnumbered}
+
+![表观 DCA的实际 PDF 预览。](images/calibration-dca-guide/20261020-refresh-dca.png){fig-alt="固定模拟数据的表观 DCA保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。"}
+
+[下载 PDF](images/calibration-dca-guide/20261020-refresh-dca.pdf)
+
+:::
+
+校准只用 4 次重采样检查接口，DCA 展示表观曲线；两图均不用于报告稳定的验证区间。`correction_scope` 和 `source` 决定估计来源，`save` 只决定输出。
 
 ## 参数调整、保存与使用边界 {#parameters}
 
