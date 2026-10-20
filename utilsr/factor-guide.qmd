@@ -1,18 +1,18 @@
 ---
 title: "因子与统计文本：排序、合并、分箱和区间格式化"
-description: "fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界；33 个实际参数示例。"
-date: 2026-10-01
+description: "fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界；参数对照及重编码、缺失和分箱边界。"
+date: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
-  title: "因子与统计文本：排序、合并、分箱和区间格式化，33 个参数示例"
+  title: "因子与统计文本：排序、合并、分箱和区间格式化及数据边界"
   topic: 数据准备与筛选
-  updated: 2026-10-01
+  updated: 2026-10-20
 ---
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
-**版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；33 个示例已在 WSL R 4.4.3 中实际执行，其中 3 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+**版本与执行范围：** 原有 33 个参数示例按 UtilsR **0.6.8** 执行，3 张预览保留原次导出。2026-10-20 按已推送 `cea978f4` 补充下方数据边界，并在 Windows / WSL R 4.4.3 执行新旧示例；本轮未重新导出原有图片。使用固定随机种子的模拟数据。
 
 ## 数据准备与输入约定 {#data}
 
@@ -348,6 +348,114 @@ fct_show(fct_num(tied, nbins = 4))
 |-----:|:-----|--:|
 |     1|low   | 16|
 |     2|high  |  4|
+
+:::
+
+## 当前重编码与分箱边界 {#data-boundaries-current}
+
+已推送版本加强了输入校验。重排只改水平顺序；命名重编码会合并到同名的现有水平，并去掉未使用水平。`new_labels` 中的重复标签也会合并，`NA` 标签会移除对应水平；它不一定只是改显示文字。
+
+::: {.panel-tabset}
+
+### 合并到已有水平 {.unnumbered}
+
+<!-- refresh-20261020: factor -->
+```r
+x <- factor(c("I", "II", "III", "II", NA), levels = c("I", "II", "III", "IV"))
+y <- fct_cat(x, II = "I")
+stopifnot(identical(levels(y), c("II", "III")),
+          identical(as.integer(table(y)), c(3L, 1L)), sum(is.na(y)) == 1L,
+          identical(levels(x), c("I", "II", "III", "IV")))
+data.frame(level = levels(y), n = as.integer(table(y)))
+```
+
+| level | n |
+|:--|--:|
+| II | 3 |
+| III | 1 |
+
+新名称 II 与未匹配的原 II 汇合；原始 `x` 和缺失人数保持不变。若这些水平参与模型，需重新核对参考水平。
+
+### NA 水平与真正缺失 {.unnumbered}
+
+```r
+x_na <- factor(c("A", NA, "B", "A"),
+               levels = c("A", "B", "unused", NA), exclude = NULL, ordered = TRUE)
+is.na(x_na) <- c(FALSE, FALSE, FALSE, TRUE)
+names(x_na) <- paste0("r", 1:4)
+attr(x_na, "label") <- "Clinical grade"
+y_na <- fct_cat(x_na, reverse = TRUE)
+stopifnot(identical(is.na(y_na), is.na(x_na)),
+          identical(names(y_na), names(x_na)), is.ordered(y_na),
+          identical(attr(y_na, "label"), "Clinical grade"))
+data.frame(value = as.character(y_na), code = as.integer(y_na), missing = is.na(y_na))
+```
+
+| 行 | value | code | missing |
+|:--|:--|--:|:--|
+| r1 | A | 4 | FALSE |
+| r2 | NA | 1 | FALSE |
+| r3 | B | 3 | FALSE |
+| r4 | NA | NA | TRUE |
+
+第 2 行是显式 NA 水平，第 4 行才是缺失编码；不能只看打印出的 NA 字样。重排保留未使用水平、行名和 ordered 类；重编码仅保留实际使用的水平。
+
+### 修改水平后重新核对模型编码 {.unnumbered}
+
+```r
+x_ctr <- factor(rep(c("I", "II", "III"), 2))
+contrasts(x_ctr) <- contr.sum(3)
+y_ctr <- fct_cat(x_ctr, Early = 1:2)
+stopifnot(is.null(attr(y_ctr, "contrasts")),
+          ncol(model.matrix(~ y_ctr)) == 2L,
+          identical(attr(fct_cat(x_ctr, "I"), "contrasts"), attr(x_ctr, "contrasts")))
+data.frame(original_levels = nlevels(x_ctr), grouped_levels = nlevels(y_ctr),
+           design_columns = ncol(model.matrix(~ y_ctr)))
+```
+
+旧 contrasts 矩阵不再适合改变后的水平，函数会清除它；以函数名保存的 contrasts 仍保留。`stats::reorder()` 附带的 `scores` 在水平或映射改变后也会清除，无变化的调用保留原属性。用于回归前应按新分组重新指定所需 contrasts。
+
+### 相邻切点仍是不同区间 {.unnumbered}
+
+```r
+cuts <- c(1, 1 + 1e-14)
+values <- c(0.9, cuts, 1.1)
+binned <- fct_num(values, breaks = cuts)
+stopifnot(nlevels(binned) == 3L, !anyDuplicated(levels(binned)),
+          identical(as.integer(binned), c(1L, 1L, 2L, 3L)))
+data.frame(value = sprintf("%.17g", values), bin = as.character(binned))
+```
+
+两个切点的常规打印都可能显示为 1；当前自动标签会增加有效位数，仍保留三个不同区间。标签中的 `below` 包含切点；需要发表时，仍建议显式写 `<=`、`(a,b]` 等右闭区间。
+
+### 不可用输入会直接报错 {.unnumbered}
+
+下面用本页局部 helper 把预期错误转成布尔值，便于一次检查。实际分析直接调用相应函数即可读取错误说明。
+
+```r
+rejected <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+invalid <- c(
+  mixed_modes = rejected(fct_cat(stage, "I", reverse = TRUE)),
+  mixed_reorder = rejected(fct_cat(stage, "I", 2L)),
+  empty_reference = rejected(fct_cat(stage, binary_ref = integer())),
+  repeated_membership = rejected(fct_to_group(stage, list(A = 1:2, B = 2:3))),
+  non_atomic_labels = rejected(fct_cat(stage, new_labels = as.list(1:4))),
+  duplicate_cuts = rejected(fct_num(boundary, breaks = c(40, 40))),
+  missing_cuts = rejected(fct_num(boundary, breaks = c(40, NA))),
+  infinite_cuts = rejected(fct_num(boundary, breaks = Inf)),
+  fractional_bins = rejected(fct_num(boundary, nbins = 2.5)),
+  huge_bins = rejected(fct_num(boundary, nbins = .Machine$integer.max)),
+  constant_quantiles = rejected(fct_num(rep(5, 6), nbins = 3)),
+  constant_equal = rejected(fct_num(rep(5, 6), nbins = 3, type = "equal"))
+)
+stopifnot(all(invalid))
+data.frame(case = names(invalid), rejected = unname(invalid))
+```
+<!-- /refresh-20261020: factor -->
+
+本例 12 项均为 TRUE。索引还必须有限、非缺失、为整数且在当前水平范围内；空分组不新增水平。`binary_ref` 的新名称不能在仍有其他水平时与 `Oth` 冲突。`fct_num()` 的 `x` 和 `breaks` 不支持 `bit64::integer64` 存储；这与因子工具接受经校验并转为原生整数的索引是两种合同，不应混用。
+
+自动分箱不能把常量拆成多组；含并列但不恒定的数据仍可能减少实际分位组数，须按返回的 `nlevels()` 核对标签数量。固定切点会先排序，标签应按从低到高的区间提供。
 
 :::
 
