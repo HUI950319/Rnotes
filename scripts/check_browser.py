@@ -26,6 +26,7 @@ PAGES = [
     "mlr/calibration-dca-guide.html", "mlr/feature-selection-guide.html",
     "mlr/hyper-tuning-guide.html", "mlr/pdp-guide.html", "mlr/vpd-guide.html",
     "mlr/function-modules.html", "regr/ps-guide.html", "causalr/clinical-workflow-guide.html",
+    "regr/um-guide.html", "regr/table-guide.html",
 ]
 
 
