@@ -5237,7 +5237,7 @@
     "href": "regr/ps-guide.html",
     "title": "倾向评分：PSM、IPTW 与平衡诊断",
     "section": "",
-    "text": "数据准备与复现\n先定义要比较的人群和估计目标，再选择匹配或加权。这个页面围绕平衡诊断组织四个接口：底层结果保留匹配/加权对象及分析数据，get_ps() 则便于分别选择 Love plot 与基线表。参数标签页使用同一演示队列。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "text": "结局缺失与 PS 效应比较的当前边界\n先定义要比较的人群和估计目标，再选择匹配或加权。这个页面围绕平衡诊断组织四个接口：底层结果保留匹配/加权对象及分析数据，get_ps() 则便于分别选择 Love plot 与基线表。参数标签页使用同一演示队列。\n版本与执行范围： 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。\n2026-10-20 按已推送 RegR a2f2553 核对，get_eff_cat(ps_methods=...) 的倾向评分行现在先取各结局的完整案例：Cox 使用 time+DSS，Fine–Gray 使用 time+event/status，Logistic 使用对应结局列，再估计 PS、匹配或加权。它避免匹配后再丢掉结局缺失患者，也使稳健加权拟合的权重与分析行对齐；存在结局缺失时，与旧版在全部记录上估计 PS 的结果可能不同。这项变化不表示本页所有独立 PS 设计函数都自动按未指定的结局筛选。\n效应比较页的同队列对照已在 Windows / WSL R 4.4.3 核对：480行输入中，Cox / Fine–Gray 各476行、Logistic 477行，IPTW 与匹配的效应及区间均与手动预筛一致。仍需另外检查权重、平衡、有效样本量及缺失机制；不同结局不能默认对应同一分析人群。\n同页新增的 sub_inter 只切换未调整或协变量调整行的亚组相对效应；PS 行仍在各层分别估计，不能列入 sub_inter。需要共用某个 PS 设计时，应先明确目标人群与设计，再选择相应接口。",
     "crumbs": [
       "RegR · 临床回归",
       "混杂控制与回归汇总",
@@ -5248,8 +5248,8 @@
     "objectID": "regr/ps-guide.html#数据准备与复现",
     "href": "regr/ps-guide.html#数据准备与复现",
     "title": "倾向评分：PSM、IPTW 与平衡诊断",
-    "section": "",
-    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "section": "数据准备与复现",
+    "text": "数据准备与复现\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。\nlibrary(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
     "crumbs": [
       "RegR · 临床回归",
       "混杂控制与回归汇总",
