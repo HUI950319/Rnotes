@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；包含 get_fit_ms 的多分类与连续变量整体检验，及 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
 date: 2026-10-09
-date-modified: 2026-10-19
+date-modified: 2026-10-20
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：Word默认值与逐模型核对"
   topic: 回归与生存分析
-  updated: 2026-10-19
+  updated: 2026-10-20
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -33,6 +33,52 @@ directory:
 **2026-10-02 更新：** [竞争风险绝对交互的 mets 优化](#cif-mets-update) 按 RegR 源码快照 `cefc1a5`、mets **1.3.13** 补充，包含默认 `delta` 与可选 `boot` 的真实结果、完整调用计时及可下载记录。该节更新了下文 Fine–Gray 区间的计算说明。
 
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
+
+## 当前联合组核对：检查联合效应 {#joint-check-20261020}
+
+2026-10-20 按已推送 RegR `da6157be`（接口自 `578d444`、`835bd54`），在 Windows / WSL R 4.4.3 重新拟合下例。`cat_var_combine` 的四条曲线对应四个组合，检查对象是三个非参考组合相对于参考组合的 HR/sHR，不能按上节的层内简单效应读取。
+
+<!-- refresh-20261020: joint_check -->
+```r
+library(RegR)
+set.seed(20261020)
+d_refresh <- expand.grid(Tx = factor(c("No", "Yes")),
+  Group = factor(c("Low", "High"), levels = c("Low", "High")),
+  Site = factor(c("A", "B")), id = 1:60)
+d_refresh[["Age"]] <- rnorm(nrow(d_refresh), 55, 10)
+tx <- as.integer(d_refresh[["Tx"]] == "Yes")
+gr <- as.integer(d_refresh[["Group"]] == "High")
+event_time <- rexp(nrow(d_refresh), exp(-3.8 + 0.6 * tx + 0.4 * gr +
+  0.2 * tx * gr + 0.01 * (d_refresh[["Age"]] - 55)))
+censor_time <- rexp(nrow(d_refresh), 0.012)
+d_refresh[["time"]] <- pmin(event_time, censor_time)
+d_refresh[["DSS"]] <- as.integer(event_time <= censor_time)
+d_refresh[["Outcome"]] <- factor(ifelse(runif(nrow(d_refresh)) < plogis(
+  -1 + 0.7 * tx + 0.4 * gr + 0.02 * (d_refresh[["Age"]] - 55)), "Yes", "No"),
+  levels = c("No", "Yes"))
+inter_joint <- get_inter(d_refresh, exposure_names = c("Tx", "Group"),
+  split_var = "Site", adj_var = "Age", surv = TRUE)
+facet_joint <- get_facet(d_refresh, split_var = "Site",
+  cat_var_combine = c("Tx", "Group"), adj_var = "Age", surv = TRUE,
+  show_sur = FALSE, timepoint = 24, max_t = 60, parallel = 1,
+  table_params = list(insert_table = FALSE))
+joint_check <- check_inter_facet(inter_joint, facet_joint)
+joint_cells <- joint_check[["comparison"]]
+stopifnot(isTRUE(joint_check[["consistent"]]), nrow(joint_cells) == 12L,
+          all(joint_cells[["same_model_expected"]]), all(joint_cells[["status"]] == "equal"))
+joint_cells[c("outer_stratum", "modifier_level", "method", "status")]
+# 改变组合顺序，仍按各组合的实际标签匹配。
+facet_reversed <- get_facet(d_refresh, split_var = "Site",
+  cat_var_combine = c("Group", "Tx"), adj_var = "Age", surv = TRUE,
+  show_sur = FALSE, timepoint = 24, max_t = 60, parallel = 1,
+  table_params = list(insert_table = FALSE))
+stopifnot(isTRUE(check_inter_facet(inter_joint, facet_reversed)[["consistent"]]))
+```
+<!-- /refresh-20261020: joint_check -->
+
+实跑为 2 个 Site × 3 个非参考组合 × 2 种方法，共 12 个显示单元相等；反转组合顺序也通过。无分层时需 `get_inter()` 的 single 结构，有分层时需相同 `split_var` 的 grid、单个二元 × 二元对比。多分类等其他形状会报错，不能据此宣称已经验证。
+
+若仅在 facet 数据中把层标签改为 `"Site: A"`，没有精确同名项时会尝试冒号后文本；仍找不到的标签报告 missing。这里依然只比较已格式化比值文本，不比较 P 值、RERI、概率或人数，也不重新拟合。联合分面实例见[分面教程](facet-guide.qmd)。
 
 ## 未调整生存绝对交互：Greenwood 更新 {#km-delta-current}
 
