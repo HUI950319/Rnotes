@@ -34,6 +34,115 @@ directory:
 
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
 
+## 当前更新：联合组核对、常量协变量与导出 {#joint-cat-20261020}
+
+2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 运行。新增的 `get_cat()` 核对入口检查同一全队列的联合效应；原有 `get_facet()` 核对仍可用于分层结果。
+
+### 对照 get_cat 的三个非参考组合
+
+<!-- latest-20261020: inter_current -->
+```r
+library(RegR)
+set.seed(20261023)
+d_check <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B")), id = 1:60)
+d_check[["Age"]] <- rnorm(480, 55, 10)
+t1 <- rexp(480, exp(-3.8 + 0.5 * (d_check[["Tx"]] == "Yes") +
+  0.3 * (d_check[["Sex"]] == "Male") + 0.02 * (d_check[["Age"]] - 55)))
+t2 <- rexp(480, 0.008); tc <- rexp(480, 0.012)
+d_check[["time"]] <- pmin(t1, t2, tc)
+d_check[["event"]] <- ifelse(t1 <= pmin(t2, tc), 1L, ifelse(t2 <= tc, 2L, 0L))
+d_check[["status"]] <- factor(d_check[["event"]], levels = 0:2)
+d_check[["DSS"]] <- as.integer(d_check[["event"]] == 1L)
+inter_current <- get_inter(d_check, c("Tx", "Sex"), adj_var = "Age", surv = c(TRUE, FALSE))
+cat_current <- get_cat(d_check, cat_var_combine = c("Tx", "Sex"), adj_var = "Age",
+  surv = c(TRUE, FALSE), methods = c("unadj", "direct"),
+  methods_obj = "unadj", methods_sur = character(), timepoint = 24,
+  curve_args = list(ci = FALSE, max_times = 30L))
+checked <- check_inter_facet(inter_current, cat_current)
+stopifnot(all(vapply(checked, function(x) isTRUE(x[["consistent"]]), logical(1))),
+  all(vapply(checked, function(x) nrow(x[["comparison"]]) == 6L, logical(1))))
+reversed_cat <- get_cat(d_check, cat_var_combine = c("Sex", "Tx"), adj_var = "Age",
+  surv = c(TRUE, FALSE), methods = c("unadj", "direct"),
+  methods_obj = "unadj", methods_sur = character(), timepoint = 24,
+  curve_args = list(ci = FALSE, max_times = 30L))
+stopifnot(all(vapply(check_inter_facet(inter_current, reversed_cat),
+  function(x) isTRUE(x[["consistent"]]), logical(1))))
+```
+
+本例 Cox 与 Fine–Gray 各核对 3 个非参考组合 × 2 种调整方法，共 12 个单元，反转组合顺序也一致。对 `get_cat()` 只比较格式化效应与区间，忽略两侧星号；这不是原始数值逐位相等的证明，也不核对 P、MS/RERI、曲线、概率或人数。结果列在 `checked[["sur"]][["comparison"]]`。没有联合暴露的 `get_cat()` 或带 `split_var` 的 `get_inter()` 不能使用此配对。
+
+省略两个对象时，会先寻找 `inter_<后缀>` / `facet_<后缀>`；没有对应 facet 时再找 `cat_<后缀>`，裸名 `inter` / `cat` 同样支持。下例限定在局部环境，避免混入其他项目的对象：
+
+```r
+discovered <- local({
+  inter_whole <- inter_current
+  cat_whole <- cat_current
+  check_inter_facet()
+})
+stopifnot(length(discovered) == 2L,
+  all(vapply(discovered, function(x) isTRUE(x[["consistent"]]), logical(1))))
+names(discovered)
+```
+
+### 层内常量调整项会提示后移除
+
+```r
+d_check[["Grade"]] <- factor(ifelse(d_check[["Site"]] == "B", "Unknown",
+  sample(c("I", "II", "Unknown"), 480, replace = TRUE)))
+stratified <- get_inter(d_check, c("Tx", "Sex"),
+  adj_var = c("Age", "Grade"), split_var = "Site", surv = TRUE)
+manual_B <- get_inter(d_check[d_check[["Site"]] == "B", , drop = FALSE],
+  c("Tx", "Sex"), adj_var = "Age", surv = TRUE)
+stopifnot(!is.null(stratified[[1]][[2]]),
+  identical(as.matrix(stratified[[1]][[2]][["Adjus"]]), as.matrix(manual_B[["Adjus"]])))
+```
+
+Site B 的 Grade 全部是 Unknown，没有可估计的层内系数，函数提示后只在该层去掉 Grade；上例结果与手动去掉 Grade 相同。其他层仍按各自可用的调整项拟合。仍不能估计的层会带层名警告并留空，不能把空单元解释为没有效应；应同时报告各层实际调整集合与失败原因。
+
+### Word 标题向量与 Fine–Gray 标签
+
+```r
+tables_current <- save_tb_inter(inter_current,
+  title = file.path(tempdir(), c("20261020-latest-inter-sur.docx", "20261020-latest-inter-cif.docx")),
+  note = c("Synthetic data; interface demonstration.", "Confidence level: 95%."))
+stopifnot(identical(names(tables_current), c("sur", "cif")),
+  all(vapply(tables_current, inherits, logical(1), "flextable")))
+for (model in names(tables_current)) {
+  flextable::save_as_html(tables_current[[model]],
+    path = file.path(tempdir(), paste0("20261020-latest-inter-", model, ".html")))
+}
+validation_values <- data.frame(model = names(checked),
+  compared_cells = vapply(checked, function(x) nrow(x[["comparison"]]), integer(1)),
+  consistent = vapply(checked, function(x) x[["consistent"]], logical(1)))
+validation_values
+```
+<!-- /latest-20261020: inter_current -->
+
+[下载 Cox Word 表](images/interaction-guide/20261020-latest-inter-sur.docx) · [下载 Fine–Gray Word 表](images/interaction-guide/20261020-latest-inter-cif.docx)
+
+::: {.panel-tabset}
+
+### Cox 汇总表 {.unnumbered}
+
+![当前 flextable 的网页预览，与下载 Word 来自同一表对象。](images/interaction-guide/20261020-latest-inter-sur.png){fig-alt="480行模拟数据的Cox交互汇总表，使用未调整与调整HR列，并保留MS与RERI行。"}
+
+### Fine–Gray 汇总表 {.unnumbered}
+
+![Fine–Gray 效应列明确标为 sHR。](images/interaction-guide/20261020-latest-inter-cif.png){fig-alt="同一数据的Fine-Gray交互汇总表，效应列为sHR 95% CI，表内模型与脚注使用Fine-Gray名称。"}
+
+:::
+
+无名 `title` 向量按模型顺序逐一匹配，长度必须一致；命名向量仍按名称匹配。无名 `note` 向量的每项是**同一份共享脚注的一行**，不是一模型一条。二分类 Fine–Gray 单表、逐对表与分层表的表头现为 sHR (95% CI)，脚注定义 sHR，模型名称写 Fine–Gray；已有结果交给当前格式化函数也会采用新标签。Word 需在当前工作目录可写的环境保存，本例只公开汇总表。
+
+实跑还出现一条预防性暴露提示；这类结果应先核对参考编码，再解读 RERI / SI，不应静默翻转分组来追求某种交互方向。常量协变量的提示也保留在运行输出中。
+
+### 区间与星号使用未舍入数值
+
+交互表在 95% 时也直接用未舍入 P 标星，避免把 0.001001 先舍成 0.001 后多加一个星号。非 95% 时按未舍入区间、固定 1.96 回推显示 P，非对称区间取朝向无效值的一侧，无效区间不标星；`pvalue_lis` 保留该显示口径。详见[数值对照与原 Wald P](forest-guide.qmd#models-ci-20261020)。
+
+`get_inter()` 多分类表、`get_inter_abs()` 风险/RD 列，以及 `get_int()` 的 MS/RERI 轴与详情列，当前模板都固定写 95% CI；`conf_level` / `conf.level` 仍决定实际区间。若使用其他水平，必须在可覆盖的标题与脚注中明确标出实际值，不能把模板文字当成分析参数。
+
 ## 当前联合组核对：检查联合效应 {#joint-check-20261020}
 
 2026-10-20 按已推送 RegR `da6157be`（接口自 `578d444`、`835bd54`），在 Windows / WSL R 4.4.3 重新拟合下例。`cat_var_combine` 的四条曲线对应四个组合，检查对象是三个非参考组合相对于参考组合的 HR/sHR，不能按上节的层内简单效应读取。
