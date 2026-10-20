@@ -19,6 +19,101 @@ directory:
 
 2026-10-19（RegR `c903aae`）起，`get_eff()` 的 `show_surdiff` 改名为 `show_sur`，默认改为 `FALSE`；旧名已在 `571dc88` 删除，再传会报 `unused argument`。本页代码已同步改名，用到概率表的调用写明 `show_sur = TRUE`；图形未因改名重新生成。
 
+## 当前多模型森林、名称映射与区间口径 {#models-ci-20261020}
+
+2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 运行。`get_eff()` 的多模型结果现带 `surv_models` 类；`plt_eff()`、`plt_eff2()` 均直接逐模型绘制，返回同名的图列表。下方早期示例手动提取 `[["sur"]]` 的写法仍可用。
+
+<!-- latest-20261020: forest_models -->
+```r
+library(RegR)
+set.seed(20261020)
+d_models <- data.frame(NACT = factor(rep(c("No", "Yes"), 240)),
+  Sex = factor(rep(c("Female", "Male"), each = 240)), Age = rnorm(480, 55, 10),
+  Grade_3 = factor(sample(c("Low", "High"), 480, replace = TRUE)))
+t1 <- rexp(480, exp(-3.8 + 0.45 * (d_models[["NACT"]] == "Yes") +
+  0.02 * (d_models[["Age"]] - 55)))
+t2 <- rexp(480, 0.008); tc <- rexp(480, 0.012)
+d_models[["time"]] <- pmin(t1, t2, tc)
+d_models[["event"]] <- ifelse(t1 <= pmin(t2, tc), 1L, ifelse(t2 <= tc, 2L, 0L))
+d_models[["DSS"]] <- as.integer(d_models[["event"]] == 1L)
+eff_new <- get_eff(d_models, cat_var = c("NACT", "Age", "Grade_3"),
+  adj_var = c("Age", "Grade_3"), surv = c(TRUE, FALSE),
+  methods = c("unadj", "direct"), show_sur = FALSE, all = NULL)
+stopifnot(inherits(eff_new, "surv_models"), identical(names(eff_new), c("sur", "cif")))
+plots_combined <- plt_eff(eff_new, display = "c", fixed_size = TRUE,
+  title = list("Cox model", "Fine-Gray model"), base_size = 10,
+  save = list(filename = file.path(tempdir(), c(
+    "20261020-latest-forest-sur.pdf", "20261020-latest-forest-cif.pdf"))))
+plots_classic <- plt_eff2(eff_new, which = c("haz_unadj", "haz_direct"),
+  axis_args = list(xlim = list(c(0, 4), c(0, 4))), fixed_size = TRUE,
+  save = list(filename = file.path(tempdir(), c(
+    "20261020-latest-forest-classic-sur.pdf", "20261020-latest-forest-classic-cif.pdf"))))
+stopifnot(inherits(plots_combined, "surv_models"), inherits(plots_classic, "surv_models"),
+  identical(names(plots_classic), names(eff_new)))
+```
+<!-- /latest-20261020: forest_models -->
+
+::: {.panel-tabset}
+
+### plt_eff：Cox {.unnumbered}
+
+![Cox 的未调整与调整结果共用一张森林。](images/forest-guide/20261020-latest-forest-sur.png){fig-alt="自动逐模型绘制的Cox森林，NACT、Age、Grade_3使用Neoadjuvant chemotherapy、Age year、Tumor grade名称，未调整与调整分列。"}
+
+[下载 PDF](images/forest-guide/20261020-latest-forest-sur.pdf)
+
+### plt_eff：Fine–Gray {.unnumbered}
+
+![Fine–Gray 作为另一张森林返回。](images/forest-guide/20261020-latest-forest-cif.png){fig-alt="同一多模型结果的Fine-Gray森林单独展示sHR及区间，使用与Cox相同的变量字典。"}
+
+[下载 PDF](images/forest-guide/20261020-latest-forest-cif.pdf)
+
+### plt_eff2：Cox {.unnumbered}
+
+![经典森林叠加未调整与调整区间。](images/forest-guide/20261020-latest-forest-classic-sur.png){fig-alt="plt_eff2返回的Cox经典森林，图例使用Univariable与Multivariable，横轴范围单独指定0至4。"}
+
+[下载 PDF](images/forest-guide/20261020-latest-forest-classic-sur.pdf)
+
+### plt_eff2：Fine–Gray {.unnumbered}
+
+![Fine–Gray 经典森林有自己的轴和保存文件。](images/forest-guide/20261020-latest-forest-classic-cif.png){fig-alt="plt_eff2单独返回的Fine-Gray森林，轴标题为Fine-Gray model sHR，未调整与调整区间叠加。"}
+
+[下载 PDF](images/forest-guide/20261020-latest-forest-classic-cif.pdf)
+
+:::
+
+设置为命名 list 时按模型名匹配，无名 list 按模型顺序匹配；`save$filename` 的无名向量同样按顺序。本例 `axis_args$xlim` 的两个范围分别给 sur / cif。`plt_eff()` 的无名 `xlim` / `ticks_at` list 仍表示每个面板，按模型指定时须写 `xlim=list(sur=c(...),cif=c(...))`。旧版保存的 `get_eff()` 普通 list 可重新计算，或在确认结构后显式加 `class(eff)<-c("surv_models","list")`；`plt_eff2(unclass(eff_new),...)` 则明确恢复单图模型分块。
+
+`plt_eff()`、`plt_eff2()`、`plt_eff_pair()` 现在共同使用 `name_map_seer`，与 `get_tb_gtsummary()` 的字典一致。默认可识别 Age、NACT、Grade_3 等名称；`label_column_list` 只覆盖给出的键，其余继续用字典。若要保留原名，可映射到自身，如 `c(Grade_3="Grade_3")`。`plt_eff2()` 默认图例现为 Univariable / Multivariable，`legend_labels` 可覆盖。标签变化不改变模型、参考组或原结果字段。
+
+### 非 95% 区间的显示 P 值
+
+<!-- latest-20261020: forest_ci -->
+```r
+library(RegR)
+set.seed(20261021)
+ci_data <- data.frame(Tx = factor(rep(c("No", "Yes"), 240)), Age = rnorm(480, 55, 10))
+failure <- rexp(480, exp(-3.8 + 0.2 * (ci_data[["Tx"]] == "Yes") + 0.02 * (ci_data[["Age"]] - 55)))
+censor <- rexp(480, 0.012)
+ci_data[["time"]] <- pmin(failure, censor)
+ci_data[["DSS"]] <- as.integer(failure <= censor)
+ci80 <- get_eff(ci_data, "Tx", adj_var = "Age", methods = "direct",
+  conf_level = 0.8, show_sur = FALSE, all = NULL)[["haz_direct"]]
+rows <- which(ci80[["row_type"]] == "level" & is.finite(ci80[["estimate"]]) &
+  ci80[["conf.high"]] > ci80[["conf.low"]])
+estimate <- ci80[["estimate"]][rows]
+lower <- ci80[["conf.low"]][rows]; upper <- ci80[["conf.high"]][rows]
+p_display <- 2 * pnorm(-abs(log(estimate) / ((log(upper) - log(lower)) / (2 * 1.96))))
+stopifnot(isTRUE(all.equal(ci80[["p_value"]][rows], p_display)))
+validation_values <- data.frame(estimate = estimate, actual_conf_level = 0.8,
+  display_p = ci80[["p_value"]][rows], original_wald_p = ci80[["p.value_0.95"]][rows])
+validation_values
+```
+<!-- /latest-20261020: forest_ci -->
+
+兼容规则使用未舍入区间和**固定 1.96**回推 `p_value`，比值在 log 尺度、差值在原尺度计算。非对称区间取朝向无效值一侧的半宽；零宽、不包含估计或缺失的无效区间返回 NA，不产生星号。95% 时保留原模型检验，交互单元的星号也不再先把 P 舍入到五位小数。上例 80% 区间的显示 P 为 0.00005143，原 Wald P 为 0.00810948；两者不可互换。非 95% 时显示 P 不是原模型检验，原值另存 `p.value_0.95`；不要用改变置信水平后的星号声称显著性增强。
+
+当前多个图表模板的表头固定写 95% CI，即使 `conf_level` 设为其他值。区间实际水平必须看调用及元数据；需要其他水平时显式改可覆盖的表头或轴标题，并在图注记录，不能仅复制默认标题。`get_facet_diff()` 的森林星号仍用原 Wald P，不套用上述显示 P 规则。
+
 ## 当前概率开关与自动森林坐标 {#defaults-auto-20261019}
 
 2026-10-19 使用已推送 RegR `4034a97`，在 Windows / WSL R 4.4.3 核验本节。这里重新读取当前598人 PTC 队列，将 No CND 设为参考；两张新图使用同一份未调整及年龄调整 Cox 结果。既有图保留各自注明的执行快照。
@@ -217,8 +312,8 @@ p_eff_cif <- plt_eff(eff_models[["cif"]], fixed_size = FALSE,
 
 | 入口 | 多模型返回结构 | 后续处理 |
 |:--|:--|:--|
-| `get_eff()` | 普通命名 list，每个元素是完整 `eff_res` | `plt_eff(eff_models[["sur"]])` |
-| `get_eff_cat()` | 一个 `eff_res`，内部按结局组织 `haz_*` 模型比较表 | 直接交给 `plt_eff()`，见[效应比较](eff-cat-guide.qmd) |
+| `get_eff()` | `surv_models` 命名 list，每个元素是完整 `eff_res` | 直接 `plt_eff(eff_models)` / `plt_eff2(eff_models)`，或提取单模型 |
+| `get_eff_cat()` | 一个 `eff_res`，内部按结局组织 `haz_*` 模型比较表 | `plt_eff()` 按结局分别返回图，见[效应比较](eff-cat-guide.qmd#sub-inter-20261020) |
 | `get_facet/get_cat/get_inter()` | `surv_models`，每个元素是对应模型的完整结果 | 使用各入口的多模型重绘或导出接口 |
 
 示例显式命名模型，后续索引不依赖自动命名规则。各模型分别筛选自身所需变量的完整案例；不能默认人数相同。逻辑值与结局列混用时写 `list(TRUE,FALSE,"DSS")`；`c(TRUE,FALSE,"DSS")` 会把逻辑值转成字符串并报错。仅逻辑值的 `c(TRUE,FALSE)` 可用。Logistic 的 OR 不处理删失，不与 HR 或 sHR 合并为同一统计目标。
