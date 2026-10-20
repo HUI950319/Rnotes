@@ -83,6 +83,97 @@ facet_cif_only <- get_facet(facet_now[[2]],
 
 `fmt.fst.h = 0` 保留固定锚点：生存图为0.1、CIF为0.9，数值偏移向上为正。自动位置考虑当前 `ylim` 内的空间，不保证所有宽表都避开曲线，仍须检查导出图。P值文字随表放在朝向面板中部的一侧，`fmt.p_value.h` 在该位置上偏移。新的 CIF 条带使用全称 cumulative incidence。
 
+## 双方法多分层：方法独占两列 {#nested-layout-20261020}
+
+2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 核对。`method="both"` 且有多个 `split_var` 时，默认 `flip=TRUE` 现只把 methods 放在列，所有分层堆到行；第一项分层是最内层、也是交互模式的效应修饰变量。二列 `cat_var=c("Tx","Sex")` 的第二项同样计入分层。
+
+| 设置 | 列 | 行（外→内） |
+|:--|:--|:--|
+| 两层 + `both`，默认 `flip=TRUE` | methods | Period → Sex |
+| `flip=list(rows="Sex")` | methods → Period | Sex，复现此前 TRUE 布局 |
+| `flip=FALSE` | Sex | methods → Period |
+| `flip=list(cols="methods",rows=c("Sex","Period"))` | methods | Sex → Period，明确反转嵌套顺序 |
+
+`flip` 只改变布局，不会改变 `split_var` 顺序的统计含义。单层分面和仅一个 method 的布局保留原规则；改变 `split_var[1]` 则可能改变交互模型，必须重新分析。
+
+<!-- latest-20261020: facet_layout -->
+```r
+library(RegR)
+set.seed(20261022)
+d_layout <- expand.grid(Tx = factor(c("No", "Yes")), Sex = factor(c("Female", "Male")),
+  Period = factor(c("Early", "Late"), levels = c("Early", "Late")), id = 1:60)
+d_layout[["Age"]] <- rnorm(480, 55, 10)
+t1 <- rexp(480, exp(-3.8 + 0.5 * (d_layout[["Tx"]] == "Yes") +
+  0.02 * (d_layout[["Age"]] - 55)))
+t2 <- rexp(480, 0.008); tc <- rexp(480, 0.012)
+d_layout[["time"]] <- pmin(t1, t2, tc)
+d_layout[["event"]] <- ifelse(t1 <= pmin(t2, tc), 1L, ifelse(t2 <= tc, 2L, 0L))
+d_layout[["DSS"]] <- as.integer(d_layout[["event"]] == 1L)
+d_layout[["status"]] <- factor(d_layout[["event"]], levels = 0:2)
+layout_now <- get_facet(d_layout, cat_var = c("Tx", "Sex"), split_var = "Period",
+  adj_var = "Age", method = "both", show_sur = FALSE,
+  timepoint = 24, max_t = 60, parallel = 1,
+  plot_params = list(conf_int = FALSE, xlim = 60, xbre = 12, base_size = 11),
+  table_params = list(tb.vars = c("eve1", "HR"), base_size_table = 7),
+  save = list(filename = file.path(tempdir(), "20261020-latest-facet-method-columns.pdf"), width = 11, height = 8))
+layout_previous <- get_facet(layout_now,
+  plot_params = list(flip = list(rows = "Sex"), conf_int = FALSE,
+    xlim = 60, xbre = 12, base_size = 11),
+  table_params = list(tb.vars = c("eve1", "HR"), base_size_table = 7),
+  save = list(filename = file.path(tempdir(), "20261020-latest-facet-previous-layout.pdf"), width = 13, height = 5))
+stopifnot(identical(layout_now[["sur.data"]], layout_previous[["sur.data"]]),
+          identical(layout_now[["insert.data"]], layout_previous[["insert.data"]]))
+panels <- function(x) {
+  tab <- ggplot2::ggplot_build(x[["plt"]])[["layout"]][["layout"]]
+  c(rows = length(unique(tab[["ROW"]])), columns = length(unique(tab[["COL"]])))
+}
+stopifnot(identical(unname(panels(layout_now)), c(4L, 2L)),
+          identical(unname(panels(layout_previous)), c(2L, 4L)))
+joint_legend <- get_facet(d_layout, cat_var_combine = c("Tx", "Sex"),
+  split_var = "Period", adj_var = "Age", surv = c(TRUE, FALSE),
+  method = "unadj", show_sur = FALSE, timepoint = 24, max_t = 60, parallel = 1,
+  plot_params = list(conf_int = FALSE, xlim = 60, xbre = 12, base_size = 11),
+  table_params = list(tb.vars = c("eve1", "HR"),
+    tb.vars_name = list(HR = c("HR (95% CI)", "sHR (95% CI)")), base_size_table = 7),
+  save = list(filename = file.path(tempdir(), c(
+    "20261020-latest-facet-joint-sur.pdf", "20261020-latest-facet-joint-cif.pdf")), width = 8, height = 6))
+validation_values <- rbind(current = panels(layout_now), previous = panels(layout_previous))
+validation_values
+```
+<!-- /latest-20261020: facet_layout -->
+
+::: {.panel-tabset}
+
+### 当前两列方法 {.unnumbered}
+
+![当前默认共四行两列，方法不再与外层分组共享列方向。](images/facet-guide/20261020-latest-facet-method-columns.png){fig-alt="480行模拟数据的8面板生存图，未调整与调整为两列，Period为外层行条带，Female和Male为内层条带。"}
+
+[下载 PDF](images/facet-guide/20261020-latest-facet-method-columns.pdf)
+
+### 显式恢复原布局 {.unnumbered}
+
+![用同一缓存恢复两行四列。](images/facet-guide/20261020-latest-facet-previous-layout.png){fig-alt="相同生存曲线和内嵌HR数据改排为Sex两行、方法乘Period四列，验证没有重新拟合。"}
+
+[下载 PDF](images/facet-guide/20261020-latest-facet-previous-layout.pdf)
+
+### 联合四组：生存 {.unnumbered}
+
+![联合类别图例自动靠第一面板底部。](images/facet-guide/20261020-latest-facet-joint-sur.png){fig-alt="Tx与Sex四个组合的生存曲线按Period分行，第一面板内联合类别图例位于底部，与内嵌效应表分开。"}
+
+[下载 PDF](images/facet-guide/20261020-latest-facet-joint-sur.pdf)
+
+### 联合四组：CIF {.unnumbered}
+
+![CIF 的联合类别图例自动靠第一面板顶部。](images/facet-guide/20261020-latest-facet-joint-cif.png){fig-alt="相同四个组合的目标事件CIF曲线，第一面板图例位于顶部，内嵌表显示sHR。"}
+
+[下载 PDF](images/facet-guide/20261020-latest-facet-joint-cif.pdf)
+
+:::
+
+联合分组的 `leg_position="auto"` 现针对曲线方向避让：生存图靠首面板底部，CIF 靠顶部；普通暴露仍使用居中图例。自动位置不代替导出检查，长标签可显式设 `leg_position="top"` 或面板坐标。
+
+`conf_level` 的区间与显示 P 规则见[森林图说明](forest-guide.qmd#models-ci-20261020)。`get_facet_diff()` 的纵轴标题现固定 95% CI，森林星号仍保留 Wald P；实际使用其他水平时，应自行覆盖标题并写明区间水平，不能从默认轴文字推断。
+
 ## 当前默认：未调整并列直接调整 {#defaults-20261020}
 
 2026-10-20 按已推送 RegR `da6157be`（默认值自 `547db52`、`c9c4a99`、`2f7815e`），在 Windows / WSL R 4.4.3 实跑本节。旧图继续使用各自明确写出的设置。
@@ -507,12 +598,12 @@ f_multi <- get_facet(
 
 ![默认把 Sex 放在列，方法与年龄条带嵌套在行，8 个面板。](images/facet-guide/multi-default.png){#fig-multi-default fig-alt="2 列 4 行，Sex 为列，方法及两个年龄组嵌套为行。"}
 
-#### 布尔转置
+#### 显式复现原转置
 
 ```r
 f_multi_flip <- get_facet(
   f_multi,
-  plot_params = modifyList(plot_base, list(flip = TRUE)),
+  plot_params = modifyList(plot_base, list(flip = list(rows = "Sex"))),
   table_params = table_base
 )
 ```
@@ -538,7 +629,7 @@ f_multi_list <- get_facet(
 ```r
 f_multi_unmerged <- get_facet(
   f_multi,
-  plot_params = modifyList(plot_base, list(flip = TRUE, strip_merge = FALSE)),
+  plot_params = modifyList(plot_base, list(flip = list(rows = "Sex"), strip_merge = FALSE)),
   table_params = table_base
 )
 ```
@@ -1103,15 +1194,15 @@ f_axis_blank[["plt"]]
 - [survival：Multi-state models and competing risks](https://cran.r-project.org/web/packages/survival/vignettes/compete.pdf)
 
 
-## 当前标签、默认布局与整页结果 {#current-20261018}
+## 2026-10-18 布局快照与整页结果 {#current-20261018}
 
-2026-10-18 按RegR `7265b31` 在Windows / WSL R 4.4.3实际运行。`get_facet()`的`flip`默认已改为`TRUE`，省略或设为NULL也取TRUE。第一项`split_var`放在行，methods与其他分层放在列；显式FALSE保留原来的方向。
+2026-10-18 按RegR `7265b31` 在Windows / WSL R 4.4.3实际运行。当时的TRUE把第一项`split_var`放在行、methods与其他分层放在列；当前多层双方法默认已更新，见[两列方法布局](#nested-layout-20261020)。为复现这里的旧图，下面显式指定 `flip=list(rows="Sex")`。
 
 本页旧示例的`plot_base`**显式设置了FALSE**，所以继续保留其旧布局对照。上面的Usage已同步新默认值；此前实图仍为各节原快照，不把转置当成重新拟合。
 
 ::: {.panel-tabset}
 
-### 当前默认TRUE与新标签
+### 原布局与新标签
 
 ```r
 d_current <- as.data.frame(ToyData::toy_ptc_m1_cnd)
@@ -1121,11 +1212,11 @@ strip_current <- c("Female" = "Women", "Male" = "Men", "<55" = "Age <55", "≥55
 facet_current <- get_facet(d_current, split_var = c("Sex", "age_55"), cat_var = "N_4",
   adj_var = "Age", surv = TRUE, method = c("unadj", "direct"),
   timepoint = 60, max_t = 120, parallel = 1,
-  plot_params = list(conf_int = FALSE, base_size = 10, strip_map = strip_current),
+  plot_params = list(flip = list(rows = "Sex"), conf_int = FALSE, base_size = 10, strip_map = strip_current),
   table_params = list(insert_table = FALSE))
 ```
 
-![当前默认为Sex两行，方法与年龄四列。](images/facet-guide/20261018-current-labels-flip.png){fig-alt="当前598人队列的八面板生存曲线，Sex位于两行，方法与小于55和大于等于55年龄组位于四列，使用新标签映射。"}
+![保留原图的Sex两行、方法与年龄四列。](images/facet-guide/20261018-current-labels-flip.png){fig-alt="2026年10月18日598人队列的八面板生存曲线，Sex位于两行，方法与两个年龄组位于四列，使用新标签映射。"}
 
 ### 显式FALSE与缓存复用
 
