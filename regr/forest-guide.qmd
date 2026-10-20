@@ -2,13 +2,13 @@
 title: "效应估计与森林图：get_eff 和 4 个绘图函数"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的参数示例，并补充 set_eff 的数值与区间对照。"
 date: 2026-10-09
-date-modified: 2026-10-19
+date-modified: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
   title: "效应估计与森林图：概率开关与自动坐标"
   topic: 回归与生存分析
-  updated: 2026-10-19
+  updated: 2026-10-20
 ---
 
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
@@ -107,6 +107,42 @@ plt_eff2(eff_labels, which = 1L,
 
 `age_cut3/4/5`还改变了边界年龄的实际分组归属，不能照搬旧亚组估计值。新旧人数及50/60/70岁归属见 [数据边界核对](../toydata/index.qmd#age-cut-current)。`Tum_3`当前为`≤20 / 21-40 / 41-90 / Unknown`；`Che="No"`仍含原未知治疗信息。修改显示名称不等于重新确认了治疗情况。
 
+
+## 当前分层亚组森林：每层独立标记 {#split-forest-20261020}
+
+2026-10-20 按已推送 RegR `da6157be`（修复自 `9c9d0f1`），在 Windows / WSL R 4.4.3 实际拟合和导出本节。现在 `del_AllPatients = TRUE` 删除每一层的总体行，各层保留自己的交互 P 值，`split_var` 为 list 时每个分层块的首行标签也会加粗。`plt_eff_pair()` 的相同开关也作用于全部层。
+
+<!-- refresh-20261020: split_forest -->
+```r
+library(RegR)
+set.seed(20261020)
+d_refresh <- expand.grid(Tx = factor(c("No", "Yes")),
+  Group = factor(c("Low", "High"), levels = c("Low", "High")),
+  Site = factor(c("A", "B")), id = 1:60)
+d_refresh[["Age"]] <- rnorm(nrow(d_refresh), 55, 10)
+tx <- as.integer(d_refresh[["Tx"]] == "Yes")
+gr <- as.integer(d_refresh[["Group"]] == "High")
+event_time <- rexp(nrow(d_refresh), exp(-3.8 + 0.6 * tx + 0.4 * gr +
+  0.2 * tx * gr + 0.01 * (d_refresh[["Age"]] - 55)))
+censor_time <- rexp(nrow(d_refresh), 0.012)
+d_refresh[["time"]] <- pmin(event_time, censor_time)
+d_refresh[["DSS"]] <- as.integer(event_time <= censor_time)
+d_refresh[["Outcome"]] <- factor(ifelse(runif(nrow(d_refresh)) < plogis(
+  -1 + 0.7 * tx + 0.4 * gr + 0.02 * (d_refresh[["Age"]] - 55)), "Yes", "No"),
+  levels = c("No", "Yes"))
+eff_split <- get_eff(d_refresh, cat_var = "Tx", sub_var = "Group", adj_var = "Age",
+  split_var = list("Site"), methods = c("unadj", "direct"), all = NULL)
+p_split <- plt_eff(eff_split, del_AllPatients = TRUE,
+  fixed_size = TRUE, base_size = 10, xlim = c(0.5, 6),
+  save = list(filename = file.path(tempdir(), "20261020-refresh-split-forest.pdf")))
+```
+<!-- /refresh-20261020: split_forest -->
+
+![每个Site分层均保留本层的亚组效应及交互P值。](images/forest-guide/20261020-refresh-split-forest.png){fig-alt="480行模拟生存记录按Site分层的Tx效应森林图，分层标签加粗，两个层的All patients行均删除，各层显示自己的Group交互P值。"}
+
+[下载 PDF](images/forest-guide/20261020-refresh-split-forest.pdf)
+
+这只修复行筛选、交互 P 值定位和字体，不改变原始效应估计。检查图片时应逐层看行标签，不能只确认第一层没有总体行。分层内的样本与事件数量仍来自本层模型，不把总队列人数重复当作各层人数。
 
 ## 示例数据与读图规则 {#data}
 
