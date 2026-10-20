@@ -459,6 +459,94 @@ data.frame(case = names(invalid), rejected = unname(invalid))
 
 :::
 
+## 数字分组新增边界：缺失编码、单位和稳定标签 {#numeric-inputs-20261020}
+
+2026-10-20 按已推送 UtilsR `3a786ab` 在 Windows / WSL R 4.4.3 核对。此次优化减少分组中的复制和标签构造开销，保留右闭区间与缺失归属；这里验证输入合同，不提供新的加速倍数。
+
+<!-- latest-20261020: numeric_inputs -->
+::: {.panel-tabset}
+
+### 先处理用户缺失编码 {.unnumbered}
+
+```r
+library(UtilsR)
+spss <- haven::labelled_spss(c(10, 20, 99, NA_real_), na_values = 99)
+normalized <- haven::zap_missing(spss)
+grouped <- fct_num(normalized, breaks = 15, labels = c("<=15", ">15"))
+stopifnot(identical(as.integer(grouped), c(1L, 2L, NA_integer_, NA_integer_)))
+data.frame(value = as.numeric(normalized), group = as.character(grouped))
+```
+
+| 原值 | 规范化后的值 | 分组 |
+|--:|--:|:--|
+| 10 | 10 | <=15 |
+| 20 | 20 | >15 |
+| 99（用户缺失） | NA | NA |
+| NA | NA | NA |
+
+带 `haven_labelled_spss` 的数据及切点现直接报错，避免 99 等用户缺失码进入有效分组。先规范缺失，再按研究定义分组；不要直接去掉类而保留缺失码。
+
+### 时间量先选单位 {.unnumbered}
+
+```r
+elapsed <- lubridate::ddays(c(1, 7, 14, NA))
+days <- as.numeric(elapsed, units = "days")
+day_group <- fct_num(days, breaks = 7, labels = c("<=7 days", ">7 days"))
+stopifnot(identical(as.integer(day_group), c(1L, 1L, 2L, NA_integer_)))
+data.frame(days = days, group = as.character(day_group))
+```
+
+`Duration`、`Period`、`Interval` 不能直接用作数据或切点，`nbins` 也不能是时间量。上例把固定时长明确换成天，切点也用天。日历月份、年份或有起止日期的区间应先决定实际换算规则，不能把内部秒数当成年龄或随访月份。
+
+### 标签固定，边界不随显示变化 {.unnumbered}
+
+```r
+format_check <- local({
+  old <- options(scipen = -10)
+  on.exit(options(old))
+  x <- c(50000, 100000, 150000, NA_real_)
+  auto_scientific <- fct_num(x, breaks = 100000)
+  fixed_scientific <- fct_num(x, breaks = 100000, labels = c("Lower", "Higher"))
+  options(scipen = 999)
+  auto_plain <- fct_num(x, breaks = 100000)
+  fixed_plain <- fct_num(x, breaks = 100000, labels = c("Lower", "Higher"))
+  stopifnot(identical(as.integer(auto_scientific), as.integer(auto_plain)),
+            identical(fixed_scientific, fixed_plain),
+            identical(as.integer(fixed_plain), c(1L, 1L, 2L, NA_integer_)))
+  data.frame(setting = c("scipen=-10", "scipen=999"),
+    lower_label = c(levels(auto_scientific)[1], levels(auto_plain)[1]),
+    fixed_label = levels(fixed_plain)[1])
+})
+format_check
+```
+
+自动标签可随 `scipen` 变成 `below_1e+05` 或 `below_100000`，组别编码和切点归属不变。需要跨脚本连接、建模参考水平或稳定发表名称时，显式提供 `labels`。100000 本身仍归入较低组。
+
+### 错误输入与精度不足 {.unnumbered}
+
+```r
+rejects <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+guards <- c(
+  spss_data = rejects(fct_num(spss, breaks = 15)),
+  spss_cuts = rejects(fct_num(1:4, breaks = haven::labelled_spss(2, na_values = 99))),
+  duration_data = rejects(fct_num(elapsed, breaks = 7)),
+  duration_cuts = rejects(fct_num(1:4, breaks = lubridate::ddays(2))),
+  duration_bins = rejects(fct_num(1:4, nbins = lubridate::dseconds(2))),
+  matrix_data = rejects(fct_num(matrix(1:4, 2), breaks = 2)),
+  array_data = rejects(fct_num(array(1:8, c(2, 2, 2)), breaks = 4)),
+  logical_labels = rejects(fct_num(1:4, breaks = 2, labels = FALSE)),
+  repeated_equal_cuts = rejects(fct_num(c(1, 1 + .Machine$double.eps),
+                                      nbins = 4, type = "equal"))
+)
+stopifnot(all(guards))
+data.frame(case = names(guards), rejected = unname(guards))
+```
+
+9 项均应为 TRUE。等宽分组遇到数值精度无法区分的切点会报错，不会擅自合并区间或移动边界；应减少组数或明确指定可表示的切点。`labels=FALSE` 不作为返回整数编码的开关，函数保持返回 factor；需要编码时对有效结果调用 `as.integer()`。
+
+:::
+<!-- /latest-20261020: numeric_inputs -->
+
 ## 组合列与缺失
 
 ::: {.panel-tabset}
