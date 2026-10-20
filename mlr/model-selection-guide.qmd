@@ -2,12 +2,13 @@
 title: "模型筛选：学习器 × 缺失处理的重采样比较"
 description: "比较 complete / median_mode、Cox / Logistic / ranger、多种性能指标及环形分布与均值。"
 date: 2026-10-01
+date-modified: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
   title: "模型筛选：小样本GBM与嵌套验证"
   topic: 建模与调参
-  updated: 2026-10-17
+  updated: 2026-10-20
 ---
 
 `get_model_selection()` 组织学习器与缺失处理组合，保留 benchmark、分数和表格；`plt_bmr()` 与 `plt_bmr_circle()` 从同一结果绘制不同指标。本页以固定参数的自定义学习器减少调参干扰。
@@ -274,6 +275,44 @@ plt_bmr_circle(mc, measure = "auc", ylim = c(0, 1), circle_args = list(type = "b
 
 :::
 
+
+## 当前按内容保存：模型重采样图 {#save-20261020}
+
+2026-10-20 按已推送 MLR `e915077e`（接口自 `bcd7ede`）与 RegR `da6157be`，在 Windows / WSL R 4.4.3 实际运行下例。上方历史结果保留原执行记录；本节另用 180 行固定种子模拟数据，较小计算预算只用于接口演示。
+
+当前 `plt_bmr()` 支持 `save = list(filename = ...)`。省略 `width` / `height` 时，按面板、轴文字、条带和图例估算 PDF 画布；控制台打印尺寸，返回图携带 `attr(p, "plot_size")`。`list()` 或 `NULL` 不写文件；明确给出的尺寸覆盖对应维度，单位是英寸。相同包版本号的旧安装可能还没有此接口，应核对提交和 `names(formals(...))`。
+
+<!-- refresh-20261020: bmr_save -->
+```r
+library(MLR)
+library(mlr3)
+library(mlr3learners)
+set.seed(20261020)
+n_save <- 180L
+d_save <- data.frame(Age = rnorm(n_save, 55, 10), Marker = rnorm(n_save),
+  Sex = factor(rep(c("Female", "Male"), n_save / 2)))
+d_save[["Outcome"]] <- factor(ifelse(runif(n_save) < plogis(
+  -0.3 + 0.04 * (d_save[["Age"]] - 55) + 0.5 * d_save[["Marker"]]),
+  "Yes", "No"), levels = c("No", "Yes"))
+task_save <- as_task_classif(d_save, target = "Outcome", positive = "Yes")
+bmr_save <- get_model_selection(task_save, imputations = "complete",
+  models = list(Logistic = lrn("classif.log_reg", predict_type = "prob"),
+                Tree = lrn("classif.rpart", predict_type = "prob")),
+  outer_folds = 2, outer_repeats = 1, auto_tuner = FALSE,
+  backend = "sequential", seed = 20261020)
+p_saved <- plt_bmr(bmr_save, measure = "auc",
+  save = list(filename = file.path(tempdir(), "20261020-refresh-bmr.pdf")))
+size <- attr(p_saved, "plot_size")
+stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
+size
+```
+<!-- /refresh-20261020: bmr_save -->
+
+![模型重采样图的实际 PDF 预览。](images/model-selection-guide/20261020-refresh-bmr.png){fig-alt="固定模拟数据的模型重采样图保存示例，预览由实际导出的PDF转换；用于核对内容、图例和文字边界。"}
+
+[下载 bmr PDF](images/model-selection-guide/20261020-refresh-bmr.pdf)。
+
+`plt_bmr_circle()` 仍是基础设备图，没有同一 `save` 接口；按上方的基础 PDF 设备写法保存，不传给 `ggsave()`。
 
 ## 参数调整、保存与使用边界 {#parameters}
 
