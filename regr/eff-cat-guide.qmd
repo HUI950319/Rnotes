@@ -16,13 +16,106 @@ get_eff_cat() 把同一个分类暴露在不同模型下的估计排成行，便
 
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
 
+## 当前多个亚组变量：逐列分层 {#sub-columns-20261021}
+
+<!-- controls-20261021: eff_cat_groups -->
+
+2026-10-21 按新推送 RegR `e217f1c`（分组改动 `c09cdcd`）在 Windows / WSL R 4.4.3 执行。`sub_var = c("Sex","Stage")` 现在先给出 Sex 的各层，再给出 Stage 的各层；顺序遵循输入列及其水平，标签写为 `Sex = Female` 等。它替代了旧版的 Sex×Stage 联合格子。真正需要联合分层时，先明确建立一个组合列，再把该单列传给 `sub_var`。
+
+### 同一人群，逐列保留其余调整变量
+
+```r
+library(RegR)
+set.seed(834)
+sub_data <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Stage = factor(c("Early", "Late")), id = 1:75)
+sub_data[["Age"]] <- rnorm(600, 55, 10)
+t_event <- rexp(600, exp(0.35 * (sub_data[["Tx"]] == "Yes") +
+  0.2 * (sub_data[["Sex"]] == "Male") + 0.3 * (sub_data[["Stage"]] == "Late") +
+  0.02 * (sub_data[["Age"]] - 55)) / 80)
+t_censor <- rexp(600, 1 / 130)
+sub_data[["time"]] <- pmin(t_event, t_censor) + 0.2
+sub_data[["DSS"]] <- as.integer(t_event < t_censor)
+sub_data[["Sex"]][1] <- NA
+sub_data[["Stage"]][2] <- NA
+common_sub <- sub_data[complete.cases(sub_data[c("Sex", "Stage")]), , drop = FALSE]
+ps_demo <- list(IPTW = list(design = "weighting", method = "glm", estimand = "ATE"))
+panels <- get_eff_cat(sub_data, "Tx", sub_var = c("Sex", "Stage"),
+  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
+  ps_methods = ps_demo, surv = TRUE, add_overall = TRUE)
+labels_sub <- vapply(panels, attr, character(1), which = "sub_level")
+stopifnot(identical(unname(labels_sub),
+  c("Overall", "Sex = Female", "Sex = Male", "Stage = Early", "Stage = Late")),
+  nrow(common_sub) == 598L)
+validation_values <- data.frame(panel = unname(labels_sub), n = c(nrow(common_sub),
+  as.integer(table(common_sub[["Sex"]])), as.integer(table(common_sub[["Stage"]]))))
+validation_values
+```
+
+两个 `sub_var` 中任一列缺失的行都会先删除，所以本例共同人群为 598 人，Sex 两层为 298 / 300，Stage 两层也为 298 / 300；这不是每列各自保留其非缺失病例。每列分层时，仅从 `adj_var` 和 `ps_var` 移除当前这列：Sex 面板仍调整 Stage，Stage 面板仍调整 Sex，PS 也在各层重新估计。
+
+```r
+by_sex <- get_eff_cat(common_sub, "Tx", sub_var = "Sex",
+  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
+  ps_methods = ps_demo, surv = TRUE)
+by_stage <- get_eff_cat(common_sub, "Tx", sub_var = "Stage",
+  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
+  ps_methods = ps_demo, surv = TRUE)
+manual_panels <- c(by_sex, by_stage)
+for (i in seq_along(manual_panels)) {
+  stopifnot(isTRUE(all.equal(panels[[i + 1L]][["estimate"]], manual_panels[[i]][["estimate"]])),
+    isTRUE(all.equal(panels[[i + 1L]][["conf.low"]], manual_panels[[i]][["conf.low"]])),
+    identical(panels[[i + 1L]][["num1"]], manual_panels[[i]][["num1"]]))
+}
+plt_eff(panels, xlim = c(0.2, 5), base_size = 9,
+  core_size = c(3, 2), forest_nchar = 16,
+  save = list(filename = file.path(tempdir(), "20261021-controls-five-panels.pdf")))
+```
+
+![Overall 加两列亚组，依序组成五个森林面板。](images/eff-cat-guide/20261021-controls-five-panels.png){fig-alt="600条模拟记录删去两个亚组缺失后为598人，Overall、Sex两层、Stage两层共五个面板，各含未调整、调整与IPTW模型，第五面板表头没有fs5占位名。"}
+
+[下载原生 PDF](images/eff-cat-guide/20261021-controls-five-panels.pdf)
+
+本例逐面板与在共同人群上单独分层的结果核对，包含估计、区间下限和计数。当前 `plt_eff()` 也修复了第五及后续面板暴露 `fs5...` 占位表头的问题，并为正文文字保留右边距；宽图仍需按推荐尺寸保存、放大阅读。
+
+### sub_inter 也按每列建立自己的交互模型
+
+```r
+inter_panels <- get_eff_cat(sub_data, "Tx", sub_var = c("Sex", "Stage"),
+  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
+  ps_methods = ps_demo, surv = TRUE, sub_inter = TRUE)
+reference_sub <- get_eff(common_sub, "Tx", sub_var = c("Sex", "Stage"),
+  adj_var = c("Age", "Sex", "Stage"), surv = TRUE, subgroup_model = "interaction",
+  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
+for (i in seq_along(inter_panels)) {
+  panel <- inter_panels[[i]]
+  label <- attr(panel, "sub_level")
+  column <- sub(" = .*$", "", label); level <- sub("^.* = ", "", label)
+  for (model in c("Unadjusted", "Adjusted")) {
+    source <- reference_sub[[if (model == "Unadjusted") "haz_unadj" else "haz_direct"]]
+    row <- source[["row_type"]] == "level" & source[["variable"]] == column & source[["label"]] == level
+    stopifnot(isTRUE(all.equal(panel[["estimate"]][panel[["model_label"]] %in% model],
+                              source[["estimate"]][row])))
+  }
+  iptw <- panel[["model_label"]] %in% "IPTW"
+  original <- panels[[i + 1L]]
+  stopifnot(isTRUE(all.equal(panel[["estimate"]][iptw],
+    original[["estimate"]][original[["model_label"]] %in% "IPTW"])),
+    identical(attr(panel, "subgroup_model")[["IPTW"]], "separate"))
+}
+```
+
+相对效应分别来自 Tx×Sex 与 Tx×Stage 模型，不是三重交互。PS 行保持层内估计，`sub_inter` 不切换这些行；`abs_args` 的绝对效应与 `add_overall` 总体面板也不随它切换。仍要求二分类暴露，不能与 `split_var` 同用；只有一个可拟合层的列保留层内重拟合。下方单列历史示例仍有效，多列分析应从原始数据重新运行，不能只改旧图标题。
+
+<!-- /controls-20261021: eff_cat_groups -->
+
 ## 当前亚组模型、完整案例与逐模型森林 {#sub-inter-20261020}
 
 2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 运行本节。`sub_inter` 是新的估计设置；多模型绘图返回值也已改变。下方早期并列多结局图片保留原执行记录，代码已显式指定其合并展示方式。
 
 ### sub_inter：层内重拟合与交互模型
 
-默认 `sub_inter=NULL` 仍在每层分别拟合。`sub_inter="Model 1"` 只把该模型的亚组相对效应改为来自全队列的暴露×亚组模型，调整变量的系数在层间共享；未调整行继续层内拟合。`TRUE` 选择未调整与全部调整模型，PS 行仍在每层估计倾向评分。它要求二分类暴露和 `sub_var`，不能与 `split_var` 合用，也不能点名 PS 行；只有一个可拟合层时保留层内重拟合。多个 `sub_var` 会组合成联合分层因子。
+默认 `sub_inter=NULL` 仍在每层分别拟合。`sub_inter="Model 1"` 只把该模型的亚组相对效应改为来自全队列的暴露×亚组模型，调整变量的系数在层间共享；未调整行继续层内拟合。`TRUE` 选择未调整与全部调整模型，PS 行仍在每层估计倾向评分。它要求二分类暴露和 `sub_var`，不能与 `split_var` 合用，也不能点名 PS 行；只有一个可拟合层时保留层内重拟合。多个 `sub_var` 在当前版本逐列处理，旧联合格子行为已由[上节合同](#sub-columns-20261021)替代。
 
 <!-- latest-20261020: eff_cat_current -->
 ```r
