@@ -1,4 +1,5 @@
 ---
+date-modified: 2026-10-21
 title: "MLR：get_imp 提速策略与实测"
 description: "MLR 的 get_imp() 在 2026-10-06 的 4 项性能优化：TreeSHAP 多进程、置换重要性线程、按需加载 mlr3 包、复用 impurity 森林；SEER 4387 行的优化前后实测、耗时拆分与尚未处理的开销。"
 date: 2026-10-09
@@ -6,7 +7,7 @@ toc: true
 directory:
   title: "get_imp：2026-10-06 性能实测及后续树数与并行阈值说明"
   topic: 性能评估
-  updated: 2026-10-09
+  updated: 2026-10-21
   package: MLR
 ---
 
@@ -21,6 +22,14 @@ directory:
 共享 SHAP 行解释的并行判断已调整：先以最多 20 行试运行估算剩余行的计算时间，再与一次 worker 启动成本比较，原先使用两次成本阈值。是否启动 worker 仍取决于工作量，不能把“当前会并行”推广到所有样本。
 
 下方原始源码版本、树数、机器、后端、耗时和倍数均保留。新默认与新阈值的端到端收益需在当前版本下重新计时；不将不同阶段的局部加速相加，也不把历史值推算为当前实测。
+
+## 当前源码与本页历史基准 {#scope-20261021}
+
+2026-10-21 按已推送 MLR `8d94e59` 核对：当前 ranger 的 SHAP 与 impurity 解释同一个已拟合森林，包括可用的 Python、treeshap 和回退路径；XGBoost 在 Windows / WSL 均使用原生 SHAP。当前 `n_rep>1` 会重新产生模型种子，并提供逐次结果、并列校正的稳定性和运行间分位数；不再仅有一次运行。
+
+`analysis`、`permutations` 和 `diagnostics` 分别记录计算范围、XGBoost 的逐次打乱和全零/负值诊断，见[双平台实算对照](../mlr/imp-guide.qmd#diagnostics-20261021)。ranger / rfsrc 置换使用 OOB，XGBoost 置换使用训练样本，这些范围不应混为验证集表现。
+
+**以下耗时、抽样与开销拆分均为 2026-10-06 固定版本的历史测量。** 本轮只核对接口与数值合同，没有在相同基准配置下重新计时，不将旧倍数用于当前模型树数、解释后端或重复次数。
 
 ## 主要结果
 
@@ -63,12 +72,16 @@ directory:
 
 ## 优化策略
 
+::: {.table-responsive tabindex="0" role="region" aria-label="历史重要性优化策略，可横向滚动"}
+
 | 提交 | 策略 | 实测 | 结果 |
 |:--|:--|:--|:--|
 | 20e32fb | 生存备用路径与分类路径的 TreeSHAP 改走 `get_shp()` 已有的分块多进程函数 | 600 行：9.0 → **3.2 s** | 逐位一致 |
 | 86df983 | 生存置换重要性森林的线程数按“行数 × 变量数”定 | 3000 行 × 7 个变量：6.7 → **1.9 s** | 森林不变；重要性末位可能随线程数变 |
 | d0f9acc | 只加载 mlr3proba + mlr3extralearners（生存）或 mlr3learners（分类），不加载整个 mlr3verse | 新会话加载 5.5 → **1.6 s** | 一致；不再连带加载 torch |
 | 54d2fd6 | 没有 Python SHAP 时，生存 SHAP 解释 impurity 森林，不再另训一片 | 少训练一片森林，省 **1.9 s** | 有变化：mean.SHAP 来自另一片同设置的森林 |
+
+:::
 
 ### 1. TreeSHAP 按行分给多个进程
 

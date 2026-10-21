@@ -19,6 +19,7 @@ PAGES = [
     "utilsr/format-guide.html", "utilsr/flow-guide.html", "mlr/couple-guide.html",
     "regr/forest-guide.html", "regr/cat-guide.html", "regr/function-modules.html",
     "regr/performance-evaluation.html", "regr/get-eff-cif-benchmark.html",
+    "regr/mlr-imp-speedup-20261006.html",
     "regr/rpa-cox-benchmark.html", "regr/cox-cif-optimization-20261002.html",
     "utilsr/factor-guide.html", "utilsr/categorical-guide.html",
     "utilsr/continuous-guide.html", "utilsr/missing-guide.html", "utilsr/sets-guide.html",

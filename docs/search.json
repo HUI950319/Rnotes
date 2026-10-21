@@ -8897,7 +8897,7 @@
     "text": "2026-10-09：后续版本变化\n本页属于 跨包性能评估，评估对象是 MLR（pkgdown 站点）的 get_imp()。它在同一类树模型上算三种变量重要性：mean.SHAP、impurity 和 permutation（XGBoost 为 mean.SHAP、gain 和 permutation），各自归一化到 [0, 1] 后放在一起比较，并打印三张图。本轮优化只涉及默认的 ranger 后端。\n本次按 MLR 0.1.13 源码 95d3204 核对，仅补充版本说明，没有重跑下方历史基准。\n2026-10-07 以后 get_imp() 的 ranger 默认树数已从 500 改为 300；这会影响训练工作量和数值近似。下方以 500 棵树测得的数字仍是旧版本测量，不能直接标为当前 300 棵树的耗时。当前计算示例见 重要性教程。\n共享 SHAP 行解释的并行判断已调整：先以最多 20 行试运行估算剩余行的计算时间，再与一次 worker 启动成本比较，原先使用两次成本阈值。是否启动 worker 仍取决于工作量，不能把“当前会并行”推广到所有样本。\n下方原始源码版本、树数、机器、后端、耗时和倍数均保留。新默认与新阈值的端到端收益需在当前版本下重新计时；不将不同阶段的局部加速相加，也不把历史值推算为当前实测。",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
@@ -8908,7 +8908,7 @@
     "text": "主要结果\n\n同一会话里的生存调用 22.2 → 10.2 s，分类调用 14.1 → 6.8 s（WSL，SEER 甲状腺数据 seer_thyroid_mtc_2026 4387 行、7 个变量）。新会话的第一次生存调用 34.1 → 18.8 s。\n最大的一块是 TreeSHAP。600 行 SHAP 原来单进程算 9.0 s，改成按行分给多个进程后是 3.2 s，结果与单进程逐位相同。\nWindows 上优化后的耗时与 Linux 接近：同一会话的生存调用 12.3 s、分类 7.3 s；新会话第一次生存调用 28.3 s，比 Linux 多出的部分来自加载包和启动工作进程，没有逐项拆开。\n剩下约 10 s 里仍有约 2.5 s 是白花的：本机没有装 shap 的 Python 环境，每次调用先启动 Python、失败后才回落到 TreeSHAP。\n\n\n\n\n调用\nWSL 优化前\nWSL 优化后\nWindows 优化后\n\n\n\n\n生存，新会话第一次\n34.1 s\n18.8 s\n28.3 s\n\n\n生存，同一会话再调\n22.2 s\n10.2 s\n12.3 s\n\n\n分类\n14.1 s\n6.8 s\n7.3 s\n\n\n\n\n\n\n\n\n\n注记只有一项会改变数值\n\n\n\n4 项里 3 项只改实现方式：多进程 TreeSHAP 与单进程逐位相同；不加载 mlr3verse 不影响模型；置换重要性换线程数后森林不变，只是重要性值的末位可能随线程数变化（以前样本量不同时线程数也会变，这一点并不新）。会改变数值的是第 4 项：没有 Python SHAP 时，生存分支的 mean.SHAP 改为解释 impurity 森林，不再另训一片同样设置的森林，差别相当于换一个随机种子。设了 set.seed() 时，同一会话里第一次与后续调用的结果仍然一致。",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
@@ -8919,7 +8919,7 @@
     "text": "耗时都花在哪\n优化前，一次生存调用（同一会话、第二次）约 20 s，分步实测如下：\n\n\n\n\n\n\n\n\n\n环节\n优化前\n优化后\n说明\n\n\n\n\n尝试 Python SHAP（失败）\n2.5 s\n2.5 s\n启动 Python 本身就要约 2.7 s，未改\n\n\nimpurity 森林（500 棵树）\n1.5 s\n1.5 s\n未改\n\n\npermutation 森林（500 棵树）\n6.0–6.7 s\n1.9 s\n3 线程 → 16 线程\n\n\n为 SHAP 另训的森林\n1.9 s\n0\n改为解释 impurity 森林\n\n\nunify（转换 500 棵树）\n0.9 s\n0.9 s\n未改\n\n\nTreeSHAP 600 行\n9.0 s\n3.2 s\n单进程 → 多进程\n\n\n三张图\n1.0 s\n1.0 s\n未改\n\n\n\n为什么 3000 行就要这么久：\n\nSHAP 的计算量看的是树有多大，而不是样本量本身。TreeSHAP 的计算量大致是“解释行数 × 树数 × 每棵树叶子数 × 树深²”。生存森林叶子很小，3000 行训练出来平均每棵树约 200 片叶子，于是 600 行 × 500 棵树 × 200 片叶子，再乘树深的平方，单核要 9 秒。\n置换重要性对每个变量都要重算 C 指数。按 ranger 的实现，生存森林每棵树要在袋外样本（约 1100 例，37%）上算一次 C 指数，打乱 7 个变量后各再算一次；C 指数两两比较样本对，约 60 万对。合计约 500 × 8 × 60 万 ≈ 24 亿次比较，单线程 17 s。\n生存叶子要存整条累积风险曲线。这批数据有 285 个不同的随访时间，每片叶子都存一条 285 点的曲线，训练和 unify 都比同样大小的分类森林重得多（分类森林 4387 行训练 0.1 s，生存森林 3000 行要 1.5 s）。",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
@@ -8927,10 +8927,10 @@
     "href": "regr/mlr-imp-speedup-20261006.html#优化策略",
     "title": "MLR：get_imp 提速策略与实测",
     "section": "优化策略",
-    "text": "优化策略\n\n\n\n\n\n\n\n\n\n提交\n策略\n实测\n结果\n\n\n\n\n20e32fb\n生存备用路径与分类路径的 TreeSHAP 改走 get_shp() 已有的分块多进程函数\n600 行：9.0 → 3.2 s\n逐位一致\n\n\n86df983\n生存置换重要性森林的线程数按“行数 × 变量数”定\n3000 行 × 7 个变量：6.7 → 1.9 s\n森林不变；重要性末位可能随线程数变\n\n\nd0f9acc\n只加载 mlr3proba + mlr3extralearners（生存）或 mlr3learners（分类），不加载整个 mlr3verse\n新会话加载 5.5 → 1.6 s\n一致；不再连带加载 torch\n\n\n54d2fd6\n没有 Python SHAP 时，生存 SHAP 解释 impurity 森林，不再另训一片\n少训练一片森林，省 1.9 s\n有变化：mean.SHAP 来自另一片同设置的森林\n\n\n\n\n1. TreeSHAP 按行分给多个进程\nTreeSHAP 对每一行单独计算，按行拆开再拼回来，结果与一次算完逐位相同。get_shp() 早已有这样的函数：先算 20 行估计剩余耗时，超过工作进程启动时间的两倍才开进程（最多 16 个、留出 2 个逻辑核；Windows 上按每个进程 4 s 启动时间估计）。get_imp() 的两个 ranger 分支此前直接调用单进程的 treeshap::treeshap()，现在改走同一个函数。这项改动同时去掉了 TreeSHAP 的进度条。\n\n\n2. 置换重要性按工作量定线程\nMLR 的自动线程数按每 1000 行 1 个线程来定，3000 行只给 3 个线程，而本机有 24 个逻辑核。置换重要性要对每个变量重新预测一遍袋外样本，工作量是“行数 × 变量数”，改用这个数后 3000 × 7 达到 16 个线程的上限：\n\n\n\n线程数\n1\n3\n8\n16\n\n\n\n\n耗时\n17.2 s\n6.7 s\n3.0 s\n1.9 s\n\n\n\nimpurity 森林的工作量只与行数有关，线程数不变。\n\n\n3. 只加载需要的 mlr3 包\nget_imp() 原来加载整个 mlr3verse 来注册 surv.ranger 和 classif.ranger。mlr3verse 会连带加载 mlr3torch 和 torch，新会话要 5.5 s；而 surv.ranger 由 mlr3extralearners 注册、classif.ranger 由 mlr3learners 注册，只加载它们需要 1.6 s。get_shp() 的生存路径之前已经做过同样的改动。\n\n\n4. 复用 impurity 森林\n生存分支原来建了三片森林：impurity、permutation，以及一片只在 SHAP 备用路径里训练的森林（500 棵树、不算重要性）。impurity 森林的树数、行数和线程数都与它相同，而重要性模式不影响 ranger 怎么长树，所以 SHAP 改为直接解释 impurity 森林。",
+    "text": "优化策略\n\n\n\n\n\n\n\n\n\n\n提交\n策略\n实测\n结果\n\n\n\n\n20e32fb\n生存备用路径与分类路径的 TreeSHAP 改走 get_shp() 已有的分块多进程函数\n600 行：9.0 → 3.2 s\n逐位一致\n\n\n86df983\n生存置换重要性森林的线程数按“行数 × 变量数”定\n3000 行 × 7 个变量：6.7 → 1.9 s\n森林不变；重要性末位可能随线程数变\n\n\nd0f9acc\n只加载 mlr3proba + mlr3extralearners（生存）或 mlr3learners（分类），不加载整个 mlr3verse\n新会话加载 5.5 → 1.6 s\n一致；不再连带加载 torch\n\n\n54d2fd6\n没有 Python SHAP 时，生存 SHAP 解释 impurity 森林，不再另训一片\n少训练一片森林，省 1.9 s\n有变化：mean.SHAP 来自另一片同设置的森林\n\n\n\n\n\n1. TreeSHAP 按行分给多个进程\nTreeSHAP 对每一行单独计算，按行拆开再拼回来，结果与一次算完逐位相同。get_shp() 早已有这样的函数：先算 20 行估计剩余耗时，超过工作进程启动时间的两倍才开进程（最多 16 个、留出 2 个逻辑核；Windows 上按每个进程 4 s 启动时间估计）。get_imp() 的两个 ranger 分支此前直接调用单进程的 treeshap::treeshap()，现在改走同一个函数。这项改动同时去掉了 TreeSHAP 的进度条。\n\n\n2. 置换重要性按工作量定线程\nMLR 的自动线程数按每 1000 行 1 个线程来定，3000 行只给 3 个线程，而本机有 24 个逻辑核。置换重要性要对每个变量重新预测一遍袋外样本，工作量是“行数 × 变量数”，改用这个数后 3000 × 7 达到 16 个线程的上限：\n\n\n\n线程数\n1\n3\n8\n16\n\n\n\n\n耗时\n17.2 s\n6.7 s\n3.0 s\n1.9 s\n\n\n\nimpurity 森林的工作量只与行数有关，线程数不变。\n\n\n3. 只加载需要的 mlr3 包\nget_imp() 原来加载整个 mlr3verse 来注册 surv.ranger 和 classif.ranger。mlr3verse 会连带加载 mlr3torch 和 torch，新会话要 5.5 s；而 surv.ranger 由 mlr3extralearners 注册、classif.ranger 由 mlr3learners 注册，只加载它们需要 1.6 s。get_shp() 的生存路径之前已经做过同样的改动。\n\n\n4. 复用 impurity 森林\n生存分支原来建了三片森林：impurity、permutation，以及一片只在 SHAP 备用路径里训练的森林（500 棵树、不算重要性）。impurity 森林的树数、行数和线程数都与它相同，而重要性模式不影响 ranger 怎么长树，所以 SHAP 改为直接解释 impurity 森林。",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
@@ -8941,7 +8941,7 @@
     "text": "内部抽样与样本量\nget_imp() 内部只做一次性的不放回抽样，不做交叉验证或 bootstrap 式的重抽样，所以重要性没有不确定性估计，结果随种子变化。\n\n\n\n\n\n\n\n\n路径\n训练数据\nSHAP 评估行\n\n\n\n\n生存\n未发生事件者与事件者之比超过 9:1 时，把前者抽到事件数的 9 倍；再超过 3000 行就随机截到 3000\n600\n\n\n分类\n全部数据，不抽样\n600\n\n\n\n本例 3790:597 ≈ 6.3:1，没有触发 9:1 的调整，只是从 4387 行随机截到 3000 行。生存分支最多只用 3000 行，所以数据再大耗时也基本不变；分类分支不抽样，样本越多树越深，TreeSHAP 越慢。",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
@@ -8952,7 +8952,7 @@
     "text": "尚未处理\n下面几项要么改变结果，要么还没有做，留待以后决定：\n\n跳过注定失败的 Python 尝试（约 2.5 s）：没有可用的 shap 时可以直接走 TreeSHAP，不改变结果。也可以先 reticulate::use_condaenv(\"MLR-shap\") 让它真正走 GPU，但那样 SHAP 会换成 get_shp() 的模型，数值会变。\nSHAP 评估行数 600 → 300：TreeSHAP 4.4 s 对单进程 8.8 s，正好减半，但会改变结果。\n三种重要性不是同一个模型算的：Python 路径跑通时，SHAP 来自 get_shp() 的森林（200 棵树、最多 2000 行、单独抽样），impurity 与 permutation 来自另一份 3000 行的抽样（500 棵树）；分类分支也是三片各自训练的森林。这与帮助页“from one selected tree model”的说法不符。\n分类分支不抽样：TreeSHAP 的耗时随样本量大致线性增长，几万行时会明显变慢。\n\n传入现成的 shp 时，ranger 路径完全跳过 SHAP 计算；这些说明也写进了 ?get_imp 的 Runtime 一节。",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
@@ -8963,7 +8963,7 @@
     "text": "测试口径\n\n\n\n\n\n\n\n项目\n设置\n\n\n\n\n日期、环境\n2026-10-06；WSL Ubuntu-22.04 与 Windows 11；R 4.4.3；Intel Core Ultra 9 275HX（24 个逻辑核）\n\n\nMLR 版本\n优化前 706de10（装在临时库）；优化后 54d2fd6\n\n\n数据\nRegR::seer_thyroid_mtc_2026 取 time、DSS 与 7 个变量（Age、Sex、Race、Grade、T_stage、N_stage、M），去掉缺失后 4387 行、597 例事件、286 个不同随访时间\n\n\n调用\nget_imp(d, vars, surv = TRUE) 连调两次，再 get_imp(d, vars, surv = \"DSS\")；全部默认参数；每次调用前 set.seed(1)\n\n\n计时\nsystem.time() 的实际耗时，包括打印三张图（输出到临时 PDF）\n\n\nPython\n两个平台都没有可用的 shap，生存分支都回落到 TreeSHAP\n\n\n重复\n整次调用各跑 1 次；分步耗时来自另外几次探针，同一环节在不同次之间相差约 10%",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
@@ -8974,7 +8974,7 @@
     "text": "局限\n\n整次调用只跑了一次，机器负载会带来 ±1 s 左右的波动；前后差距远大于此。\nWindows 只测了优化后，没有优化前的对照。\n只有一份数据、7 个变量。变量更多时置换重要性的工作量按变量数增长，多线程的收益会更大；SHAP 的耗时则主要取决于树的大小。",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
@@ -8985,7 +8985,18 @@
     "text": "下载\n\n整次调用计时：mlr_imp_20261006_timing.csv\n分步计时：mlr_imp_20261006_stages.csv\n测速脚本：mlr_imp_20261006_benchmark.R",
     "crumbs": [
       "跨包性能评估",
-      "<span class='chapter-number'>77</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
+    ]
+  },
+  {
+    "objectID": "regr/mlr-imp-speedup-20261006.html#scope-20261021",
+    "href": "regr/mlr-imp-speedup-20261006.html#scope-20261021",
+    "title": "MLR：get_imp 提速策略与实测",
+    "section": "当前源码与本页历史基准",
+    "text": "当前源码与本页历史基准\n2026-10-21 按已推送 MLR 8d94e59 核对：当前 ranger 的 SHAP 与 impurity 解释同一个已拟合森林，包括可用的 Python、treeshap 和回退路径；XGBoost 在 Windows / WSL 均使用原生 SHAP。当前 n_rep&gt;1 会重新产生模型种子，并提供逐次结果、并列校正的稳定性和运行间分位数；不再仅有一次运行。\nanalysis、permutations 和 diagnostics 分别记录计算范围、XGBoost 的逐次打乱和全零/负值诊断，见双平台实算对照。ranger / rfsrc 置换使用 OOB，XGBoost 置换使用训练样本，这些范围不应混为验证集表现。\n以下耗时、抽样与开销拆分均为 2026-10-06 固定版本的历史测量。 本轮只核对接口与数值合同，没有在相同基准配置下重新计时，不将旧倍数用于当前模型树数、解释后端或重复次数。",
+    "crumbs": [
+      "跨包性能评估",
+      "<span class='chapter-number'>78</span>  <span class='chapter-title'>MLR：get_imp 提速策略与实测</span>"
     ]
   },
   {
