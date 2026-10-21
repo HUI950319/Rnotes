@@ -2,13 +2,13 @@
 title: "同一暴露的效应比较：调整模型、结局与分层"
 description: "get_eff_cat 的多调整模型、多结局、60 月绝对效应、sub_var/split_var、dat_adj_ps 独立队列场景及联合暴露；plt_eff 实际参数对照。"
 date: 2026-10-09
-date-modified: 2026-10-20
+date-modified: 2026-10-21
 lightbox: true
 toc-depth: 2
 directory:
   title: "同一暴露的效应比较：亚组模型、调整与多结局"
   topic: 回归与生存分析
-  updated: 2026-10-20
+  updated: 2026-10-21
 ---
 
 
@@ -149,6 +149,58 @@ validation_values <- list(subgroups = comparison, complete_cases = cc_check)
 `plt_eff()` 自动按 `outcome_label` 分模型，返回以模型命名的 `surv_models` 图列表，可用 `plots_new[["Fine-Gray"]]` 单独访问。普通设置共享，命名 list 或长度正确的无名 list 可逐模型设置；无名 `save$filename` 向量按模型顺序匹配。`xlim` / `ticks_at` 的无名 list 仍按面板解释，逐模型设置这两项须命名。
 
 本例 `get_eff_cat()` 的 CIF 差是比较组减参照组，正值表示更高目标事件风险；sHR>1 也在右侧。`get_eff()` 的 Fine–Gray 概率差则是参照减比较，风险方向相反。Cox 的绝对列按生存概率差读取，不能仅凭箭头把生存获益与事件风险当成同一量。本例 CIF bootstrap=100 只用于接口演示；正式分析应另行确定重复数并检查稳定性。
+
+## Fine–Gray 并列时间：保持调用者行序 {#fg-ties-20261021}
+
+<!-- refresh-20261021: fg_ties -->
+
+2026-10-21 按已推送 RegR `338a664`（行序修复 `f5e1f10`）在 Windows / WSL R 4.4.3 验证。`get_eff_cat(sub_inter=...)` 现在把完整病例按调用者原行序交给交互模型；此前先拼接各亚组，可能改变同一时间内的行序。mets 的 Fine–Gray 拟合对这种并列顺序可能敏感，因此相同数据、公式和引擎也曾与 `get_eff()` 出现差异。
+
+```r
+library(RegR)
+options(RegR.eff_cat.plot = FALSE)
+set.seed(20261021)
+fg_tied <- data.frame(Tx = factor(sample(c("No", "Yes"), 360, TRUE)),
+  Stratum = factor(sample(c("Low", "High"), 360, TRUE), levels = c("Low", "High")),
+  Age = rnorm(360, 55, 10), time = ceiling(rexp(360, 1 / 12)),
+  event = sample(0:2, 360, TRUE, prob = c(0.35, 0.45, 0.20)))
+fg_tied[["DSS"]] <- as.integer(fg_tied[["event"]] == 1L)
+fg_tied[["OS"]] <- as.integer(fg_tied[["event"]] > 0L)
+stopifnot(anyDuplicated(fg_tied[["time"]]) > 0L)
+joint_fg <- get_eff_cat(fg_tied, "Tx", sub_var = "Stratum", adj_var = "Age",
+  surv = FALSE, sub_inter = TRUE)
+reference_fg <- get_eff(fg_tied, "Tx", sub_var = "Stratum", adj_var = "Age",
+  surv = FALSE, methods_haz = c("unadj", "direct"), methods_sur = character(),
+  all = NULL, subgroup_model = "interaction")
+matched_fg <- do.call(rbind, lapply(c("Low", "High"), function(st) {
+  panel <- joint_fg[[paste0("haz_models_", st)]]
+  do.call(rbind, lapply(c(Unadjusted = "haz_unadj", Adjusted = "haz_direct"), function(key) {
+    model_name <- if (key == "haz_unadj") "Unadjusted" else "Adjusted"
+    got <- panel[panel[["model_label"]] %in% model_name, ]
+    ref <- reference_fg[[key]]
+    ref <- ref[ref[["row_type"]] %in% "level" & ref[["label"]] %in% st, ]
+    stopifnot(nrow(got) == 1L, nrow(ref) == 1L,
+      isTRUE(all.equal(as.numeric(got[1, c("estimate", "conf.low", "conf.high")]),
+                       as.numeric(ref[1, c("estimate", "conf.low", "conf.high")]), tolerance = 1e-10)))
+    data.frame(stratum = st, model = model_name, sHR = got[["estimate"]],
+               absolute_difference = abs(got[["estimate"]] - ref[["estimate"]]))
+  }))
+}))
+matched_fg
+```
+
+本例同时核对两个层、未调整与年龄调整模型的 sHR 及区间，两个入口在同一平台上一致。这里比较的是**相同的交互模型**；层内分别重拟合与共享调整系数的交互模型仍有不同的估计含义，不要求它们相等。
+
+| 亚组 | 未调整 sHR | 年龄调整 sHR | 两入口点估计差 |
+|:--|--:|--:|--:|
+| Low | 0.882859 | 0.887939 | 0 |
+| High | 1.136623 | 1.131291 | 0 |
+
+该合成输入的辅助加性交互计算会提示预防性暴露及 `NaNs produced`；这里的断言仅覆盖有限的 sHR 与区间，不据此验证或解释 RERI 等辅助指标。
+
+保留稳定的患者行序，不为“统一结果”临时按亚组或事件重排。若旧分析使用了并列月份，建议用原始行序重新计算，并记录数据筛选、行序、引擎和依赖版本；仅更新图形无法纠正已经缓存的旧系数。本页没有重跑真实队列，也不据此承诺结果对任意行序完全不变。
+
+<!-- /refresh-20261021: fg_ties -->
 
 ## 数据准备与复现
 
