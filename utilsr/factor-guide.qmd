@@ -7,7 +7,7 @@ toc-depth: 2
 directory:
   title: "因子与统计文本：排序、合并、分箱和区间格式化及数据边界"
   topic: 数据准备与筛选
-  updated: 2026-10-20
+  updated: 2026-10-21
 ---
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -811,6 +811,49 @@ allowed.
 ```
 
 :::
+
+## 分箱后的实际组数与无限值 {#bin-counts}
+
+<!-- refresh-20261021: factor_bins -->
+
+以下按已推送 UtilsR `6536207`（`fct_num()` 文档补充 `8030995`）在 Windows / WSL R 4.4.3 核对。`nbins` 是请求的区间数；重复分位点会被移除，所以传入自定义标签前应先确认实际区间数。
+
+```r
+library(UtilsR)
+warnings_seen <- character()
+q <- withCallingHandlers(
+  fct_num(c(1, 1, 1, 2), nbins = 4, labels = c("Lower", "Higher")),
+  warning = function(w) {
+    warnings_seen <<- c(warnings_seen, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  }
+)
+stopifnot(nlevels(q) == 2L, identical(as.integer(table(q)), c(3L, 1L)),
+          any(grepl("4 bins to 2", warnings_seen)))
+table(q)
+```
+
+实际输出为 `Lower = 3`、`Higher = 1`，并收到从 4 个区间减至 2 个的警告；若仍给 4 个标签会报长度不符。**重复标签会合并区间**，并非只改变显示名称：
+
+```r
+merged <- fct_num(c(1, 5, 9), breaks = c(3, 7),
+                  labels = c("Lower", "Lower", "Higher"))
+fixed <- fct_num(c(-Inf, 50, Inf, NA_real_), breaks = 50)
+stopifnot(identical(levels(merged), c("Lower", "Higher")),
+          identical(as.integer(table(merged)), c(2L, 1L)),
+          identical(as.character(fixed), c("below_50", "below_50", "above_50", NA_character_)))
+data.frame(value = c(-Inf, 50, Inf, NA_real_), group = fixed)
+```
+
+固定切点会把 `-Inf` / `Inf` 纳入首尾区间，50 仍归右闭区间的下组。自动等宽分箱需要有限的最小值和最大值；自动分位数会直接把无限值交给 `stats::quantile()`，可能减少区间或报错，不会先替你剔除这些观测。应先判断无限值的来源，再明确决定保留、排除或修正。
+
+```r
+equal_error <- tryCatch(fct_num(c(1, 2, Inf), nbins = 2, type = "equal"),
+                        error = identity)
+stopifnot(inherits(equal_error, "error"))
+```
+
+<!-- /refresh-20261021: factor_bins -->
 
 ## 返回对象、保存与使用边界 {#output}
 
