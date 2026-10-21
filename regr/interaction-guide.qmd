@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；包含 get_fit_ms 的多分类与连续变量整体检验，及 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
 date: 2026-10-09
-date-modified: 2026-10-20
+date-modified: 2026-10-21
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：Word默认值与逐模型核对"
   topic: 回归与生存分析
-  updated: 2026-10-20
+  updated: 2026-10-21
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -1270,6 +1270,75 @@ page_int <- fmt_page(int_basic$combined,int_basic$gt,
 ```
 
 完整执行、可下载HTML与PNG/矢量边界见 [结果页教程](function-modules.qmd#fmt-page-current)。前面的combined实图保留原执行提交；本轮只补新返回字段与提前检查说明。
+
+## 当前 H 统计量：行权重随筛选和分层对齐 {#hst-rows-20261021}
+
+<!-- refresh-20261021: int_rows -->
+
+2026-10-21 按已推送 RegR `338a664` 与 MLR `8d94e59` 在 Windows / WSL R 4.4.3 执行。`hst_args$case.weights` 和每个 `hst_args$inbag` 向量都应按 `get_int()` **原始输入的全部行**传入。统一完整病例筛选和 `split_var` 分层会同步裁剪这些设置，不能提前只保留某一层或非缺失行。
+
+### 分层结果与手动裁剪对照
+
+```r
+library(RegR)
+library(MLR)
+set.seed(721)
+di <- data.frame(Tx = factor(rep(c("No", "Yes"), 90)), Marker = rnorm(180),
+  Sex = factor(rep(c("F", "F", "M", "M"), 45)),
+  Site = factor(rep(c("A", "B"), each = 90)))
+di[["Outcome"]] <- factor(ifelse(runif(180) < plogis(
+  di[["Marker"]] + (di[["Tx"]] == "Yes")), "Yes", "No"), levels = c("No", "Yes"))
+di[["Marker"]][c(3, 111)] <- NA_real_
+original_weights <- seq_len(nrow(di))
+hst_settings <- list(num.trees = 30, Num.sample = 60, importance = "impurity",
+  class = "Yes", case.weights = original_weights, num.threads = 1,
+  hstats_args = list(approx = TRUE, grid_size = 8, n_max = 35))
+rows_now <- get_int(di, "Tx", vars = c("Marker", "Sex"), split_var = "Site",
+  surv = "Outcome", seed = 721, detail = character(),
+  ms_args = NULL, inter_args = NULL, shp_args = NULL, hte_args = NULL, tree_args = NULL,
+  hst_args = hst_settings)
+check_rows <- lapply(c("A", "B"), function(site) {
+  keep <- which(di[["Site"]] == site & complete.cases(di[c("Tx", "Marker", "Sex", "Outcome")]))
+  manual <- MLR::get_hstats(di[keep, ], c("Tx", "Marker", "Sex"),
+    surv = "Outcome", class = "Yes", int_var = "Tx", seed = 721,
+    num.trees = 30, Num.sample = 60, importance = "impurity", num.threads = 1,
+    case.weights = original_weights[keep], verbose = FALSE,
+    hstats_args = list(approx = TRUE, grid_size = 8, n_max = 35))
+  got <- rows_now[["strata"]][[site]][["results"]][["hst"]]
+  stopifnot(!is.null(got),
+    isTRUE(all.equal(attr(got, "interaction_raw"), attr(manual, "interaction_raw"), tolerance = 1e-10)))
+  data.frame(site = site, original_complete_rows = length(keep),
+             forest_training_rows = attr(got, "settings")[["n_train"]])
+})
+do.call(rbind, check_rows)
+```
+
+本例每层 90 人，各排除 1 个 Marker 缺失行后剩 89 人，再各抽 60 行训练；两个分层结果的原始交互矩阵与手动裁剪输入、权重后直接调用 MLR 一致。返回森林 `settings$train_rows` 是**该次传给 MLR 的层内完整病例输入**的位置；要回溯至原表，应再用上面的 `keep` 映射，不能把它直接当作原表行号。
+
+### 逐树 inbag 与长度检查
+
+```r
+inbag_settings <- hst_settings
+inbag_settings[["case.weights"]] <- NULL
+inbag_settings[["inbag"]] <- replicate(30, rep(1L, nrow(di)), simplify = FALSE)
+inbag_now <- get_int(di, "Tx", vars = c("Marker", "Sex"), surv = "Outcome",
+  seed = 721, detail = character(), ms_args = NULL, inter_args = NULL,
+  shp_args = NULL, hte_args = NULL, tree_args = NULL, hst_args = inbag_settings)
+stopifnot(!is.null(inbag_now[["results"]][["hst"]]))
+bad_settings <- hst_settings
+bad_settings[["case.weights"]] <- original_weights[-1]
+length_error <- tryCatch(get_int(di, "Tx", vars = c("Marker", "Sex"), surv = "Outcome",
+  ms_args = NULL, inter_args = NULL, shp_args = NULL, hte_args = NULL, tree_args = NULL,
+  hst_args = bad_settings), error = identity)
+stopifnot(inherits(length_error, "error"),
+          grepl("per input row", conditionMessage(length_error), fixed = TRUE))
+```
+
+`inbag` 列表仍须符合 ranger 的逐树设置；本例每棵树在保留行上均使用一次，只用于验证传递，不是推荐的重采样设计，也不用于 OOB 误差。权重和 inbag 的统计含义由调用者决定；这里只同步行位置，不把它们迁移到回归、SHAP 或 HTE 分支。
+
+当前 MLR 支持 `int_var` 时，`get_int()` 自动只保留 Tx 的焦点配对；旧 MLR 没有该参数时会计算全矩阵。`hst_args` 仍默认关闭，需显式给列表启用。H² 是预测交互强度，画布 `score` 另做显示缩放；原值见 `results$hst` 的 `interaction_raw`，其覆盖率与固定时间规则见 [MLR 交互教程](../mlr/interaction-guide.qmd#hstats-20261021)。
+
+<!-- /refresh-20261021: int_rows -->
 
 ## 当前随机种子与计算复用 {#seed-20261018}
 
