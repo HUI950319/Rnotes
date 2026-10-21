@@ -2,13 +2,13 @@
 title: "效应估计与森林图：get_eff 和 4 个绘图函数"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的参数示例，并补充 set_eff 的数值与区间对照。"
 date: 2026-10-09
-date-modified: 2026-10-20
+date-modified: 2026-10-21
 lightbox: true
 toc-depth: 2
 directory:
   title: "效应估计与森林图：概率开关与自动坐标"
   topic: 回归与生存分析
-  updated: 2026-10-20
+  updated: 2026-10-21
 ---
 
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
@@ -238,6 +238,72 @@ p_split <- plt_eff(eff_split, del_AllPatients = TRUE,
 [下载 PDF](images/forest-guide/20261020-refresh-split-forest.pdf)
 
 这只修复行筛选、交互 P 值定位和字体，不改变原始效应估计。检查图片时应逐层看行标签，不能只确认第一层没有总体行。分层内的样本与事件数量仍来自本层模型，不把总队列人数重复当作各层人数。
+
+## 当前 Fine–Gray：完整病例中的常量与奇异诊断 {#fg-design-20261021}
+
+<!-- refresh-20261021: fg_design -->
+
+2026-10-21 按已推送 RegR `338a664` 在 Windows / WSL R 4.4.3 执行。下面的 grade 在 late 层全部是 Unknown，但 age 仍变化。Fine–Gray 共用拟合器会在**该模型完整病例**中检查协变量：单独作为主效应、只剩一个值的项会被移除，并发出 `RegR_empty_levels` 消息。不要将这个结果描述为仍调整了 grade。
+
+```r
+library(RegR)
+set.seed(317)
+fd <- data.frame(group = factor(sample(c("A", "B"), 600, TRUE)), age = rnorm(600))
+t1 <- rexp(600, exp(0.35 * fd[["age"]] + 0.18 * as.integer(fd[["group"]])) / 80)
+t2 <- rexp(600, 1 / 130)
+tc <- rexp(600, 1 / 160)
+fd[["time"]] <- pmin(t1, t2, tc) + 0.2
+fd[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+fd[["DSS"]] <- as.integer(fd[["event"]] == 1L)
+fd[["era"]] <- factor(rep(c("early", "late"), 300))
+fd[["grade"]] <- factor(ifelse(fd[["era"]] == "late", "Unknown",
+                                rep(c("G1", "G2", "Unknown"), 200)))
+drop_messages <- character()
+fg_constant <- withCallingHandlers(
+  get_eff(fd, "group", sub_var = "era", adj_var = c("age", "grade"), surv = FALSE,
+    methods_haz = "direct", methods_sur = character(), all = NULL),
+  RegR_empty_levels = function(m) {
+    drop_messages <<- c(drop_messages, cli::ansi_strip(conditionMessage(m)))
+    invokeRestart("muffleMessage")
+  })
+fg_reduced <- get_eff(fd[fd[["era"]] == "late", ], "group", adj_var = "age", surv = FALSE,
+  methods_haz = "direct", methods_sur = character(), all = NULL)
+a <- fg_constant[["haz_direct"]]
+b <- fg_reduced[["haz_direct"]]
+stopifnot(any(grepl("single value", drop_messages, fixed = TRUE)),
+  isTRUE(all.equal(a[["estimate"]][a[["label"]] %in% "late"],
+                   b[["estimate"]][b[["label"]] %in% "B"], tolerance = 1e-10)))
+drop_messages
+```
+
+late 层有 300 个完整病例；实算与仅保留 age 的简化模型相同。此处理针对剩余的主效应项，不会自动改写任意交互项，也不保证把所有常量项移除后仍有可拟合模型。上方“候选调整项全为常量时提前报错”的边界仍成立。相同拟合器也用于[直接标准化 CIF](cat-guide.qmd#fg-constant-20261021)。
+
+### 奇异错误会指出亚组和共线列
+
+```r
+set.seed(1)
+fd[["x1"]] <- factor(sample(c("a", "b"), nrow(fd), TRUE))
+fd[["x2"]] <- fd[["x1"]]
+early <- fd[["era"]] == "early"
+set.seed(2)
+fd[["x2"]][early] <- sample(c("a", "b"), sum(early), TRUE)
+singular_now <- tryCatch(
+  get_eff(fd, "group", sub_var = "era", adj_var = c("age", "x1", "x2"), surv = FALSE,
+    methods_haz = "direct", methods_sur = character(), all = NULL),
+  error = identity)
+diagnosis <- cli::ansi_strip(conditionMessage(singular_now))
+stopifnot(inherits(singular_now, "RegR_singular_design"),
+          grepl("era = late", diagnosis, fixed = TRUE),
+          grepl("300 complete cases", diagnosis, fixed = TRUE),
+          grepl("`x2b` = `x1b`", diagnosis, fixed = TRUE))
+cat(diagnosis)
+```
+
+本例仅 late 层的 x2 完全复制 x1；错误给出 `era = late`、模型右端项、300 个完整病例、目标事件数、共线列关系和原始底层错误。诊断也会列出没有完整病例或没有目标事件的分类水平；未发现这些原因时会说明无法定位，不把诊断当成已修复。
+
+这类模型仍停止拟合。应按变量定义和分析方案决定保留哪个项，核对完整病例与各层事件数后重算；不要只删错误消息中的列来追求模型成功，也不要把未获得的估计画成零效应。
+
+<!-- /refresh-20261021: fg_design -->
 
 ## 示例数据与读图规则 {#data}
 
