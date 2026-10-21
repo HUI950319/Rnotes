@@ -1,18 +1,18 @@
 ---
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
-description: "lv、check_na 的选列返回、Unicode 与标签缺失计数，check_size 的大小单位和 HTML 条形，以及缺失模式与 KNN 插补。"
+description: "lv 的选列摘要，check_na 返回的 gt 报告表、特殊值词表与 special 参数，Unicode 与标签缺失计数，check_size 的大小单位和 HTML 条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
-  title: "数据检视与缺失：整词识别、正确计数与插补"
+  title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-10-21
+  updated: 2026-10-22
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
-**版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 9 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+**版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 9 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。数据质量报告的四张表与 [当前检视](#inspection-20261021) 一节于 2026-10-22 按已推送 UtilsR `cdfdfec` 在 Windows / WSL R 4.4.3 重新执行，两边结果一致。
 
 ## 数据准备与输入约定 {#data}
 
@@ -48,7 +48,7 @@ filled5 <- impute_na_knn(impute_input, k = 5, verbose = FALSE)
 | `lv()` | `...`、`pattern=NULL` | tidyselect 选择列或正则选择；教程显式给 data，避免依赖全局 data/data_all |
 | `lv()` | `group=NULL`、`count=NULL` | group 是分组摘要；count 是一个或多个交叉计数变量，优先走交叉表模式 |
 | `lv()` | `cat_args=list()` | 非空时额外调用 RegR::get_gt_cat；依赖 RegR，结果并不替代基础检视表 |
-| `check_na()` | `.../pattern`、`show_all=FALSE` | 默认只列问题变量；show_all 包括无缺失变量；pattern 优先于列选择 |
+| `check_na()` | `.../pattern`、`special=NULL`、`show_all=FALSE` | 返回 gt 报告表；默认只列问题变量，show_all 包括无缺失变量；pattern 优先于列选择，两者同时给出时警告；special 替换内置特殊值词表 |
 | `plt_na()` | `output="both"` | both/both_reverse/matrix/percentage 四种布局 |
 | `plt_na()` | `sort="desc"`、`name.map=NULL` | 按缺失率排序；命名字符向量替换显示名称 |
 | `plt_na()` | `miss_palette` | 前三色依次为存在、缺失和 30% 参考线；只显示存在 NA 的列 |
@@ -140,7 +140,7 @@ check_na(dat, pattern = "^(age|marker)")
 
 ### 字符串识别的边界 {.unnumbered}
 
-2026-10-17 按已推送 UtilsR `f426bc0` 在 Windows / WSL R 4.4.3 核验：特殊字符串按整词识别，每个值最多计一次。`banana`、`Canada` 和 `Regional` 不会因含有子串 na 而被计入；`unknown missing` 同时命中两个词仍只计一次。真正的 `NA` 另计为缺失，不进入特殊值数；函数不会自动清洗这些字符串。下面三行中只有一行属于特殊值，即 1 / 3（33.3%）。
+2026-10-17 按已推送 UtilsR `f426bc0` 在 Windows / WSL R 4.4.3 核验：特殊字符串按整词识别，每个值最多计一次。`banana`、`Canada` 和 `Regional` 不会因含有子串 na 而被计入；`unknown missing` 同时命中两个词仍只计一次。真正的 `NA` 另计为缺失，不进入特殊值数；函数不会自动清洗这些字符串。下面三行中只有一行属于特殊值，即 1 / 3（33.3%）。本节表格于 2026-10-22 按 `cdfdfec` 重新生成，结果不变；当前内置词表见 [特殊值词表与 special](#special-20261022)。
 
 ```r
 check_na(data.frame(note = c("banana", "unknown missing", "known")), show_all = TRUE)
@@ -405,13 +405,14 @@ data.frame(field = c("OS", "R version", "R platform"),
 
 ## 返回对象、保存与使用边界 {#output}
 
-`lv()` 和 `check_na()` 打印报告并不可见返回完整输入数据；当前 `check_na()` 即使选列、重命名显示列或没有匹配列，也保留未选列、原列名和分组属性。返回对象不是报告表；要继续筛选数据应另外调用 `select()`。`plt_na()` 有缺失时返回 ggplot/patchwork，无缺失时返回 NULL。`impute_na_knn()` 返回插补后的 data.frame/tibble，并保留原始观察值。本页表格捕获实际打印的 gt/gtsummary 结果，没有把 invisible(data) 冒充报告表。
+`lv()` 打印报告并不可见返回完整输入数据。`check_na()` 自 UtilsR `e81b5ab`（2026-10-22）起可见返回 gt 报告表：控制台自动打印，Quarto / R Markdown 中直接渲染成表格，也可以继续用 gt 修改或 `gt::gtsave()` 保存；没有表可出（无匹配列、零行或零列，或 `show_all = FALSE` 时没有问题）时不可见返回 `NULL`。旧写法 `dat %>% check_na() %>% ...` 不再得到数据，需要把检视和后续处理分成两步。`plt_na()` 有缺失时返回 ggplot/patchwork，无缺失时返回 NULL。`impute_na_knn()` 返回插补后的 data.frame/tibble，并保留原始观察值。本页 `lv()` 的表格捕获实际打印的 gt/gtsummary 结果，`check_na()` 的表格就是函数返回的 gt 对象。
 
 KNN 是本次单次插补，缺失率图不能识别 MCAR/MAR/MNAR。预测建模时，供体、距离特征与预处理应在训练数据中确定；本接口示例是数据整理，未演示独立的训练/新数据转换器。未知编码、空串及特殊字符串先清洗，再决定是否纳入插补。
 
 ```r
 p <- plt_na(dat, output = "percentage")
 # ggplot2::ggsave("missing-percentage.pdf", p, width = 8, height = 5)
+# gt::gtsave(check_na(dat), "data-quality.html")
 ```
 
 本次验证保留了原有观察值、因子类型，并核对供体不足时报错。
@@ -451,13 +452,13 @@ UtilsR 的绘图本身不以 RegR 为硬依赖；当前 RegR 可用时才会提�
 
 ## 当前检视：选列返回、标签缺失与小比例 {#inspection-20261021}
 
-以下新增示例按已推送 UtilsR `6536207` 在 Windows / WSL R 4.4.3 执行。上方历史插补与绘图示例保留原执行范围。
+以下示例最初按已推送 UtilsR `6536207` 执行，2026-10-22 按 `cdfdfec` 在 Windows / WSL R 4.4.3 重新执行：代码改为检查返回的 gt 表，两张报告图与 HTML 随之更新。上方历史插补与绘图示例保留原执行范围。
 
 <!-- refresh-20261021: inspection -->
 
 ### 检视范围与返回范围
 
-`check_na()` 的选列只决定检查对象；分组 tibble 仍跨全部行检视，不按组分别计算。下面只展示四列，把 `note` 显示为 `Text`，返回的数据仍保留 `group`、原列名和分组。SPSS 用户缺失、`integer64` 缺失通过各自方法识别；本例需要 haven、labelled 和 bit64。
+`check_na()` 的选列只决定检查对象；分组 tibble 仍跨全部行检视，不按组分别计算。下面只展示四列，把 `note` 显示为 `Text`。函数返回这张 gt 表，输入数据本身不变。SPSS 用户缺失、`integer64` 缺失通过各自方法识别；本例需要 haven、labelled 和 bit64。
 
 ```r
 library(UtilsR)
@@ -469,36 +470,54 @@ d_quality <- dplyr::group_by(tibble::tibble(
   code = haven::labelled_spss(c(1, 99, 1, NA, 1, 99, 1, 1), na_values = 99),
   score64 = bit64::as.integer64(c("1", NA, "3", "4", "5", "6", "7", "8"))
 ), group)
-inspected <- check_na(d_quality, Text = note, stage, code, score64, show_all = TRUE)
-stopifnot(identical(inspected, d_quality), ncol(inspected) == 5L,
-          identical(levels(inspected[["stage"]]), c("I", "II", "Unknown")))
+report <- check_na(d_quality, Text = note, stage, code, score64, show_all = TRUE)
+stopifnot(inherits(report, "gt_tbl"), nrow(report[["_data"]]) == 4L)
+gt::gtsave(report, file.path(tempdir(), "20261021-refresh-report-01.html"))
 ```
 
-![实际打印的质量报告：Text 有 1 个缺失和 4 个特殊值，code 有 3 个缺失，未观察的 Unknown 因子水平不计数。](images/missing-guide/20261021-refresh-report-01.png){fig-alt="8行4个选中变量的原生质量报告，Text缺失1个、特殊值4个；code缺失3个，score64缺失1个，stage无问题。"}
+![返回的质量报告：Text 有 1 个缺失和 4 个特殊值，code 有 3 个缺失，未观察的 Unknown 因子水平不计数。](images/missing-guide/20261021-refresh-report-01.png){fig-alt="8行4个选中变量的原生质量报告，Text缺失1个、特殊值4个；code缺失3个，score64缺失1个，stage无问题。"}
 
 [查看原生 HTML 表](images/missing-guide/20261021-refresh-report-01.html)
 
-特殊字符串匹配不区分大小写，先合并 Unicode 空白，再按完整单词识别；空白串计入 blank。`éunknown` 和 `Canada` 不匹配，`UNKNOWN missing` 只计一次。`is.na()` 已识别的值只计缺失，不重复计入特殊值。未使用的因子水平既不计数，也不从返回数据删除。副标题统计有问题的**变量数**；脚注统计选中列的**单元格数**。
+特殊字符串匹配不区分大小写，先合并 Unicode 空白，再识别内置标记（完整列表见下一小节）；空白串计入 blank。`éunknown` 和 `Canada` 不匹配，`UNKNOWN missing` 只计一次。`is.na()` 已识别的值只计缺失，不重复计入特殊值。未使用的因子水平既不计数，也不从返回数据删除。副标题统计有问题的**变量数**；脚注统计选中列的**单元格数**。
 
 ### 很小的非零比例
 
 ```r
 tiny <- data.frame(x = c(NA_real_, rep(1, 100000)), ok = rep(1, 100001))
-stopifnot(identical(check_na(tiny, show_all = TRUE), tiny))
+tiny_report <- check_na(tiny, show_all = TRUE)
+stopifnot(inherits(tiny_report, "gt_tbl"))
 ```
 
 ![一个缺失值不会因四舍五入而显示为零。](images/missing-guide/20261021-refresh-report-02.png){fig-alt="100001行2列中仅一个缺失：单元格显示小于0.1%，总体显示小于0.01%，确实为零的列仍显示0.0%。"}
 
-颜色使用未四舍五入的比例；单元格显示 1 位小数、脚注显示 2 位，低于显示分辨率的正值分别写为 `<0.1%`、`<0.01%`。计数和数据点总数用 double 累加，保持整数显示；本页没有分配超大数据来演示容量上限。
+颜色使用未四舍五入的比例；单元格显示 1 位小数、脚注显示 2 位，低于显示分辨率的正值分别写为 `<0.1%`、`<0.01%`。计数和数据点总数用 double 累加，保持整数显示；本页没有分配超大数据来演示容量上限。表下的 Shading 脚注列出颜色阈值：缺失 >0–20% 黄、>20–50% 橙、>50% 红；特殊值 >0–10%、>10–30%、>30% 由浅到深蓝（UtilsR `e76e4cd` 起最高一档颜色最深）。
 
 ```r
 none <- check_na(d_quality, pattern = "^no_such_column$")
 clean <- check_na(d_quality, stage)
-stopifnot(identical(none, d_quality), identical(clean, d_quality),
-          identical(check_na(d_quality[0, ]), d_quality[0, ]))
+stopifnot(is.null(none), is.null(clean), is.null(check_na(d_quality[0, ])))
 ```
 
-无匹配列、零行、零列只提示并返回完整输入；`show_all=FALSE` 时无问题也不输出表。`pattern=""` 匹配所有列；非空 pattern 仍优先于 `...`。列名必须非空且唯一；选中列必须是一维，`show_all` 必须是单个非缺失逻辑值。`lv()` 复用同一套缺失和特殊值计数，默认摘要中的唯一值数按实际观察水平计算。
+无匹配列、零行、零列只提示，并不可见返回 `NULL`；`show_all=FALSE` 时没有问题也不出表，同样返回 `NULL`。`pattern=""` 匹配所有列；非空 pattern 仍优先于 `...`，两者同时给出时警告 `` `pattern` takes precedence; the selection in `...` is ignored. ``；无效正则（如 `"("`）直接报错。列名必须非空且唯一；选中列必须是一维，`show_all` 必须是单个非缺失逻辑值。`lv()` 复用同一套缺失和特殊值计数，默认摘要中的唯一值数按实际观察水平计算。
+
+### 特殊值词表与 special {#special-20261022}
+
+UtilsR `cdfdfec` 起，内置标记为整词 unknown(s)、blank(s)、n/a、na、missing、unspecified、not available / applicable / stated / reported、null，只由 `?`、`-`、`.` 组成的值，以及空串和空白串；`lv()` 共用这套词表。`None` 可能是“未治疗”这类真实类别，不在词表里。标记出现在值的任何位置都会计入，所以 `Unknown primary site` 这类类别也算特殊值；需要不同口径时用 `special` 传入正则，它会**替换**内置词表，`character(0)` 表示不计特殊值。
+
+```r
+d_marker <- data.frame(value = c("Blanks", "Unknowns", "Not applicable", "not  stated",
+                                 "NULL", "?", "None", "Unknown primary site", "ok", NA))
+check_na(d_marker, show_all = TRUE)
+custom <- check_na(d_marker, special = c("^none$", "^unknowns?$"), show_all = TRUE)
+off <- check_na(d_marker, special = character(0), show_all = TRUE)
+stopifnot(custom[["_data"]][["special_combined"]] == "2 (20.0%)",
+          off[["_data"]][["special_combined"]] == "0 (0.0%)")
+```
+
+{{< include _html/missing-guide/09.md >}}
+
+内置词表计入 7 个值（70.0%）：`None` 和 `ok` 不计，真正的 `NA` 只计缺失。`special` 的正则不区分大小写、匹配合并空白后的值，按需要用 `^...$` 或 `\b` 锚定；空串只有在某个正则能匹配时才计入（如 `"^$"`）。
 
 ### 全局对象大小与 HTML 条形
 
@@ -552,7 +571,7 @@ function (data, ..., pattern = NULL, group = NULL, count = NULL, cat_args = list
 NULL
 
 check_na <-
-function (data, ..., pattern = NULL, show_all = FALSE)
+function (data, ..., pattern = NULL, special = NULL, show_all = FALSE)
 NULL
 
 plt_na <-
