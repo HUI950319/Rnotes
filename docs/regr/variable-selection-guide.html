@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="get_var_sel、get_lasso、get_boruta、plot_cv_glmnet、plot_coef_path 和 Plt_CorVIF 的实际结果、参数对照及编码边界。">
+<meta name="description" content="变量筛选、LASSO、Boruta、相关性与共线性；补充 get_cor 的系数/P值、名称映射、因子编码与成对样本边界。">
 
 <title>变量筛选：策略比较、LASSO 路径与共线性 – R 包开发笔记</title>
 <style>
@@ -1074,6 +1074,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#系数路径与变量编码" id="toc-系数路径与变量编码" class="nav-link" data-scroll-target="#系数路径与变量编码">系数路径与变量编码</a></li>
   <li><a href="#borutaconfirmedtentative-与预算" id="toc-borutaconfirmedtentative-与预算" class="nav-link" data-scroll-target="#borutaconfirmedtentative-与预算">Boruta：Confirmed、Tentative 与预算</a></li>
   <li><a href="#相关性与-vif-参数对照" id="toc-相关性与-vif-参数对照" class="nav-link" data-scroll-target="#相关性与-vif-参数对照">相关性与 VIF 参数对照</a></li>
+  <li><a href="#cor-controls-20261021" id="toc-cor-controls-20261021" class="nav-link" data-scroll-target="#cor-controls-20261021">当前 get_cor：相关系数、P 值与输入边界</a></li>
   <li><a href="#使用边界保存与复现记录" id="toc-使用边界保存与复现记录" class="nav-link" data-scroll-target="#使用边界保存与复现记录">使用边界、保存与复现记录</a></li>
   <li><a href="#相关页面与源码" id="toc-相关页面与源码" class="nav-link" data-scroll-target="#相关页面与源码">相关页面与源码</a></li>
   </ul>
@@ -1560,6 +1561,117 @@ stage_other
 </div>
 </div>
 </section>
+<section id="cor-controls-20261021" class="level2">
+<h2 class="anchored" data-anchor-id="cor-controls-20261021">当前 get_cor：相关系数、P 值与输入边界</h2>
+<!-- controls-20261021: cor_contract -->
+<p>以下按已推送 RegR <code>90ad6d8</code> 在 Windows / WSL R 4.4.3 执行；上方筛选和 VIF 图保留原执行快照。<code>get_cor()</code> 是单独的相关矩阵入口，不计算 VIF，也不自动筛选变量。新增三图使用包内原始队列的连续变量，只发布汇总图。</p>
+<section id="三种方法使用同一批数据" class="level3">
+<h3 class="anchored" data-anchor-id="三种方法使用同一批数据">三种方法使用同一批数据</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(<span class="st">"seer_thyroid_mtc_2026_raw"</span>, <span class="at">package =</span> <span class="st">"RegR"</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>cor_data <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(seer_thyroid_mtc_2026_raw)[<span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Tum"</span>, <span class="st">"Yea"</span>)]</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>keep <span class="ot">&lt;-</span> <span class="fu">complete.cases</span>(cor_data) <span class="sc">&amp;</span> cor_data[[<span class="st">"Age"</span>]] <span class="sc">&gt;=</span> <span class="dv">18</span> <span class="sc">&amp;</span> cor_data[[<span class="st">"Age"</span>]] <span class="sc">&lt;=</span> <span class="dv">100</span> <span class="sc">&amp;</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  cor_data[[<span class="st">"Tum"</span>]] <span class="sc">&gt;</span> <span class="dv">0</span> <span class="sc">&amp;</span> cor_data[[<span class="st">"Tum"</span>]] <span class="sc">&lt;=</span> <span class="dv">200</span> <span class="sc">&amp;</span> cor_data[[<span class="st">"Yea"</span>]] <span class="sc">&gt;=</span> <span class="dv">2000</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>cor_data <span class="ot">&lt;-</span> <span class="fu">head</span>(cor_data[keep, ], <span class="dv">400</span>)</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(cor_data) <span class="sc">==</span> <span class="dv">400</span>L)</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>cor_labels <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">Age =</span> <span class="st">"Age (years)"</span>, <span class="at">Tum =</span> <span class="st">"Tumor size (mm)"</span>, <span class="at">Yea =</span> <span class="st">"Diagnosis year"</span>)</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>cor_results <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">c</span>(<span class="st">"spearman"</span>, <span class="st">"pearson"</span>, <span class="st">"kendall"</span>), <span class="cf">function</span>(method) {</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  grDevices<span class="sc">::</span><span class="fu">cairo_pdf</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="fu">paste0</span>(<span class="st">"20261021-controls-cor-"</span>, method, <span class="st">".pdf"</span>)),</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>                       <span class="at">width =</span> <span class="dv">8</span>, <span class="at">height =</span> <span class="dv">7</span>, <span class="at">family =</span> <span class="st">"Arial"</span>)</span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">on.exit</span>(grDevices<span class="sc">::</span><span class="fu">dev.off</span>(), <span class="at">add =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>  result <span class="ot">&lt;-</span> <span class="fu">withVisible</span>(<span class="fu">get_cor</span>(cor_data, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Tum"</span>, <span class="st">"Yea"</span>),</span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">name_map =</span> cor_labels, <span class="at">method =</span> method, <span class="at">palette =</span> <span class="st">"RdBu"</span>))</span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="sc">!</span>result[[<span class="st">"visible"</span>]], <span class="fu">identical</span>(<span class="fu">names</span>(result[[<span class="st">"value"</span>]]), <span class="fu">c</span>(<span class="st">"corr"</span>, <span class="st">"corrPos"</span>, <span class="st">"arg"</span>)))</span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>  result[[<span class="st">"value"</span>]]</span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(cor_results) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"spearman"</span>, <span class="st">"pearson"</span>, <span class="st">"kendall"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">Spearman</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">Pearson</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-3" role="tab" aria-controls="tabset-6-3" aria-selected="false" href="">Kendall</a></li></ul>
+<div class="tab-content">
+<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/variable-selection-guide/20261021-controls-cor-spearman.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="同一批 400 人的 Spearman 秩相关。"><img src="images/variable-selection-guide/20261021-controls-cor-spearman.png" class="img-fluid figure-img" alt="Age、Tum和Yea的上三角Spearman相关矩阵，变量按第一主成分排序，格内保留相关系数，P大于0.05的格子另加叉号。" loading="lazy" decoding="async" width="1160" height="1015" srcset="../assets/figure-previews/559e8cd60ac7ec6617d573214d609e21.webp"></a></p>
+<figcaption>同一批 400 人的 Spearman 秩相关。</figcaption>
+</figure>
+</div>
+<p><a href="images/variable-selection-guide/20261021-controls-cor-spearman.pdf">下载 PDF</a></p>
+</div>
+<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/variable-selection-guide/20261021-controls-cor-pearson.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="同一批输入的 Pearson 线性相关。"><img src="images/variable-selection-guide/20261021-controls-cor-pearson.png" class="img-fluid figure-img" alt="相同400行与三个连续变量的Pearson相关，系数尺度与秩相关不同，显示名称经过显式映射。" loading="lazy" decoding="async" width="1160" height="1015" srcset="../assets/figure-previews/1d8368d485c391cc78443927dd080e21.webp"></a></p>
+<figcaption>同一批输入的 Pearson 线性相关。</figcaption>
+</figure>
+</div>
+<p><a href="images/variable-selection-guide/20261021-controls-cor-pearson.pdf">下载 PDF</a></p>
+</div>
+<div id="tabset-6-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-3-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/variable-selection-guide/20261021-controls-cor-kendall.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="同一批输入的 Kendall 秩相关。"><img src="images/variable-selection-guide/20261021-controls-cor-kendall.png" class="img-fluid figure-img" alt="相同400行的Kendall相关，保留系数和非显著叉号；排序与其他方法可能不同。" loading="lazy" decoding="async" width="1160" height="1015" srcset="../assets/figure-previews/9f23d8c980a9bfd7f3bc6cb3dbc38c59.webp"></a></p>
+<figcaption>同一批输入的 Kendall 秩相关。</figcaption>
+</figure>
+</div>
+<p><a href="images/variable-selection-guide/20261021-controls-cor-kendall.pdf">下载 PDF</a></p>
+</div>
+</div>
+</div>
+<p>示例按明确的年龄、肿瘤大小和年份范围筛选，取前 400 条合格记录作接口展示；这不是随机总体抽样或临床推断。Pearson 衡量线性关系，Spearman / Kendall 基于秩，数值不能直接按同一尺度比较。秩检验遇并列值可能使用近似 P 值；本函数没有多重检验校正。</p>
+</section>
+<section id="返回对象与成对数值核对" class="level3">
+<h3 class="anchored" data-anchor-id="返回对象与成对数值核对">返回对象与成对数值核对</h3>
+<p>函数绘图并<strong>不可见返回 list</strong>，不是 NULL 或 ggplot。<code>corr</code> 是按 FPC 重排后的矩阵；<code>corrPos</code> 保存图中变量对、系数和 P 值；<code>arg</code> 记录 <code>type="upper"</code>。P&gt;0.05 的格子保留系数并加叉，不是把系数隐藏。下面另用含缺失的小输入，与 <code>stats::cor.test()</code> 逐对核验三种方法：</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>pair_data <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="cn">NA</span>, <span class="dv">3</span><span class="sc">:</span><span class="dv">10</span>),</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">y =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">6</span>, <span class="dv">1</span>, <span class="dv">5</span>, <span class="cn">NA</span>, <span class="dv">3</span>, <span class="dv">8</span>, <span class="dv">9</span>, <span class="dv">7</span>, <span class="dv">10</span>), <span class="at">z =</span> <span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">1</span>, <span class="dv">7</span>, <span class="dv">2</span>, <span class="dv">9</span>, <span class="dv">4</span>, <span class="dv">10</span>, <span class="dv">6</span>, <span class="dv">8</span>, <span class="dv">5</span>))</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(pair_data) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"blood glucose"</span>, <span class="st">"tumor-size"</span>, <span class="st">"01"</span>)</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>pair_checks <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">c</span>(<span class="st">"spearman"</span>, <span class="st">"pearson"</span>, <span class="st">"kendall"</span>), <span class="cf">function</span>(method) {</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>  result <span class="ot">&lt;-</span> <span class="fu">get_cor</span>(pair_data, <span class="at">vars =</span> <span class="fu">names</span>(pair_data), <span class="at">method =</span> method)</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">setequal</span>(<span class="fu">rownames</span>(result[[<span class="st">"corr"</span>]]), <span class="fu">names</span>(pair_data)))</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>  pairs <span class="ot">&lt;-</span> result[[<span class="st">"corrPos"</span>]]</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (i <span class="cf">in</span> <span class="fu">seq_len</span>(<span class="fu">nrow</span>(pairs))) {</span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>    x <span class="ot">&lt;-</span> pair_data[[<span class="fu">as.character</span>(pairs[[<span class="st">"xName"</span>]][i])]]</span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>    y <span class="ot">&lt;-</span> pair_data[[<span class="fu">as.character</span>(pairs[[<span class="st">"yName"</span>]][i])]]</span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>    reference <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">cor.test</span>(x, y, <span class="at">method =</span> method)</span>
+<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stopifnot</span>(<span class="fu">abs</span>(pairs[[<span class="st">"corr"</span>]][i] <span class="sc">-</span> <span class="fu">unname</span>(reference[[<span class="st">"estimate"</span>]])) <span class="sc">&lt;</span> <span class="fl">1e-12</span>,</span>
+<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>              <span class="fu">abs</span>(pairs[[<span class="st">"p.value"</span>]][i] <span class="sc">-</span> reference[[<span class="st">"p.value"</span>]]) <span class="sc">&lt;</span> <span class="fl">1e-12</span>)</span>
+<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.frame</span>(<span class="at">method =</span> method, <span class="at">pairs_verified =</span> <span class="fu">nrow</span>(pairs))</span>
+<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb17-17"><a href="#cb17-17" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(rbind, pair_checks)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>三种方法各核对 3 对，全部通过。使用 <code>pairwise.complete.obs</code>，每一对可能使用不同患者；需要同一分析人群时先显式筛选共同完整病例。原列名中的空格、标点和前导数字会保留，<code>name_map</code> 按原名匹配；未映射名称保留原名。FPC 顺序是展示排序，不是临床优先级。</p>
+</section>
+<section id="因子数字文本与错误输入" class="level3">
+<h3 class="anchored" data-anchor-id="因子数字文本与错误输入">因子、数字文本与错误输入</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>encoding <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">grade =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"C"</span>), <span class="at">each =</span> <span class="dv">2</span>)),</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>                       <span class="at">numeric_text =</span> <span class="fu">c</span>(<span class="st">"1"</span>, <span class="st">"2"</span>, <span class="st">"10"</span>, <span class="cn">NA</span>, <span class="st">"8"</span>, <span class="st">"4"</span>), <span class="at">y =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>)</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>encoding_notes <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>encoded <span class="ot">&lt;-</span> <span class="fu">withCallingHandlers</span>(<span class="fu">get_cor</span>(encoding, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"grade"</span>, <span class="st">"y"</span>), <span class="at">method =</span> <span class="st">"pearson"</span>),</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">RegR_cor_factor_encoding =</span> <span class="cf">function</span>(w) {</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>    encoding_notes <span class="ot">&lt;&lt;-</span> <span class="fu">c</span>(encoding_notes, <span class="fu">conditionMessage</span>(w))</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">invokeRestart</span>(<span class="st">"muffleWarning"</span>)</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>parsed <span class="ot">&lt;-</span> <span class="fu">get_cor</span>(encoding, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"numeric_text"</span>, <span class="st">"y"</span>), <span class="at">method =</span> <span class="st">"pearson"</span>)</span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">length</span>(encoding_notes) <span class="sc">==</span> <span class="dv">1</span>L,</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">abs</span>(encoded[[<span class="st">"corr"</span>]][<span class="st">"grade"</span>, <span class="st">"y"</span>] <span class="sc">-</span> <span class="fu">cor</span>(<span class="fu">as.numeric</span>(encoding[[<span class="st">"grade"</span>]]), encoding[[<span class="st">"y"</span>]])) <span class="sc">&lt;</span> <span class="fl">1e-12</span>,</span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">abs</span>(parsed[[<span class="st">"corr"</span>]][<span class="st">"numeric_text"</span>, <span class="st">"y"</span>] <span class="sc">-</span></span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>      <span class="fu">cor</span>(<span class="fu">as.numeric</span>(encoding[[<span class="st">"numeric_text"</span>]]), encoding[[<span class="st">"y"</span>]], <span class="at">use =</span> <span class="st">"complete.obs"</span>)) <span class="sc">&lt;</span> <span class="fl">1e-12</span>)</span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a>bad_text <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">c</span>(<span class="st">"1"</span>, <span class="st">"unknown"</span>, <span class="st">"3"</span>), <span class="at">y =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>)</span>
+<span id="cb18-15"><a href="#cb18-15" aria-hidden="true" tabindex="-1"></a>errors <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb18-16"><a href="#cb18-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">text =</span> <span class="fu">tryCatch</span>(<span class="fu">get_cor</span>(bad_text, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>)), <span class="at">error =</span> identity),</span>
+<span id="cb18-17"><a href="#cb18-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">infinite =</span> <span class="fu">tryCatch</span>(<span class="fu">get_cor</span>(<span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>, <span class="cn">Inf</span>), <span class="at">y =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>), <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>)), <span class="at">error =</span> identity),</span>
+<span id="cb18-18"><a href="#cb18-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">too_few =</span> <span class="fu">tryCatch</span>(<span class="fu">get_cor</span>(<span class="fu">data.frame</span>(<span class="at">x =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>, <span class="at">y =</span> <span class="dv">2</span><span class="sc">:</span><span class="dv">1</span>), <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>), <span class="at">method =</span> <span class="st">"pearson"</span>), <span class="at">error =</span> identity),</span>
+<span id="cb18-19"><a href="#cb18-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">constant =</span> <span class="fu">tryCatch</span>(<span class="fu">get_cor</span>(<span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">rep</span>(<span class="dv">1</span>, <span class="dv">4</span>), <span class="at">y =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">4</span>), <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"y"</span>)), <span class="at">error =</span> identity))</span>
+<span id="cb18-20"><a href="#cb18-20" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">inherits</span>(errors[[<span class="st">"text"</span>]], <span class="st">"RegR_cor_nonnumeric"</span>),</span>
+<span id="cb18-21"><a href="#cb18-21" aria-hidden="true" tabindex="-1"></a>          <span class="fu">inherits</span>(errors[[<span class="st">"infinite"</span>]], <span class="st">"RegR_cor_nonfinite"</span>),</span>
+<span id="cb18-22"><a href="#cb18-22" aria-hidden="true" tabindex="-1"></a>          <span class="fu">inherits</span>(errors[[<span class="st">"too_few"</span>]], <span class="st">"RegR_cor_insufficient"</span>),</span>
+<span id="cb18-23"><a href="#cb18-23" aria-hidden="true" tabindex="-1"></a>          <span class="fu">inherits</span>(errors[[<span class="st">"constant"</span>]], <span class="st">"RegR_cor_undefined"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>数字文本按 <code>as.numeric()</code> 解析；非数字文本导致新 NA 时会点名报错。因子保留当前水平的整数编码并给警告，相关性依赖水平顺序；无序分类变量应先选择有意义的编码，不能将默认水平号当连续测量。</p>
+<p>至少选择两列；Pearson 每对至少 3 个完整观察，Spearman / Kendall 至少 2 个。最低样本数不代表统计结果可靠；两点秩检验虽可执行，仍没有稳定推断价值。无限值、配对重叠不足及配对子集中方差为零等未定义相关，会在 FPC 排序前报出相关列，而不是在矩阵分解时才失败。</p>
+<p>基础图形用图形设备导出，不传 <code>save</code> 或 <code>ggsave()</code>；上方 PDF 由实际设备绘制，PNG 由同一 PDF 转换。<code>corrplot</code> 为所需依赖，接口为 <code>get_cor(data, vars, name_map=NULL, palette=..., method=...)</code>。</p>
+<!-- /controls-20261021: cor_contract -->
+</section>
+</section>
 <section id="使用边界保存与复现记录" class="level2">
 <h2 class="anchored" data-anchor-id="使用边界保存与复现记录">使用边界、保存与复现记录</h2>
 <p>P 值筛选、逐步回归和 LASSO 的选择会受样本、编码与随机折分影响；筛选后的普通回归区间没有自动考虑选择过程。Boruta 的重要性不表示因果效应。混杂调整变量应由研究问题和因果结构决定，不能交给单变量 P 值自动删除。预测建模时，筛选、编码和惩罚选择都需要在训练折内部完成；本页没有外部验证。相关/VIF 的显著性星号也不是变量保留规则。</p>
@@ -1575,8 +1687,8 @@ stage_other
 <li><p>LASSO 函数帮助页：<a href="https://hui950319.github.io/RegR/reference/get_lasso.html"><code>get_lasso()</code></a>、<a href="https://hui950319.github.io/RegR/reference/plot_coef_path.html"><code>plot_coef_path()</code></a>、<a href="https://hui950319.github.io/RegR/reference/plot_cv_glmnet.html"><code>plot_cv_glmnet()</code></a></p></li>
 <li><p><a href="https://hui950319.github.io/RegR/reference/Plt_CorVIF.html"><code>Plt_CorVIF()</code> 帮助页</a></p></li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 
 
 </section>

@@ -1,13 +1,13 @@
 ---
 title: "变量筛选：策略比较、LASSO 路径与共线性"
-description: "get_var_sel、get_lasso、get_boruta、plot_cv_glmnet、plot_coef_path 和 Plt_CorVIF 的实际结果、参数对照及编码边界。"
+description: "变量筛选、LASSO、Boruta、相关性与共线性；补充 get_cor 的系数/P值、名称映射、因子编码与成对样本边界。"
 date: 2026-10-01
 lightbox: true
 toc-depth: 2
 directory:
   title: "变量筛选：策略比较、LASSO 路径与共线性"
   topic: 回归与生存分析
-  updated: 2026-10-01
+  updated: 2026-10-21
 ---
 
 
@@ -415,6 +415,121 @@ data.frame(variable = names(diag[["vif"]]), VIF = unname(diag[["vif"]]))
 
 :::
 
+
+## 当前 get_cor：相关系数、P 值与输入边界 {#cor-controls-20261021}
+
+<!-- controls-20261021: cor_contract -->
+
+以下按已推送 RegR `90ad6d8` 在 Windows / WSL R 4.4.3 执行；上方筛选和 VIF 图保留原执行快照。`get_cor()` 是单独的相关矩阵入口，不计算 VIF，也不自动筛选变量。新增三图使用包内原始队列的连续变量，只发布汇总图。
+
+### 三种方法使用同一批数据
+
+```r
+library(RegR)
+data("seer_thyroid_mtc_2026_raw", package = "RegR")
+cor_data <- as.data.frame(seer_thyroid_mtc_2026_raw)[c("Age", "Tum", "Yea")]
+keep <- complete.cases(cor_data) & cor_data[["Age"]] >= 18 & cor_data[["Age"]] <= 100 &
+  cor_data[["Tum"]] > 0 & cor_data[["Tum"]] <= 200 & cor_data[["Yea"]] >= 2000
+cor_data <- head(cor_data[keep, ], 400)
+stopifnot(nrow(cor_data) == 400L)
+cor_labels <- c(Age = "Age (years)", Tum = "Tumor size (mm)", Yea = "Diagnosis year")
+cor_results <- lapply(c("spearman", "pearson", "kendall"), function(method) {
+  grDevices::cairo_pdf(file.path(tempdir(), paste0("20261021-controls-cor-", method, ".pdf")),
+                       width = 8, height = 7, family = "Arial")
+  on.exit(grDevices::dev.off(), add = TRUE)
+  result <- withVisible(get_cor(cor_data, vars = c("Age", "Tum", "Yea"),
+    name_map = cor_labels, method = method, palette = "RdBu"))
+  stopifnot(!result[["visible"]], identical(names(result[["value"]]), c("corr", "corrPos", "arg")))
+  result[["value"]]
+})
+names(cor_results) <- c("spearman", "pearson", "kendall")
+```
+
+::: {.panel-tabset}
+
+### Spearman {.unnumbered}
+
+![同一批 400 人的 Spearman 秩相关。](images/variable-selection-guide/20261021-controls-cor-spearman.png){fig-alt="Age、Tum和Yea的上三角Spearman相关矩阵，变量按第一主成分排序，格内保留相关系数，P大于0.05的格子另加叉号。"}
+
+[下载 PDF](images/variable-selection-guide/20261021-controls-cor-spearman.pdf)
+
+### Pearson {.unnumbered}
+
+![同一批输入的 Pearson 线性相关。](images/variable-selection-guide/20261021-controls-cor-pearson.png){fig-alt="相同400行与三个连续变量的Pearson相关，系数尺度与秩相关不同，显示名称经过显式映射。"}
+
+[下载 PDF](images/variable-selection-guide/20261021-controls-cor-pearson.pdf)
+
+### Kendall {.unnumbered}
+
+![同一批输入的 Kendall 秩相关。](images/variable-selection-guide/20261021-controls-cor-kendall.png){fig-alt="相同400行的Kendall相关，保留系数和非显著叉号；排序与其他方法可能不同。"}
+
+[下载 PDF](images/variable-selection-guide/20261021-controls-cor-kendall.pdf)
+
+:::
+
+示例按明确的年龄、肿瘤大小和年份范围筛选，取前 400 条合格记录作接口展示；这不是随机总体抽样或临床推断。Pearson 衡量线性关系，Spearman / Kendall 基于秩，数值不能直接按同一尺度比较。秩检验遇并列值可能使用近似 P 值；本函数没有多重检验校正。
+
+### 返回对象与成对数值核对
+
+函数绘图并**不可见返回 list**，不是 NULL 或 ggplot。`corr` 是按 FPC 重排后的矩阵；`corrPos` 保存图中变量对、系数和 P 值；`arg` 记录 `type="upper"`。P>0.05 的格子保留系数并加叉，不是把系数隐藏。下面另用含缺失的小输入，与 `stats::cor.test()` 逐对核验三种方法：
+
+```r
+pair_data <- data.frame(x = c(1, NA, 3:10),
+  y = c(2, 6, 1, 5, NA, 3, 8, 9, 7, 10), z = c(3, 1, 7, 2, 9, 4, 10, 6, 8, 5))
+names(pair_data) <- c("blood glucose", "tumor-size", "01")
+pair_checks <- lapply(c("spearman", "pearson", "kendall"), function(method) {
+  result <- get_cor(pair_data, vars = names(pair_data), method = method)
+  stopifnot(setequal(rownames(result[["corr"]]), names(pair_data)))
+  pairs <- result[["corrPos"]]
+  for (i in seq_len(nrow(pairs))) {
+    x <- pair_data[[as.character(pairs[["xName"]][i])]]
+    y <- pair_data[[as.character(pairs[["yName"]][i])]]
+    reference <- stats::cor.test(x, y, method = method)
+    stopifnot(abs(pairs[["corr"]][i] - unname(reference[["estimate"]])) < 1e-12,
+              abs(pairs[["p.value"]][i] - reference[["p.value"]]) < 1e-12)
+  }
+  data.frame(method = method, pairs_verified = nrow(pairs))
+})
+do.call(rbind, pair_checks)
+```
+
+三种方法各核对 3 对，全部通过。使用 `pairwise.complete.obs`，每一对可能使用不同患者；需要同一分析人群时先显式筛选共同完整病例。原列名中的空格、标点和前导数字会保留，`name_map` 按原名匹配；未映射名称保留原名。FPC 顺序是展示排序，不是临床优先级。
+
+### 因子、数字文本与错误输入
+
+```r
+encoding <- data.frame(grade = factor(rep(c("A", "B", "C"), each = 2)),
+                       numeric_text = c("1", "2", "10", NA, "8", "4"), y = 1:6)
+encoding_notes <- character()
+encoded <- withCallingHandlers(get_cor(encoding, vars = c("grade", "y"), method = "pearson"),
+  RegR_cor_factor_encoding = function(w) {
+    encoding_notes <<- c(encoding_notes, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  })
+parsed <- get_cor(encoding, vars = c("numeric_text", "y"), method = "pearson")
+stopifnot(length(encoding_notes) == 1L,
+  abs(encoded[["corr"]]["grade", "y"] - cor(as.numeric(encoding[["grade"]]), encoding[["y"]])) < 1e-12,
+  abs(parsed[["corr"]]["numeric_text", "y"] -
+      cor(as.numeric(encoding[["numeric_text"]]), encoding[["y"]], use = "complete.obs")) < 1e-12)
+bad_text <- data.frame(x = c("1", "unknown", "3"), y = 1:3)
+errors <- list(
+  text = tryCatch(get_cor(bad_text, c("x", "y")), error = identity),
+  infinite = tryCatch(get_cor(data.frame(x = c(1, 2, Inf), y = 1:3), c("x", "y")), error = identity),
+  too_few = tryCatch(get_cor(data.frame(x = 1:2, y = 2:1), c("x", "y"), method = "pearson"), error = identity),
+  constant = tryCatch(get_cor(data.frame(x = rep(1, 4), y = 1:4), c("x", "y")), error = identity))
+stopifnot(inherits(errors[["text"]], "RegR_cor_nonnumeric"),
+          inherits(errors[["infinite"]], "RegR_cor_nonfinite"),
+          inherits(errors[["too_few"]], "RegR_cor_insufficient"),
+          inherits(errors[["constant"]], "RegR_cor_undefined"))
+```
+
+数字文本按 `as.numeric()` 解析；非数字文本导致新 NA 时会点名报错。因子保留当前水平的整数编码并给警告，相关性依赖水平顺序；无序分类变量应先选择有意义的编码，不能将默认水平号当连续测量。
+
+至少选择两列；Pearson 每对至少 3 个完整观察，Spearman / Kendall 至少 2 个。最低样本数不代表统计结果可靠；两点秩检验虽可执行，仍没有稳定推断价值。无限值、配对重叠不足及配对子集中方差为零等未定义相关，会在 FPC 排序前报出相关列，而不是在矩阵分解时才失败。
+
+基础图形用图形设备导出，不传 `save` 或 `ggsave()`；上方 PDF 由实际设备绘制，PNG 由同一 PDF 转换。`corrplot` 为所需依赖，接口为 `get_cor(data, vars, name_map=NULL, palette=..., method=...)`。
+
+<!-- /controls-20261021: cor_contract -->
 
 ## 使用边界、保存与复现记录
 
