@@ -6,7 +6,7 @@ date-modified: 2026-10-21
 lightbox: true
 toc-depth: 2
 directory:
-  title: "KM/CIF组合：自动坐标、内嵌表与PDF"
+  title: "KM/CIF组合：位置、步长与联合组标题"
   topic: 回归与生存分析
   updated: 2026-10-21
 ---
@@ -14,6 +14,102 @@ directory:
 先用 `get_cat()` 计算曲线和效应表，再用 `plt_cat1()`、`plt_cat2()` 或 `plt_cat3()` 选择布局。本页参照 [MLR 的 SHAP 页面](../mlr/shap-guide.qmd)：**每个参数选项配可复制代码与实绘图片，在标签页中切换比较，点击图片可放大。**
 
 **核对记录：** 本次用 WSL R 4.4.3 和 RegR 本机开发源码 `d54e60f`，从原始示例队列重新拟合 KM 主分析与 Race 分组，并刷新所有生存模式图片，新增 `sur_h` 布局。CIF 图保留前次 CSC 执行快照。包版本仍为 0.1.3；本页不提供患者级数据下载。
+
+## 当前自动位置、刻度步长与联合组标题 {#cat-controls-20261021}
+
+<!-- controls-20261021: cat_controls -->
+
+以下按已推送 RegR `90ad6d8` 在 Windows / WSL R 4.4.3 执行。`plt_cat1()` 现在默认 `fmt.fst.h = "auto"`，根据两种方法的曲线、置信带和内嵌森林的实际面积，共同选择上方或下方；森林列也加宽，默认画布随分组数和表格宽度增长。它减少遮挡，仍需检查长标签、宽区间与图的最终尺寸。
+
+### 四个联合组，两个模型共用森林坐标
+
+```r
+library(RegR)
+set.seed(832)
+cat_data <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), id = 1:150)
+cat_data[["Age"]] <- rnorm(600, 55, 10)
+t1 <- rexp(600, exp(0.3 * (cat_data[["Tx"]] == "Yes") +
+  0.2 * (cat_data[["Sex"]] == "Male") + 0.02 * (cat_data[["Age"]] - 55)) / 250)
+t2 <- rexp(600, 1 / 350)
+tc <- rexp(600, 1 / 400)
+cat_data[["time"]] <- pmin(t1, t2, tc) + 0.2
+cat_data[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+cat_data[["DSS"]] <- as.integer(cat_data[["event"]] == 1L)
+cat_models <- get_cat(cat_data, cat_var_combine = c("Tx", "Sex"), adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
+  timepoint = 36, time_dif = c(24, 36), curve_args = list(ci = TRUE, max_times = 50L))
+stopifnot(inherits(cat_models, "surv_models"),
+  all(vapply(cat_models, function(x) x[["cat"]][["par"]][["n_levels"]] == 4L, logical(1))))
+```
+
+```r
+inset_models <- plt_cat1(cat_models, display = "v",
+  sur_arg = list(ylim = list(sur = c(0.5, 1), cif = c(0, 0.5)),
+    ybre = 0.1, xlim = "auto", cat_label = c("Treatment", "Sex")),
+  max_t = 60, xbreaks = seq(0, 60, 12),
+  xlab = "Follow-up (months)",
+  save = list(filename = c(sur = file.path(tempdir(), "20261021-controls-cat-sur.pdf"),
+                           cif = file.path(tempdir(), "20261021-controls-cat-cif.pdf"))))
+stopifnot(identical(names(inset_models), c("sur", "cif")),
+  all(vapply(inset_models, function(p) all(attr(p, "plot_size") >= c(11, 8.5)), logical(1))))
+```
+
+::: {.panel-tabset}
+
+### KM {.unnumbered}
+
+![联合四组的 KM 与年龄调整生存曲线，森林使用默认自动位置。](images/cat-guide/20261021-controls-cat-sur.png){fig-alt="600条模拟记录的四个Treatment与Sex联合组，两个方法纵向排列，内嵌森林包含HR及36月生存差，曲线纵轴以0.1为步长。"}
+
+[下载 PDF](images/cat-guide/20261021-controls-cat-sur.pdf)
+
+### CIF {.unnumbered}
+
+![相同分组的 CIF 使用独立曲线范围，与 KM 共用对应森林坐标。](images/cat-guide/20261021-controls-cat-cif.png){fig-alt="相同模拟队列的未调整和年龄调整CIF，森林使用sHR及36月CIF差，条带显示真实联合变量名称，未显示内部.cat_combined名称。"}
+
+[下载 PDF](images/cat-guide/20261021-controls-cat-cif.pdf)
+
+:::
+
+共享的 `sur_arg$xlim = "auto"` 从所有模型、所有方法的效应表共同取范围：KM / CIF 的比值轴相同，差值轴也相同；两种尺度仍各用自己的轴，比值包含参考值 1，差值包含 0。逐模型的命名设置则各自计算。`max_t` 和 `xbreaks` 控制随访时间，`sur_arg$xlim` 控制森林效应轴，不能用它缩短随访。
+
+默认条带会把 `cat_var_combine = c("Tx","Sex")` 写为 `different Tx and Sex groups`；三个 `plt_cat*()` 都使用真实组件名。上例的 `sur_arg$cat_label` 只把变量标题改成 Treatment 与 Sex，不改变联合组水平、模型或参考组；此字段仅供 `plt_cat1()`，不要传给 `plt_cat2()` / `plt_cat3()`。显式的 `strip_arg$strip_label` 优先。
+
+### 一个 ybre 数字表示步长
+
+```r
+step_input <- get_cat(cat_data, "Tx", adj_var = "Age", surv = TRUE,
+  methods = c("unadj", "direct"), timepoint = 36, time_dif = c(24, 36),
+  curve_args = list(ci = TRUE, max_times = 50L))
+axis_step <- list(ylim = c(0.5, 1), ybre = 0.1)
+step_plots <- list(
+  plt_cat1(step_input, display = "sur", sur_arg = axis_step,
+    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL),
+  plt_cat2(step_input, sur_arg = axis_step,
+    dif_arg = list(ylim = c(-0.1, 0.1), ybre = 0.05),
+    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL),
+  plt_cat3(step_input, display = "sur", risk_table = FALSE, sur_arg = axis_step,
+    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL))
+y_breaks <- function(p) {
+  b <- ggplot2::ggplot_build(p)[["layout"]][["panel_params"]][[1]][["y"]][["breaks"]]
+  as.numeric(b[!is.na(b)])
+}
+for (p in step_plots) for (j in 1:2) {
+  stopifnot(isTRUE(all.equal(y_breaks(p[[j]]), seq(0.5, 1, 0.1))))
+}
+for (j in 3:4) {
+  stopifnot(isTRUE(all.equal(y_breaks(step_plots[[2]][[j]]), seq(-0.1, 0.1, 0.05))))
+}
+validation_values <- data.frame(composer = c("plt_cat1", "plt_cat2", "plt_cat3"),
+  first_curve_ticks = vapply(step_plots, function(p) paste(y_breaks(p[[1]]), collapse = ","), character(1)))
+validation_values
+```
+
+三个入口现在都把 `ybre = 0.1` 解释为范围内每隔 0.1 一个刻度，不是只画 0.1 这一个刻度；`plt_cat2()` 的 `dif_arg$ybre` 同理。多个数字仍是明确的刻度向量，例如 `c(0.5,0.75,1)`；单个步长须为正且有限。上例三个曲线轴均实际核对为 0.5、0.6、0.7、0.8、0.9、1.0，差值轴为 −0.10、−0.05、0、0.05、0.10；显示范围仅演示接口，不表示数据或区间均落在该范围内。
+
+自动位置默认值仅改了 `plt_cat1()`。显式 `forest.position` 优先；数值 `fmt.fst.h` 仍按 KM 的 `0.03 - fmt.fst.h`、CIF 的 `0.97 + fmt.fst.h` 偏移固定位置。`plt_cat3()` 保留数值偏移合同，不能跟着改成字符串 `"auto"`。保存时只给文件名可沿用推荐尺寸；若手动缩小画布，应重新检查森林、置信带和标签是否重叠。
+
+<!-- /controls-20261021: cat_controls -->
 
 ## 当前参考行、区间标题与联合组核对 {#labels-ci-20261020}
 
