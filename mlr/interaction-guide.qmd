@@ -2,13 +2,13 @@
 title: "变量交互：H 统计量、paired-VIMP 与 VIV 图谱"
 description: "实际比较交互定义、缩放、预测时间、热图标签、网络边阈值和布局。"
 date: 2026-10-01
-date-modified: 2026-10-15
+date-modified: 2026-10-21
 lightbox: true
 toc-depth: 2
 directory:
   title: "变量交互：定向paired-VIMP与H统计量"
   topic: 模型解释
-  updated: 2026-10-15
+  updated: 2026-10-21
 ---
 
 `get_hstats()` 与 `get_rfint()` 将不同的交互计算结果组织成同一 VIV 矩阵，`plt_viv()` 负责热图和网络展示。本页重点展示计算参数与图形参数分别改变什么。
@@ -76,7 +76,7 @@ rf <- get_rfint(dc, vars = cvars, surv = "Outcome", num.trees = 100,
 
 返回值是带行列变量名的数值矩阵：对角线为变量重要性，非对角线为交互强度。矩阵附带原始交互等属性；例如 `attr(h, "interaction_raw")` 可检查缩放前数值。`plt_viv()` 返回 ggplot，使用两套色标分别表示对角线与非对角线。
 
-H² 是预测尺度上的交互强度，不是交互 HR、置信区间或 P 值。`normalize = FALSE` 改成绝对量，`squared = FALSE` 改成 H，`scale_interaction` 仅控制最终展示缩放。数值 surv 使用森林实际时间网格，因此应检查所选时间附近的支持。
+H² 是预测尺度上的交互强度，不是交互 HR、置信区间或 P 值。`normalize = FALSE` 改成绝对量，`squared = FALSE` 改成 H，`scale_interaction` 仅控制最终展示缩放。数值 surv 使用所选时点之前最近的森林网格值（右连续阶梯），不取距离最近的未来网格；应检查所选时间附近的支持。
 
 ## H 统计量：定义与展示缩放
 
@@ -295,6 +295,91 @@ plt_viv(rf, mode = "network", network_arg = list(intThreshold = 0.4), fixed_size
 
 :::
 
+
+## 当前 H 统计量：配对覆盖、锚点与原始行位置 {#hstats-20261021}
+
+<!-- refresh-20261021: hstats_scope -->
+
+以下按已推送 MLR `8d94e59` 在 Windows / WSL R 4.4.3 执行，使用 120 行合成数据、40 棵树和小网格验证合同。`int_var` 是 `get_hstats()` 新增的焦点变量参数，与上方 `get_rfint()` 的同名参数分别生效。
+
+```r
+library(MLR)
+set.seed(621)
+dh <- data.frame(x = runif(120), z = rnorm(120),
+                 group = factor(rep(c("A", "B"), 60)))
+dh[["Outcome"]] <- factor(ifelse(runif(120) < plogis(
+  2 * dh[["x"]] + dh[["z"]] * (dh[["group"]] == "B") - 1), "Yes", "No"),
+  levels = c("No", "Yes"))
+hv <- c("x", "z", "group")
+h_now <- function(...) get_hstats(dh, hv, surv = "Outcome", class = "Yes",
+  num.trees = 40, Num.sample = 100,
+  hstats_args = list(approx = TRUE, grid_size = 10, n_max = 50),
+  scale_interaction = FALSE, order_by = "none", seed = 621,
+  verbose = FALSE, num.threads = 1, ...)
+set.seed(21)
+rng_before <- .Random.seed
+full_now <- h_now()
+focal_now <- h_now(int_var = "x")
+screened_now <- h_now(pairwise_m = 1L)
+stopifnot(identical(rng_before, .Random.seed),
+  isTRUE(all.equal(attr(full_now, "interaction_raw")["x", hv[-1]],
+                   attr(focal_now, "interaction_raw")["x", hv[-1]], tolerance = 1e-10)),
+  all(is.na(attr(focal_now, "interaction_raw")[hv[-1], hv[-1]])),
+  all(attr(screened_now, "interaction_total")[["n_pairs"]] == 0L),
+  all(is.na(attr(screened_now, "interaction_total")[["yhat_raw"]])))
+attr(focal_now, "interaction_total")[c("var", "n_pairs", "coverage")]
+```
+
+| 计算范围 | x 的已计算配对 / 覆盖率 | z、group 各自的已计算配对 / 覆盖率 |
+|:--|:--|:--|
+| 全部配对 | 2 / 100% | 2 / 100% |
+| `int_var="x"` | 2 / 100% | 1 / 50% |
+| `pairwise_m=1` | 0 / 0% | 0 / 0% |
+
+`interaction_total` 新增 `n_pairs`、`coverage`。没有已计算配对时，原值与汇总分数是 NA；未计算不等于零交互。常量或未活跃变量已知为零的配对按其变量身份填入，不能让顺序错配。汇总是**可用配对之和**，不是 Friedman 总体 H²；覆盖不同时不能直接比较总分。
+
+`int_var` 只保留锚点与其余变量的 p−1 对，其他非对角元素为 NA；不能同时传 `pairwise_m`。hstats 1.2.2 可复用同一背景和缓存的边际量，其他版本或不支持的对象回退到完整计算后掩膜；本页只核对原始配对数值一致，没有给出新的加速倍数。`scale_interaction=TRUE` 时最大值基于当前保留配对，跨范围比较应读取 `interaction_raw`。
+
+### 缺失筛选、抽样和行级设置
+
+```r
+dh_missing <- dh
+dh_missing[["x"]][5] <- NA_real_
+weighted_now <- get_hstats(dh_missing, hv, surv = "Outcome", class = "Yes",
+  num.trees = 40, Num.sample = 100, case.weights = seq_len(nrow(dh_missing)),
+  hstats_args = list(grid_size = 10, n_max = 50),
+  seed = 621, verbose = FALSE, num.threads = 1)
+st <- attr(weighted_now, "settings")
+stopifnot(st[["n_input"]] == 120L, st[["n_complete"]] == 119L,
+          st[["n_train"]] == 100L, length(st[["train_rows"]]) == 100L,
+          !5L %in% st[["train_rows"]], all(st[["train_rows"]] %in% seq_len(120)))
+```
+
+`case.weights` 和每个 `inbag` 向量必须按**原始输入全部行**提供；函数随完整病例筛选、训练抽样同步取子集，不要提前裁短。`settings$train_rows` 给出保留行的原始位置，另记录输入、完整病例、训练和背景行数；`num.threads` 同时控制拟合与预测。成功或报错均恢复调用者 RNG。
+
+### 固定生存时点与 CHF 时间汇总
+
+```r
+ds_now <- dh[hv]
+ds_now[["time"]] <- rep(1:40, 3)
+ds_now[["DSS"]] <- rep(c(0L, 1L, 1L), 40)
+h_time <- get_hstats(ds_now, hv, surv = 13.5,
+  num.trees = 40, Num.sample = 120, importance = "impurity",
+  hstats_args = list(grid_size = 8, n_max = 40),
+  seed = 621, verbose = FALSE, num.threads = 1)
+ts <- attr(h_time, "settings")
+stopifnot(ts[["time_rule"]] == "right_continuous", ts[["target_time"]] == 13.5,
+          ts[["actual_time"]] <= 13.5,
+          ts[["actual_time"]] == max(c(0, ts[["time_grid"]][["actual"]][
+            ts[["time_grid"]][["actual"]] <= 13.5])))
+ts[c("target_time", "actual_time", "time_rule", "aggregation")]
+```
+
+固定时点使用 `t_grid <= t_target` 的最后一个网格值；早于首个时间时生存概率为 1，晚于最后时间时沿用最后值。`settings` 记录 `target_time`、`actual_time`、`time_rule` 和请求/实际时间网格。`surv=TRUE` 的 CHF 路线对记录时间上的 H² 作**算术平均**，不是按时间间隔加权。更改 `time.interest` 会改变预测和统计目标，不能把缩短时间网格描述为完全等价的计算优化。
+
+对角线的 ranger 重要性是模型整体的重要性，并非当前指定类别或固定时点专属的重要性。分类先在完整病例中确定类别，三类及以上需指定 `class`，抽样丢失请求类别会报错；生存先解析原始事件编码，再筛选抽样，训练集没有事件会提前报错。结局列、保留列名和歧义配对名称会被拒绝；不能用 `write.forest=FALSE` 等破坏后续预测的设置。
+
+<!-- /refresh-20261021: hstats_scope -->
 
 ## 参数调整、保存与使用边界 {#parameters}
 

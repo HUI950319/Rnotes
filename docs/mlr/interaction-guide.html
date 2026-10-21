@@ -1009,7 +1009,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <a href="../regr/get-score-optimization-20261007.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">get_score：Windows / WSL 实测与四项优化</span></a>
   </div>
 </li>
-<li class="sidebar-item">
+          <li class="sidebar-item">
   <div class="sidebar-item-container">
   <a href="../utilsr/fmt-optimization-20261018.html" class="sidebar-item-text sidebar-link"><span class="chapter-title">UtilsR：fmt_* 优化总结</span></a>
   </div>
@@ -1074,6 +1074,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#plt_viv网络阈值与节点" id="toc-plt_viv网络阈值与节点" class="nav-link" data-scroll-target="#plt_viv网络阈值与节点"><code>plt_viv()</code>：网络阈值与节点</a></li>
   <li><a href="#生存预测目标chf-与固定时间" id="toc-生存预测目标chf-与固定时间" class="nav-link" data-scroll-target="#生存预测目标chf-与固定时间">生存预测目标：CHF 与固定时间</a></li>
   <li><a href="#get_rfintpaired-vimp-路线" id="toc-get_rfintpaired-vimp-路线" class="nav-link" data-scroll-target="#get_rfintpaired-vimp-路线"><code>get_rfint()</code>：paired-VIMP 路线</a></li>
+  <li><a href="#hstats-20261021" id="toc-hstats-20261021" class="nav-link" data-scroll-target="#hstats-20261021">当前 H 统计量：配对覆盖、锚点与原始行位置</a></li>
   <li><a href="#parameters" id="toc-parameters" class="nav-link" data-scroll-target="#parameters">参数调整、保存与使用边界</a></li>
   <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">相关页面与源码</a></li>
   <li><a href="#targeted-current" id="toc-targeted-current" class="nav-link" data-scroll-target="#targeted-current">定向paired-VIMP与计算范围</a></li>
@@ -1104,7 +1105,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <div>
     <div class="quarto-title-meta-heading">修改于</div>
     <div class="quarto-title-meta-contents">
-      <p class="date-modified">2026年10月15日</p>
+      <p class="date-modified">2026年10月21日</p>
     </div>
   </div>
 
@@ -1196,7 +1197,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tbody>
 </table>
 <p>返回值是带行列变量名的数值矩阵：对角线为变量重要性，非对角线为交互强度。矩阵附带原始交互等属性；例如 <code>attr(h, "interaction_raw")</code> 可检查缩放前数值。<code>plt_viv()</code> 返回 ggplot，使用两套色标分别表示对角线与非对角线。</p>
-<p>H² 是预测尺度上的交互强度，不是交互 HR、置信区间或 P 值。<code>normalize = FALSE</code> 改成绝对量，<code>squared = FALSE</code> 改成 H，<code>scale_interaction</code> 仅控制最终展示缩放。数值 surv 使用森林实际时间网格，因此应检查所选时间附近的支持。</p>
+<p>H² 是预测尺度上的交互强度，不是交互 HR、置信区间或 P 值。<code>normalize = FALSE</code> 改成绝对量，<code>squared = FALSE</code> 改成 H，<code>scale_interaction</code> 仅控制最终展示缩放。数值 surv 使用所选时点之前最近的森林网格值（右连续阶梯），不取距离最近的未来网格；应检查所选时间附近的支持。</p>
 </section>
 <section id="h-统计量定义与展示缩放" class="level2">
 <h2 class="anchored" data-anchor-id="h-统计量定义与展示缩放">H 统计量：定义与展示缩放</h2>
@@ -1363,6 +1364,102 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 </section>
+<section id="hstats-20261021" class="level2">
+<h2 class="anchored" data-anchor-id="hstats-20261021">当前 H 统计量：配对覆盖、锚点与原始行位置</h2>
+<!-- refresh-20261021: hstats_scope -->
+<p>以下按已推送 MLR <code>8d94e59</code> 在 Windows / WSL R 4.4.3 执行，使用 120 行合成数据、40 棵树和小网格验证合同。<code>int_var</code> 是 <code>get_hstats()</code> 新增的焦点变量参数，与上方 <code>get_rfint()</code> 的同名参数分别生效。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MLR)</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">621</span>)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>dh <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">runif</span>(<span class="dv">120</span>), <span class="at">z =</span> <span class="fu">rnorm</span>(<span class="dv">120</span>),</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>                 <span class="at">group =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="dv">60</span>)))</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>dh[[<span class="st">"Outcome"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(<span class="dv">120</span>) <span class="sc">&lt;</span> <span class="fu">plogis</span>(</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  <span class="dv">2</span> <span class="sc">*</span> dh[[<span class="st">"x"</span>]] <span class="sc">+</span> dh[[<span class="st">"z"</span>]] <span class="sc">*</span> (dh[[<span class="st">"group"</span>]] <span class="sc">==</span> <span class="st">"B"</span>) <span class="sc">-</span> <span class="dv">1</span>), <span class="st">"Yes"</span>, <span class="st">"No"</span>),</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>))</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>hv <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>, <span class="st">"group"</span>)</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>h_now <span class="ot">&lt;-</span> <span class="cf">function</span>(...) <span class="fu">get_hstats</span>(dh, hv, <span class="at">surv =</span> <span class="st">"Outcome"</span>, <span class="at">class =</span> <span class="st">"Yes"</span>,</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">num.trees =</span> <span class="dv">40</span>, <span class="at">Num.sample =</span> <span class="dv">100</span>,</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">hstats_args =</span> <span class="fu">list</span>(<span class="at">approx =</span> <span class="cn">TRUE</span>, <span class="at">grid_size =</span> <span class="dv">10</span>, <span class="at">n_max =</span> <span class="dv">50</span>),</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">scale_interaction =</span> <span class="cn">FALSE</span>, <span class="at">order_by =</span> <span class="st">"none"</span>, <span class="at">seed =</span> <span class="dv">621</span>,</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">verbose =</span> <span class="cn">FALSE</span>, <span class="at">num.threads =</span> <span class="dv">1</span>, ...)</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">21</span>)</span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>rng_before <span class="ot">&lt;-</span> .Random.seed</span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>full_now <span class="ot">&lt;-</span> <span class="fu">h_now</span>()</span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>focal_now <span class="ot">&lt;-</span> <span class="fu">h_now</span>(<span class="at">int_var =</span> <span class="st">"x"</span>)</span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>screened_now <span class="ot">&lt;-</span> <span class="fu">h_now</span>(<span class="at">pairwise_m =</span> <span class="dv">1</span>L)</span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(rng_before, .Random.seed),</span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(<span class="fu">attr</span>(full_now, <span class="st">"interaction_raw"</span>)[<span class="st">"x"</span>, hv[<span class="sc">-</span><span class="dv">1</span>]],</span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>                   <span class="fu">attr</span>(focal_now, <span class="st">"interaction_raw"</span>)[<span class="st">"x"</span>, hv[<span class="sc">-</span><span class="dv">1</span>]], <span class="at">tolerance =</span> <span class="fl">1e-10</span>)),</span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">is.na</span>(<span class="fu">attr</span>(focal_now, <span class="st">"interaction_raw"</span>)[hv[<span class="sc">-</span><span class="dv">1</span>], hv[<span class="sc">-</span><span class="dv">1</span>]])),</span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">attr</span>(screened_now, <span class="st">"interaction_total"</span>)[[<span class="st">"n_pairs"</span>]] <span class="sc">==</span> <span class="dv">0</span>L),</span>
+<span id="cb14-24"><a href="#cb14-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">is.na</span>(<span class="fu">attr</span>(screened_now, <span class="st">"interaction_total"</span>)[[<span class="st">"yhat_raw"</span>]])))</span>
+<span id="cb14-25"><a href="#cb14-25" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(focal_now, <span class="st">"interaction_total"</span>)[<span class="fu">c</span>(<span class="st">"var"</span>, <span class="st">"n_pairs"</span>, <span class="st">"coverage"</span>)]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">计算范围</th>
+<th style="text-align: left;">x 的已计算配对 / 覆盖率</th>
+<th style="text-align: left;">z、group 各自的已计算配对 / 覆盖率</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">全部配对</td>
+<td style="text-align: left;">2 / 100%</td>
+<td style="text-align: left;">2 / 100%</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;"><code>int_var="x"</code></td>
+<td style="text-align: left;">2 / 100%</td>
+<td style="text-align: left;">1 / 50%</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><code>pairwise_m=1</code></td>
+<td style="text-align: left;">0 / 0%</td>
+<td style="text-align: left;">0 / 0%</td>
+</tr>
+</tbody>
+</table>
+<p><code>interaction_total</code> 新增 <code>n_pairs</code>、<code>coverage</code>。没有已计算配对时，原值与汇总分数是 NA；未计算不等于零交互。常量或未活跃变量已知为零的配对按其变量身份填入，不能让顺序错配。汇总是<strong>可用配对之和</strong>，不是 Friedman 总体 H²；覆盖不同时不能直接比较总分。</p>
+<p><code>int_var</code> 只保留锚点与其余变量的 p−1 对，其他非对角元素为 NA；不能同时传 <code>pairwise_m</code>。hstats 1.2.2 可复用同一背景和缓存的边际量，其他版本或不支持的对象回退到完整计算后掩膜；本页只核对原始配对数值一致，没有给出新的加速倍数。<code>scale_interaction=TRUE</code> 时最大值基于当前保留配对，跨范围比较应读取 <code>interaction_raw</code>。</p>
+<section id="缺失筛选抽样和行级设置" class="level3">
+<h3 class="anchored" data-anchor-id="缺失筛选抽样和行级设置">缺失筛选、抽样和行级设置</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>dh_missing <span class="ot">&lt;-</span> dh</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>dh_missing[[<span class="st">"x"</span>]][<span class="dv">5</span>] <span class="ot">&lt;-</span> <span class="cn">NA_real_</span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>weighted_now <span class="ot">&lt;-</span> <span class="fu">get_hstats</span>(dh_missing, hv, <span class="at">surv =</span> <span class="st">"Outcome"</span>, <span class="at">class =</span> <span class="st">"Yes"</span>,</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">num.trees =</span> <span class="dv">40</span>, <span class="at">Num.sample =</span> <span class="dv">100</span>, <span class="at">case.weights =</span> <span class="fu">seq_len</span>(<span class="fu">nrow</span>(dh_missing)),</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">hstats_args =</span> <span class="fu">list</span>(<span class="at">grid_size =</span> <span class="dv">10</span>, <span class="at">n_max =</span> <span class="dv">50</span>),</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">seed =</span> <span class="dv">621</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>, <span class="at">num.threads =</span> <span class="dv">1</span>)</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>st <span class="ot">&lt;-</span> <span class="fu">attr</span>(weighted_now, <span class="st">"settings"</span>)</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(st[[<span class="st">"n_input"</span>]] <span class="sc">==</span> <span class="dv">120</span>L, st[[<span class="st">"n_complete"</span>]] <span class="sc">==</span> <span class="dv">119</span>L,</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>          st[[<span class="st">"n_train"</span>]] <span class="sc">==</span> <span class="dv">100</span>L, <span class="fu">length</span>(st[[<span class="st">"train_rows"</span>]]) <span class="sc">==</span> <span class="dv">100</span>L,</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>          <span class="sc">!</span><span class="dv">5</span>L <span class="sc">%in%</span> st[[<span class="st">"train_rows"</span>]], <span class="fu">all</span>(st[[<span class="st">"train_rows"</span>]] <span class="sc">%in%</span> <span class="fu">seq_len</span>(<span class="dv">120</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>case.weights</code> 和每个 <code>inbag</code> 向量必须按<strong>原始输入全部行</strong>提供；函数随完整病例筛选、训练抽样同步取子集，不要提前裁短。<code>settings$train_rows</code> 给出保留行的原始位置，另记录输入、完整病例、训练和背景行数；<code>num.threads</code> 同时控制拟合与预测。成功或报错均恢复调用者 RNG。</p>
+</section>
+<section id="固定生存时点与-chf-时间汇总" class="level3">
+<h3 class="anchored" data-anchor-id="固定生存时点与-chf-时间汇总">固定生存时点与 CHF 时间汇总</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>ds_now <span class="ot">&lt;-</span> dh[hv]</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>ds_now[[<span class="st">"time"</span>]] <span class="ot">&lt;-</span> <span class="fu">rep</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">40</span>, <span class="dv">3</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>ds_now[[<span class="st">"DSS"</span>]] <span class="ot">&lt;-</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="dv">0</span>L, <span class="dv">1</span>L, <span class="dv">1</span>L), <span class="dv">40</span>)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>h_time <span class="ot">&lt;-</span> <span class="fu">get_hstats</span>(ds_now, hv, <span class="at">surv =</span> <span class="fl">13.5</span>,</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">num.trees =</span> <span class="dv">40</span>, <span class="at">Num.sample =</span> <span class="dv">120</span>, <span class="at">importance =</span> <span class="st">"impurity"</span>,</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">hstats_args =</span> <span class="fu">list</span>(<span class="at">grid_size =</span> <span class="dv">8</span>, <span class="at">n_max =</span> <span class="dv">40</span>),</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">seed =</span> <span class="dv">621</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>, <span class="at">num.threads =</span> <span class="dv">1</span>)</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>ts <span class="ot">&lt;-</span> <span class="fu">attr</span>(h_time, <span class="st">"settings"</span>)</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(ts[[<span class="st">"time_rule"</span>]] <span class="sc">==</span> <span class="st">"right_continuous"</span>, ts[[<span class="st">"target_time"</span>]] <span class="sc">==</span> <span class="fl">13.5</span>,</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>          ts[[<span class="st">"actual_time"</span>]] <span class="sc">&lt;=</span> <span class="fl">13.5</span>,</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>          ts[[<span class="st">"actual_time"</span>]] <span class="sc">==</span> <span class="fu">max</span>(<span class="fu">c</span>(<span class="dv">0</span>, ts[[<span class="st">"time_grid"</span>]][[<span class="st">"actual"</span>]][</span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>            ts[[<span class="st">"time_grid"</span>]][[<span class="st">"actual"</span>]] <span class="sc">&lt;=</span> <span class="fl">13.5</span>])))</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>ts[<span class="fu">c</span>(<span class="st">"target_time"</span>, <span class="st">"actual_time"</span>, <span class="st">"time_rule"</span>, <span class="st">"aggregation"</span>)]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>固定时点使用 <code>t_grid &lt;= t_target</code> 的最后一个网格值；早于首个时间时生存概率为 1，晚于最后时间时沿用最后值。<code>settings</code> 记录 <code>target_time</code>、<code>actual_time</code>、<code>time_rule</code> 和请求/实际时间网格。<code>surv=TRUE</code> 的 CHF 路线对记录时间上的 H² 作<strong>算术平均</strong>，不是按时间间隔加权。更改 <code>time.interest</code> 会改变预测和统计目标，不能把缩短时间网格描述为完全等价的计算优化。</p>
+<p>对角线的 ranger 重要性是模型整体的重要性，并非当前指定类别或固定时点专属的重要性。分类先在完整病例中确定类别，三类及以上需指定 <code>class</code>，抽样丢失请求类别会报错；生存先解析原始事件编码，再筛选抽样，训练集没有事件会提前报错。结局列、保留列名和歧义配对名称会被拒绝；不能用 <code>write.forest=FALSE</code> 等破坏后续预测的设置。</p>
+<!-- /refresh-20261021: hstats_scope -->
+</section>
+</section>
 <section id="parameters" class="level2">
 <h2 class="anchored" data-anchor-id="parameters">参数调整、保存与使用边界</h2>
 <table class="caption-top table">
@@ -1418,11 +1515,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </table>
 <p><code>heatmap_arg</code> / <code>network_arg</code> 支持命名 list 的局部覆盖。网络阈值作用于传入矩阵的当前尺度；把缩放关掉后仍沿用 0.7，可能得到完全不同的网络。阈值没有统计显著性的含义。</p>
 <p>本页所有图形先通过 <code>ggplot_build()</code>，再保存实际 PNG；颜色切换和布局切换复用同一矩阵。模型、预测输出或交互定义发生变化时需要重新计算，不能只换图例。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>raw <span class="ot">&lt;-</span> <span class="fu">attr</span>(h, <span class="st">"interaction_raw"</span>)</span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dim</span>(h)</span>
-<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">plt_viv</span>(h, <span class="at">mode =</span> <span class="st">"network"</span>, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">network_arg =</span> <span class="fu">list</span>(<span class="at">intThreshold =</span> <span class="fl">0.2</span>))</span>
-<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"interaction-network.pdf"</span>, p, <span class="at">width =</span> <span class="dv">9</span>, <span class="at">height =</span> <span class="dv">6</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>raw <span class="ot">&lt;-</span> <span class="fu">attr</span>(h, <span class="st">"interaction_raw"</span>)</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="fu">dim</span>(h)</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">plt_viv</span>(h, <span class="at">mode =</span> <span class="st">"network"</span>, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">network_arg =</span> <span class="fu">list</span>(<span class="at">intThreshold =</span> <span class="fl">0.2</span>))</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"interaction-network.pdf"</span>, p, <span class="at">width =</span> <span class="dv">9</span>, <span class="at">height =</span> <span class="dv">6</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="references" class="level2">
 <h2 class="anchored" data-anchor-id="references">相关页面与源码</h2>
@@ -1444,12 +1541,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
 <p>int_var与pairwise_m不能同时使用。p个变量只计算锚点与其余变量的p−1对；其他配对未计算，不能把矩阵空缺解释为无交互。每对的Var 1 VIMP来自该对自身的重复，不能假设与全配对一次调用完全相同。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261015</span>)</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>d_rfint_new <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>), <span class="at">z =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>), <span class="at">w =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>), <span class="at">u =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>))</span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>d_rfint_new<span class="sc">$</span>outcome <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(<span class="dv">180</span>) <span class="sc">&lt;</span> <span class="fu">plogis</span>(d_rfint_new<span class="sc">$</span>x <span class="sc">*</span> d_rfint_new<span class="sc">$</span>z), <span class="st">"Yes"</span>, <span class="st">"No"</span>))</span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>rf_target <span class="ot">&lt;-</span> <span class="fu">get_rfint</span>(d_rfint_new, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>, <span class="st">"w"</span>, <span class="st">"u"</span>), <span class="at">surv =</span> <span class="st">"outcome"</span>,</span>
-<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">int_var =</span> <span class="st">"x"</span>, <span class="at">num.trees =</span> <span class="dv">80</span>, <span class="at">nrep =</span> <span class="dv">2</span>, <span class="at">Num.sample =</span> <span class="dv">180</span>, <span class="at">seed =</span> <span class="dv">246</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_viv</span>(rf_target, <span class="at">mode =</span> <span class="st">"heatmap"</span>, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261015</span>)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>d_rfint_new <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>), <span class="at">z =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>), <span class="at">w =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>), <span class="at">u =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>))</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>d_rfint_new<span class="sc">$</span>outcome <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(<span class="dv">180</span>) <span class="sc">&lt;</span> <span class="fu">plogis</span>(d_rfint_new<span class="sc">$</span>x <span class="sc">*</span> d_rfint_new<span class="sc">$</span>z), <span class="st">"Yes"</span>, <span class="st">"No"</span>))</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>rf_target <span class="ot">&lt;-</span> <span class="fu">get_rfint</span>(d_rfint_new, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>, <span class="st">"w"</span>, <span class="st">"u"</span>), <span class="at">surv =</span> <span class="st">"outcome"</span>,</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">int_var =</span> <span class="st">"x"</span>, <span class="at">num.trees =</span> <span class="dv">80</span>, <span class="at">nrep =</span> <span class="dv">2</span>, <span class="at">Num.sample =</span> <span class="dv">180</span>, <span class="at">seed =</span> <span class="dv">246</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_viv</span>(rf_target, <span class="at">mode =</span> <span class="st">"heatmap"</span>, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><a href="images/interaction-guide/20261015-rfint-target.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="只计算锚点变量的paired-VIMP。"><img src="images/interaction-guide/20261015-rfint-target.png" class="img-fluid figure-img" alt="只计算锚点变量的paired-VIMP的固定输入参数对照实图。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/d8132957eff373ba2d4699b8c145ab83.webp"></a></p>
