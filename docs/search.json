@@ -10247,7 +10247,7 @@
     "href": "regr/model-evaluation-guide.html",
     "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
     "section": "",
-    "text": "数据准备与复现\n模型区分度、概率误差和拟合优度不是同一个指标。下面将模型拟合、评价人群、时间网格和汇总方式明确分开，展示 RegR 两条评价路线，以及一个固定留出集的实际比较。\n核对记录： 本次在WSL R 4.4.3实际执行固定模型、新队列重拟合及分期评分面板，并检查Word输出。外部队列接口与save功能已包含于2026-10-13复核的已推送基线 a3881fa；已推送basic_group示例及其他历史图表保留原输出。包版本仍为RegR 0.1.3，按提交与所加载接口核对。示例只演示接口，使用内部留出数据，不构成独立外部验证或临床效果结论。\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。",
+    "text": "当前 Cox 拟合提示与评价边界\n模型区分度、概率误差和拟合优度不是同一个指标。下面将模型拟合、评价人群、时间网格和汇总方式明确分开，展示 RegR 两条评价路线，以及一个固定留出集的实际比较。\n核对记录： 本次在WSL R 4.4.3实际执行固定模型、新队列重拟合及分期评分面板，并检查Word输出。外部队列接口与save功能已包含于2026-10-13复核的已推送基线 a3881fa；已推送basic_group示例及其他历史图表保留原输出。包版本仍为RegR 0.1.3，按提交与所加载接口核对。示例只演示接口，使用内部留出数据，不构成独立外部验证或临床效果结论。\n2026-10-21 按已推送 RegR 90ad6d8 的 R/utils-export.R 核对：get_fit() 的 Cox 路线现在对 NA 系数发出 RegR_aliased_coef 消息，说明未估计的设计列、常量或共线原因、实际公式和完整病例数。它增加诊断，不会自动恢复被省略的调整项，也不改变模型评价的训练／验证人群。\n进入 AUC、Brier 或新队列预测前，需检查 coef(fit_train) 中的 NA 和拟合消息，记录实际可估计的模型；不能仅凭返回一个模型对象就声称已调整所有请求变量。双平台诊断示例同时演示了正常返回的 Cox 与仍会在整理结果时报错的 Logistic 边界。本条只说明 get_fit() 的 Cox 路线，不把其他拟合器也视为具有相同提示；本页历史性能结果未因新增消息重新计算。",
     "crumbs": [
       "RegR · 临床回归",
       "模型评价与预测",
@@ -10258,8 +10258,8 @@
     "objectID": "regr/model-evaluation-guide.html#数据准备与复现",
     "href": "regr/model-evaluation-guide.html#数据准备与复现",
     "title": "模型评价：C-index、时点 AUC、Brier 与验证人群",
-    "section": "",
-    "text": "library(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
+    "section": "数据准备与复现",
+    "text": "数据准备与复现\n使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。stage 合并为 T1/T2 与其余分期，surgery 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。\nlibrary(RegR)\nlibrary(ggplot2)\nlibrary(survival)\ndata(\"seer_thyroid_mtc_2026\", package = \"RegR\")\nd &lt;- as.data.frame(seer_thyroid_mtc_2026)\nd[[\"DSS\"]] &lt;- as.integer(as.character(d[[\"DSS\"]]))\nd[[\"OS\"]] &lt;- as.integer(as.character(d[[\"OS\"]]))\nneeded &lt;- c(\"time\", \"DSS\", \"OS\", \"Age\", \"Tum\", \"Sex\", \"Race\", \"T_stage\", \"Sur\")\nd &lt;- d[complete.cases(d[needed]) & d[[\"time\"]] &gt; 0 &\n       d[[\"Tum\"]] &gt; 0 & d[[\"Tum\"]] &lt; 200, , drop = FALSE]\nd[[\"stage\"]] &lt;- factor(ifelse(d[[\"T_stage\"]] %in% c(\"T1\", \"T2\"), \"Early\", \"Other\"))\nd[[\"surgery\"]] &lt;- factor(ifelse(d[[\"Sur\"]] == \"No surgery\", \"No\", \"Yes\"),\n                          levels = c(\"No\", \"Yes\"))\nset.seed(20261001)\nd &lt;- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])",
     "crumbs": [
       "RegR · 临床回归",
       "模型评价与预测",
