@@ -1,13 +1,13 @@
 ---
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
-description: "lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照；23 个实际参数示例。"
+description: "lv、check_na 的选列返回、Unicode 与标签缺失计数，check_size 的大小单位和 HTML 条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：整词识别、正确计数与插补"
   topic: 数据准备与筛选
-  updated: 2026-10-20
+  updated: 2026-10-21
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -54,6 +54,7 @@ filled5 <- impute_na_knn(impute_input, k = 5, verbose = FALSE)
 | `plt_na()` | `miss_palette` | 前三色依次为存在、缺失和 30% 参考线；只显示存在 NA 的列 |
 | `plt_upset()` | `vars`、`levels=NA`、`output`、`label` | 把每列缺失行当作一个集合，查看联合缺失 |
 | `impute_na_knn()` | `k=5`、`verbose=TRUE` | k 为邻居数，不超过每个待插补变量的观察供体数；数字用距离加权均值 |
+| `check_size()` | `...`、`pattern=NULL` | 仅检查 `.GlobalEnv`；返回 gt，数值大小为 MB，HTML 显示大小条形 |
 | `check_system()` | `return_result=FALSE`、`show_warnings=FALSE` | 返回系统与 R 环境 list；WSL 结果描述 WSL 进程所在环境 |
 
 :::
@@ -404,7 +405,7 @@ data.frame(field = c("OS", "R version", "R platform"),
 
 ## 返回对象、保存与使用边界 {#output}
 
-`lv()` 和 `check_na()` 打印报告并不可见返回输入数据；选列后返回范围按实际调用核对，不能把返回对象误当报告表。`plt_na()` 有缺失时返回 ggplot/patchwork，无缺失时返回 NULL。`impute_na_knn()` 返回插补后的 data.frame/tibble，并保留原始观察值。本页表格捕获实际打印的 gt/gtsummary 结果，没有把 invisible(data) 冒充报告表。
+`lv()` 和 `check_na()` 打印报告并不可见返回完整输入数据；当前 `check_na()` 即使选列、重命名显示列或没有匹配列，也保留未选列、原列名和分组属性。返回对象不是报告表；要继续筛选数据应另外调用 `select()`。`plt_na()` 有缺失时返回 ggplot/patchwork，无缺失时返回 NULL。`impute_na_knn()` 返回插补后的 data.frame/tibble，并保留原始观察值。本页表格捕获实际打印的 gt/gtsummary 结果，没有把 invisible(data) 冒充报告表。
 
 KNN 是本次单次插补，缺失率图不能识别 MCAR/MAR/MNAR。预测建模时，供体、距离特征与预处理应在训练数据中确定；本接口示例是数据整理，未演示独立的训练/新数据转换器。未知编码、空串及特殊字符串先清洗，再决定是否纳入插补。
 
@@ -448,6 +449,92 @@ size
 
 UtilsR 的绘图本身不以 RegR 为硬依赖；当前 RegR 可用时才会提供尺寸提示和 `plot_size`，非空保存配置也需要它。缺少兼容 RegR 时，空保存配置仍可画图；此时不要假定图一定有 `plot_size`。本节使用的两包提交已一起验证，版本号相同不代表旧安装含有这些更新。
 
+## 当前检视：选列返回、标签缺失与小比例 {#inspection-20261021}
+
+以下新增示例按已推送 UtilsR `6536207` 在 Windows / WSL R 4.4.3 执行。上方历史插补与绘图示例保留原执行范围。
+
+<!-- refresh-20261021: inspection -->
+
+### 检视范围与返回范围
+
+`check_na()` 的选列只决定检查对象；分组 tibble 仍跨全部行检视，不按组分别计算。下面只展示四列，把 `note` 显示为 `Text`，返回的数据仍保留 `group`、原列名和分组。SPSS 用户缺失、`integer64` 缺失通过各自方法识别；本例需要 haven、labelled 和 bit64。
+
+```r
+library(UtilsR)
+d_quality <- dplyr::group_by(tibble::tibble(
+  group = factor(rep(c("A", "B"), each = 4)),
+  note = c("unknown", "not\tavailable", "\u00a0", "éunknown", "Canada", NA,
+           "known", "UNKNOWN missing"),
+  stage = factor(rep(c("I", "II"), 4), levels = c("I", "II", "Unknown")),
+  code = haven::labelled_spss(c(1, 99, 1, NA, 1, 99, 1, 1), na_values = 99),
+  score64 = bit64::as.integer64(c("1", NA, "3", "4", "5", "6", "7", "8"))
+), group)
+inspected <- check_na(d_quality, Text = note, stage, code, score64, show_all = TRUE)
+stopifnot(identical(inspected, d_quality), ncol(inspected) == 5L,
+          identical(levels(inspected[["stage"]]), c("I", "II", "Unknown")))
+```
+
+![实际打印的质量报告：Text 有 1 个缺失和 4 个特殊值，code 有 3 个缺失，未观察的 Unknown 因子水平不计数。](images/missing-guide/20261021-refresh-report-01.png){fig-alt="8行4个选中变量的原生质量报告，Text缺失1个、特殊值4个；code缺失3个，score64缺失1个，stage无问题。"}
+
+[查看原生 HTML 表](images/missing-guide/20261021-refresh-report-01.html)
+
+特殊字符串匹配不区分大小写，先合并 Unicode 空白，再按完整单词识别；空白串计入 blank。`éunknown` 和 `Canada` 不匹配，`UNKNOWN missing` 只计一次。`is.na()` 已识别的值只计缺失，不重复计入特殊值。未使用的因子水平既不计数，也不从返回数据删除。副标题统计有问题的**变量数**；脚注统计选中列的**单元格数**。
+
+### 很小的非零比例
+
+```r
+tiny <- data.frame(x = c(NA_real_, rep(1, 100000)), ok = rep(1, 100001))
+stopifnot(identical(check_na(tiny, show_all = TRUE), tiny))
+```
+
+![一个缺失值不会因四舍五入而显示为零。](images/missing-guide/20261021-refresh-report-02.png){fig-alt="100001行2列中仅一个缺失：单元格显示小于0.1%，总体显示小于0.01%，确实为零的列仍显示0.0%。"}
+
+颜色使用未四舍五入的比例；单元格显示 1 位小数、脚注显示 2 位，低于显示分辨率的正值分别写为 `<0.1%`、`<0.01%`。计数和数据点总数用 double 累加，保持整数显示；本页没有分配超大数据来演示容量上限。
+
+```r
+none <- check_na(d_quality, pattern = "^no_such_column$")
+clean <- check_na(d_quality, stage)
+stopifnot(identical(none, d_quality), identical(clean, d_quality),
+          identical(check_na(d_quality[0, ]), d_quality[0, ]))
+```
+
+无匹配列、零行、零列只提示并返回完整输入；`show_all=FALSE` 时无问题也不输出表。`pattern=""` 匹配所有列；非空 pattern 仍优先于 `...`。列名必须非空且唯一；选中列必须是一维，`show_all` 必须是单个非缺失逻辑值。`lv()` 复用同一套缺失和特殊值计数，默认摘要中的唯一值数按实际观察水平计算。
+
+### 全局对象大小与 HTML 条形
+
+`check_size()` 返回可继续用 gt 格式化的表。下面只创建两个唯一命名的演示对象，结束时清理这两个对象；不会检查整个工作区。
+
+```r
+size_table <- (function() {
+  nm <- paste0(basename(tempfile("size_demo_")), c("_small", "_large"))
+  list2env(stats::setNames(list(raw(64), raw(4096)), nm), .GlobalEnv)
+  on.exit(rm(list = nm, envir = .GlobalEnv), add = TRUE)
+  result <- check_size(c(nm, nm[[1]]))
+  by_index <- check_size(match(nm, ls(envir = .GlobalEnv, all.names = TRUE)))
+  empty <- check_size(character())
+  stopifnot(inherits(result, "gt_tbl"), nrow(result[["_data"]]) == 3L,
+            identical(result[["_data"]], by_index[["_data"]]),
+            nrow(empty[["_data"]]) == 0L,
+            is.numeric(result[["_data"]][["Size_bar"]]))
+  result
+})()
+gt::gtsave(size_table, file.path(tempdir(), "20261021-refresh-object-size.html"))
+stopifnot(!grepl("<div", gt::as_latex(size_table), fixed = TRUE),
+          !grepl("<svg", gt::as_raw_html(size_table), fixed = TRUE))
+```
+
+![两个演示对象的实际大小表，最大单个对象占满条形，总计也封顶为满宽。](images/missing-guide/20261021-refresh-object-size.png){fig-alt="check_size原生表：底层大小保持MB数值，显示自动选择B或KB单位；总计在首行，条形按最大单个对象缩放。"}
+
+[查看原生 HTML 表](images/missing-guide/20261021-refresh-object-size.html)
+
+字符名称不枚举整个工作区；数值下标对应 `ls(.GlobalEnv, all.names=TRUE)` 的排序，容易随工作区变化，通常优先传名称。重复名只读取一次；未匹配或显式空选择返回零行 gt。只查 `.GlobalEnv`，不会到父环境寻找同名对象。缺失或读取失败的对象会警告并跳过。
+
+`Size` / `Size_bar` 保持 MB 数值，显示列和副标题自动选择 B、KB、MB、GB；很小的正值不显示为 0 MB。HTML 条形按最大**单个对象**缩放，总计封顶 100%；其他格式保留大小文字。总计按首行位置识别，普通对象即使叫 `**TOTAL**` 也不套用总计样式。
+
+大小来自 `utils::object.size()`，不是进程占用或删除后能释放的内存；相加可能重复计算共享存储，也不能完整覆盖环境、闭包环境、外部指针及紧凑 ALTREP。每个绑定只读取一次，但读取 active binding 或 promise 仍会执行相应计算。
+
+<!-- /refresh-20261021: inspection -->
+
 ## 当前完整接口 {#interfaces}
 
 点击展开查看本次实际执行版本的参数及默认值。
@@ -483,6 +570,10 @@ function (data, vars = NULL, levels = c("Yes", "yes"), colors = NULL, output = c
     "text"), label_color = "black", label_size = 3.5, label_alpha = 0.6, venn.fill = c("gradient",
     "gradient_rev", "category", "none"), venn.alpha = 0.5, edge.color = "grey30", edge.size = 1,
     set.name.size = 4, set.labels = NULL)
+NULL
+
+check_size <-
+function (..., pattern = NULL)
 NULL
 
 check_system <-
