@@ -34,11 +34,122 @@ directory:
 
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
 
+## 当前核对：自动选分层变量与差异提示 {#check-target-20261022}
+
+<!-- update-20261022: check_target -->
+
+2026-10-22 按已推送 RegR `d24e8a0` 在 Windows / WSL R 4.4.3 核验。自 `22e4a3c` 起，公共函数由 `check_inter_facet()` 改名为 `check_inter()`，第二个形参由 `facet` 改为 `target`，旧名不是兼容别名。当前写法为 `check_inter(inter, target, cat_var=NULL, modifier=NULL)`；本页早期图表保留历史执行记录，已改名的调用需要新版 RegR。
+
+### 一个交互结果含多个修饰变量时
+
+```r
+library(RegR)
+set.seed(20261024)
+d_target <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B")), id = 1:50)
+d_target[["Age"]] <- rnorm(400, 55, 10)
+d_target[["Marker"]] <- 0.8 * (d_target[["Tx"]] == "Yes") + rnorm(400)
+t1 <- rexp(400, exp(0.7 * (d_target[["Tx"]] == "Yes") +
+  0.3 * (d_target[["Sex"]] == "Male") + 0.04 * (d_target[["Age"]] - 55)) / 80)
+t2 <- rexp(400, 1 / 130); tc <- rexp(400, 1 / 160)
+d_target[["time"]] <- pmin(t1, t2, tc) + 0.2
+d_target[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_target[["DSS"]] <- as.integer(d_target[["event"]] == 1L)
+d_target[["status"]] <- factor(d_target[["event"]], levels = 0:2)
+fit_sex_effect <- function(data, adjust = "Age", strategy = "interaction") {
+  get_eff(data, "Tx", sub_var = "Sex", adj_var = adjust, surv = TRUE,
+    subgroup_model = strategy, methods_haz = c("unadj", "direct"),
+    methods_sur = character(), all = NULL)
+}
+invisible(utils::capture.output(inter_many <- get_inter(d_target,
+  c("Tx", "Sex", "Site"), adj_var = "Age", surv = TRUE,
+  multicat_model = "separate")))
+eff_sex <- fit_sex_effect(d_target)
+invisible(utils::capture.output(facet_sex <- get_facet(d_target,
+  split_var = "Sex", cat_var = "Tx", adj_var = "Age", surv = TRUE,
+  method = "both", subgroup_model = "interaction")))
+eff_both <- get_eff(d_target, "Tx", sub_var = c("Sex", "Site"),
+  adj_var = "Age", surv = TRUE, subgroup_model = "interaction",
+  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
+
+from_eff <- check_inter(inter_many, target = eff_sex)
+from_facet <- check_inter(inter_many, target = facet_sex)
+explicit <- check_inter(inter_many, target = eff_sex,
+  cat_var = "Tx", modifier = "Sex")
+ambiguous <- tryCatch(check_inter(inter_many, eff_both), error = identity)
+stopifnot(isTRUE(from_eff[["consistent"]]), isTRUE(from_facet[["consistent"]]),
+  identical(from_eff[["modifier"]], "Sex"), identical(from_facet[["modifier"]], "Sex"),
+  identical(from_eff[["comparison"]], explicit[["comparison"]]),
+  inherits(ambiguous, "error"),
+  grepl("could not be inferred uniquely", conditionMessage(ambiguous), fixed = TRUE),
+  identical(names(formals(RegR::check_inter)), c("inter", "target", "cat_var", "modifier")))
+```
+
+上例显式用 `multicat_model="separate"` 生成 Tx×Sex、Tx×Site 逐对结果；当前默认的 `"interaction"` 只接受两个暴露。`target` 只按 Sex 分层时，函数自动选择 Sex。`get_facet()` 从分层列推断，`get_eff()` / `get_eff_cat()` 从 `sub_var` 推断。若两个候选修饰变量都出现在目标对象中，仍须明确写 `modifier="Sex"` 或 `"Site"`；它不会逐项猜选，也不会改成三重交互模型。
+
+### 差异提示来自单元模式，仍须回查分析设置
+
+```r
+invisible(utils::capture.output(inter_one <- get_inter(d_target,
+  c("Tx", "Sex"), adj_var = "Age", surv = TRUE)))
+d_reversed <- d_target
+d_reversed[["Tx"]] <- stats::relevel(d_reversed[["Tx"]], ref = "Yes")
+targets <- list(
+  reference = fit_sex_effect(d_reversed),
+  adjustment = fit_sex_effect(d_target, adjust = "Marker"),
+  cohort = fit_sex_effect(d_target[d_target[["Age"]] > 55, , drop = FALSE]),
+  separate = fit_sex_effect(d_target, strategy = "separate"))
+checks <- lapply(targets, function(x) check_inter(inter_one, target = x))
+printed <- lapply(checks, function(x) paste(trimws(utils::capture.output(print(x))),
+  collapse = " "))
+stopifnot(grepl("reference level", printed[["reference"]], fixed = TRUE),
+  grepl("different covariates", printed[["adjustment"]], fixed = TRUE),
+  grepl("different data", printed[["cohort"]], fixed = TRUE),
+  !grepl("hint:", printed[["separate"]], fixed = TRUE),
+  all(checks[["adjustment"]][["comparison"]][["status"]][
+    checks[["adjustment"]][["comparison"]][["method"]] == "unadj"] == "equal"))
+diagnostic_summary <- data.frame(
+  scenario = c("Reference reversed", "Adjustment changed", "Cohort changed", "Separate fits"),
+  equal = vapply(checks, function(x) sum(x[["comparison"]][["status"]] == "equal"), integer(1)),
+  different = vapply(checks, function(x) sum(x[["comparison"]][["status"]] == "different"), integer(1)),
+  same_model_expected = vapply(checks, function(x)
+    all(x[["comparison"]][["same_model_expected"]]), logical(1)),
+  hint = c("Reference level", "Covariates", "Data or models", "No cause inferred"),
+  row.names = NULL)
+gt::gtsave(gt::gt(diagnostic_summary),
+  file.path(tempdir(), "20261022-update-inter-diagnostics.html"))
+validation_values <- list(modifiers = c(from_eff[["modifier"]], from_facet[["modifier"]]),
+  inferred_cells = c(nrow(from_eff[["comparison"]]), nrow(from_facet[["comparison"]])),
+  ambiguity_rejected = inherits(ambiguous, "error"), diagnostics = diagnostic_summary)
+diagnostic_summary
+```
+
+![四个真实重拟合场景的核对摘要，提示随参考水平、调整项、队列及模型策略变化。](images/interaction-guide/20261022-update-inter-diagnostics.png){fig-alt="check_inter实际结果汇总：参考水平反转、调整集合改变、队列改变和分层重拟合四种场景，列出一致及不同单元数、same_model_expected和提示类别。"}
+
+[查看实际汇总 HTML](images/interaction-guide/20261022-update-inter-diagnostics.html)
+
+所有差异单元的效应与区间均近似倒数时，控制台提示参考水平可能相反；在 `same_model_expected=TRUE` 时，未调整一致、仅调整后不同提示调整集合可能不同，未调整也不同则提示数据或模型可能不同。上例分别重新拟合了这三种设置，没有手工改核对表。`same_model_expected=FALSE` 时不推测后两类原因，但仍可提示倒数模式。
+
+`hint:` 是控制台的辅助提示，不是错误原因的证明，也没有新增返回字段。`comparison` 仍保留 `inter_effect`、`facet_effect` 和 `missing_facet` 等名称；第二个形参改名不等于这些列也改名。`consistent` 只反映格式化显示单元，不能验证原始数据、浮点估计、交互 P、概率或人数。
+
+本例实际运行包含保护性暴露及 `NaNs produced` 的加性交互提示，另有旧绘图接口和曲线范围提示；这里读取的 HR 核对通过，不代表同一对象中的 RERI/AP/SI 也都有可用估计。
+
+| 目标结果 | 实际比较的内容 |
+|:--|:--|
+| `get_facet(split_var=...)` | 面板中暴露的简单效应；可带匹配的外层分层 |
+| `get_facet(cat_var_combine=...)` / `get_cat(cat_var_combine=...)` | 非参考联合组效应；get_cat 配对不比较星号 |
+| `get_eff(sub_var=...)` | 对应亚组水平行 |
+| `get_eff_cat(sub_var=..., sub_inter=...)` | 所选未调整及唯一调整模型行，见下方双模型示例 |
+
+`check_inter()` 无参数时按调用环境内的 `inter_*` / `facet_*` / `cat_*` 名称配对，不自动发现 `eff_*`；`get_eff()` / `get_eff_cat()` 应显式传入。多模型仍按 `sur`、`cif`、`log_<结局>` 配对，不合并不同模型的单元。逐项读取错误和 `unmatched`；不能把没有可比较单元当作一致。
+
+<!-- /update-20261022: check_target -->
+
 ## 当前核对：get_eff_cat 的 sub_inter 模型行 {#eff-cat-check-20261022}
 
 <!-- sync-20261022: inter_eff_cat -->
 
-2026-10-22 按已推送 RegR `70c3667` 在 Windows / WSL R 4.4.3 执行（RegR 2026-10-22 起改名为 `check_inter()`、第二个参数 `facet` 改为 `target`，下列代码已换用新名，输出不变）。`check_inter()` 现在可以把 `get_eff_cat()` 的逐层面板拆成模型后，与一个或多个 `get_inter()` 对照；不再把这种列表误当成不兼容的多模型结构。
+2026-10-22 按已推送 RegR `d24e8a0` 在 Windows / WSL R 4.4.3 重新执行以下新名称调用，20 个单元仍一致。`check_inter()` 可以把 `get_eff_cat()` 的逐层面板拆成模型后，与一个或多个 `get_inter()` 对照；不再把这种列表误当成不兼容的多模型结构。
 
 ```r
 library(RegR)
