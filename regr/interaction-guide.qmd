@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；包含 get_fit_ms 的多分类与连续变量整体检验，及 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
 date: 2026-10-09
-date-modified: 2026-10-21
+date-modified: 2026-10-22
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：亚组效应核对与导出"
   topic: 回归与生存分析
-  updated: 2026-10-21
+  updated: 2026-10-22
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -33,6 +33,59 @@ directory:
 **2026-10-02 更新：** [竞争风险绝对交互的 mets 优化](#cif-mets-update) 按 RegR 源码快照 `cefc1a5`、mets **1.3.13** 补充，包含默认 `delta` 与可选 `boot` 的真实结果、完整调用计时及可下载记录。该节更新了下文 Fine–Gray 区间的计算说明。
 
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
+
+## 当前核对：get_eff_cat 的 sub_inter 模型行 {#eff-cat-check-20261022}
+
+<!-- sync-20261022: inter_eff_cat -->
+
+2026-10-22 按已推送 RegR `70c3667` 在 Windows / WSL R 4.4.3 执行。`check_inter_facet()` 现在可以把 `get_eff_cat()` 的逐层面板拆成模型后，与一个或多个 `get_inter()` 对照；不再把这种列表误当成不兼容的多模型结构。
+
+```r
+library(RegR)
+set.seed(924)
+d_check_cat <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B", "C")), id = 1:60)
+d_check_cat[["Age"]] <- rnorm(720, 55, 10)
+t1 <- rexp(720, exp(0.4 * (d_check_cat[["Tx"]] == "Yes") +
+  0.2 * (d_check_cat[["Sex"]] == "Male") + 0.02 * (d_check_cat[["Age"]] - 55)) / 80)
+t2 <- rexp(720, 1 / 130); tc <- rexp(720, 1 / 160)
+d_check_cat[["time"]] <- pmin(t1, t2, tc) + 0.2
+d_check_cat[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_check_cat[["DSS"]] <- as.integer(d_check_cat[["event"]] == 1L)
+d_check_cat[["status"]] <- factor(d_check_cat[["event"]], levels = 0:2)
+models_cat <- list(`Cox model` = TRUE, `Fine-Gray model` = FALSE)
+cat_eff_checked <- get_eff_cat(d_check_cat, "Tx", sub_var = c("Sex", "Site"),
+  adj_var = list(Adjusted = "Age"), surv = models_cat, add_overall = TRUE,
+  sub_inter = c("Unadjusted", "Adjusted"))
+invisible(utils::capture.output(inter_sex_cat <- get_inter(d_check_cat, c("Tx", "Sex"),
+  adj_var = "Age", surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")))
+invisible(utils::capture.output(inter_site_cat <- get_inter(d_check_cat, c("Tx", "Site"),
+  adj_var = "Age", surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")))
+cat_checks <- check_inter_facet(list(sex = inter_sex_cat, site = inter_site_cat), cat_eff_checked)
+stopifnot(identical(names(cat_checks), c("sex$sur", "sex$cif", "site$sur", "site$cif")),
+  all(vapply(cat_checks, function(x) isTRUE(x[["consistent"]]), logical(1))),
+  all(vapply(cat_checks, function(x) all(x[["comparison"]][["same_model_expected"]]), logical(1))),
+  length(attr(cat_checks, "unmatched")) == 0L)
+validation_values <- data.frame(pair = names(cat_checks),
+  compared = vapply(cat_checks, function(x) nrow(x[["comparison"]]), integer(1)),
+  equal = vapply(cat_checks, function(x) sum(x[["comparison"]][["status"]] == "equal"), integer(1)))
+stopifnot(identical(unname(validation_values[["compared"]]), c(4L, 4L, 6L, 6L)),
+          sum(validation_values[["equal"]]) == 20L)
+validation_values
+```
+
+| 结果 | 比较单元 | 一致单元 |
+|:--|--:|--:|
+| `sex$sur` / `sex$cif` | 各 4 | 各 4 |
+| `site$sur` / `site$cif` | 各 6 | 各 6 |
+
+两种模型都实际拟合，Sex 两层、Site 三层各比较未调整和年龄调整效应，共 20 个显示单元。`get_eff_cat()` 可以使用可读模型名，核对器按模型类型对应 `sur`、`cif`，Logistic 则对应 `log_<结局列名>`。对 `cat_eff_checked` 的每一列亚组单独提取简单效应，Overall 面板不进入比较。
+
+本例显式把 `Unadjusted` 和唯一的 `Adjusted` 都列入 `sub_inter`，协变量与 `get_inter(adj_var="Age")` 相同。核对仅选择进入 `sub_inter` 的模型行，不比较其他调整模型、PS 行或绝对效应。未启用 `sub_inter` 的结果会要求重新拟合；同时选择多个调整模型则会报错，应先明确要与哪个调整集合对照。
+
+这里仍核对格式化效应与区间及其星号，不比较原始浮点值、交互 P、MS/RERI、概率或人数。每个配对单独返回状态，失败项与 `unmatched` 必须一起检查；不能只看列表长度。此前的 [get_eff 亚组核对](#inter-controls-20261021) 和 [get_cat 联合效应核对](#joint-cat-20261020)继续保留各自的输入和统计范围。
+
+<!-- /sync-20261022: inter_eff_cat -->
 
 ## 当前核对：get_eff 亚组与多个交互结果 {#inter-controls-20261021}
 
@@ -1405,7 +1458,7 @@ stopifnot(inherits(length_error, "error"),
 
 `inbag` 列表仍须符合 ranger 的逐树设置；本例每棵树在保留行上均使用一次，只用于验证传递，不是推荐的重采样设计，也不用于 OOB 误差。权重和 inbag 的统计含义由调用者决定；这里只同步行位置，不把它们迁移到回归、SHAP 或 HTE 分支。
 
-当前 MLR 支持 `int_var` 时，`get_int()` 自动只保留 Tx 的焦点配对；旧 MLR 没有该参数时会计算全矩阵。`hst_args` 仍默认关闭，需显式给列表启用。H² 是预测交互强度，画布 `score` 另做显示缩放；原值见 `results$hst` 的 `interaction_raw`，其覆盖率与固定时间规则见 [MLR 交互教程](../mlr/interaction-guide.qmd#hstats-20261021)。
+当前 MLR 支持 `int_var` 时，`get_int()` 向 paired-VIMP 和 H 统计量入口传递焦点变量；旧 MLR 没有该参数时会计算全矩阵。RegR `ea58a2b` 已把帮助中的旧“所有 H 配对都计算”说明同步到这条路线；MLR `71c2753` 还会直接构造焦点配对，但边际、补集及不兼容缓存的全配对回退仍可能占用计算，见[最新实测合同](../mlr/interaction-guide.qmd#hstats-compute-20261022)。`hst_args` 仍默认关闭，需显式给列表启用。H² 是预测交互强度，画布 `score` 另做显示缩放；原值见 `results$hst` 的 `interaction_raw`，其覆盖率与固定时间规则见 [MLR 交互教程](../mlr/interaction-guide.qmd#hstats-20261021)。
 
 <!-- /refresh-20261021: int_rows -->
 
