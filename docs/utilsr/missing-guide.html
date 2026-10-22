@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="lv 的选列摘要，check_na 返回的 gt 报告表、特殊值词表与 special 参数，Unicode 与标签缺失计数，check_size 的大小单位和 HTML 条形，以及缺失模式与 KNN 插补。">
+<meta name="description" content="lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。">
 
 <title>数据检视与缺失：摘要、缺失模式和 KNN 插补 – R 包开发笔记</title>
 <style>
@@ -1081,6 +1081,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#save-20261020" id="toc-save-20261020" class="nav-link" data-scroll-target="#save-20261020">当前按内容保存 PDF</a></li>
   <li><a href="#inspection-20261021" id="toc-inspection-20261021" class="nav-link" data-scroll-target="#inspection-20261021">当前检视：选列返回、标签缺失与小比例</a></li>
   <li><a href="#size-causes-20261022" id="toc-size-causes-20261022" class="nav-link" data-scroll-target="#size-causes-20261022">对象检视：零大小、排序与读取失败原因</a></li>
+  <li><a href="#size-environment-20261022" id="toc-size-environment-20261022" class="nav-link" data-scroll-target="#size-environment-20261022">当前对象大小：指定环境、共享存储与显示</a></li>
   <li><a href="#interfaces" id="toc-interfaces" class="nav-link" data-scroll-target="#interfaces">当前完整接口</a></li>
   <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">验证范围与参考</a></li>
   </ul>
@@ -1203,8 +1204,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tr>
 <tr class="even">
 <td style="text-align: left;"><code>check_size()</code></td>
-<td style="text-align: left;"><code>...</code>、<code>pattern=NULL</code></td>
-<td style="text-align: left;">仅检查 <code>.GlobalEnv</code>；返回 gt，数值大小为 MB，HTML 显示大小条形</td>
+<td style="text-align: left;"><code>...</code>、<code>pattern=NULL</code>、<code>envir=.GlobalEnv</code>、<code>method</code></td>
+<td style="text-align: left;">检查指定环境自身的绑定；默认 <code>object.size</code>，可选 <code>lobstr</code>；返回 gt，数值大小仍为 MB</td>
 </tr>
 <tr class="odd">
 <td style="text-align: left;"><code>check_system()</code></td>
@@ -2304,6 +2305,147 @@ N = 60</span></th>
 <!-- /sync-20261022: size_causes -->
 </section>
 </section>
+<section id="size-environment-20261022" class="level2">
+<h2 class="anchored" data-anchor-id="size-environment-20261022">当前对象大小：指定环境、共享存储与显示</h2>
+<!-- update-20261022: size_environment -->
+<p>2026-10-22 按已推送 UtilsR <code>3269981</code> 在 Windows / WSL R 4.4.3 核验。新增 <code>envir</code> 与 <code>method</code>，可以直接检查局部环境，不必把演示对象放进 <code>.GlobalEnv</code>。默认仍是 <code>.GlobalEnv</code> 与 <code>utils::object.size()</code>；<code>envir</code> 的父环境不会被搜索。</p>
+<section id="环境与选择同大小按名称排序" class="level3">
+<h3 class="anchored" data-anchor-id="环境与选择同大小按名称排序">环境与选择：同大小按名称排序</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(UtilsR)</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>size_env <span class="ot">&lt;-</span> <span class="fu">list2env</span>(<span class="fu">list</span>(<span class="at">big =</span> <span class="fu">raw</span>(<span class="dv">4096</span>), <span class="at">zeta =</span> <span class="fu">raw</span>(<span class="dv">32</span>),</span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">alpha =</span> <span class="fu">raw</span>(<span class="dv">32</span>), <span class="at">.hidden =</span> <span class="cn">NULL</span>), <span class="at">parent =</span> <span class="fu">baseenv</span>())</span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>local_sizes <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="at">envir =</span> size_env)</span>
+<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(local_sizes[[<span class="st">"_data"</span>]][[<span class="st">"Object"</span>]],</span>
+<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="st">"**TOTAL**"</span>, <span class="st">"big"</span>, <span class="st">"alpha"</span>, <span class="st">"zeta"</span>, <span class="st">".hidden"</span>)))</span>
+<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a>selected_names <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"zeta"</span>, <span class="st">"alpha"</span>, <span class="st">"zeta"</span>)</span>
+<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a>by_name <span class="ot">&lt;-</span> <span class="fu">check_size</span>(selected_names, <span class="at">envir =</span> size_env)</span>
+<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>by_index <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="fu">match</span>(selected_names,</span>
+<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ls</span>(size_env, <span class="at">all.names =</span> <span class="cn">TRUE</span>)), <span class="at">envir =</span> size_env)</span>
+<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(by_name[[<span class="st">"_data"</span>]], by_index[[<span class="st">"_data"</span>]]),</span>
+<span id="cb36-12"><a href="#cb36-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(by_name[[<span class="st">"_data"</span>]][[<span class="st">"Object"</span>]], <span class="fu">c</span>(<span class="st">"**TOTAL**"</span>, <span class="st">"alpha"</span>, <span class="st">"zeta"</span>)))</span>
+<span id="cb36-13"><a href="#cb36-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-14"><a href="#cb36-14" aria-hidden="true" tabindex="-1"></a>selection_warnings <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
+<span id="cb36-15"><a href="#cb36-15" aria-hidden="true" tabindex="-1"></a>pattern_size <span class="ot">&lt;-</span> <span class="fu">withCallingHandlers</span>(</span>
+<span id="cb36-16"><a href="#cb36-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">check_size</span>(<span class="fu">stop</span>(<span class="st">"this selection must not be evaluated"</span>),</span>
+<span id="cb36-17"><a href="#cb36-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">pattern =</span> <span class="st">"^big$"</span>, <span class="at">envir =</span> size_env), <span class="at">warning =</span> <span class="cf">function</span>(w) {</span>
+<span id="cb36-18"><a href="#cb36-18" aria-hidden="true" tabindex="-1"></a>      selection_warnings <span class="ot">&lt;&lt;-</span> <span class="fu">c</span>(selection_warnings, <span class="fu">conditionMessage</span>(w))</span>
+<span id="cb36-19"><a href="#cb36-19" aria-hidden="true" tabindex="-1"></a>      <span class="fu">invokeRestart</span>(<span class="st">"muffleWarning"</span>)</span>
+<span id="cb36-20"><a href="#cb36-20" aria-hidden="true" tabindex="-1"></a>    })</span>
+<span id="cb36-21"><a href="#cb36-21" aria-hidden="true" tabindex="-1"></a>not_inherited <span class="ot">&lt;-</span> <span class="fu">withCallingHandlers</span>(<span class="fu">check_size</span>(<span class="st">"mean"</span>, <span class="at">envir =</span> size_env),</span>
+<span id="cb36-22"><a href="#cb36-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">warning =</span> <span class="cf">function</span>(w) {</span>
+<span id="cb36-23"><a href="#cb36-23" aria-hidden="true" tabindex="-1"></a>    selection_warnings <span class="ot">&lt;&lt;-</span> <span class="fu">c</span>(selection_warnings, <span class="fu">conditionMessage</span>(w))</span>
+<span id="cb36-24"><a href="#cb36-24" aria-hidden="true" tabindex="-1"></a>    <span class="fu">invokeRestart</span>(<span class="st">"muffleWarning"</span>)</span>
+<span id="cb36-25"><a href="#cb36-25" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb36-26"><a href="#cb36-26" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">length</span>(selection_warnings) <span class="sc">==</span> <span class="dv">2</span>L,</span>
+<span id="cb36-27"><a href="#cb36-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">grepl</span>(<span class="st">"takes precedence"</span>, selection_warnings[[<span class="dv">1</span>]], <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb36-28"><a href="#cb36-28" aria-hidden="true" tabindex="-1"></a>  <span class="fu">nrow</span>(not_inherited[[<span class="st">"_data"</span>]]) <span class="sc">==</span> <span class="dv">0</span>L,</span>
+<span id="cb36-29"><a href="#cb36-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(pattern_size[[<span class="st">"_data"</span>]][[<span class="st">"Object"</span>]], <span class="fu">c</span>(<span class="st">"**TOTAL**"</span>, <span class="st">"big"</span>)))</span>
+<span id="cb36-30"><a href="#cb36-30" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(local_sizes, <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261022-update-size-environment.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/missing-guide/20261022-update-size-environment.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="只检查局部环境的四个对象，同大小的 alpha 与 zeta 按名称排序。"><img src="images/missing-guide/20261022-update-size-environment.png" class="img-fluid figure-img" alt="check_size局部环境原生表：big在前，同大小的alpha排在zeta之前，隐藏名称.hidden也被枚举；TOTAL为加粗汇总标签，底部说明估算方法。" loading="lazy" decoding="async" width="1044" height="410" srcset="../assets/figure-previews/637b2321f6bd8f15d8b7ecbaec66c0de.webp"></a></p>
+<figcaption>只检查局部环境的四个对象，同大小的 alpha 与 zeta 按名称排序。</figcaption>
+</figure>
+</div>
+<p><a href="images/missing-guide/20261022-update-size-environment.html">查看原生 HTML 表</a></p>
+<p>字符参数是对象名；数字参数是 <code>ls(envir, all.names=TRUE)</code> 中的名称下标，最后的显示顺序仍按大小降序、同大小按名称排序。<code>pattern</code> 优先于 <code>...</code>，两者同时提供会警告，且不会求值被覆盖的选择表达式。上例的父环境有 <code>mean</code>，但它不是 <code>size_env</code> 自身的绑定，因此返回空表并警告。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a>numeric_env <span class="ot">&lt;-</span> <span class="fu">list2env</span>(<span class="fu">list</span>(<span class="at">alpha =</span> <span class="fu">raw</span>(<span class="dv">8</span>), <span class="at">idx =</span> <span class="dv">1</span>L), <span class="at">parent =</span> <span class="fu">baseenv</span>())</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>index_warning <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>index_result <span class="ot">&lt;-</span> <span class="fu">withCallingHandlers</span>(</span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">evalq</span>(UtilsR<span class="sc">::</span><span class="fu">check_size</span>(idx, <span class="at">envir =</span> <span class="fu">environment</span>()), numeric_env),</span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">warning =</span> <span class="cf">function</span>(w) {</span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a>    index_warning <span class="ot">&lt;&lt;-</span> <span class="fu">c</span>(index_warning, <span class="fu">conditionMessage</span>(w))</span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">invokeRestart</span>(<span class="st">"muffleWarning"</span>)</span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb37-9"><a href="#cb37-9" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">length</span>(index_warning) <span class="sc">==</span> <span class="dv">1</span>L,</span>
+<span id="cb37-10"><a href="#cb37-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">grepl</span>(<span class="st">"used as object indices"</span>, index_warning, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb37-11"><a href="#cb37-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(index_result[[<span class="st">"_data"</span>]][[<span class="st">"Object"</span>]], <span class="fu">c</span>(<span class="st">"**TOTAL**"</span>, <span class="st">"alpha"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>从被检查环境内传入裸数字变量时，函数会提醒它被用作下标；它不会因此改成检查该变量本身。要检查变量 <code>idx</code> 的大小，写 <code>check_size("idx", envir=numeric_env)</code>。从其他环境传入数字选择器未必触发这条提醒，建议一直显式引用对象名。</p>
+</section>
+<section id="共享存储总计可以小于各行之和" class="level3">
+<h3 class="anchored" data-anchor-id="共享存储总计可以小于各行之和">共享存储：总计可以小于各行之和</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">requireNamespace</span>(<span class="st">"lobstr"</span>, <span class="at">quietly =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb38-2"><a href="#cb38-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261022</span>)</span>
+<span id="cb38-3"><a href="#cb38-3" aria-hidden="true" tabindex="-1"></a>shared <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(<span class="dv">10000</span>)</span>
+<span id="cb38-4"><a href="#cb38-4" aria-hidden="true" tabindex="-1"></a>shared_env <span class="ot">&lt;-</span> <span class="fu">list2env</span>(<span class="fu">list</span>(<span class="at">x =</span> shared, <span class="at">y =</span> <span class="fu">list</span>(shared, shared)),</span>
+<span id="cb38-5"><a href="#cb38-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">parent =</span> <span class="fu">baseenv</span>())</span>
+<span id="cb38-6"><a href="#cb38-6" aria-hidden="true" tabindex="-1"></a>ordinary <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="at">envir =</span> shared_env)</span>
+<span id="cb38-7"><a href="#cb38-7" aria-hidden="true" tabindex="-1"></a>deduplicated <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="at">envir =</span> shared_env, <span class="at">method =</span> <span class="st">"lobstr"</span>)</span>
+<span id="cb38-8"><a href="#cb38-8" aria-hidden="true" tabindex="-1"></a>size_data <span class="ot">&lt;-</span> deduplicated[[<span class="st">"_data"</span>]]</span>
+<span id="cb38-9"><a href="#cb38-9" aria-hidden="true" tabindex="-1"></a>expected_total <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(lobstr<span class="sc">::</span><span class="fu">obj_size</span>(</span>
+<span id="cb38-10"><a href="#cb38-10" aria-hidden="true" tabindex="-1"></a>  shared_env[[<span class="st">"x"</span>]], shared_env[[<span class="st">"y"</span>]], <span class="at">env =</span> shared_env)) <span class="sc">/</span> <span class="dv">1024</span><span class="sc">^</span><span class="dv">2</span></span>
+<span id="cb38-11"><a href="#cb38-11" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(size_data[[<span class="st">"Size"</span>]][[<span class="dv">1</span>]], expected_total)),</span>
+<span id="cb38-12"><a href="#cb38-12" aria-hidden="true" tabindex="-1"></a>  size_data[[<span class="st">"Size"</span>]][[<span class="dv">1</span>]] <span class="sc">&lt;</span> <span class="fu">sum</span>(size_data[[<span class="st">"Size"</span>]][<span class="sc">-</span><span class="dv">1</span>]),</span>
+<span id="cb38-13"><a href="#cb38-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(ordinary[[<span class="st">"_data"</span>]][[<span class="st">"Size"</span>]][[<span class="dv">1</span>]],</span>
+<span id="cb38-14"><a href="#cb38-14" aria-hidden="true" tabindex="-1"></a>    <span class="fu">sum</span>(ordinary[[<span class="st">"_data"</span>]][[<span class="st">"Size"</span>]][<span class="sc">-</span><span class="dv">1</span>]))))</span>
+<span id="cb38-15"><a href="#cb38-15" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(ordinary, <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261022-update-size-object.html"</span>))</span>
+<span id="cb38-16"><a href="#cb38-16" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(deduplicated, <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261022-update-size-lobstr.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-9-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-1" role="tab" aria-controls="tabset-9-1" aria-selected="true" href="">object.size：逐行估算求和</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-9-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-2" role="tab" aria-controls="tabset-9-2" aria-selected="false" href="">lobstr：总计去除共享存储</a></li></ul>
+<div class="tab-content">
+<div id="tabset-9-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-9-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/missing-guide/20261022-update-size-object.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="默认方法对 x 和引用它两次的 y 分别估算，再求和。"><img src="images/missing-guide/20261022-update-size-object.png" class="img-fluid figure-img" alt="默认object.size原生表：每个对象单独估算，TOTAL为各行估算之和，共享向量可能被重复计算。" loading="lazy" decoding="async" width="1044" height="305" srcset="../assets/figure-previews/03d23e200751dfcc2beef61e53c76489.webp"></a></p>
+<figcaption>默认方法对 x 和引用它两次的 y 分别估算，再求和。</figcaption>
+</figure>
+</div>
+<p><a href="images/missing-guide/20261022-update-size-object.html">查看原生 HTML 表</a></p>
+</div>
+<div id="tabset-9-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-9-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/missing-guide/20261022-update-size-lobstr.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="lobstr 的 TOTAL 联合计量共享对象，小于各行之和。"><img src="images/missing-guide/20261022-update-size-lobstr.png" class="img-fluid figure-img" alt="lobstr原生表：x与包含两次x的列表y共享同一向量，TOTAL按共享存储只计一次，小于各个对象行大小之和。" loading="lazy" decoding="async" width="891" height="305" srcset="../assets/figure-previews/775fb05e2d4a549aadb67ee9b0b49130.webp"></a></p>
+<figcaption>lobstr 的 TOTAL 联合计量共享对象，小于各行之和。</figcaption>
+</figure>
+</div>
+<p><a href="images/missing-guide/20261022-update-size-lobstr.html">查看原生 HTML 表</a></p>
+</div>
+</div>
+</div>
+<p><code>method="lobstr"</code> 需要另装 lobstr。它会计入对象捕获的部分环境，排除本次 <code>envir</code>、全局/基础环境及命名空间；也能识别紧凑 ALTREP 表示。两种方法的统计口径不同，不应把总计差值当作释放内存或进程内存；深层嵌套对象使用 lobstr 还可能更慢。每次调用对每个选中绑定仍只读取一次，active binding 和 promise 的计算副作用仍然存在。</p>
+</section>
+<section id="背景用对数尺度条形仍按原始大小" class="level3">
+<h3 class="anchored" data-anchor-id="背景用对数尺度条形仍按原始大小">背景用对数尺度，条形仍按原始大小</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>spread_env <span class="ot">&lt;-</span> <span class="fu">list2env</span>(<span class="fu">list</span>(<span class="at">large =</span> <span class="fu">raw</span>(<span class="fl">1e7</span>), <span class="at">medium =</span> <span class="fu">raw</span>(<span class="fl">1e6</span>),</span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">small =</span> <span class="fu">raw</span>(<span class="fl">1e5</span>), <span class="at">tiny =</span> <span class="fu">raw</span>(<span class="fl">1e4</span>)), <span class="at">parent =</span> <span class="fu">baseenv</span>())</span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a>spread_sizes <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="at">envir =</span> spread_env)</span>
+<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a>size_colors <span class="ot">&lt;-</span> <span class="cf">function</span>(tbl) {</span>
+<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a>  cells <span class="ot">&lt;-</span> <span class="fu">grep</span>(<span class="st">'headers="Size_fmt"'</span>,</span>
+<span id="cb39-6"><a href="#cb39-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">strsplit</span>(gt<span class="sc">::</span><span class="fu">as_raw_html</span>(tbl), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="at">fixed =</span> <span class="cn">TRUE</span>)[[<span class="dv">1</span>]], <span class="at">value =</span> <span class="cn">TRUE</span>)[<span class="sc">-</span><span class="dv">1</span>]</span>
+<span id="cb39-7"><a href="#cb39-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sub</span>(<span class="st">'.*background-color: (#[0-9A-Fa-f]{6}).*'</span>, <span class="st">"</span><span class="sc">\\</span><span class="st">1"</span>, cells)</span>
+<span id="cb39-8"><a href="#cb39-8" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb39-9"><a href="#cb39-9" aria-hidden="true" tabindex="-1"></a>colors <span class="ot">&lt;-</span> <span class="fu">size_colors</span>(spread_sizes)</span>
+<span id="cb39-10"><a href="#cb39-10" aria-hidden="true" tabindex="-1"></a>equal_sizes <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="at">envir =</span> <span class="fu">list2env</span>(<span class="fu">list</span>(<span class="at">b =</span> <span class="fu">raw</span>(<span class="dv">32</span>), <span class="at">a =</span> <span class="fu">raw</span>(<span class="dv">32</span>))))</span>
+<span id="cb39-11"><a href="#cb39-11" aria-hidden="true" tabindex="-1"></a>zero_sizes <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="at">envir =</span> <span class="fu">list2env</span>(<span class="fu">list</span>(<span class="at">a =</span> <span class="cn">NULL</span>, <span class="at">b =</span> <span class="cn">NULL</span>)))</span>
+<span id="cb39-12"><a href="#cb39-12" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(colors[<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">4</span>)], <span class="fu">c</span>(<span class="st">"#FF0000"</span>, <span class="st">"#FFFFFF"</span>)),</span>
+<span id="cb39-13"><a href="#cb39-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">diff</span>(<span class="fu">strtoi</span>(<span class="fu">substr</span>(colors, <span class="dv">4</span>, <span class="dv">5</span>), <span class="dv">16</span>L)) <span class="sc">&gt;</span> <span class="dv">0</span>),</span>
+<span id="cb39-14"><a href="#cb39-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">size_colors</span>(equal_sizes), <span class="fu">rep</span>(<span class="st">"#FF0000"</span>, <span class="dv">2</span>)),</span>
+<span id="cb39-15"><a href="#cb39-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">size_colors</span>(zero_sizes), <span class="fu">rep</span>(<span class="st">"#FFFFFF"</span>, <span class="dv">2</span>)))</span>
+<span id="cb39-16"><a href="#cb39-16" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(spread_sizes, <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261022-update-size-log.html"</span>))</span>
+<span id="cb39-17"><a href="#cb39-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb39-18"><a href="#cb39-18" aria-hidden="true" tabindex="-1"></a>overhead <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(utils<span class="sc">::</span><span class="fu">object.size</span>(<span class="fu">raw</span>()))</span>
+<span id="cb39-19"><a href="#cb39-19" aria-hidden="true" tabindex="-1"></a>unit_sizes <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="at">envir =</span> <span class="fu">list2env</span>(<span class="fu">list</span>(</span>
+<span id="cb39-20"><a href="#cb39-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">kb =</span> <span class="fu">raw</span>(<span class="dv">1024</span> <span class="sc">-</span> overhead), <span class="at">mb =</span> <span class="fu">raw</span>(<span class="dv">1024</span><span class="sc">^</span><span class="dv">2</span> <span class="sc">-</span> overhead))))</span>
+<span id="cb39-21"><a href="#cb39-21" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(unit_sizes[[<span class="st">"_data"</span>]][[<span class="st">"Size_fmt"</span>]][<span class="sc">-</span><span class="dv">1</span>],</span>
+<span id="cb39-22"><a href="#cb39-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="st">"1.00 MB"</span>, <span class="st">"1.00 KB"</span>)))</span>
+<span id="cb39-23"><a href="#cb39-23" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">selected =</span> by_name[[<span class="st">"_data"</span>]][[<span class="st">"Object"</span>]][<span class="sc">-</span><span class="dv">1</span>],</span>
+<span id="cb39-24"><a href="#cb39-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">environment_warnings =</span> <span class="fu">length</span>(selection_warnings),</span>
+<span id="cb39-25"><a href="#cb39-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">bare_numeric_warning =</span> <span class="fu">length</span>(index_warning),</span>
+<span id="cb39-26"><a href="#cb39-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">lobstr_total_mb =</span> size_data[[<span class="st">"Size"</span>]][[<span class="dv">1</span>]],</span>
+<span id="cb39-27"><a href="#cb39-27" aria-hidden="true" tabindex="-1"></a>  <span class="at">lobstr_rows_mb =</span> <span class="fu">sum</span>(size_data[[<span class="st">"Size"</span>]][<span class="sc">-</span><span class="dv">1</span>]), <span class="at">colors =</span> colors,</span>
+<span id="cb39-28"><a href="#cb39-28" aria-hidden="true" tabindex="-1"></a>  <span class="at">unit_labels =</span> unit_sizes[[<span class="st">"_data"</span>]][[<span class="st">"Size_fmt"</span>]][<span class="sc">-</span><span class="dv">1</span>])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/missing-guide/20261022-update-size-log.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="跨三个数量级的四个对象用渐进背景显示，条形仍保留实际大小比例。"><img src="images/missing-guide/20261022-update-size-log.png" class="img-fluid figure-img" alt="原生对象大小表：大小背景按log10字节加1映射，9.54MB至9.81KB逐渐变浅；绿色条形仍按最大单个对象的原始大小线性缩放。" loading="lazy" decoding="async" width="1044" height="410" srcset="../assets/figure-previews/b12b1de0a351da86f55e12a13eb70591.webp"></a></p>
+<figcaption>跨三个数量级的四个对象用渐进背景显示，条形仍保留实际大小比例。</figcaption>
+</figure>
+</div>
+<p><a href="images/missing-guide/20261022-update-size-log.html">查看原生 HTML 表</a></p>
+<p>背景按本表对象的 <code>log10(bytes+1)</code> 范围映射，不是跨表统一的绝对阈值。单个正大小对象或全部同大小对象显示红色，全部为零显示白色；颜色本身不表示内存告警。大小条形和总计封顶规则不变。显示单位在舍入为 1024 前切换，底层 <code>Size</code> 始终以 MB（1024² 字节）记录，不能从显示字符串反推精确字节数。</p>
+<!-- /update-20261022: size_environment -->
+</section>
+</section>
 <section id="interfaces" class="level2">
 <h2 class="anchored" data-anchor-id="interfaces">当前完整接口</h2>
 <p>点击展开查看本次实际执行版本的参数及默认值。</p>
@@ -2311,42 +2453,42 @@ N = 60</span></th>
 <summary>
 公共函数签名
 </summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>lv <span class="ot">&lt;-</span></span>
-<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ...)</span>
-<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a>lv.data.frame <span class="ot">&lt;-</span></span>
-<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">group =</span> <span class="cn">NULL</span>, <span class="at">count =</span> <span class="cn">NULL</span>, <span class="at">cat_args =</span> <span class="fu">list</span>())</span>
-<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>check_na <span class="ot">&lt;-</span></span>
-<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">special =</span> <span class="cn">NULL</span>, <span class="at">show_all =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb36-12"><a href="#cb36-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-13"><a href="#cb36-13" aria-hidden="true" tabindex="-1"></a>plt_na <span class="ot">&lt;-</span></span>
-<span id="cb36-14"><a href="#cb36-14" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">name.map =</span> <span class="cn">NULL</span>, <span class="at">miss_palette =</span> <span class="fu">as.character</span>(pal_lancet[<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">3</span>)]), <span class="at">output =</span> <span class="fu">c</span>(<span class="st">"both"</span>,</span>
-<span id="cb36-15"><a href="#cb36-15" aria-hidden="true" tabindex="-1"></a>    <span class="st">"both_reverse"</span>, <span class="st">"matrix"</span>, <span class="st">"percentage"</span>), <span class="at">sort =</span> <span class="fu">c</span>(<span class="st">"desc"</span>, <span class="st">"asc"</span>), <span class="at">save =</span> <span class="fu">list</span>())</span>
-<span id="cb36-16"><a href="#cb36-16" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb36-17"><a href="#cb36-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-18"><a href="#cb36-18" aria-hidden="true" tabindex="-1"></a>impute_na_knn <span class="ot">&lt;-</span></span>
-<span id="cb36-19"><a href="#cb36-19" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">k =</span> <span class="dv">5</span>, <span class="at">verbose =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb36-20"><a href="#cb36-20" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb36-21"><a href="#cb36-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-22"><a href="#cb36-22" aria-hidden="true" tabindex="-1"></a>plt_upset <span class="ot">&lt;-</span></span>
-<span id="cb36-23"><a href="#cb36-23" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">vars =</span> <span class="cn">NULL</span>, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"yes"</span>), <span class="at">colors =</span> <span class="cn">NULL</span>, <span class="at">output =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"venn"</span>,</span>
-<span id="cb36-24"><a href="#cb36-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"upset"</span>, <span class="st">"data"</span>, <span class="st">"all"</span>), <span class="at">label =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"count"</span>, <span class="st">"percent"</span>, <span class="st">"none"</span>), <span class="at">label_geom =</span> <span class="fu">c</span>(<span class="st">"label"</span>,</span>
-<span id="cb36-25"><a href="#cb36-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"text"</span>), <span class="at">label_color =</span> <span class="st">"black"</span>, <span class="at">label_size =</span> <span class="fl">3.5</span>, <span class="at">label_alpha =</span> <span class="fl">0.6</span>, <span class="at">venn.fill =</span> <span class="fu">c</span>(<span class="st">"gradient"</span>,</span>
-<span id="cb36-26"><a href="#cb36-26" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gradient_rev"</span>, <span class="st">"category"</span>, <span class="st">"none"</span>), <span class="at">venn.alpha =</span> <span class="fl">0.5</span>, <span class="at">edge.color =</span> <span class="st">"grey30"</span>, <span class="at">edge.size =</span> <span class="dv">1</span>,</span>
-<span id="cb36-27"><a href="#cb36-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">set.name.size =</span> <span class="dv">4</span>, <span class="at">set.labels =</span> <span class="cn">NULL</span>)</span>
-<span id="cb36-28"><a href="#cb36-28" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb36-29"><a href="#cb36-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-30"><a href="#cb36-30" aria-hidden="true" tabindex="-1"></a>check_size <span class="ot">&lt;-</span></span>
-<span id="cb36-31"><a href="#cb36-31" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (..., <span class="at">pattern =</span> <span class="cn">NULL</span>)</span>
-<span id="cb36-32"><a href="#cb36-32" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb36-33"><a href="#cb36-33" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb36-34"><a href="#cb36-34" aria-hidden="true" tabindex="-1"></a>check_system <span class="ot">&lt;-</span></span>
-<span id="cb36-35"><a href="#cb36-35" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (<span class="at">return_result =</span> <span class="cn">FALSE</span>, <span class="at">show_warnings =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb36-36"><a href="#cb36-36" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb40"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a>lv <span class="ot">&lt;-</span></span>
+<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ...)</span>
+<span id="cb40-3"><a href="#cb40-3" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb40-4"><a href="#cb40-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-5"><a href="#cb40-5" aria-hidden="true" tabindex="-1"></a>lv.data.frame <span class="ot">&lt;-</span></span>
+<span id="cb40-6"><a href="#cb40-6" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">group =</span> <span class="cn">NULL</span>, <span class="at">count =</span> <span class="cn">NULL</span>, <span class="at">cat_args =</span> <span class="fu">list</span>())</span>
+<span id="cb40-7"><a href="#cb40-7" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb40-8"><a href="#cb40-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-9"><a href="#cb40-9" aria-hidden="true" tabindex="-1"></a>check_na <span class="ot">&lt;-</span></span>
+<span id="cb40-10"><a href="#cb40-10" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">special =</span> <span class="cn">NULL</span>, <span class="at">show_all =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb40-11"><a href="#cb40-11" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb40-12"><a href="#cb40-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-13"><a href="#cb40-13" aria-hidden="true" tabindex="-1"></a>plt_na <span class="ot">&lt;-</span></span>
+<span id="cb40-14"><a href="#cb40-14" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">name.map =</span> <span class="cn">NULL</span>, <span class="at">miss_palette =</span> <span class="fu">as.character</span>(pal_lancet[<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">3</span>)]), <span class="at">output =</span> <span class="fu">c</span>(<span class="st">"both"</span>,</span>
+<span id="cb40-15"><a href="#cb40-15" aria-hidden="true" tabindex="-1"></a>    <span class="st">"both_reverse"</span>, <span class="st">"matrix"</span>, <span class="st">"percentage"</span>), <span class="at">sort =</span> <span class="fu">c</span>(<span class="st">"desc"</span>, <span class="st">"asc"</span>), <span class="at">save =</span> <span class="fu">list</span>())</span>
+<span id="cb40-16"><a href="#cb40-16" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb40-17"><a href="#cb40-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-18"><a href="#cb40-18" aria-hidden="true" tabindex="-1"></a>impute_na_knn <span class="ot">&lt;-</span></span>
+<span id="cb40-19"><a href="#cb40-19" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">k =</span> <span class="dv">5</span>, <span class="at">verbose =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb40-20"><a href="#cb40-20" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb40-21"><a href="#cb40-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-22"><a href="#cb40-22" aria-hidden="true" tabindex="-1"></a>plt_upset <span class="ot">&lt;-</span></span>
+<span id="cb40-23"><a href="#cb40-23" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">vars =</span> <span class="cn">NULL</span>, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"yes"</span>), <span class="at">colors =</span> <span class="cn">NULL</span>, <span class="at">output =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"venn"</span>,</span>
+<span id="cb40-24"><a href="#cb40-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"upset"</span>, <span class="st">"data"</span>, <span class="st">"all"</span>), <span class="at">label =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"count"</span>, <span class="st">"percent"</span>, <span class="st">"none"</span>), <span class="at">label_geom =</span> <span class="fu">c</span>(<span class="st">"label"</span>,</span>
+<span id="cb40-25"><a href="#cb40-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"text"</span>), <span class="at">label_color =</span> <span class="st">"black"</span>, <span class="at">label_size =</span> <span class="fl">3.5</span>, <span class="at">label_alpha =</span> <span class="fl">0.6</span>, <span class="at">venn.fill =</span> <span class="fu">c</span>(<span class="st">"gradient"</span>,</span>
+<span id="cb40-26"><a href="#cb40-26" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gradient_rev"</span>, <span class="st">"category"</span>, <span class="st">"none"</span>), <span class="at">venn.alpha =</span> <span class="fl">0.5</span>, <span class="at">edge.color =</span> <span class="st">"grey30"</span>, <span class="at">edge.size =</span> <span class="dv">1</span>,</span>
+<span id="cb40-27"><a href="#cb40-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">set.name.size =</span> <span class="dv">4</span>, <span class="at">set.labels =</span> <span class="cn">NULL</span>)</span>
+<span id="cb40-28"><a href="#cb40-28" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb40-29"><a href="#cb40-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-30"><a href="#cb40-30" aria-hidden="true" tabindex="-1"></a>check_size <span class="ot">&lt;-</span></span>
+<span id="cb40-31"><a href="#cb40-31" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">envir =</span> .GlobalEnv, <span class="at">method =</span> <span class="fu">c</span>(<span class="st">"object.size"</span>, <span class="st">"lobstr"</span>))</span>
+<span id="cb40-32"><a href="#cb40-32" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb40-33"><a href="#cb40-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-34"><a href="#cb40-34" aria-hidden="true" tabindex="-1"></a>check_system <span class="ot">&lt;-</span></span>
+<span id="cb40-35"><a href="#cb40-35" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (<span class="at">return_result =</span> <span class="cn">FALSE</span>, <span class="at">show_warnings =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb40-36"><a href="#cb40-36" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </section>
 <section id="references" class="level2">

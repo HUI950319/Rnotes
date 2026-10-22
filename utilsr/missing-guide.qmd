@@ -1,6 +1,6 @@
 ---
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
-description: "lv 的选列摘要，check_na 返回的 gt 报告表、特殊值词表与 special 参数，Unicode 与标签缺失计数，check_size 的大小单位和 HTML 条形，以及缺失模式与 KNN 插补。"
+description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
 lightbox: true
 toc-depth: 2
@@ -54,7 +54,7 @@ filled5 <- impute_na_knn(impute_input, k = 5, verbose = FALSE)
 | `plt_na()` | `miss_palette` | 前三色依次为存在、缺失和 30% 参考线；只显示存在 NA 的列 |
 | `plt_upset()` | `vars`、`levels=NA`、`output`、`label` | 把每列缺失行当作一个集合，查看联合缺失 |
 | `impute_na_knn()` | `k=5`、`verbose=TRUE` | k 为邻居数，不超过每个待插补变量的观察供体数；数字用距离加权均值 |
-| `check_size()` | `...`、`pattern=NULL` | 仅检查 `.GlobalEnv`；返回 gt，数值大小为 MB，HTML 显示大小条形 |
+| `check_size()` | `...`、`pattern=NULL`、`envir=.GlobalEnv`、`method` | 检查指定环境自身的绑定；默认 `object.size`，可选 `lobstr`；返回 gt，数值大小仍为 MB |
 | `check_system()` | `return_result=FALSE`、`show_warnings=FALSE` | 返回系统与 R 环境 list；WSL 结果描述 WSL 进程所在环境 |
 
 :::
@@ -614,6 +614,149 @@ validation_values
 
 <!-- /sync-20261022: size_causes -->
 
+## 当前对象大小：指定环境、共享存储与显示 {#size-environment-20261022}
+
+<!-- update-20261022: size_environment -->
+
+2026-10-22 按已推送 UtilsR `3269981` 在 Windows / WSL R 4.4.3 核验。新增 `envir` 与 `method`，可以直接检查局部环境，不必把演示对象放进 `.GlobalEnv`。默认仍是 `.GlobalEnv` 与 `utils::object.size()`；`envir` 的父环境不会被搜索。
+
+### 环境与选择：同大小按名称排序
+
+```r
+library(UtilsR)
+size_env <- list2env(list(big = raw(4096), zeta = raw(32),
+  alpha = raw(32), .hidden = NULL), parent = baseenv())
+local_sizes <- check_size(envir = size_env)
+stopifnot(identical(local_sizes[["_data"]][["Object"]],
+  c("**TOTAL**", "big", "alpha", "zeta", ".hidden")))
+selected_names <- c("zeta", "alpha", "zeta")
+by_name <- check_size(selected_names, envir = size_env)
+by_index <- check_size(match(selected_names,
+  ls(size_env, all.names = TRUE)), envir = size_env)
+stopifnot(identical(by_name[["_data"]], by_index[["_data"]]),
+  identical(by_name[["_data"]][["Object"]], c("**TOTAL**", "alpha", "zeta")))
+
+selection_warnings <- character()
+pattern_size <- withCallingHandlers(
+  check_size(stop("this selection must not be evaluated"),
+    pattern = "^big$", envir = size_env), warning = function(w) {
+      selection_warnings <<- c(selection_warnings, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    })
+not_inherited <- withCallingHandlers(check_size("mean", envir = size_env),
+  warning = function(w) {
+    selection_warnings <<- c(selection_warnings, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  })
+stopifnot(length(selection_warnings) == 2L,
+  grepl("takes precedence", selection_warnings[[1]], fixed = TRUE),
+  nrow(not_inherited[["_data"]]) == 0L,
+  identical(pattern_size[["_data"]][["Object"]], c("**TOTAL**", "big")))
+gt::gtsave(local_sizes, file.path(tempdir(), "20261022-update-size-environment.html"))
+```
+
+![只检查局部环境的四个对象，同大小的 alpha 与 zeta 按名称排序。](images/missing-guide/20261022-update-size-environment.png){fig-alt="check_size局部环境原生表：big在前，同大小的alpha排在zeta之前，隐藏名称.hidden也被枚举；TOTAL为加粗汇总标签，底部说明估算方法。"}
+
+[查看原生 HTML 表](images/missing-guide/20261022-update-size-environment.html)
+
+字符参数是对象名；数字参数是 `ls(envir, all.names=TRUE)` 中的名称下标，最后的显示顺序仍按大小降序、同大小按名称排序。`pattern` 优先于 `...`，两者同时提供会警告，且不会求值被覆盖的选择表达式。上例的父环境有 `mean`，但它不是 `size_env` 自身的绑定，因此返回空表并警告。
+
+```r
+numeric_env <- list2env(list(alpha = raw(8), idx = 1L), parent = baseenv())
+index_warning <- character()
+index_result <- withCallingHandlers(
+  evalq(UtilsR::check_size(idx, envir = environment()), numeric_env),
+  warning = function(w) {
+    index_warning <<- c(index_warning, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  })
+stopifnot(length(index_warning) == 1L,
+  grepl("used as object indices", index_warning, fixed = TRUE),
+  identical(index_result[["_data"]][["Object"]], c("**TOTAL**", "alpha")))
+```
+
+从被检查环境内传入裸数字变量时，函数会提醒它被用作下标；它不会因此改成检查该变量本身。要检查变量 `idx` 的大小，写 `check_size("idx", envir=numeric_env)`。从其他环境传入数字选择器未必触发这条提醒，建议一直显式引用对象名。
+
+### 共享存储：总计可以小于各行之和
+
+```r
+stopifnot(requireNamespace("lobstr", quietly = TRUE))
+set.seed(20261022)
+shared <- rnorm(10000)
+shared_env <- list2env(list(x = shared, y = list(shared, shared)),
+  parent = baseenv())
+ordinary <- check_size(envir = shared_env)
+deduplicated <- check_size(envir = shared_env, method = "lobstr")
+size_data <- deduplicated[["_data"]]
+expected_total <- as.numeric(lobstr::obj_size(
+  shared_env[["x"]], shared_env[["y"]], env = shared_env)) / 1024^2
+stopifnot(isTRUE(all.equal(size_data[["Size"]][[1]], expected_total)),
+  size_data[["Size"]][[1]] < sum(size_data[["Size"]][-1]),
+  isTRUE(all.equal(ordinary[["_data"]][["Size"]][[1]],
+    sum(ordinary[["_data"]][["Size"]][-1]))))
+gt::gtsave(ordinary, file.path(tempdir(), "20261022-update-size-object.html"))
+gt::gtsave(deduplicated, file.path(tempdir(), "20261022-update-size-lobstr.html"))
+```
+
+::: {.panel-tabset}
+
+#### object.size：逐行估算求和
+
+![默认方法对 x 和引用它两次的 y 分别估算，再求和。](images/missing-guide/20261022-update-size-object.png){fig-alt="默认object.size原生表：每个对象单独估算，TOTAL为各行估算之和，共享向量可能被重复计算。"}
+
+[查看原生 HTML 表](images/missing-guide/20261022-update-size-object.html)
+
+#### lobstr：总计去除共享存储
+
+![lobstr 的 TOTAL 联合计量共享对象，小于各行之和。](images/missing-guide/20261022-update-size-lobstr.png){fig-alt="lobstr原生表：x与包含两次x的列表y共享同一向量，TOTAL按共享存储只计一次，小于各个对象行大小之和。"}
+
+[查看原生 HTML 表](images/missing-guide/20261022-update-size-lobstr.html)
+
+:::
+
+`method="lobstr"` 需要另装 lobstr。它会计入对象捕获的部分环境，排除本次 `envir`、全局/基础环境及命名空间；也能识别紧凑 ALTREP 表示。两种方法的统计口径不同，不应把总计差值当作释放内存或进程内存；深层嵌套对象使用 lobstr 还可能更慢。每次调用对每个选中绑定仍只读取一次，active binding 和 promise 的计算副作用仍然存在。
+
+### 背景用对数尺度，条形仍按原始大小
+
+```r
+spread_env <- list2env(list(large = raw(1e7), medium = raw(1e6),
+  small = raw(1e5), tiny = raw(1e4)), parent = baseenv())
+spread_sizes <- check_size(envir = spread_env)
+size_colors <- function(tbl) {
+  cells <- grep('headers="Size_fmt"',
+    strsplit(gt::as_raw_html(tbl), "\n", fixed = TRUE)[[1]], value = TRUE)[-1]
+  sub('.*background-color: (#[0-9A-Fa-f]{6}).*', "\\1", cells)
+}
+colors <- size_colors(spread_sizes)
+equal_sizes <- check_size(envir = list2env(list(b = raw(32), a = raw(32))))
+zero_sizes <- check_size(envir = list2env(list(a = NULL, b = NULL)))
+stopifnot(identical(colors[c(1, 4)], c("#FF0000", "#FFFFFF")),
+  all(diff(strtoi(substr(colors, 4, 5), 16L)) > 0),
+  identical(size_colors(equal_sizes), rep("#FF0000", 2)),
+  identical(size_colors(zero_sizes), rep("#FFFFFF", 2)))
+gt::gtsave(spread_sizes, file.path(tempdir(), "20261022-update-size-log.html"))
+
+overhead <- as.numeric(utils::object.size(raw()))
+unit_sizes <- check_size(envir = list2env(list(
+  kb = raw(1024 - overhead), mb = raw(1024^2 - overhead))))
+stopifnot(identical(unit_sizes[["_data"]][["Size_fmt"]][-1],
+  c("1.00 MB", "1.00 KB")))
+validation_values <- list(selected = by_name[["_data"]][["Object"]][-1],
+  environment_warnings = length(selection_warnings),
+  bare_numeric_warning = length(index_warning),
+  lobstr_total_mb = size_data[["Size"]][[1]],
+  lobstr_rows_mb = sum(size_data[["Size"]][-1]), colors = colors,
+  unit_labels = unit_sizes[["_data"]][["Size_fmt"]][-1])
+```
+
+![跨三个数量级的四个对象用渐进背景显示，条形仍保留实际大小比例。](images/missing-guide/20261022-update-size-log.png){fig-alt="原生对象大小表：大小背景按log10字节加1映射，9.54MB至9.81KB逐渐变浅；绿色条形仍按最大单个对象的原始大小线性缩放。"}
+
+[查看原生 HTML 表](images/missing-guide/20261022-update-size-log.html)
+
+背景按本表对象的 `log10(bytes+1)` 范围映射，不是跨表统一的绝对阈值。单个正大小对象或全部同大小对象显示红色，全部为零显示白色；颜色本身不表示内存告警。大小条形和总计封顶规则不变。显示单位在舍入为 1024 前切换，底层 `Size` 始终以 MB（1024² 字节）记录，不能从显示字符串反推精确字节数。
+
+<!-- /update-20261022: size_environment -->
+
 ## 当前完整接口 {#interfaces}
 
 点击展开查看本次实际执行版本的参数及默认值。
@@ -652,7 +795,7 @@ function (data, vars = NULL, levels = c("Yes", "yes"), colors = NULL, output = c
 NULL
 
 check_size <-
-function (..., pattern = NULL)
+function (..., pattern = NULL, envir = .GlobalEnv, method = c("object.size", "lobstr"))
 NULL
 
 check_system <-
