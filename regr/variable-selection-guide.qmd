@@ -1,13 +1,14 @@
 ---
 title: "变量筛选：策略比较、LASSO 路径与共线性"
-description: "变量筛选、LASSO、Boruta、相关性与共线性；补充 get_cor 的系数/P值、名称映射、因子编码与成对样本边界。"
+description: "变量筛选、LASSO、Boruta、相关性与共线性；get_cor 的完整统计矩阵、P值校正、阈值、排序与无损转换边界。"
 date: 2026-10-01
+date-modified: 2026-10-22
 lightbox: true
 toc-depth: 2
 directory:
   title: "变量筛选：策略比较、LASSO 路径与共线性"
   topic: 回归与生存分析
-  updated: 2026-10-21
+  updated: 2026-10-22
 ---
 
 
@@ -416,6 +417,137 @@ data.frame(variable = names(diag[["vif"]]), VIF = unname(diag[["vif"]]))
 :::
 
 
+## 当前 get_cor：完整统计、校正与绘图设置 {#cor-stats-20261022}
+
+<!-- sync-20261022: cor_stats -->
+
+以下按已推送 RegR `70c3667` 在 Windows / WSL R 4.4.3 执行。默认仍为未校正 P、`sig_level = 0.05`、FPC 排序，返回原来的不可见 corrplot 对象；`return_data = TRUE` 则同时返回完整统计矩阵。这个开关仍会绘图，也仍需要 corrplot 和有效配色。
+
+### 原始 P、BH 校正与显示阈值
+
+```r
+library(RegR)
+set.seed(922)
+q <- qr.Q(qr(cbind(1, matrix(rnorm(64 * 4), 64, 4))))[, 2:5]
+t_demo <- stats::qt(1 - 0.03 / 2, df = 62)
+rho <- t_demo / sqrt(t_demo^2 + 62)
+d_cor <- data.frame(MarkerA = q[, 1], MarkerB = rho * q[, 1] + sqrt(1 - rho^2) * q[, 2],
+                    Noise1 = q[, 3], Noise2 = q[, 4])
+chosen <- c("Noise2", "MarkerA", "Noise1", "MarkerB")
+draw_cor <- function(tag, ...) {
+  grDevices::cairo_pdf(file.path(tempdir(), paste0("20261022-sync-cor-", tag, ".pdf")),
+    width = 6, height = 6, family = "Arial")
+  on.exit(grDevices::dev.off(), add = TRUE)
+  get_cor(d_cor, vars = chosen, method = "pearson", return_data = TRUE,
+    name_map = c(MarkerA = "Assay A", MarkerB = "Assay B", Noise1 = "Noise 1", Noise2 = "Noise 2"), ...)
+}
+raw_cor <- draw_cor("raw", p_adjust = "none")
+bh_cor <- draw_cor("bh", p_adjust = "BH")
+original_cor <- draw_cor("original", p_adjust = "BH", sig_level = 0.2, order = "original")
+upper <- upper.tri(bh_cor[["p"]])
+stopifnot(identical(names(bh_cor), c("r", "p", "p_adj", "n", "method", "p_adjust", "plot")),
+  identical(rownames(bh_cor[["r"]]), chosen), all(bh_cor[["n"]] == 64),
+  typeof(bh_cor[["n"]]) == "double",
+  isTRUE(all.equal(bh_cor[["p_adj"]][upper], stats::p.adjust(bh_cor[["p"]][upper], "BH"))),
+  any(raw_cor[["p"]][upper] <= 0.05 & bh_cor[["p_adj"]][upper] > 0.05),
+  identical(bh_cor[["r"]], original_cor[["r"]]), identical(bh_cor[["p_adj"]], original_cor[["p_adj"]]))
+ij <- which(upper, arr.ind = TRUE)
+validation_values <- data.frame(pair = paste(chosen[ij[, 1]], chosen[ij[, 2]], sep = " / "),
+  raw_p = bh_cor[["p"]][upper], bh_p = bh_cor[["p_adj"]][upper], n = bh_cor[["n"]][upper])
+validation_values
+```
+
+::: {.panel-tabset}
+
+### 原始 P，0.05 {.unnumbered}
+
+![未校正 P 的示意相关矩阵。](images/variable-selection-guide/20261022-sync-cor-raw.png){fig-alt="64行四变量模拟矩阵，Assay A与Assay B的原始Pearson P约为0.03；其余配对不显著。"}
+
+[下载 PDF](images/variable-selection-guide/20261022-sync-cor-raw.pdf)
+
+### BH 校正，0.05 {.unnumbered}
+
+![相同系数在 BH 校正后使用调整 P 标记。](images/variable-selection-guide/20261022-sync-cor-bh.png){fig-alt="同一矩阵共有六个唯一变量对，Assay配对BH调整P约为0.18，在0.05阈值下加叉；相关系数保持不变。"}
+
+[下载 PDF](images/variable-selection-guide/20261022-sync-cor-bh.pdf)
+
+### BH 校正，0.20，原顺序 {.unnumbered}
+
+![改变显示阈值与排序，保留同一套统计矩阵。](images/variable-selection-guide/20261022-sync-cor-original.png){fig-alt="同一BH结果采用0.20显示阈值及调用者的选列顺序，系数、原始P和调整P均未重新定义。"}
+
+[下载 PDF](images/variable-selection-guide/20261022-sync-cor-original.pdf)
+
+:::
+
+这是刻意构造一个原始 P 约为 0.03 的接口示例，不是临床数据或选择阈值的建议。四列共有 6 个唯一变量对，BH 调整后该值约为 0.18。校正只使用上三角唯一配对，排除对角线与对称重复项；`p_adjust` 支持 `stats::p.adjust.methods` 的方法，默认 `"none"`。叉号依据 `p_adj > sig_level`，相关系数仍保留。阈值可取 0–1 的有限单值；排序可用 `FPC`、`original`、`AOE`、`hclust`、`alphabet`。
+
+| `return_data = TRUE` 字段 | 含义 |
+|:--|:--|
+| `r` / `p` / `p_adj` | 系数、原始双侧 P、调整 P；三者保留原列名和选列顺序，P 矩阵对角线为 0 |
+| `n` | 每对的非缺失样本数，对角线是各列可用数；不代表所有配对用了同一人群 |
+| `method` / `p_adjust` | 实际解析的相关方法与校正方法 |
+| `plot` | 应用名称映射及显示排序后的 corrplot 结果，其中 `corrPos` 的 P 已用于图上的显著性标记 |
+
+不要按图中位置直接索引原始统计矩阵；用原列名对齐。完整输入现在用共享行数构造 `n`，含缺失输入仍逐对计数；这项内存优化不改变矩阵类型与含义，也不提供额外的统计校正。
+
+### 含缺失的三种方法逐对核对
+
+```r
+(function() {
+  grDevices::pdf(file = NULL)
+  on.exit(grDevices::dev.off(), add = TRUE)
+  d_pair <- data.frame(x = c(1:6, NA, NA), y = c(1, 3, 2, 6, 5, 4, 8, 7),
+    z = c(8, 5, 7, NA, NA, NA, 2, 1))
+  selected <- c("z", "x", "y")
+  for (method in c("pearson", "spearman", "kendall")) {
+    out <- get_cor(d_pair, vars = selected, method = method, p_adjust = "BH",
+      return_data = TRUE, order = "alphabet", name_map = c(x = "Display X"))
+    stopifnot(identical(rownames(out[["r"]]), selected),
+      identical(out[["n"]], crossprod(!is.na(as.matrix(d_pair[selected])))))
+    for (i in 1:2) for (j in seq.int(i + 1L, 3L)) {
+      ref <- stats::cor.test(d_pair[[selected[i]]], d_pair[[selected[j]]], method = method)
+      stopifnot(abs(out[["r"]][i, j] - unname(ref[["estimate"]])) < 1e-12,
+                abs(out[["p"]][i, j] - ref[["p.value"]]) < 1e-12)
+    }
+    stopifnot(isTRUE(all.equal(out[["p_adj"]][upper.tri(out[["p"]])],
+      stats::p.adjust(out[["p"]][upper.tri(out[["p"]])], "BH"))))
+  }
+})()
+```
+
+### 无损转换与名称映射
+
+```r
+(function() {
+  grDevices::pdf(file = NULL)
+  on.exit(grDevices::dev.off(), add = TRUE)
+  reject <- function(data, ...) tryCatch(get_cor(data, vars = names(data), ...), error = identity)
+  bad64 <- data.frame(x = bit64::as.integer64(c("9007199254740993", "9007199254740994", "9007199254740996")), y = 1:3)
+  bad_complex <- data.frame(x = c(1 + 1i, 2 + 0i, 3 + 0i), y = 1:3)
+  spss <- data.frame(x = haven::labelled_spss(c(1, 99, 2, NA, 3), na_values = 99), y = c(1, 2, 4, 5, 6))
+  stopifnot(inherits(reject(bad64), "RegR_cor_precision"),
+    inherits(reject(bad_complex), "RegR_cor_nonnumeric"),
+    inherits(reject(spss), "RegR_cor_missing_conversion"),
+    inherits(reject(data.frame(x = 1:4, y = c(1, 4, 2, 3)), name_map = c(x = "A", x = "B")), "RegR_cor_name_map"))
+  spss[["x"]] <- haven::zap_missing(spss[["x"]])
+  clean <- get_cor(spss, vars = c("x", "y"), method = "pearson", return_data = TRUE)
+  stopifnot(clean[["n"]]["x", "y"] == 3)
+  notes <- character()
+  duplicate_labels <- withCallingHandlers(get_cor(data.frame(x = 1:4, y = c(1, 4, 2, 3)),
+    vars = c("x", "y"), name_map = c(x = "Same", y = "Same"), return_data = TRUE),
+    RegR_cor_duplicate_labels = function(w) {
+      notes <<- c(notes, conditionMessage(w)); invokeRestart("muffleWarning")
+    })
+  stopifnot(length(notes) == 1L, identical(rownames(duplicate_labels[["r"]]), c("x", "y")))
+})()
+```
+
+`integer64` 只有能精确表示为 double 的数值才允许转换；不是一律拒绝大于 2^53 的值。非零虚部会报错，零虚部可无损转成实数。SPSS 用户缺失标记若会在转换时丢失，应先显式替换成 NA；这些标记不能当作已观察值。普通 labelled 数据继续支持。
+
+名称字典必须是字符向量、键非空且唯一、标签非空白；部分映射、NA 标签或 `character(0)` 仍回退到原名。多个变量映射成同一个显示标签会警告，返回统计矩阵仍使用原名。非法配色和缺少 corrplot 的错误现在先于转换及统计计算报告。
+
+<!-- /sync-20261022: cor_stats -->
+
 ## 当前 get_cor：相关系数、P 值与输入边界 {#cor-controls-20261021}
 
 <!-- controls-20261021: cor_contract -->
@@ -467,7 +599,7 @@ names(cor_results) <- c("spearman", "pearson", "kendall")
 
 :::
 
-示例按明确的年龄、肿瘤大小和年份范围筛选，取前 400 条合格记录作接口展示；这不是随机总体抽样或临床推断。Pearson 衡量线性关系，Spearman / Kendall 基于秩，数值不能直接按同一尺度比较。秩检验遇并列值可能使用近似 P 值；本函数没有多重检验校正。
+示例按明确的年龄、肿瘤大小和年份范围筛选，取前 400 条合格记录作接口展示；这不是随机总体抽样或临床推断。Pearson 衡量线性关系，Spearman / Kendall 基于秩，数值不能直接按同一尺度比较。秩检验遇并列值可能使用近似 P 值。本节保留未校正 P 的原执行结果，当前的显式校正入口见[上方新合同](#cor-stats-20261022)。
 
 ### 返回对象与成对数值核对
 
