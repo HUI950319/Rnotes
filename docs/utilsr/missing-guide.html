@@ -1080,6 +1080,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#output" id="toc-output" class="nav-link" data-scroll-target="#output">返回对象、保存与使用边界</a></li>
   <li><a href="#save-20261020" id="toc-save-20261020" class="nav-link" data-scroll-target="#save-20261020">当前按内容保存 PDF</a></li>
   <li><a href="#inspection-20261021" id="toc-inspection-20261021" class="nav-link" data-scroll-target="#inspection-20261021">当前检视：选列返回、标签缺失与小比例</a></li>
+  <li><a href="#size-causes-20261022" id="toc-size-causes-20261022" class="nav-link" data-scroll-target="#size-causes-20261022">对象检视：零大小、排序与读取失败原因</a></li>
   <li><a href="#interfaces" id="toc-interfaces" class="nav-link" data-scroll-target="#interfaces">当前完整接口</a></li>
   <li><a href="#references" id="toc-references" class="nav-link" data-scroll-target="#references">验证范围与参考</a></li>
   </ul>
@@ -2249,6 +2250,60 @@ N = 60</span></th>
 <!-- /refresh-20261021: inspection -->
 </section>
 </section>
+<section id="size-causes-20261022" class="level2">
+<h2 class="anchored" data-anchor-id="size-causes-20261022">对象检视：零大小、排序与读取失败原因</h2>
+<!-- sync-20261022: size_causes -->
+<p>2026-10-22 按已推送 UtilsR <code>9260590</code> 在 Windows / WSL R 4.4.3 执行。<code>check_size()</code> 的正则选择先匹配、再只排序匹配名；结果仍按大小降序，同大小对象保留名称排序。全部估算大小为零时，大小单元格使用中性白色；这表示 <code>object.size()</code> 的结果为零，不是进程内存为零。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(UtilsR)</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a>zero_sizes <span class="ot">&lt;-</span> (<span class="cf">function</span>() {</span>
+<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a>  nm <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"rnotes_size_zero_"</span>, <span class="fu">c</span>(<span class="st">"b"</span>, <span class="st">"a"</span>))</span>
+<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="sc">!</span><span class="fu">any</span>(<span class="fu">vapply</span>(nm, exists, <span class="fu">logical</span>(<span class="dv">1</span>), <span class="at">envir =</span> .GlobalEnv, <span class="at">inherits =</span> <span class="cn">FALSE</span>)))</span>
+<span id="cb34-5"><a href="#cb34-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">on.exit</span>(<span class="fu">rm</span>(<span class="at">list =</span> nm, <span class="at">envir =</span> .GlobalEnv), <span class="at">add =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb34-6"><a href="#cb34-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list2env</span>(stats<span class="sc">::</span><span class="fu">setNames</span>(<span class="fu">list</span>(<span class="cn">NULL</span>, <span class="cn">NULL</span>), nm), .GlobalEnv)</span>
+<span id="cb34-7"><a href="#cb34-7" aria-hidden="true" tabindex="-1"></a>  result <span class="ot">&lt;-</span> <span class="fu">check_size</span>(<span class="at">pattern =</span> <span class="st">"^rnotes_size_zero_[ab]$"</span>)</span>
+<span id="cb34-8"><a href="#cb34-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">identical</span>(result[[<span class="st">"_data"</span>]][[<span class="st">"Object"</span>]], <span class="fu">c</span>(<span class="st">"**TOTAL**"</span>, <span class="fu">sort</span>(nm))),</span>
+<span id="cb34-9"><a href="#cb34-9" aria-hidden="true" tabindex="-1"></a>    <span class="fu">all</span>(result[[<span class="st">"_data"</span>]][[<span class="st">"Size"</span>]] <span class="sc">==</span> <span class="dv">0</span>))</span>
+<span id="cb34-10"><a href="#cb34-10" aria-hidden="true" tabindex="-1"></a>  html <span class="ot">&lt;-</span> gt<span class="sc">::</span><span class="fu">as_raw_html</span>(result)</span>
+<span id="cb34-11"><a href="#cb34-11" aria-hidden="true" tabindex="-1"></a>  cells <span class="ot">&lt;-</span> <span class="fu">grep</span>(<span class="st">'headers="Size_fmt"'</span>, <span class="fu">strsplit</span>(html, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>, <span class="at">fixed =</span> <span class="cn">TRUE</span>)[[<span class="dv">1</span>]], <span class="at">value =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb34-12"><a href="#cb34-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">length</span>(cells) <span class="sc">==</span> <span class="dv">3</span>L, <span class="fu">all</span>(<span class="fu">grepl</span>(<span class="st">"background-color: #FFFFFF"</span>, cells[<span class="dv">2</span><span class="sc">:</span><span class="dv">3</span>], <span class="at">fixed =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb34-13"><a href="#cb34-13" aria-hidden="true" tabindex="-1"></a>  result</span>
+<span id="cb34-14"><a href="#cb34-14" aria-hidden="true" tabindex="-1"></a>})()</span>
+<span id="cb34-15"><a href="#cb34-15" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(zero_sizes, <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261022-sync-size-zero.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/missing-guide/20261022-sync-size-zero.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="两个 NULL 对象的估算大小均为零，大小单元格使用白色。"><img src="images/missing-guide/20261022-sync-size-zero.png" class="img-fluid figure-img" alt="check_size原生gt表，总计与两个NULL对象的大小均为0，普通对象的大小单元格为中性白色，没有零宽色域的误导性中间颜色。" loading="lazy" decoding="async" width="501" height="272" srcset="../assets/figure-previews/8147141fb5502d298d913d9be0ecba31.webp"></a></p>
+<figcaption>两个 NULL 对象的估算大小均为零，大小单元格使用白色。</figcaption>
+</figure>
+</div>
+<p><a href="images/missing-guide/20261022-sync-size-zero.html">查看原生 HTML 表</a></p>
+<section id="读取失败保留原始错误且只读取一次" class="level3">
+<h3 class="anchored" data-anchor-id="读取失败保留原始错误且只读取一次">读取失败保留原始错误，且只读取一次</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> (<span class="cf">function</span>() {</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>  nm <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"rnotes_size_bad"</span>, <span class="st">"rnotes_size_ok"</span>)</span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="sc">!</span><span class="fu">any</span>(<span class="fu">vapply</span>(nm, exists, <span class="fu">logical</span>(<span class="dv">1</span>), <span class="at">envir =</span> .GlobalEnv, <span class="at">inherits =</span> <span class="cn">FALSE</span>)))</span>
+<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">on.exit</span>(<span class="fu">rm</span>(<span class="at">list =</span> nm, <span class="at">envir =</span> .GlobalEnv), <span class="at">add =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a>  reads <span class="ot">&lt;-</span> <span class="dv">0</span>L</span>
+<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">makeActiveBinding</span>(nm[[<span class="dv">1</span>]], <span class="cf">function</span>(value) {</span>
+<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a>    reads <span class="ot">&lt;&lt;-</span> reads <span class="sc">+</span> <span class="dv">1</span>L</span>
+<span id="cb35-8"><a href="#cb35-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">stop</span>(<span class="st">"missing backing file"</span>)</span>
+<span id="cb35-9"><a href="#cb35-9" aria-hidden="true" tabindex="-1"></a>  }, .GlobalEnv)</span>
+<span id="cb35-10"><a href="#cb35-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">assign</span>(nm[[<span class="dv">2</span>]], <span class="fu">raw</span>(<span class="dv">16</span>), <span class="at">envir =</span> .GlobalEnv)</span>
+<span id="cb35-11"><a href="#cb35-11" aria-hidden="true" tabindex="-1"></a>  notes <span class="ot">&lt;-</span> <span class="fu">character</span>()</span>
+<span id="cb35-12"><a href="#cb35-12" aria-hidden="true" tabindex="-1"></a>  result <span class="ot">&lt;-</span> <span class="fu">withCallingHandlers</span>(<span class="fu">check_size</span>(nm), <span class="at">warning =</span> <span class="cf">function</span>(w) {</span>
+<span id="cb35-13"><a href="#cb35-13" aria-hidden="true" tabindex="-1"></a>    notes <span class="ot">&lt;&lt;-</span> <span class="fu">c</span>(notes, <span class="fu">conditionMessage</span>(w)); <span class="fu">invokeRestart</span>(<span class="st">"muffleWarning"</span>)</span>
+<span id="cb35-14"><a href="#cb35-14" aria-hidden="true" tabindex="-1"></a>  })</span>
+<span id="cb35-15"><a href="#cb35-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(reads <span class="sc">==</span> <span class="dv">1</span>L, <span class="fu">length</span>(notes) <span class="sc">==</span> <span class="dv">1</span>L,</span>
+<span id="cb35-16"><a href="#cb35-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">grepl</span>(<span class="st">"rnotes_size_bad (missing backing file)"</span>, notes, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb35-17"><a href="#cb35-17" aria-hidden="true" tabindex="-1"></a>    <span class="fu">identical</span>(result[[<span class="st">"_data"</span>]][[<span class="st">"Object"</span>]], <span class="fu">c</span>(<span class="st">"**TOTAL**"</span>, nm[[<span class="dv">2</span>]])))</span>
+<span id="cb35-18"><a href="#cb35-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.frame</span>(<span class="at">failed_binding_reads =</span> reads, <span class="at">warning_contains_cause =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb35-19"><a href="#cb35-19" aria-hidden="true" tabindex="-1"></a>             <span class="at">retained_objects =</span> <span class="fu">nrow</span>(result[[<span class="st">"_data"</span>]]) <span class="sc">-</span> <span class="dv">1</span>L)</span>
+<span id="cb35-20"><a href="#cb35-20" aria-hidden="true" tabindex="-1"></a>})()</span>
+<span id="cb35-21"><a href="#cb35-21" aria-hidden="true" tabindex="-1"></a>validation_values</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>同一次检视会把各失败绑定的名称及原始原因合成一条警告，并跳过失败对象，不为拼警告再次读取；全失败仍返回零行 gt。示例的 active binding 读取一次后报错，另一个对象仍正常显示。仅在独立示例进程或确认没有重名对象的环境运行这种绑定演示；本例为两个演示名检查冲突并在退出时清理。</p>
+<p>显式名称选择仍不枚举整个全局环境；数值下标仍依据完整排序名称表。排序范围缩小不改变选择合同，读取 active binding 或 promise 仍可能执行其计算，不能把检视视为无副作用。</p>
+<!-- /sync-20261022: size_causes -->
+</section>
+</section>
 <section id="interfaces" class="level2">
 <h2 class="anchored" data-anchor-id="interfaces">当前完整接口</h2>
 <p>点击展开查看本次实际执行版本的参数及默认值。</p>
@@ -2256,42 +2311,42 @@ N = 60</span></th>
 <summary>
 公共函数签名
 </summary>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>lv <span class="ot">&lt;-</span></span>
-<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ...)</span>
-<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-5"><a href="#cb34-5" aria-hidden="true" tabindex="-1"></a>lv.data.frame <span class="ot">&lt;-</span></span>
-<span id="cb34-6"><a href="#cb34-6" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">group =</span> <span class="cn">NULL</span>, <span class="at">count =</span> <span class="cn">NULL</span>, <span class="at">cat_args =</span> <span class="fu">list</span>())</span>
-<span id="cb34-7"><a href="#cb34-7" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb34-8"><a href="#cb34-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-9"><a href="#cb34-9" aria-hidden="true" tabindex="-1"></a>check_na <span class="ot">&lt;-</span></span>
-<span id="cb34-10"><a href="#cb34-10" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">special =</span> <span class="cn">NULL</span>, <span class="at">show_all =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb34-11"><a href="#cb34-11" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb34-12"><a href="#cb34-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-13"><a href="#cb34-13" aria-hidden="true" tabindex="-1"></a>plt_na <span class="ot">&lt;-</span></span>
-<span id="cb34-14"><a href="#cb34-14" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">name.map =</span> <span class="cn">NULL</span>, <span class="at">miss_palette =</span> <span class="fu">as.character</span>(pal_lancet[<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">3</span>)]), <span class="at">output =</span> <span class="fu">c</span>(<span class="st">"both"</span>,</span>
-<span id="cb34-15"><a href="#cb34-15" aria-hidden="true" tabindex="-1"></a>    <span class="st">"both_reverse"</span>, <span class="st">"matrix"</span>, <span class="st">"percentage"</span>), <span class="at">sort =</span> <span class="fu">c</span>(<span class="st">"desc"</span>, <span class="st">"asc"</span>), <span class="at">save =</span> <span class="fu">list</span>())</span>
-<span id="cb34-16"><a href="#cb34-16" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb34-17"><a href="#cb34-17" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-18"><a href="#cb34-18" aria-hidden="true" tabindex="-1"></a>impute_na_knn <span class="ot">&lt;-</span></span>
-<span id="cb34-19"><a href="#cb34-19" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">k =</span> <span class="dv">5</span>, <span class="at">verbose =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb34-20"><a href="#cb34-20" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb34-21"><a href="#cb34-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-22"><a href="#cb34-22" aria-hidden="true" tabindex="-1"></a>plt_upset <span class="ot">&lt;-</span></span>
-<span id="cb34-23"><a href="#cb34-23" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">vars =</span> <span class="cn">NULL</span>, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"yes"</span>), <span class="at">colors =</span> <span class="cn">NULL</span>, <span class="at">output =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"venn"</span>,</span>
-<span id="cb34-24"><a href="#cb34-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"upset"</span>, <span class="st">"data"</span>, <span class="st">"all"</span>), <span class="at">label =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"count"</span>, <span class="st">"percent"</span>, <span class="st">"none"</span>), <span class="at">label_geom =</span> <span class="fu">c</span>(<span class="st">"label"</span>,</span>
-<span id="cb34-25"><a href="#cb34-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"text"</span>), <span class="at">label_color =</span> <span class="st">"black"</span>, <span class="at">label_size =</span> <span class="fl">3.5</span>, <span class="at">label_alpha =</span> <span class="fl">0.6</span>, <span class="at">venn.fill =</span> <span class="fu">c</span>(<span class="st">"gradient"</span>,</span>
-<span id="cb34-26"><a href="#cb34-26" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gradient_rev"</span>, <span class="st">"category"</span>, <span class="st">"none"</span>), <span class="at">venn.alpha =</span> <span class="fl">0.5</span>, <span class="at">edge.color =</span> <span class="st">"grey30"</span>, <span class="at">edge.size =</span> <span class="dv">1</span>,</span>
-<span id="cb34-27"><a href="#cb34-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">set.name.size =</span> <span class="dv">4</span>, <span class="at">set.labels =</span> <span class="cn">NULL</span>)</span>
-<span id="cb34-28"><a href="#cb34-28" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb34-29"><a href="#cb34-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-30"><a href="#cb34-30" aria-hidden="true" tabindex="-1"></a>check_size <span class="ot">&lt;-</span></span>
-<span id="cb34-31"><a href="#cb34-31" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (..., <span class="at">pattern =</span> <span class="cn">NULL</span>)</span>
-<span id="cb34-32"><a href="#cb34-32" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
-<span id="cb34-33"><a href="#cb34-33" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb34-34"><a href="#cb34-34" aria-hidden="true" tabindex="-1"></a>check_system <span class="ot">&lt;-</span></span>
-<span id="cb34-35"><a href="#cb34-35" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (<span class="at">return_result =</span> <span class="cn">FALSE</span>, <span class="at">show_warnings =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb34-36"><a href="#cb34-36" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>lv <span class="ot">&lt;-</span></span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ...)</span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a>lv.data.frame <span class="ot">&lt;-</span></span>
+<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">group =</span> <span class="cn">NULL</span>, <span class="at">count =</span> <span class="cn">NULL</span>, <span class="at">cat_args =</span> <span class="fu">list</span>())</span>
+<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>check_na <span class="ot">&lt;-</span></span>
+<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, ..., <span class="at">pattern =</span> <span class="cn">NULL</span>, <span class="at">special =</span> <span class="cn">NULL</span>, <span class="at">show_all =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb36-12"><a href="#cb36-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-13"><a href="#cb36-13" aria-hidden="true" tabindex="-1"></a>plt_na <span class="ot">&lt;-</span></span>
+<span id="cb36-14"><a href="#cb36-14" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">name.map =</span> <span class="cn">NULL</span>, <span class="at">miss_palette =</span> <span class="fu">as.character</span>(pal_lancet[<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">3</span>)]), <span class="at">output =</span> <span class="fu">c</span>(<span class="st">"both"</span>,</span>
+<span id="cb36-15"><a href="#cb36-15" aria-hidden="true" tabindex="-1"></a>    <span class="st">"both_reverse"</span>, <span class="st">"matrix"</span>, <span class="st">"percentage"</span>), <span class="at">sort =</span> <span class="fu">c</span>(<span class="st">"desc"</span>, <span class="st">"asc"</span>), <span class="at">save =</span> <span class="fu">list</span>())</span>
+<span id="cb36-16"><a href="#cb36-16" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb36-17"><a href="#cb36-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-18"><a href="#cb36-18" aria-hidden="true" tabindex="-1"></a>impute_na_knn <span class="ot">&lt;-</span></span>
+<span id="cb36-19"><a href="#cb36-19" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">k =</span> <span class="dv">5</span>, <span class="at">verbose =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb36-20"><a href="#cb36-20" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb36-21"><a href="#cb36-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-22"><a href="#cb36-22" aria-hidden="true" tabindex="-1"></a>plt_upset <span class="ot">&lt;-</span></span>
+<span id="cb36-23"><a href="#cb36-23" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (data, <span class="at">vars =</span> <span class="cn">NULL</span>, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"yes"</span>), <span class="at">colors =</span> <span class="cn">NULL</span>, <span class="at">output =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"venn"</span>,</span>
+<span id="cb36-24"><a href="#cb36-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"upset"</span>, <span class="st">"data"</span>, <span class="st">"all"</span>), <span class="at">label =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"count"</span>, <span class="st">"percent"</span>, <span class="st">"none"</span>), <span class="at">label_geom =</span> <span class="fu">c</span>(<span class="st">"label"</span>,</span>
+<span id="cb36-25"><a href="#cb36-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"text"</span>), <span class="at">label_color =</span> <span class="st">"black"</span>, <span class="at">label_size =</span> <span class="fl">3.5</span>, <span class="at">label_alpha =</span> <span class="fl">0.6</span>, <span class="at">venn.fill =</span> <span class="fu">c</span>(<span class="st">"gradient"</span>,</span>
+<span id="cb36-26"><a href="#cb36-26" aria-hidden="true" tabindex="-1"></a>    <span class="st">"gradient_rev"</span>, <span class="st">"category"</span>, <span class="st">"none"</span>), <span class="at">venn.alpha =</span> <span class="fl">0.5</span>, <span class="at">edge.color =</span> <span class="st">"grey30"</span>, <span class="at">edge.size =</span> <span class="dv">1</span>,</span>
+<span id="cb36-27"><a href="#cb36-27" aria-hidden="true" tabindex="-1"></a>    <span class="at">set.name.size =</span> <span class="dv">4</span>, <span class="at">set.labels =</span> <span class="cn">NULL</span>)</span>
+<span id="cb36-28"><a href="#cb36-28" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb36-29"><a href="#cb36-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-30"><a href="#cb36-30" aria-hidden="true" tabindex="-1"></a>check_size <span class="ot">&lt;-</span></span>
+<span id="cb36-31"><a href="#cb36-31" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (..., <span class="at">pattern =</span> <span class="cn">NULL</span>)</span>
+<span id="cb36-32"><a href="#cb36-32" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span>
+<span id="cb36-33"><a href="#cb36-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-34"><a href="#cb36-34" aria-hidden="true" tabindex="-1"></a>check_system <span class="ot">&lt;-</span></span>
+<span id="cb36-35"><a href="#cb36-35" aria-hidden="true" tabindex="-1"></a><span class="cf">function</span> (<span class="at">return_result =</span> <span class="cn">FALSE</span>, <span class="at">show_warnings =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb36-36"><a href="#cb36-36" aria-hidden="true" tabindex="-1"></a><span class="cn">NULL</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </details>
 </section>
 <section id="references" class="level2">

@@ -554,6 +554,66 @@ stopifnot(!grepl("<div", gt::as_latex(size_table), fixed = TRUE),
 
 <!-- /refresh-20261021: inspection -->
 
+## 对象检视：零大小、排序与读取失败原因 {#size-causes-20261022}
+
+<!-- sync-20261022: size_causes -->
+
+2026-10-22 按已推送 UtilsR `9260590` 在 Windows / WSL R 4.4.3 执行。`check_size()` 的正则选择先匹配、再只排序匹配名；结果仍按大小降序，同大小对象保留名称排序。全部估算大小为零时，大小单元格使用中性白色；这表示 `object.size()` 的结果为零，不是进程内存为零。
+
+```r
+library(UtilsR)
+zero_sizes <- (function() {
+  nm <- paste0("rnotes_size_zero_", c("b", "a"))
+  stopifnot(!any(vapply(nm, exists, logical(1), envir = .GlobalEnv, inherits = FALSE)))
+  on.exit(rm(list = nm, envir = .GlobalEnv), add = TRUE)
+  list2env(stats::setNames(list(NULL, NULL), nm), .GlobalEnv)
+  result <- check_size(pattern = "^rnotes_size_zero_[ab]$")
+  stopifnot(identical(result[["_data"]][["Object"]], c("**TOTAL**", sort(nm))),
+    all(result[["_data"]][["Size"]] == 0))
+  html <- gt::as_raw_html(result)
+  cells <- grep('headers="Size_fmt"', strsplit(html, "\n", fixed = TRUE)[[1]], value = TRUE)
+  stopifnot(length(cells) == 3L, all(grepl("background-color: #FFFFFF", cells[2:3], fixed = TRUE)))
+  result
+})()
+gt::gtsave(zero_sizes, file.path(tempdir(), "20261022-sync-size-zero.html"))
+```
+
+![两个 NULL 对象的估算大小均为零，大小单元格使用白色。](images/missing-guide/20261022-sync-size-zero.png){fig-alt="check_size原生gt表，总计与两个NULL对象的大小均为0，普通对象的大小单元格为中性白色，没有零宽色域的误导性中间颜色。"}
+
+[查看原生 HTML 表](images/missing-guide/20261022-sync-size-zero.html)
+
+### 读取失败保留原始错误，且只读取一次
+
+```r
+validation_values <- (function() {
+  nm <- c("rnotes_size_bad", "rnotes_size_ok")
+  stopifnot(!any(vapply(nm, exists, logical(1), envir = .GlobalEnv, inherits = FALSE)))
+  on.exit(rm(list = nm, envir = .GlobalEnv), add = TRUE)
+  reads <- 0L
+  makeActiveBinding(nm[[1]], function(value) {
+    reads <<- reads + 1L
+    stop("missing backing file")
+  }, .GlobalEnv)
+  assign(nm[[2]], raw(16), envir = .GlobalEnv)
+  notes <- character()
+  result <- withCallingHandlers(check_size(nm), warning = function(w) {
+    notes <<- c(notes, conditionMessage(w)); invokeRestart("muffleWarning")
+  })
+  stopifnot(reads == 1L, length(notes) == 1L,
+    grepl("rnotes_size_bad (missing backing file)", notes, fixed = TRUE),
+    identical(result[["_data"]][["Object"]], c("**TOTAL**", nm[[2]])))
+  data.frame(failed_binding_reads = reads, warning_contains_cause = TRUE,
+             retained_objects = nrow(result[["_data"]]) - 1L)
+})()
+validation_values
+```
+
+同一次检视会把各失败绑定的名称及原始原因合成一条警告，并跳过失败对象，不为拼警告再次读取；全失败仍返回零行 gt。示例的 active binding 读取一次后报错，另一个对象仍正常显示。仅在独立示例进程或确认没有重名对象的环境运行这种绑定演示；本例为两个演示名检查冲突并在退出时清理。
+
+显式名称选择仍不枚举整个全局环境；数值下标仍依据完整排序名称表。排序范围缩小不改变选择合同，读取 active binding 或 promise 仍可能执行其计算，不能把检视视为无副作用。
+
+<!-- /sync-20261022: size_causes -->
+
 ## 当前完整接口 {#interfaces}
 
 点击展开查看本次实际执行版本的参数及默认值。
