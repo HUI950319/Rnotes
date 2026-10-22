@@ -2,18 +2,67 @@
 title: "KM/CIF 组合图：get_cat 与 3 个绘图函数"
 description: "get_cat 的数据、方法和返回对象详解；用 RegR 自带 MTC 队列比较 plt_cat1、plt_cat2、plt_cat3 的 布局和推断的实际图形示例。"
 date: 2026-10-09
-date-modified: 2026-10-21
+date-modified: 2026-10-22
 lightbox: true
 toc-depth: 2
 directory:
   title: "KM/CIF组合：位置、步长与联合组标题"
   topic: 回归与生存分析
-  updated: 2026-10-21
+  updated: 2026-10-22
 ---
 
 先用 `get_cat()` 计算曲线和效应表，再用 `plt_cat1()`、`plt_cat2()` 或 `plt_cat3()` 选择布局。本页参照 [MLR 的 SHAP 页面](../mlr/shap-guide.qmd)：**每个参数选项配可复制代码与实绘图片，在标签页中切换比较，点击图片可放大。**
 
 **核对记录：** 本次用 WSL R 4.4.3 和 RegR 本机开发源码 `d54e60f`，从原始示例队列重新拟合 KM 主分析与 Race 分组，并刷新所有生存模式图片，新增 `sur_h` 布局。CIF 图保留前次 CSC 执行快照。包版本仍为 0.1.3；本页不提供患者级数据下载。
+
+## 当前逐模型保存：无名文件名向量 {#cat-files-20261022}
+
+<!-- sync-20261022: cat_filenames -->
+
+2026-10-22 按已推送 RegR `70c3667`（修复 `fc9a3e1`）在 Windows / WSL R 4.4.3 执行。`plt_cat1()` 现在也接受长度等于模型数的无名 `save$filename` 向量，按 `surv_models` 的模型顺序保存；之前需要给文件名逐项命名。
+
+```r
+library(RegR)
+set.seed(925)
+d_files <- data.frame(Tx = factor(rep(c("No", "Yes"), 150)), Age = rnorm(300, 55, 10))
+t1 <- rexp(300, exp(0.3 * (d_files[["Tx"]] == "Yes") + 0.02 * (d_files[["Age"]] - 55)) / 80)
+t2 <- rexp(300, 1 / 130); tc <- rexp(300, 1 / 160)
+d_files[["time"]] <- pmin(t1, t2, tc) + 0.2
+d_files[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_files[["DSS"]] <- as.integer(d_files[["event"]] == 1L)
+models_files <- get_cat(d_files, "Tx", adj_var = "Age",
+  surv = list(Cox = TRUE, FineGray = FALSE), methods = c("unadj", "direct"),
+  timepoint = 24, time_dif = c(12, 24), curve_args = list(ci = FALSE, max_times = 30L))
+files_by_order <- file.path(tempdir(), c("20261022-sync-model-km.pdf", "20261022-sync-model-cif.pdf"))
+plots_files <- plt_cat1(models_files, display = "sur", max_t = 60,
+  xbreaks = seq(0, 60, 12), xlab = "Follow-up (months)",
+  save = list(filename = files_by_order, width = 11, height = 8.5))
+stopifnot(is.null(names(files_by_order)), identical(names(plots_files), c("Cox", "FineGray")),
+  all(file.exists(files_by_order)), all(file.info(files_by_order)[["size"]] > 100),
+  length(unique(unname(tools::md5sum(files_by_order)))) == 2L)
+validation_values <- data.frame(model = names(plots_files), file = basename(files_by_order))
+validation_values
+```
+
+::: {.panel-tabset}
+
+### 第一个文件：Cox {.unnumbered}
+
+![无名向量第一个文件保存 Cox 对应的生存曲线。](images/cat-guide/20261022-sync-model-km.png){fig-alt="300条模拟记录，未调整KM与年龄调整生存曲线纵向排列，时间单位为月，保存为模型顺序中的第一个PDF。"}
+
+[下载 PDF](images/cat-guide/20261022-sync-model-km.pdf)
+
+### 第二个文件：Fine–Gray {.unnumbered}
+
+![第二个文件保存 Fine–Gray 对应的 CIF。](images/cat-guide/20261022-sync-model-cif.png){fig-alt="相同模拟队列的未调整和年龄调整累计发生曲线，单独保存为无名文件向量的第二个PDF。"}
+
+[下载 PDF](images/cat-guide/20261022-sync-model-cif.pdf)
+
+:::
+
+这里的 `time` 为月，图形只演示文件分配。模型排序变了，按顺序提供的文件名也应同步；需要按模型名固定对应时继续用 `c(Cox="...", FineGray="...")`。这项扩展只涉及 `plt_cat1()` 的文件名选择，不改变曲线、效应、返回模型顺序或森林自动坐标合同，也不要把无名字符向量推广成所有参数的逐模型设置。
+
+<!-- /sync-20261022: cat_filenames -->
 
 ## 当前自动位置、刻度步长与联合组标题 {#cat-controls-20261021}
 
