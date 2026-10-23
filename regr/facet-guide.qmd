@@ -2,13 +2,13 @@
 title: "分面生存曲线：get_facet 与分层重拟合"
 description: "get_facet 的模型、分层与缓存详解；以 598 人 M1 PTC 队列比较 KM、调整生存、CIF、嵌套分面、内嵌表和迷你森林图；补充 get_facet_diff 的三张概率差曲线。"
 date: 2026-10-01
-date-modified: 2026-10-20
+date-modified: 2026-10-23
 lightbox: true
 toc-depth: 2
 directory:
   title: "分面生存曲线：分组标签、默认布局与结果页"
   topic: 回归与生存分析
-  updated: 2026-10-20
+  updated: 2026-10-23
 ---
 
 `get_facet()` 把生存 / 竞争风险曲线、分面条带和每个面板的效应表组织在一张图中。本页沿用 [SHAP 可视化页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，相关参数放在标签页中比较，点击图片可以放大**。
@@ -16,6 +16,74 @@ directory:
 **核对记录：** 本次使用 WSL R 4.4.3 与 RegR 本机开发源码（包含 `d54e60f`），重新拟合生存模式分面和差值分析，刷新其布局与内嵌表，补充 split_var 为 group 的实际对照。CIF 图与奇异层示例保留原执行快照。版本仍为0.1.3；2026-10-13复核的已推送基线 `a3881fa` 已包含上述接口及Greenwood修复。本页不提供患者级数据下载。
 
 2026-10-19（RegR `c903aae`）起，`show_surdiff` 改名为 `show_sur`；`get_facet()` 默认仍为 `TRUE`（`get_eff()` 改为 `FALSE`）；旧名已在 `571dc88` 删除，再传会报 `unused argument`。本页代码已同步改名，图形未因改名重新生成。
+
+## 当前缓存列表的模型识别与轴标题 {#facet-dispatch-20261023}
+
+<!-- update-20261023: facet_dispatch -->
+
+2026-10-23 按已推送 RegR `aaeda5f` 在 Windows / WSL R 4.4.3 执行本节，原有图保留各自的执行记录。
+
+已有结果组成的无名 list 现在按各结果记录的模型自动命名；轴标题向量可按模型顺序或模型名分派。本例明确使用未调整方法：生存分支为 KM，竞争风险分支为 Aalen–Johansen CIF，图中的 HR / sHR 是相应效应列。
+
+```r
+library(RegR)
+set.seed(1023)
+d_multi <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), id = 1:90)
+d_multi[["Age"]] <- rnorm(360, 55, 10)
+t1 <- rexp(360, exp(.35 * (d_multi[["Tx"]] == "Yes") +
+  .25 * (d_multi[["Sex"]] == "Male") + .02 * (d_multi[["Age"]] - 55)) / 80)
+t2 <- rexp(360, 1 / 130); tc <- rexp(360, 1 / 160)
+d_multi[["time"]] <- pmin(t1, t2, tc) + .2
+d_multi[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_multi[["DSS"]] <- as.integer(d_multi[["event"]] == 1L)
+# 当前分面内嵌效应表还读取 status；保持与 event 的0/1/2编码完全一致。
+d_multi[["status"]] <- factor(d_multi[["event"]], levels = 0:2)
+facet_multi <- get_facet(d_multi, split_var = "Sex", cat_var = "Tx", adj_var = NULL, surv = c(TRUE, FALSE),
+  method = "unadj", timepoint = 24, max_t = 60, parallel = 1L,
+  plot_params = list(xlim = 60, xbre = 12, ybre = .2),
+  table_params = list(tb.vars = c("eve1", "HR", "SP"), add_p_value = "none"))
+facet_plain <- unname(unclass(facet_multi))
+facet_pdf <- file.path(tempdir(), c("20261023-update-facet-sur.pdf", "20261023-update-facet-cif.pdf"))
+facet_again <- get_facet(facet_plain,
+  plot_params = list(xlim = 60, xbre = 12, ybre = .2,
+    ylim = list(c(0, 1), c(0, 1)), xlab = c("KM follow-up (months)", "CIF follow-up (months)"),
+    ylab = c(cif = "Cumulative incidence", sur = "Survival probability")),
+  table_params = list(tb.vars = c("eve1", "HR", "SP"), add_p_value = "none",
+    tb.vars_name = list(Groups = "Treatment", HR = c("HR (95% CI)", "sHR (95% CI)"),
+                        SP = c("2-year DSS", "2-year CIF"))),
+  save = list(filename = facet_pdf))
+stopifnot(is.null(names(facet_plain)), identical(names(facet_again), c("sur", "cif")),
+  all(file.exists(facet_pdf)),
+  nrow(facet_multi[["cif"]][["sur.data"]]) > 0L,
+  identical(facet_again[["cif"]][["sur.data"]], facet_multi[["cif"]][["sur.data"]]))
+bad_axis <- tryCatch(get_facet(facet_multi, plot_params = list(ylab = c("a", "b", "c"))),
+                     error = identity)
+stopifnot(inherits(bad_axis, "error"))
+validation_values <- data.frame(model = names(facet_again), file = basename(facet_pdf))
+```
+
+::: {.panel-tabset}
+
+### KM 分面 {.unnumbered}
+
+![无名缓存列表的首模型被识别为 sur。](images/facet-guide/20261023-update-facet-sur.png){fig-alt="360条模拟记录按Sex分面的KM曲线，内嵌表列名为Treatment、HR和2-year DSS，横轴标题为KM follow-up months。"}
+
+[下载 PDF](images/facet-guide/20261023-update-facet-sur.pdf)
+
+### CIF 分面 {.unnumbered}
+
+![第二模型匹配 cif 的轴标题和表头。](images/facet-guide/20261023-update-facet-cif.png){fig-alt="同一队列按Sex分面的Aalen-Johansen CIF，内嵌表显示sHR和2-year CIF，纵轴为Cumulative incidence。"}
+
+[下载 PDF](images/facet-guide/20261023-update-facet-cif.pdf)
+
+:::
+
+本例同时准备 `event` 与 `status`：当前分面曲线读取前者，Fine–Gray 内嵌效应表还读取后者；两列必须保持相同事件含义和水平编码，仅提供 event 会在内嵌表阶段报选列错误。不能把删失或竞争事件任意改为二分类。
+
+缓存重绘只改变显示。模型名必须唯一且非空；旧结果若没有模型记录，先显式命名。无名 list 按记录的原模型顺序选择表头、范围与文件名，拆出 `[[2]]` 后仍可选中第二组设置。若改变数据、模型、方法或 CIF 后端，应回到原始数据重新拟合。
+
+<!-- /update-20261023: facet_dispatch -->
 
 ## 当前自动布局与逐模型参数 {#auto-models-20261019}
 
