@@ -2,17 +2,80 @@
 title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖"
 description: "排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局；28 个实际参数示例。"
 date: 2026-10-01
+date-modified: 2026-10-24
 lightbox: true
 toc-depth: 2
 directory:
   title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖，28 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-10-01
+  updated: 2026-10-24
 ---
 
 排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；28 个示例已在 WSL R 4.4.3 中实际执行，其中 25 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+
+## 当前相关图：缺失分数与稀疏缩放 {#rank-missing-20261024}
+
+<!-- update-20261024: rank_missing -->
+
+2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。`PlotRankCor()` 不再把缺失分数排到末尾并赋予一个真实秩；秩与原始分数的相关均只使用两轴完整配对。
+
+```r
+library(UtilsR)
+library(ggplot2)
+d_rank <- data.frame(item = rep(letters[1:4], 2), method = rep(c("M1", "M2"), each = 4),
+  score = c(4, 3, 2, NA, 3, 1, 2, 4))
+make_rank <- function(input = d_rank, ...) PlotRankCor(input, stat.by = "item", value.by = "score",
+  method.by = "method", show.label = TRUE, ...)
+p_rank <- make_rank()
+expected_rank <- cor.test(c(1, 2, 3), c(2, 4, 3), method = "spearman", exact = FALSE)
+stopifnot(is.na(p_rank[["data"]][["M1"]][p_rank[["data"]][["item"]] == "d"]),
+  isTRUE(all.equal(attr(p_rank, "cor_results")[["rho"]], unname(expected_rank[["estimate"]]))),
+  isTRUE(all.equal(attr(p_rank, "cor_results")[["p.value"]], expected_rank[["p.value"]])))
+rank_points <- ggplot_build(p_rank)[["data"]][[1]]
+stopifnot(sum(complete.cases(rank_points[c("x", "y")])) == 3L)
+ggsave(file.path(tempdir(), "20261024-update-rank-missing.pdf"), p_rank, width = 7, height = 4.5)
+```
+
+![只有三个完整配对进入秩相关，缺失条目 d 不出现为一个低排名点。](images/rank-guide/20261024-update-rank-missing.png){fig-alt="M1对M2的秩相关散点，只有a、b、c三个点；M1分数缺失的d不补秩，相关取这三个完整配对。"}
+
+[下载 PDF](images/rank-guide/20261024-update-rank-missing.pdf)
+
+M2 的秩仍按其自身观察值计算，之后才筛出完整配对；不是先把缺失条目从两个方法一起删掉再重排。绘图会提示移除缺失点，这不表示已经插补。`use_rank=TRUE` 用 Spearman；`FALSE` 用变换后显示值的 Pearson。两者均不能用高相关替代校准或模型性能验证。
+
+### 常量与单个观察值不是同一种边界
+
+```r
+p_scaled <- make_rank(use_rank = FALSE, scale_x = "minmax", scale_y = "zscore")
+pick_rank <- function(p, method) p[["data"]][[method]][match(letters[1:4], p[["data"]][["item"]])]
+stopifnot(isTRUE(all.equal(pick_rank(p_scaled, "M1"), c(1, .5, 0, NA_real_))),
+  isTRUE(all.equal(pick_rank(p_scaled, "M2"), as.numeric(scale(c(3, 1, 2, 4))))))
+d_constant <- d_rank; d_constant[["score"]][1:4] <- c(5, 5, NA, NA)
+d_single <- d_rank; d_single[["score"]][1:4] <- c(5, NA, NA, NA)
+constant_minmax <- make_rank(d_constant, use_rank = FALSE, scale_x = "minmax")
+constant_z <- make_rank(d_constant, use_rank = FALSE, scale_x = "zscore")
+single_z <- make_rank(d_single, use_rank = FALSE, scale_x = "zscore")
+stopifnot(identical(is.na(pick_rank(constant_minmax, "M1")), c(FALSE, FALSE, TRUE, TRUE)),
+  all(pick_rank(constant_minmax, "M1")[1:2] == 0),
+  identical(is.na(pick_rank(constant_z, "M1")), c(FALSE, FALSE, TRUE, TRUE)),
+  all(pick_rank(constant_z, "M1")[1:2] == 0),
+  all(is.na(pick_rank(single_z, "M1"))), is.na(attr(single_z, "cor_results")[["rho"]]))
+scaled_preview <- data.frame(item = letters[1:4], observed = d_rank[["score"]][1:4],
+  minmax = pick_rank(p_scaled, "M1"), constant_minmax = pick_rank(constant_minmax, "M1"),
+  constant_zscore = pick_rank(constant_z, "M1"), single_zscore = pick_rank(single_z, "M1"))
+gt::gtsave(gt::gt(scaled_preview), file.path(tempdir(), "20261024-update-rank-scaling.html"))
+validation_values <- list(ranks = as.data.frame(p_rank[["data"]]), correlation = attr(p_rank, "cor_results"),
+  scaled = scaled_preview, raw_y = pick_rank(p_scaled, "M2"))
+```
+
+![缩放保持缺失；两个相同观察值缩放为零，单个观察值的 z-score 保持不可估计。](images/rank-guide/20261024-update-rank-scaling.png){fig-alt="原生缩放核对表：普通minmax为1、0.5、0和缺失；常量的两个观察值为0，缺失显示NA或NaN；只有一个观察值时z-score整列NA。"}
+
+[原生 HTML 表](images/rank-guide/20261024-update-rank-scaling.html)
+
+缩放按组、按轴独立进行。minmax 用非缺失值范围，常量的观察值为 0；zscore 用样本标准差，少于两个观察值时整轴为 NA，有至少两个相同观察值时这些值为 0。内部按条目聚合全缺失分数时可显示为 NaN，与 NA 都满足 `is.na()`；两者均不补零，`scale_x="rank"` 也保留缺失。少于三个完整配对不计算相关；全缺失组不会产生有效相关系数。
+
+<!-- /update-20261024: rank_missing -->
 
 ## 数据准备与输入约定 {#data}
 
@@ -45,6 +108,8 @@ circle_dat[["color"]] <- ifelse(grepl("Shared", circle_dat[["name"]]), "#0072B2"
 
 ## 函数选择与重要参数 {#parameters}
 
+::: {.table-responsive tabindex="0" role="region" aria-label="排名与相关参数表，可横向滚动"}
+
 | 入口与目标 | 重要参数 | 语义与条件 |
 |:--|:--|:--|
 | Rank 输入 | `data`、`group_col/name_col/value_col` | 命名数值向量、行名为特征的矩阵或长表；矩阵列名为组 |
@@ -64,6 +129,8 @@ circle_dat[["color"]] <- ifelse(grepl("Shared", circle_dat[["name"]]), "#0072B2"
 | 圆形布局 | `track_height/gap_after/gap_between/start_degree` | 轨道高度比例、最后间隔角度、组间角度和起始角度；单位不能混用 |
 | 连线和轴 | `link_h/link_lwd/link_color/show_yaxis/yaxis_label` | 连线表示共享名称，不表示相关、因果或流量 |
 | 保存 | `filename/width/height/dpi` | Rank/RankCor 返回 ggplot；Circle 在设备上直接画，返回 invisible(NULL) |
+
+:::
 
 ## 排名输入与筛选
 
@@ -178,6 +245,8 @@ res <- PlotRank(score_mat, max_show = 6, top_n = 3, value_scale = "top_n", retur
 res[["data"]][1:8, ]
 ```
 
+:::: {.table-responsive tabindex="0" role="region" aria-label="排名返回数据，可横向滚动"}
+
 |        |Group | Rank|  Score|Label   |IsTop |
 |:-------|:-----|----:|------:|:-------|:-----|
 |Gene 8  |A     |    1| 1.0000|Gene 8  |TRUE  |
@@ -188,6 +257,8 @@ res[["data"]][1:8, ]
 |Gene 10 |A     |    6| 0.0000|Gene 10 |FALSE |
 |ALPHA   |B     |    1| 1.0000|ALPHA   |TRUE  |
 |Gene 61 |B     |    2| 0.8936|Gene 6  |TRUE  |
+
+::::
 
 :::
 

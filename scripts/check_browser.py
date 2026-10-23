@@ -25,6 +25,7 @@ PAGES = [
     "regr/rpa-cox-benchmark.html", "regr/cox-cif-optimization-20261002.html",
     "utilsr/factor-guide.html", "utilsr/categorical-guide.html",
     "utilsr/continuous-guide.html", "utilsr/missing-guide.html", "utilsr/sets-guide.html",
+    "utilsr/rank-guide.html",
     "mlr/model-selection-guide.html", "mlr/model-evaluation-guide.html",
     "mlr/calibration-dca-guide.html", "mlr/feature-selection-guide.html",
     "mlr/hyper-tuning-guide.html", "mlr/pdp-guide.html", "mlr/vpd-guide.html",
