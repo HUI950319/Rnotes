@@ -2,18 +2,97 @@
 title: "因子与统计文本：排序、合并、分箱和区间格式化"
 description: "fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界；参数对照及重编码、缺失和分箱边界。"
 date: 2026-10-20
-date-modified: 2026-10-23
+date-modified: 2026-10-24
 lightbox: true
 toc-depth: 2
 directory:
   title: "因子与统计文本：排序、合并、分箱和区间格式化及数据边界"
   topic: 数据准备与筛选
-  updated: 2026-10-23
+  updated: 2026-10-24
 ---
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **版本与执行范围：** 原有 33 个参数示例按 UtilsR **0.6.8** 执行，3 张预览保留原次导出。2026-10-20 按已推送 `cea978f4` 补充下方数据边界，并在 Windows / WSL R 4.4.3 执行新旧示例；本轮未重新导出原有图片。使用固定随机种子的模拟数据。
+
+## 当前参考组与区间文本合同 {#ref-ci-20261024}
+
+<!-- update-20261024: factor_ci -->
+
+2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。本页 `fct_cat()` 主示例统一使用新参数 `ref_idx`；旧名 `binary_ref` 仍可用，但会警告，不能与新名同时给。
+
+```r
+library(UtilsR)
+st <- factor(c("I", "III", "II", "IV", NA), levels = c("I", "II", "III", "IV"))
+by_name <- fct_cat(st, ref_idx = c("I", "II"))
+by_index <- fct_cat(st, ref_idx = 1:2)
+stopifnot(identical(by_name, by_index), identical(levels(by_name), c("I_II", "Oth")),
+          identical(is.na(by_name), is.na(st)))
+compat_notes <- character()
+compat <- withCallingHandlers(fct_cat(st, binary_ref = 1:2), warning = function(w) {
+  compat_notes <<- c(compat_notes, conditionMessage(w)); invokeRestart("muffleWarning")
+})
+reject_ref <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+stopifnot(identical(compat, by_name), length(compat_notes) == 1L,
+  reject_ref(fct_cat(st, ref_idx = "missing")),
+  reject_ref(fct_cat(st, ref_idx = 1, binary_ref = 1)))
+data.frame(original = st, combined = by_name)
+```
+
+名称按当前 `levels()` 精确匹配；位置按当前水平顺序计数。重排后按名称选择更容易保持同一研究对比。合并参考水平仍会改变分类定义，不只是改显示；其他水平归为 `Oth`，真正缺失保持缺失。
+
+### 缺失组件、名字与负零
+
+```r
+est_ci <- c(complete = 1.25, no_est = NA_real_, no_low = 2, no_high = 3, zero = -.0001)
+lo_ci <- c(.5, .2, NA_real_, 2, -.0002)
+hi_ci <- c(2, .8, 3, NaN, .0001)
+shown_ci <- stat_ci(est_ci, lo_ci, hi_ci, digits = 2, sep = " to ")
+stopifnot(identical(names(shown_ci), names(est_ci)),
+  identical(unname(is.na(shown_ci)), c(FALSE, TRUE, TRUE, TRUE, FALSE)),
+  identical(unname(shown_ci[["zero"]]), "0.00 (0.00 to 0.00)"),
+  identical(stat_ci(numeric(), numeric()), character()),
+  identical(stat_ci(c(NA, NA), c(NA, NA)), c(NA_character_, NA_character_)))
+ci_preview <- data.frame(row = names(shown_ci), estimate = unname(est_ci),
+  lower = lo_ci, upper = hi_ci, displayed = unname(shown_ci))
+gt::gtsave(gt::tab_header(gt::gt(ci_preview), title = "Missing components remain missing"),
+  file.path(tempdir(), "20261024-update-ci-missing.html"))
+```
+
+![区间任一组件缺失时整项保持缺失，舍入后的负零改为零。](images/factor-guide/20261024-update-ci-missing.png){fig-alt="五行原生表。完整区间正常显示；估计、下界或上界缺失的三行结果均为NA；微小负数舍入为0.00而非负零。"}
+
+[原生 HTML 表](images/factor-guide/20261024-update-ci-missing.html)
+
+SPSS 用户缺失也沿用输入的 `is.na()` 方法。这里只整理已有数值；不计算置信区间，也不改变 `sprintf()` 的其他舍入规则。日期、时间跨度、integer64 与矩阵/数组不能当作普通数值直接格式化。
+
+### 字符区间的注释不会悄悄保留
+
+```r
+ci_text <- c(missing = NA_character_, blank = " ", stars = "1.25 (0.50, 2.00)***",
+             annotated = "1.25 (0.50, 2.00), p=0.03")
+ci_notes <- character()
+reformatted <- withCallingHandlers(stat_ci(ci_text, digits = 2, bracket = "[", sep = " to "),
+  warning = function(w) { ci_notes <<- c(ci_notes, conditionMessage(w)); invokeRestart("muffleWarning") })
+stopifnot(identical(names(reformatted), names(ci_text)), is.na(reformatted[["missing"]]),
+  identical(reformatted[["blank"]], " "),
+  identical(unname(reformatted[c("stars", "annotated")]), rep("1.25 [0.50 to 2.00]", 2)),
+  length(ci_notes) == 1L, grepl("trailing text", ci_notes[[1]], fixed = TRUE),
+  reject_ref(stat_ci(1, 2, digits = 1.5)), reject_ref(stat_ci(1, 2, digits = 8191)),
+  reject_ref(stat_ci(as.Date("2026-01-01"), 1)))
+text_preview <- data.frame(input = unname(ci_text), displayed = unname(reformatted))
+gt::gtsave(gt::tab_header(gt::gt(text_preview), title = "Formatting drops annotations"),
+  file.path(tempdir(), "20261024-update-ci-text.html"))
+validation_values <- list(reference = as.character(by_name), numeric = ci_preview,
+  text = text_preview, compatibility_warnings = length(compat_notes), annotation_warnings = length(ci_notes))
+```
+
+![字符区间重排会去掉星号，其他尾注被丢弃时会警告。](images/factor-guide/20261024-update-ci-text.png){fig-alt="缺失与空白字符串原样保留。带三颗星的区间、带p等于0.03尾注的区间均显示为不带注释的新格式，后者产生一条警告。"}
+
+[原生 HTML 表](images/factor-guide/20261024-update-ci-text.html)
+
+星号与末尾句点是已知尾缀，会忽略；P 值等其他尾注被丢弃时会警告。不能把格式化后的字符串当成仍含原检验信息的结果。`digits` 为 0–8190 的单个整数，并受每个格式化数字 8192 字节的上限限制。
+
+<!-- /update-20261024: factor_ci -->
 
 ## 数据准备与输入约定 {#data}
 
@@ -45,8 +124,8 @@ hi <- c(1.6, 1, 1.9)
 |:--|:--|:--|
 | 重排水平 | `fct_cat(x, ...)`，... 无名 | 名称或 1-based 整数位置，指定的先排，其余水平依原顺序追加 |
 | 重编码或合并 | ... 全部命名，如 `Early=c("I","II")` | 名称是新水平，值是原水平名或原位置；未匹配水平保留 |
-| 互斥模式 | `reverse=FALSE/binary_ref=NULL/groups=NULL/new_labels=NULL` | 一次只选其中一种；不同时命名和不命名 ... |
-| 二分类 | `binary_ref` 为整数位置 | 参考水平合为原名称的下划线连接；其他水平统一 Oth |
+| 互斥模式 | `reverse=FALSE/ref_idx=NULL/groups=NULL/new_labels=NULL` | 一次只选其中一种；不同时命名和不命名 ... |
+| 二分类 | `ref_idx` 为整数位置或水平名称 | 参考水平合为原名称的下划线连接；其他水平统一 Oth |
 | 分组列表 | `groups` 或 `fct_to_group(g_lis)` | groups 必须有名字；g_lis 可自动命名，name_prefix/name_sep 定义显示名 |
 | 单纯换名 | `new_labels` 或 `fct_label(labels)` | 与当前水平数和顺序对应；不会根据字面意义推断临床顺序 |
 | 数据框换名 | `fct_label(data,var,labels)` | var 支持裸列名或字符串，返回整个修改后的数据框，须接收返回值 |
@@ -157,7 +236,7 @@ fct_show(fct_cat(stage, Early = c("I", "II"), Late = c("III", "IV")))
 I 和 II 合为 I_II，III/IV 合为 Oth；先核对当前水平位置，避免参考组错选。
 
 ```r
-fct_show(fct_cat(stage, binary_ref = 1:2))
+fct_show(fct_cat(stage, ref_idx = 1:2))
 ```
 
 | order|level |  n|
@@ -438,7 +517,7 @@ rejected <- function(expr) inherits(tryCatch(force(expr), error = identity), "er
 invalid <- c(
   mixed_modes = rejected(fct_cat(stage, "I", reverse = TRUE)),
   mixed_reorder = rejected(fct_cat(stage, "I", 2L)),
-  empty_reference = rejected(fct_cat(stage, binary_ref = integer())),
+  empty_reference = rejected(fct_cat(stage, ref_idx = integer())),
   repeated_membership = rejected(fct_to_group(stage, list(A = 1:2, B = 2:3))),
   non_atomic_labels = rejected(fct_cat(stage, new_labels = as.list(1:4))),
   duplicate_cuts = rejected(fct_num(boundary, breaks = c(40, 40))),
@@ -454,7 +533,7 @@ data.frame(case = names(invalid), rejected = unname(invalid))
 ```
 <!-- /refresh-20261020: factor -->
 
-本例 12 项均为 TRUE。索引还必须有限、非缺失、为整数且在当前水平范围内；空分组不新增水平。`binary_ref` 的新名称不能在仍有其他水平时与 `Oth` 冲突。`fct_num()` 的 `x` 和 `breaks` 不支持 `bit64::integer64` 存储；这与因子工具接受经校验并转为原生整数的索引是两种合同，不应混用。
+本例 12 项均为 TRUE。索引还必须有限、非缺失、为整数且在当前水平范围内；空分组不新增水平。`ref_idx` 的新名称不能在仍有其他水平时与 `Oth` 冲突。`fct_num()` 的 `x` 和 `breaks` 不支持 `bit64::integer64` 存储；这与因子工具接受经校验并转为原生整数的索引是两种合同，不应混用。
 
 自动分箱不能把常量拆成多组；含并列但不恒定的数据仍可能减少实际分位组数，须按返回的 `nlevels()` 核对标签数量。固定切点会先排序，标签应按从低到高的区间提供。
 
@@ -825,7 +904,7 @@ validation_values <- list(order = orders, p = p_table,
 
 ```r
 messages <- c(
-  tryCatch(fct_cat(stage, reverse = TRUE, binary_ref = 1), error = conditionMessage),
+  tryCatch(fct_cat(stage, reverse = TRUE, ref_idx = 1), error = conditionMessage),
   tryCatch(fct_cat(stage, "I", Late = "IV"), error = conditionMessage),
   tryCatch(fct_num(boundary, breaks = 50, nbins = 2), error = conditionMessage),
   tryCatch(fct_label(stage, c("A", "B")), error = conditionMessage))
@@ -833,7 +912,7 @@ cat(paste(seq_along(messages), messages, sep = ". ", collapse = "\n"))
 ```
 
 ```text
-1. Only one mode at a time: `binary_ref`, `groups`, `new_labels`, or `reverse`.
+1. Only one mode at a time: `ref_idx`, `groups`, `new_labels`, or `reverse`.
 2. `...` must be ALL named (recode) or ALL unnamed (reorder). Mixed named/unnamed args are not
 allowed.
 3. Use `breaks` or `nbins`, not both.
@@ -902,7 +981,7 @@ stat_ci/stat_pval 返回字符向量，只负责已有结果的显示。stat_ci_
 
 ```r
 fct_cat <-
-function (x, ..., reverse = FALSE, binary_ref = NULL, groups = NULL, new_labels = NULL)
+function (x, ..., reverse = FALSE, ref_idx = NULL, groups = NULL, new_labels = NULL, binary_ref = NULL)
 NULL
 
 fct_num <-
