@@ -2,17 +2,145 @@
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
 description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
+date-modified: 2026-10-24
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-10-22
+  updated: 2026-10-24
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 9 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。数据质量报告的四张表与 [当前检视](#inspection-20261021) 一节于 2026-10-22 按已推送 UtilsR `cdfdfec` 在 Windows / WSL R 4.4.3 重新执行，两边结果一致。
+
+## 当前 lv：原生报告与分组边界 {#lv-report-20261024}
+
+<!-- update-20261024: lv_reports -->
+
+2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。默认报告的变量摘要与频数表各输出一次；Quarto / R Markdown 使用原生表格，代码块需 `results: asis`。`lv()` 仍不可见返回**原输入对象**，不会返回表格或清洗数据。
+
+### 实际编织报告，而非把 HTML 当控制台文本
+
+```r
+library(UtilsR)
+d_lv <- data.frame(g = factor(c("A", "A", "B", NA, NA, NA), levels = c("B", "A")),
+  x = c(1, 2, 3, 4, 5, NA),
+  note = c("Blanket", "Unknownness", "n/a", "Missing", "Not stated", "ok"))
+# 本页导出 helper：实际编织调用，保留其原生 gt HTML；不改包或 lv 返回值。
+knit_lv <- function(input, call) {
+  local({
+    old_to <- knitr::opts_knit$get("rmarkdown.pandoc.to")
+    on.exit(knitr::opts_knit$set(rmarkdown.pandoc.to = old_to))
+    knitr::opts_knit$set(rmarkdown.pandoc.to = "html")
+    e <- new.env(parent = environment()); e[["dat_lv"]] <- input
+    fence_lv <- strrep("`", 3)
+    body_lv <- knitr::knit(text = c(
+      paste0(fence_lv, "{r, results='asis', echo=FALSE, message=FALSE, error=FALSE}"),
+      paste0("ans_lv <- withVisible(", call, ")"),
+      "stopifnot(identical(ans_lv[['value']], dat_lv), !ans_lv[['visible']])",
+      fence_lv), envir = e, quiet = TRUE)
+    stopifnot(!grepl("## <div", body_lv, fixed = TRUE), !grepl("# A tibble", body_lv, fixed = TRUE))
+    xml2::read_html(paste0("<html><head><meta charset='utf-8'></head><body>", body_lv, "</body></html>"))
+  })
+}
+lv_tables <- function(x) xml2::xml_find_all(x, "//table[contains(@class,'gt_table')]")
+save_lv <- function(doc, i, name) {
+  # gt 的父 div 连同样式一起保存，统计内容和格式均来自原生输出。
+  fragment <- as.character(xml2::xml_parent(lv_tables(doc)[[i]]))
+  writeLines(paste0("<!doctype html><html><head><meta charset='utf-8'></head><body>",
+    fragment, "</body></html>"), file.path(tempdir(), name), useBytes = TRUE)
+}
+lv_default <- knit_lv(d_lv, "lv(dat_lv)")
+stopifnot(length(lv_tables(lv_default)) == 2L)
+summary_lv <- xml2::xml_text(lv_tables(lv_default)[[1]])
+stopifnot(grepl("#FDF0E6", as.character(lv_default), fixed = TRUE),
+  grepl("#E9F2FB", as.character(lv_default), fixed = TRUE),
+  grepl("#EAF5E4", as.character(lv_default), fixed = TRUE))
+save_lv(lv_default, 1, "20261024-update-lv-summary.html")
+save_lv(lv_default, 2, "20261024-update-lv-frequency.html")
+```
+
+::: {.panel-tabset}
+
+### 变量摘要 {.unnumbered}
+
+![按类型着色的变量摘要，缺失与特殊值分开计数。](images/missing-guide/20261024-update-lv-summary.png){fig-alt="lv原生变量摘要，因子行浅绿、数值行浅蓝、字符行浅橙；note含三个特殊值，x与g各含真实缺失。"}
+
+[原生 HTML](images/missing-guide/20261024-update-lv-summary.html)
+
+### 频数与特殊值 {.unnumbered}
+
+![特殊值高亮与摘要计数一致。](images/missing-guide/20261024-update-lv-frequency.png){fig-alt="lv原生频数表，n/a、Missing和Not stated高亮；Blanket与Unknownness没有被错误识别为特殊值。"}
+
+[原生 HTML](images/missing-guide/20261024-update-lv-frequency.html)
+
+:::
+
+颜色帮助分辨字符、数值和因子；特殊值仍按整词规则计数，不会自动改成 NA。推荐 Quarto 写法为代码块内 `#| results: asis` 后调用 `lv(dat)`，不要再 `print(lv(dat))`，否则会把返回数据也打印出来。下面原生表来自上面实际编织，而非截图拼出的摘要。
+
+### 缺失分组单列保留，空类别不吞并
+
+```r
+lv_group <- knit_lv(d_lv, "lv(dat_lv, x, group = g)")
+head_lv <- xml2::xml_text(xml2::xml_find_all(lv_tables(lv_group)[[1]], ".//thead"))
+stopifnot(length(lv_tables(lv_group)) == 1L,
+  grepl("Overall", head_lv, fixed = TRUE), grepl("N = 6", head_lv, fixed = TRUE),
+  grepl("缺失", head_lv, fixed = TRUE), grepl("N = 3", head_lv, fixed = TRUE))
+save_lv(lv_group, 1, "20261024-update-lv-group.html")
+d_count <- data.frame(n = c("A", "A", "B", "B"), pct = c("", "", "(blank)", "Total"))
+lv_count <- knit_lv(d_count, "lv(dat_lv, count = c(n, pct))")
+stopifnot(length(lv_tables(lv_count)) == 3L)
+wide_heads <- xml2::xml_text(xml2::xml_find_all(lv_tables(lv_count)[[2]], ".//thead"))
+stopifnot(grepl("(blank)_1", wide_heads, fixed = TRUE), grepl("Total_1", wide_heads, fixed = TRUE),
+  grepl("n_1", xml2::xml_text(lv_tables(lv_count)[[1]]), fixed = TRUE))
+save_lv(lv_count, 2, "20261024-update-lv-count.html")
+```
+
+::: {.panel-tabset}
+
+### 缺失分组 {.unnumbered}
+
+![缺失组的三行包含在总体六行内。](images/missing-guide/20261024-update-lv-group.png){fig-alt="总体N为6，因子原顺序B、A保留，最后为N等于3的缺失组。"}
+
+[原生 HTML](images/missing-guide/20261024-update-lv-group.html)
+
+### 空类别与同名列 {.unnumbered}
+
+![真实空串、文字 blank 与 Total 类别保留为不同列。](images/missing-guide/20261024-update-lv-count.png){fig-alt="四行交叉表，空串显示blank，原有blank标签加后缀保持独立，真实Total类别与新增Total_1总计不冲突。"}
+
+[原生 HTML](images/missing-guide/20261024-update-lv-count.html)
+
+:::
+
+`group` 裸列名优先匹配数据列，也可给字符串或存有列名的变量；缺失值形成最后一组，总体包含这些行。`count` 优先于 `...`、`pattern` 和 `group`，同时给时会警告；输入已有的 dplyr 分组不影响频数分母。频数、百分比和总计列遇到同名列/类别时加数字后缀，不覆盖原数据。
+
+### 高基数、空选择与非数据框输入
+
+```r
+d_many <- data.frame(id = sprintf("P%03d", 1:150), g = rep(c("A", "B"), 75), x = rep(1:3, 50))
+many_lv <- knit_lv(d_many, "lv(dat_lv, id, x)")
+count_lv <- knit_lv(d_many, "lv(dat_lv, count = c(g, id))")
+empty_lv <- knit_lv(d_many, "lv(dat_lv, tidyselect::any_of('absent'))")
+vec_lv <- knit_lv(1:3, "lv(dat_lv)")
+stopifnot(length(lv_tables(many_lv)) == 2L, length(lv_tables(count_lv)) == 1L,
+  length(lv_tables(empty_lv)) == 0L, length(lv_tables(vec_lv)) >= 1L)
+bad_group_lv <- tryCatch(suppressMessages(lv(d_many, x, group = id)), error = identity)
+stopifnot(inherits(bad_group_lv, "error"), grepl("150 distinct values", conditionMessage(bad_group_lv), fixed = TRUE))
+validation_values <- list(default_tables = length(lv_tables(lv_default)),
+  grouped_tables = length(lv_tables(lv_group)), group_header = gsub("[[:space:]]+", " ", head_lv),
+  count_tables = length(lv_tables(lv_count)), high_count_tables = length(lv_tables(count_lv)),
+  empty_tables = length(lv_tables(empty_lv)), source_group_missing = sum(is.na(d_lv[["g"]])))
+```
+
+字符/因子超过 100 类时仍列在变量摘要中，但跳过频数和分组摘要；`group` 超过 100 个值（因子按水平数）直接报错。两变量交叉表任一变量超过 100 类时只保留长表，跳过宽表与行百分比表。明确空选择、零行或零列不会扩大成全表报告；日期、POSIXlt 与时间跨度按自身类型摘要，普通 list 列不生成频数表。Seurat 方法可用 `add_cell_stats=FALSE` 跳过细胞统计，`add_reductions=TRUE` 才加入降维列。
+
+### 环境诊断的计数口径
+
+`check_system()` 的 Windows 硬件查询优先使用 PowerShell CIM，必要时再回退 WMIC，后者不可用不等于硬件缺失。`count_packages_in_libpaths()` 按各库的 `installed.packages()` 记录计数，排除普通目录和安装锁；Total 是跨库安装副本数，同一包在两个库中会计两次，不是去重后的包数量。这两项依赖实际主机环境，本页不公开硬件标识或把两平台包数量强行比较为相同。
+
+<!-- /update-20261024: lv_reports -->
 
 ## 数据准备与输入约定 {#data}
 
@@ -74,7 +202,7 @@ lv(dat, group, stage)
 
 ### 正则选择 {.unnumbered}
 
-选择两个 marker 列；显示当前调用打印的最后一张摘要表。
+选择两个 marker 列；下表保留 2026-10-22 捕获的摘要快照，当前两表输出见[原生报告核对](#lv-report-20261024)。
 
 ```r
 lv(dat, pattern = "^marker")
@@ -405,7 +533,7 @@ data.frame(field = c("OS", "R version", "R platform"),
 
 ## 返回对象、保存与使用边界 {#output}
 
-`lv()` 打印报告并不可见返回完整输入数据。`check_na()` 自 UtilsR `e81b5ab`（2026-10-22）起可见返回 gt 报告表：控制台自动打印，Quarto / R Markdown 中直接渲染成表格，也可以继续用 gt 修改或 `gt::gtsave()` 保存；没有表可出（无匹配列、零行或零列，或 `show_all = FALSE` 时没有问题）时不可见返回 `NULL`。旧写法 `dat %>% check_na() %>% ...` 不再得到数据，需要把检视和后续处理分成两步。`plt_na()` 有缺失时返回 ggplot/patchwork，无缺失时返回 NULL。`impute_na_knn()` 返回插补后的 data.frame/tibble，并保留原始观察值。本页 `lv()` 的表格捕获实际打印的 gt/gtsummary 结果，`check_na()` 的表格就是函数返回的 gt 对象。
+`lv()` 打印报告并不可见返回原输入对象（包括向量、矩阵）；报告不是返回值。`check_na()` 自 UtilsR `e81b5ab`（2026-10-22）起可见返回 gt 报告表：控制台自动打印，Quarto / R Markdown 中直接渲染成表格，也可以继续用 gt 修改或 `gt::gtsave()` 保存；没有表可出（无匹配列、零行或零列，或 `show_all = FALSE` 时没有问题）时不可见返回 `NULL`。旧写法 `dat %>% check_na() %>% ...` 不再得到数据，需要把检视和后续处理分成两步。`plt_na()` 有缺失时返回 ggplot/patchwork，无缺失时返回 NULL。`impute_na_knn()` 返回插补后的 data.frame/tibble，并保留原始观察值。本页 `lv()` 的表格捕获实际打印的 gt/gtsummary 结果，`check_na()` 的表格就是函数返回的 gt 对象。
 
 KNN 是本次单次插补，缺失率图不能识别 MCAR/MAR/MNAR。预测建模时，供体、距离特征与预处理应在训练数据中确定；本接口示例是数据整理，未演示独立的训练/新数据转换器。未知编码、空串及特殊字符串先清洗，再决定是否纳入插补。
 
