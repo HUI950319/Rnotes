@@ -2,13 +2,13 @@
 title: "效应估计与森林图：get_eff 和 4 个绘图函数"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解；使用 598 人 M1 PTC 队列展示 plt_eff、plt_eff2、plt_eff_pair 和 plt_eff_sur 的参数示例，并补充 set_eff 的数值与区间对照。"
 date: 2026-10-09
-date-modified: 2026-10-21
+date-modified: 2026-10-23
 lightbox: true
 toc-depth: 2
 directory:
   title: "效应与森林：NA提示、配色与分页"
   topic: 回归与生存分析
-  updated: 2026-10-21
+  updated: 2026-10-23
 ---
 
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
@@ -18,6 +18,82 @@ directory:
 24 张主教程图已于 2026-10-09 更新；此前执行记录不再用于说明当前默认后端或区间。下方 `cat_var_rpa` 补充示例按 2026-10-05 源码 `3411eb0` 实际运行，使用另外的 800 人 MTC 演示样本。
 
 2026-10-19（RegR `c903aae`）起，`get_eff()` 的 `show_surdiff` 改名为 `show_sur`，默认改为 `FALSE`；旧名已在 `571dc88` 删除，再传会报 `unused argument`。本页代码已同步改名，用到概率表的调用写明 `show_sur = TRUE`；图形未因改名重新生成。
+
+## 当前森林标题与轴设置的分派 {#forest-dispatch-20261023}
+
+<!-- update-20261023: forest_dispatch -->
+
+2026-10-23 按已推送 RegR `aaeda5f` 在 Windows / WSL R 4.4.3 执行本节，原有图保留各自的执行记录。
+
+`plt_eff()` 与 `plt_eff2()` 的 `title` 都支持每模型一个字符串，`plt_eff2()` 的 `xlab` 同样支持。下面从同一组效应结果分别导出两类森林图，不重新拟合。
+
+```r
+library(RegR)
+set.seed(1023)
+d_multi <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), id = 1:90)
+d_multi[["Age"]] <- rnorm(360, 55, 10)
+t1 <- rexp(360, exp(.35 * (d_multi[["Tx"]] == "Yes") +
+  .25 * (d_multi[["Sex"]] == "Male") + .02 * (d_multi[["Age"]] - 55)) / 80)
+t2 <- rexp(360, 1 / 130); tc <- rexp(360, 1 / 160)
+d_multi[["time"]] <- pmin(t1, t2, tc) + .2
+d_multi[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_multi[["DSS"]] <- as.integer(d_multi[["event"]] == 1L)
+eff_multi <- get_eff(d_multi, cat_var = c("Tx", "Age", "Sex"),
+  adj_var = c("Age", "Sex"), surv = c(TRUE, FALSE),
+  methods = c("unadj", "direct"), show_sur = FALSE, all = NULL)
+eff_pdf <- file.path(tempdir(), c("20261023-update-eff-sur.pdf", "20261023-update-eff-cif.pdf"))
+eff_plots <- plt_eff(eff_multi, display = "c", show_pinter = "none",
+  title = c("Cox model", "Fine-Gray model"), fill_col = list(NULL, "pal_div[[5]][8]"),
+  xlim = list(c(.2, 4), c(.2, 4)), save = list(filename = eff_pdf))
+classic_pdf <- file.path(tempdir(), c("20261023-update-classic-sur.pdf", "20261023-update-classic-cif.pdf"))
+classic_plots <- plt_eff2(eff_multi, which = c("haz_unadj", "haz_direct"),
+  title = c("Cox model", "Fine-Gray model"), xlab = c(cif = "sHR (95% CI)", sur = "HR (95% CI)"),
+  axis_args = list(xlim = list(c(.2, 4), c(.2, 3.5)), x_trans = "none"),
+  save = list(filename = classic_pdf))
+reject_forest <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+stopifnot(identical(names(eff_plots), c("sur", "cif")),
+  identical(names(classic_plots), c("sur", "cif")), all(file.exists(c(eff_pdf, classic_pdf))),
+  reject_forest(plt_eff(eff_multi, title = c("a", "b", "c"))),
+  reject_forest(plt_eff2(eff_multi, xlab = c("a", "b", "c"))),
+  reject_forest(plt_eff_pair(eff_multi)), reject_forest(plt_eff_sur(eff_multi)),
+  reject_forest(set_eff(eff_multi)))
+validation_values <- data.frame(model = names(eff_plots), classic_axis = c("HR", "sHR"))
+```
+
+::: {.panel-tabset}
+
+### 组合森林：Cox {.unnumbered}
+
+![第一模型的标题为 Cox model。](images/forest-guide/20261023-update-eff-sur.png){fig-alt="360条模拟记录的Cox效应森林，Tx、Age、Sex的未调整与调整效应分列，标题为Cox model。"}
+
+[下载 PDF](images/forest-guide/20261023-update-eff-sur.pdf)
+
+### 组合森林：Fine–Gray {.unnumbered}
+
+![第二模型使用独立标题与背景设置。](images/forest-guide/20261023-update-eff-cif.png){fig-alt="同一队列的Fine-Gray效应森林，标题为Fine-Gray model，显示sHR。"}
+
+[下载 PDF](images/forest-guide/20261023-update-eff-cif.pdf)
+
+### 经典森林：Cox {.unnumbered}
+
+![经典 Cox 森林使用按 sur 名称匹配的 HR 轴标题。](images/forest-guide/20261023-update-classic-sur.png){fig-alt="经典森林两列显示未调整与调整Cox估计，横轴标题为HR 95% CI。"}
+
+[下载 PDF](images/forest-guide/20261023-update-classic-sur.pdf)
+
+### 经典森林：Fine–Gray {.unnumbered}
+
+![经典 Fine–Gray 森林匹配 sHR 轴标题及第二组范围。](images/forest-guide/20261023-update-classic-cif.png){fig-alt="经典森林显示Fine-Gray估计，横轴标题为sHR 95% CI，范围为0.2至3.5。"}
+
+[下载 PDF](images/forest-guide/20261023-update-classic-cif.pdf)
+
+:::
+
+两函数的同名字段不全有相同的无名 list 语义：`plt_eff(xlim = list(...))` / `ticks_at` 按面板共享；要逐模型用 `list(sur=...,cif=...)`。`plt_eff2(axis_args = list(xlim = list(...)))` 则按模型顺序分派。普通颜色向量仍共享；`fill_col = list(NULL,...)` 表达第一模型采用默认配色、第二模型使用指定设置，NULL 不等于关闭填色。
+
+仅 `surv_models` 自动拆图；`plt_eff2()` 的普通命名结果列表仍堆叠成一张森林。`plt_eff_pair()`、`plt_eff_sur()`、`set_eff()` 明确拒绝多模型输入，需提取一个结果，避免静默选错模型。
+
+<!-- /update-20261023: forest_dispatch -->
 
 ## 当前 Cox/Logistic 提示与逐模型森林 {#forest-controls-20261021}
 
