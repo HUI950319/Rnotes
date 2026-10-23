@@ -2,18 +2,77 @@
 title: "KM/CIF 组合图：get_cat 与 3 个绘图函数"
 description: "get_cat 的数据、方法和返回对象详解；用 RegR 自带 MTC 队列比较 plt_cat1、plt_cat2、plt_cat3 的 布局和推断的实际图形示例。"
 date: 2026-10-09
-date-modified: 2026-10-22
+date-modified: 2026-10-23
 lightbox: true
 toc-depth: 2
 directory:
   title: "KM/CIF组合：位置、步长与联合组标题"
   topic: 回归与生存分析
-  updated: 2026-10-22
+  updated: 2026-10-23
 ---
 
 先用 `get_cat()` 计算曲线和效应表，再用 `plt_cat1()`、`plt_cat2()` 或 `plt_cat3()` 选择布局。本页参照 [MLR 的 SHAP 页面](../mlr/shap-guide.qmd)：**每个参数选项配可复制代码与实绘图片，在标签页中切换比较，点击图片可放大。**
 
 **核对记录：** 本次用 WSL R 4.4.3 和 RegR 本机开发源码 `d54e60f`，从原始示例队列重新拟合 KM 主分析与 Race 分组，并刷新所有生存模式图片，新增 `sur_h` 布局。CIF 图保留前次 CSC 执行快照。包版本仍为 0.1.3；本页不提供患者级数据下载。
+
+## 当前逐模型轴标题与刻度标签 {#cat-dispatch-20261023}
+
+<!-- update-20261023: cat_dispatch -->
+
+2026-10-23 按已推送 RegR `aaeda5f` 在 Windows / WSL R 4.4.3 执行本节，原有图保留各自的执行记录。
+
+`plt_cat1()` 现在接受每模型一个字符串的 `xlab` / `ylab` 向量，以及按模型顺序排列的无名 list。名称映射和位置映射可同时使用；数值范围与颜色向量等本身有多元素含义的参数仍共享。
+
+```r
+library(RegR)
+set.seed(1023)
+d_multi <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), id = 1:90)
+d_multi[["Age"]] <- rnorm(360, 55, 10)
+t1 <- rexp(360, exp(.35 * (d_multi[["Tx"]] == "Yes") +
+  .25 * (d_multi[["Sex"]] == "Male") + .02 * (d_multi[["Age"]] - 55)) / 80)
+t2 <- rexp(360, 1 / 130); tc <- rexp(360, 1 / 160)
+d_multi[["time"]] <- pmin(t1, t2, tc) + .2
+d_multi[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_multi[["DSS"]] <- as.integer(d_multi[["event"]] == 1L)
+cat_multi <- get_cat(d_multi, "Tx", adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
+  timepoint = 24, time_dif = 24, curve_args = list(ci = FALSE, max_times = 40L))
+cat_pdf <- file.path(tempdir(), c("20261023-update-cat-sur.pdf", "20261023-update-cat-cif.pdf"))
+cat_plots <- plt_cat1(cat_multi, display = "v", max_t = 60,
+  xbreaks = seq(0, 60, 12), xlab = c("KM follow-up (months)", "CIF follow-up (months)"),
+  ylab = c(cif = "Cumulative incidence", sur = "Survival probability"),
+  sur_arg = list(ylim = list(sur = c(0, 1), cif = c(0, 1)),
+                 ybre = list(.2, .1)),
+  save = list(filename = cat_pdf))
+reject_cat <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+stopifnot(is.list(cat_plots), identical(names(cat_plots), c("sur", "cif")),
+  all(file.exists(cat_pdf)), reject_cat(plt_cat1(cat_multi, xlab = c("a", "b", "c"))),
+  reject_cat(plt_cat2(cat_multi)))
+validation_values <- data.frame(model = names(cat_plots), file = basename(cat_pdf))
+```
+
+::: {.panel-tabset}
+
+### 生存图 {.unnumbered}
+
+![生存图接收第一个横轴标题和按 sur 命名的纵轴标题。](images/cat-guide/20261023-update-cat-sur.png){fig-alt="360条模拟记录，未调整与年龄调整生存曲线及内嵌HR和24月生存差森林。横轴为KM follow-up months，纵轴为Survival probability。"}
+
+[下载 PDF](images/cat-guide/20261023-update-cat-sur.pdf)
+
+### 累计发生图 {.unnumbered}
+
+![CIF 图使用第二个横轴标题，纵轴按 cif 名称匹配。](images/cat-guide/20261023-update-cat-cif.png){fig-alt="相同队列的未调整与年龄调整CIF，内嵌sHR及24月CIF差森林。纵轴为Cumulative incidence，刻度步长为0.1。"}
+
+[下载 PDF](images/cat-guide/20261023-update-cat-cif.pdf)
+
+:::
+
+这里 `ybre = list(.2,.1)` 按模型顺序分派；`ylim` 使用模型名，避免误解：**无名 `ylim` list 仍表示未调整、调整两个面板**。同理，无名 `xlim` / `ticks_at` list 表示两个内嵌森林，无名 `strip_label` list 表示各暴露；这些字段要逐模型设置时必须命名。
+
+本节也使用 `aaeda5f` 的自动刻度修复：未指定 `ticks_at` 且 `x_trans = "none"` 时，刻度按显示精度取整后去重，消除重复标签和负零。手动刻度与变换轴保留原规则。`plt_cat2()` / `plt_cat3()` 仍一次接收一个模型，需显式提取 `cat_multi[["cif"]]`；普通 cat_res 列表仍用于组合暴露图。
+
+<!-- /update-20261023: cat_dispatch -->
 
 ## 当前逐模型保存：无名文件名向量 {#cat-files-20261022}
 
