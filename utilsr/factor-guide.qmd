@@ -2,12 +2,13 @@
 title: "因子与统计文本：排序、合并、分箱和区间格式化"
 description: "fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界；参数对照及重编码、缺失和分箱边界。"
 date: 2026-10-20
+date-modified: 2026-10-23
 lightbox: true
 toc-depth: 2
 directory:
   title: "因子与统计文本：排序、合并、分箱和区间格式化及数据边界"
   topic: 数据准备与筛选
-  updated: 2026-10-21
+  updated: 2026-10-23
 ---
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -52,7 +53,7 @@ hi <- c(1.6, 1, 1.9)
 | 固定分箱 | `fct_num(breaks,labels)` | 自动补 ±Inf，cut 采用右闭区间，切点属于下方那组；labels 数为切点数+1 |
 | 自动分箱 | `nbins`、`type="quantile"/"equal"` | 与 breaks 互斥；quantile 等人数倾向、equal 等宽；重复分位点会减少实际组数 |
 | 多列组合 | `fct_to_combine(vars,var_name=NULL,sep=" & ")` | 至少两列；默认新列名由原列名用下划线连接；水平遵循各输入因子顺序 |
-| 缺失组合 | 输入 NA | 当前 paste 会将 NA 变成文字 NA，结果不是缺失因子；明确选择保留文字或恢复 NA |
+| 缺失组合 | 任一输入 `is.na()` 为真 | 当前自动保留为缺失；文字 `"NA"` 仍是类别，组合水平只包含实际完整观测 |
 | CI 与 SD | `stat_ci(x,y,z=NULL,digits,bracket,sep)` | 三个数值向量为估计和上下界，两个为均值与 SD；只格式化，未计算区间 |
 | P 值显示 | `stat_pval(mode="stars"/"pvalue"/"plain",digits,map_signif)` | 阈值星号包含等于边界；digits 控制显示，不调整原始检验结果 |
 | 外部星号 | `add_star_p` | 根据已有 P 值给任意字符追加星号；此时 digits 和 mode 不参与数字重格式化 |
@@ -547,99 +548,83 @@ data.frame(case = names(guards), rejected = unname(guards))
 :::
 <!-- /latest-20261020: numeric_inputs -->
 
-## 组合列与缺失
+## 组合列：缺失传播与分组水平 {#combine-current-20261023}
+
+<!-- update-20261023: factor_stats -->
+
+本节与下方 P 值补充按已推送 UtilsR `23ba378` 在 Windows / WSL R 4.4.3 执行。`fct_to_combine()` 已修复旧版把缺失拼成文字的问题；这里替换旧示例，避免继续建议事后恢复 NA。
 
 ::: {.panel-tabset}
 
-### 两个向量组合 {.unnumbered}
-
-组合因子按 sex 水平再按 stage 水平排序，未把临床 stage 字母排序覆盖。
+### 真正缺失和文字 NA {.unnumbered}
 
 ```r
-g <- fct_to_combine(dat[["sex"]], dat[["stage"]], sep = " / ")
-fct_show(g)
-```
-
-| order|level   |  n|
-|-----:|:-------|--:|
-|     1|F / I   | 23|
-|     2|F / II  | 10|
-|     3|F / III | 23|
-|     4|F / IV  | 10|
-|     5|M / I   | 16|
-|     6|M / II  | 13|
-|     7|M / III | 14|
-|     8|M / IV  | 11|
-
-### 数据框返回和新列 {.unnumbered}
-
-追加 sex_stage 并返回整个数据框；var_name 省略时也采用 sex_stage。
-
-```r
-combined <- fct_to_combine(dat, c("sex", "stage"), var_name = "sex_stage", sep = " | ")
-head(combined)
-```
-
-|stage |sex | age|sex_stage    |
-|:-----|:---|---:|:------------|
-|III   |M   |  24|M &#124; III |
-|IV    |M   |  19|M &#124; IV  |
-|I     |M   |  61|M &#124; I   |
-|II    |F   |  64|F &#124; II  |
-|I     |M   |  68|M &#124; I   |
-|I     |F   |  69|F &#124; I   |
-
-### 在 mutate 中解析列名 {.unnumbered}
-
-只在 dplyr 数据掩码内把字符向量解析为列名；在外部直接给一个字符向量会按列名解析并报错。
-
-```r
-dplyr::mutate(dat, group = fct_to_combine(c("sex", "stage"))) |> head()
-```
-
-|stage |sex | age|group   |
-|:-----|:---|---:|:-------|
-|III   |M   |  24|M & III |
-|IV    |M   |  19|M & IV  |
-|I     |M   |  61|M & I   |
-|II    |F   |  64|F & II  |
-|I     |M   |  68|M & I   |
-|I     |F   |  69|F & I   |
-
-### 缺失变成文字的边界 {.unnumbered}
-
-原始 NA 被 paste 转成字符串中的 NA，组合因子的 is.na 为 FALSE；这会影响缺失计数。
-
-```r
-s <- factor(c("F", "M", NA), levels = c("F", "M"))
-t <- factor(c("I", NA, "II"), levels = c("I", "II"))
+library(UtilsR)
+s <- factor(c("F", "M", NA, "NA"), levels = c("F", "M", "NA"))
+t <- factor(c("I", NA, "II", "I"), levels = c("I", "II"))
 g <- fct_to_combine(s, t)
+stopifnot(identical(is.na(g), c(FALSE, TRUE, TRUE, FALSE)),
+          identical(levels(g), c("F & I", "NA & I")))
 data.frame(sex = s, stage = t, combined = g, is_na = is.na(g))
 ```
 
-|sex |stage |combined |is_na |
-|:---|:-----|:--------|:-----|
-|F   |I     |F & I    |FALSE |
-|M   |NA    |M & NA   |FALSE |
-|NA  |II    |NA & II  |FALSE |
+| sex | stage | combined | is_na |
+|:--|:--|:--|:--|
+| F | I | F & I | FALSE |
+| M | NA | NA | TRUE |
+| NA | II | NA | TRUE |
+| NA（文字） | I | NA & I | FALSE |
 
-### 按原变量恢复缺失 {.unnumbered}
+缺失判断沿用输入的 `is.na()` 方法，包括 NaN、SPSS 用户缺失值及范围。不会创建缺失组合水平，也不会补齐未观测的水平笛卡尔积。
 
-延续上例，任一原变量缺失时显式恢复 NA；先明确分析中的缺失定义。
+### 分组前固定全队列顺序 {.unnumbered}
 
 ```r
-g <- fct_to_combine(s, t)
-g[is.na(s) | is.na(t)] <- NA
-data.frame(combined = g, is_na = is.na(g))
+d_combo <- data.frame(center = c("A", "A", "B", "B"),
+  sex = factor(c("M", "M", "F", "F"), levels = c("F", "M")),
+  stage = factor(c("II", "I", "I", "II"), levels = c("I", "II")))
+grouped <- dplyr::group_by(d_combo, center)
+within <- dplyr::mutate(grouped, joint = fct_to_combine(sex, stage))
+whole <- fct_to_combine(grouped, c("sex", "stage"), var_name = "joint")
+orders <- data.frame(order = 1:4,
+  whole_data = levels(whole[["joint"]]), within_group = levels(within[["joint"]]))
+stopifnot(identical(dplyr::group_vars(whole), "center"),
+  identical(levels(whole[["joint"]]), c("F & I", "F & II", "M & I", "M & II")),
+  identical(levels(within[["joint"]]), c("M & I", "M & II", "F & I", "F & II")))
+gt::gtsave(gt::tab_header(gt::gt(orders), title = "Factor level order"),
+  file.path(tempdir(), "20261023-update-factor-order.html"))
+orders
 ```
 
-|combined |is_na |
-|:--------|:-----|
-|F & I    |FALSE |
-|NA       |TRUE  |
-|NA       |TRUE  |
+![相同观测值在整队列组合与组内 mutate 后的水平顺序。](images/factor-guide/20261023-update-factor-order.png){fig-alt="四行水平顺序对照。整队列先F后M，组内计算再合并则先M后F，首水平由F和I变成M和I。"}
 
-:::
+[查看原生表格](images/factor-guide/20261023-update-factor-order.html)
+
+组内 `mutate()` / `rowwise()` 分别计算，再由 dplyr 合并水平，可能改变默认模型参考组。要统一顺序，用整个数据框的方法；它保留分组信息。最终仍应核对 `levels()`、contrasts 和模型参考水平。
+
+### 选择器、重名与源数据保护 {.unnumbered}
+
+```r
+masked <- dplyr::mutate(d_combo, joint = fct_to_combine(c("sex", "stage")))
+named_args <- fct_to_combine(sep = " / ", vars = c("sex", "stage"),
+                            x = d_combo, var_name = "joint")
+stopifnot(identical(masked[["joint"]], whole[["joint"]]),
+  identical(as.character(named_args[["joint"]]),
+            as.character(fct_to_combine(d_combo[["sex"]], d_combo[["stage"]], sep = " / "))))
+rejected <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+stopifnot(rejected(fct_to_combine(d_combo, c("sex", "sex"))),
+  rejected(fct_to_combine(c("A & B", "A"), c("C", "B & C"))),
+  rejected(fct_to_combine(as.raw(1:2), 1:2)))
+dt <- data.table::as.data.table(d_combo)
+data.table::setkeyv(dt, "sex")
+before <- data.table::copy(dt)
+dt_out <- fct_to_combine(dt, c("sex", "stage"), var_name = "joint")
+stopifnot(identical(dt, before), !"joint" %in% names(dt), "joint" %in% names(dt_out))
+```
+
+单个长度至少为 2 的字符向量始终表示列名；在数据掩码外组合一列字符值时，先用 `factor(x)`。分组列不能由 `pick()` 选取，可直接传向量或改用数据框方法。`vars` 必须唯一、非空且不含 NA；重复列名造成的歧义、不同组合拼成同一个标签都会报错。列名 `sep` 与控制参数同名时，用数据框方法。data.table 会先复制再写入，覆盖键或索引列时相关元数据会被清理。
+
+<!-- /update-20261023: factor_stats -->
 
 ## 绘图前整理分类
 
@@ -784,6 +769,51 @@ data.frame(shown_95 = stat_ci_parse(x, output = "ci_p", exp = FALSE),
 |0.50 (0.10, 0.90), p=0.014 |0.500 (0.164, 0.836), p=0.004 |
 
 :::
+
+## 当前 P 值文本：界限、缺失与星号 {#pvalue-current-20261023}
+
+<!-- update-20261023: pvalue_stats -->
+
+`stat_pval()` 保留 `<0.001`、`≤0.05` 等界限文本，只修剪首尾空白，不把界限当成确切 P 值追加星号。数字可使用科学记数法和外围 Unicode 空白；数字内部空格仍无效。
+
+```r
+library(UtilsR)
+pv <- c(bound = "  <0.001  ", exact = "1e-2", equal = "0.05",
+        above = "0.050000000001", missing = NA_character_)
+shown <- stat_pval(pv, map_signif = c("***" = .001, "**" = .01, "*" = .05))
+stopifnot(identical(shown, c(bound = "<0.001", exact = "0.010**", equal = "0.050*",
+  above = "0.050", missing = NA_character_)))
+p_table <- data.frame(input = unname(pv), shown = unname(shown))
+gt::gtsave(gt::tab_header(gt::gt(p_table), title = "Bounds are not exact P-values"),
+  file.path(tempdir(), "20261023-update-pvalue-bounds.html"))
+p_table
+```
+
+![界限文本不推断星号，阈值比较使用舍入前 P 值。](images/factor-guide/20261023-update-pvalue-bounds.png){fig-alt="小于0.001保留原界限，0.01显示两星，0.05显示一星，略大于0.05虽同样显示0.050却无星，缺失保持NA。"}
+
+[查看原生表格](images/factor-guide/20261023-update-pvalue-bounds.html)
+
+```r
+annotated <- stat_pval(c(a = NA_character_, b = "HR", c = "OR"),
+                      add_star_p = c(.001, NA, .05))
+stopifnot(identical(annotated, c(a = NA_character_, b = "HR", c = "OR*")),
+  identical(stat_pval(c(NA, NA)), c(NA_character_, NA_character_)),
+  identical(stat_pval(numeric()), character()),
+  identical(stat_pval(.01, map_signif = c(first = .05, second = .05)), "0.010first"),
+  identical(stat_pval(.01, map_signif = numeric()), "0.010"))
+reject_p <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+stopifnot(reject_p(stat_pval(-.01)), reject_p(stat_pval(Inf)),
+  reject_p(stat_pval("<0")), reject_p(stat_pval(">1")),
+  reject_p(stat_pval("0 .05")), reject_p(stat_pval(as.Date("2026-01-01"))),
+  reject_p(stat_pval(.05, map_signif = c(bad = 2))),
+  reject_p(stat_ci_parse("1.5 (1.1, 2.0)", output = "ci_star", map_signif = c(bad = 2))))
+validation_values <- list(order = orders, p = p_table,
+  missing = is.na(g), annotated = annotated, source_unchanged = identical(dt, before))
+```
+
+普通 P 值和界限端点必须有限且在 `[0,1]`；严格 `<0`、`>1` 无法表示合法 P 值，会报错。`plain` 可格式化此范围以外的普通数值。`add_star_p` 缺失时不追加星号，原文本缺失仍为 NA；名字和空字符向量合同保留。使用星号时，`map_signif` 的阈值须为有限的 0–1 数值，重复阈值取第一个符号，空数值映射禁用星号；`stat_ci_parse(output = "ci_star")` 使用相同校验，但区间逆推 P 值仍是其原有近似方法，不等于原模型检验。
+
+<!-- /update-20261023: pvalue_stats -->
 
 ## 输入合同与错误
 
