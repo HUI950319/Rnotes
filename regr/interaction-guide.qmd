@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；包含 get_fit_ms 的多分类与连续变量整体检验，及 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
 date: 2026-10-09
-date-modified: 2026-10-23
+date-modified: 2026-10-24
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：亚组效应核对与导出"
   topic: 回归与生存分析
-  updated: 2026-10-23
+  updated: 2026-10-24
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -33,6 +33,83 @@ directory:
 **2026-10-02 更新：** [竞争风险绝对交互的 mets 优化](#cif-mets-update) 按 RegR 源码快照 `cefc1a5`、mets **1.3.13** 补充，包含默认 `delta` 与可选 `boot` 的真实结果、完整调用计时及可下载记录。该节更新了下文 Fine–Gray 区间的计算说明。
 
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
+
+## 当前参考组、连续变量与亚组表 {#reference-subgroup-20261024}
+
+<!-- update-20261024: inter_reference -->
+
+2026-10-24 按已推送 RegR `2c01bb0` 在 Windows / WSL R 4.4.3 执行。比值交互与绝对交互入口均以 `ref_idx` 为正式参数，支持当前水平名称或位置；`binary_ref` 仍警告兼容，不能与新名同给。`get_eff_inter()` 新增 `ref_idx`，`get_inter(eff_inter=TRUE)` 也会转发。下面用模拟 Cox 数据核对。
+
+### 一个暴露自动逐对分析，连续变量先二分
+
+```r
+library(RegR)
+set.seed(102401)
+d_ref <- expand.grid(Tx = factor(c("No", "Yes")),
+  Grade = factor(c("Low", "Mid", "High"), levels = c("Low", "Mid", "High")),
+  Sex = factor(c("Female", "Male")), id = 1:40)
+d_ref[["Age"]] <- rnorm(nrow(d_ref), 55, 9)
+d_ref[["time"]] <- rexp(nrow(d_ref), exp(.5 * (d_ref[["Tx"]] == "Yes") +
+  .02 * (d_ref[["Age"]] - 55) + .4 * (d_ref[["Grade"]] == "High")) / 60) + .1
+d_ref[["DSS"]] <- rbinom(nrow(d_ref), 1, .65)
+d_ref[["event"]] <- d_ref[["DSS"]]
+quiet_ref <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
+cells_ref <- function(x) unname(as.matrix(x[, -1L, drop = FALSE]))
+one_ref <- quiet_ref(get_inter(d_ref, "Tx", adj_var = c("Grade", "Age"), surv = TRUE))
+pair_ref <- quiet_ref(get_inter(d_ref, c("Tx", "Grade"), adj_var = "Age",
+  surv = TRUE, multicat_model = "separate"))
+cut_ref <- median(d_ref[["Age"]])
+cut_levels <- paste0(c("≤", ">"), format(signif(cut_ref, 3L)))
+d_cut <- d_ref
+d_cut[["Age_cut"]] <- factor(cut_levels[1L + (d_ref[["Age"]] > cut_ref)], levels = cut_levels)
+age_ref <- quiet_ref(get_inter(d_cut, c("Tx", "Age_cut"), adj_var = "Grade", surv = TRUE))
+stopifnot(identical(attr(one_ref, "inter_type"), "mul"), length(one_ref) == 3L,
+  identical(cells_ref(one_ref[[1]][["Adjus"]]), cells_ref(pair_ref[[1]][["Adjus"]])),
+  identical(cells_ref(one_ref[[2]][["Adjus"]]), cells_ref(pair_ref[[2]][["Adjus"]])),
+  identical(cells_ref(one_ref[[3]][["Adjus"]]), cells_ref(age_ref[["Adjus"]])))
+gt::gtsave(fmt_inter_gt(one_ref),
+  file.path(tempdir(), "20261024-update-inter-one.html"))
+```
+
+![单暴露与 Grade、Age 逐对形成三份交互结果。](images/interaction-guide/20261024-update-inter-one.png){fig-alt="原生交互表，Tx与Grade的Low对Mid、Low对High两组对比，以及Tx与按中位数分组Age的对比，均含未调整和调整模型。"}
+
+[原生 HTML 表](images/interaction-guide/20261024-update-inter-one.html)
+
+`exposure_names="Tx"` 时，`adj_var` 同时提供候选修饰变量；每对模型仍调整其余变量。Grade 的两对分析保留连续 Age 调整；只有 Tx×Age 那一对把 Age 二分为 `≤中位数` 和 `>中位数`。有三个以上取值的数值暴露会这样二分，中位数取本次完整病例；并列中位数属于低组。不要把数字分类编码留作连续值。自动二分会改变研究问题，预设临床切点应先显式分箱。
+
+### 合并参考组后，表题与事件分母一起核对
+
+```r
+d_miss <- d_ref
+d_miss[["DSS"]][c(5, 93, 255)] <- NA_integer_
+d_miss[["event"]] <- d_miss[["DSS"]]
+eff_ref <- quiet_ref(get_eff_inter(d_miss, "Tx", "Grade", adj_var = "Age",
+  surv = TRUE, ref_idx = "Low", subgroup_model = "interaction"))
+via_ref <- quiet_ref(get_inter(d_miss, c("Tx", "Grade"), adj_var = "Age",
+  surv = TRUE, ref_idx = 1L, eff_inter = TRUE))
+stopifnot(isTRUE(all.equal(as.data.frame(eff_ref), as.data.frame(via_ref), check.attributes = FALSE)),
+  identical(eff_ref[["subgroup"]][eff_ref[["variable"]] %in% "Grade"], c("Grade", "Low", "Oth")))
+overall_ref <- which(eff_ref[["subgroup"]] == "All patients")
+want_events <- paste0(sum(d_miss[["DSS"]] == 1L, na.rm = TRUE), "/", sum(!is.na(d_miss[["DSS"]])))
+stopifnot(length(overall_ref) == 1L,
+  identical(gsub(" ", "", eff_ref[["event"]][overall_ref]), want_events),
+  grepl(as.character(nrow(d_miss)), eff_ref[["n"]][overall_ref], fixed = TRUE))
+gt::gtsave(fmt_eff_inter_gt(eff_ref),
+  file.path(tempdir(), "20261024-update-eff-reference.html"))
+validation_values <- list(cut = cut_ref, labels = attr(one_ref, "table_names"),
+  adjusted = lapply(one_ref, function(x) as.data.frame(x[["Adjus"]])),
+  effects = as.data.frame(eff_ref), total_rows = nrow(d_miss), observed_outcomes = sum(!is.na(d_miss[["DSS"]])))
+```
+
+![当前亚组表注明 Cox、Tx 的对比方向、调整项与各组事件分母。](images/interaction-guide/20261024-update-eff-reference.png){fig-alt="Tx的Cox亚组效应原生表，标题说明模型，副标题Yes对No，Grade合并为Low和Oth，底部注明Age调整。"}
+
+[原生 HTML 表](images/interaction-guide/20261024-update-eff-reference.html)
+
+多水平 `cat_var` / `sub_var` 在外层分层前合并，二分类变量保持原状；同一 `ref_idx` 会应用到所有需要合并的变量，名称必须在各变量中存在。表头 `Subgroups`、可读的变量分组名、模型与对比方向帮助区分层级；分组名加粗，`show_color=TRUE` 时带显著交互单元的分组名标红。红色仍需结合原检验、模型和多重比较解读。
+
+本例描述性 No.(%) 计全部 480 行；事件分母只计 477 个非缺失结局，缺失结局不再把整个亚组的事件格变为空白。拟合仍按相应模型完整病例进行，描述人数不等于模型样本数。示例出现预防性暴露提示，解读 RERI 前需核对参考编码和比值方向；HR 上的 RERI 不能直接当作绝对风险交互。固定 95% 的模板表头与非 95% 参数之间的限制仍见[此前说明](#joint-cat-20261020)。
+
+<!-- /update-20261024: inter_reference -->
 
 ## 当前绝对交互：逐模型计算与导出 {#abs-models-20261023}
 
@@ -679,9 +756,9 @@ get_inter(
   data, exposure_names, adj_var = NULL,
   surv = TRUE, conf_level = 0.95,
   cif_args = list(model = c("FGR", "CSC", "CRR")),
-  split_var = NULL, binary_ref = NULL,
+  split_var = NULL, ref_idx = NULL,
   multicat_model = c("interaction", "separate"),
-  eff_inter = FALSE
+  eff_inter = FALSE, binary_ref = NULL
 )
 ```
 
@@ -689,13 +766,13 @@ get_inter(
 
 | 参数 | 使用方式与影响 |
 |:--|:--|
-| `exposure_names` | 两个列名对应一对暴露。多于两个时，第一个为二分类主暴露，其余逐一作为修饰变量；此时需 `multicat_model = "separate"` |
+| `exposure_names` | 一个列名时与各 `adj_var` 逐对分析；两个列名对应一对暴露。多于两个时，第一个为二分类主暴露，其余逐一作为修饰变量；此时需 `multicat_model = "separate"` |
 | `adj_var` | 调整变量列名；结果保留 `Unadj` 与 `Adjus` 模型。修改调整项会重算模型 |
 | `surv` | `TRUE` 为 Cox，`FALSE` 为 Fine–Gray，结局列名字符串为 Logistic |
 | `conf_level` | 置信水平，默认 0.95；影响区间和显著性显示 |
 | `cif_args` | Fine–Gray 拟合后端；默认FGR/mets，CRR使用 `tidycmprsk::crr()`；本入口的CSC仍使用mets比值拟合 |
 | `split_var` | 先按一个或多个变量分层，再在层内计算交互；分层变量从调整项移除 |
-| `binary_ref` | 按多水平因子的参考水平**索引**合并成二分类，其余水平归为 `Oth`；会改变研究对比，不是只改显示名称 |
+| `ref_idx` | 按水平名称或位置合并多水平变量的参考组，其余为 `Oth`；旧名 `binary_ref` 警告兼容，两者不能同给。会改变研究对比 |
 | `multicat_model` | 二分类×多水平时，`"interaction"` 用一个完整交互模型；`"separate"` 用 K−1 个参考组对照的子集模型 |
 | `eff_inter` | 默认 `FALSE` 返回交互指标表；`TRUE` 转发至 `get_eff_inter()` 的效应表路径，返回合同随之改变 |
 
@@ -812,7 +889,7 @@ attr(inter_multi[["Adjus"]], "estimates")
 
 多重分层由分层变量水平的组合形成，缺失层值和空层会被丢弃；层内暴露缺少水平的单元可能为空。只观察到一个非空层时，函数会警告并忽略 `split_var`。这些情况需要检查样本构成，空白不表示“无交互”。
 
-`eff_inter = TRUE` 是另一种结果路径：第一个暴露传为 `cat_var`，其余传为 `sub_var`，采用完整交互模型的层内效应表，而非上述 RERI / AP / SI 指标表；可返回数据框或分层的 `eff_inter_split` 对象，且不接受 `binary_ref`。这一路径与 [效应估计与森林图](forest-guide.qmd) 的工作流衔接。
+`eff_inter = TRUE` 是另一种结果路径：第一个暴露传为 `cat_var`，其余传为 `sub_var`，采用完整交互模型的层内效应表，而非上述 RERI / AP / SI 指标表；可返回数据框或分层的 `eff_inter_split` 对象，并转发 `ref_idx` 合并多水平变量。这一路径与 [效应估计与森林图](forest-guide.qmd) 的工作流衔接。
 
 ## get_inter_abs()：固定时点风险与人时发生率 {#get-inter-abs}
 
@@ -823,11 +900,11 @@ attr(inter_multi[["Adjus"]], "estimates")
 get_inter_abs(
   data, exposure_names, adj_var = NULL,
   surv = TRUE, sur_time = 120, poi_time = 12 * 1000,
-  conf_level = 0.95, split_var = NULL, binary_ref = NULL,
+  conf_level = 0.95, split_var = NULL, ref_idx = NULL,
   multicat_model = c("separate", "interaction"),
   ci_method = c("delta", "boot"),
   cif_args = list(model = c("FGR", "CSC", "CRR")),
-  n_boot = 500, n_cores = 1
+  n_boot = 500, n_cores = 1, binary_ref = NULL
 )
 ```
 
