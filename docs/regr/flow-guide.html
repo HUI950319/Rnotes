@@ -1067,7 +1067,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <h2 id="toc-title">目录</h2>
 
   <ul class="collapse">
-  <li><a href="#data" id="toc-data" class="nav-link active" data-scroll-target="#data">示例数据与共用准备</a></li>
+  <li><a href="#all-preprocess-20261024" id="toc-all-preprocess-20261024" class="nav-link active" data-scroll-target="#all-preprocess-20261024">当前 get_all：先筛选，再重编码</a></li>
+  <li><a href="#data" id="toc-data" class="nav-link" data-scroll-target="#data">示例数据与共用准备</a></li>
   <li><a href="#get-flt" id="toc-get-flt" class="nav-link" data-scroll-target="#get-flt">get_flt()：筛选、历史与返回对象</a></li>
   <li><a href="#plt-flo" id="toc-plt-flo" class="nav-link" data-scroll-target="#plt-flo">plt_flo()：共用设置与重要参数</a></li>
   <li><a href="#counts" id="toc-counts" class="nav-link" data-scroll-target="#counts">计数位置、对齐与百分比</a></li>
@@ -1106,7 +1107,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <div>
     <div class="quarto-title-meta-heading">修改于</div>
     <div class="quarto-title-meta-contents">
-      <p class="date-modified">2026年10月18日</p>
+      <p class="date-modified">2026年10月24日</p>
     </div>
   </div>
 
@@ -1120,47 +1121,148 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p><code>get_flt()</code> 执行筛选并记录每一步人数，<code>plt_flo()</code> 把这些记录画成流程图，<code>plt_flo2()</code> 用阶段说明和队列人数绘制彩色研究流程。本页沿用 <a href="../mlr/shap-guide.html">MLR 的 SHAP 页</a> 的展示方式：<strong>实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大</strong>。</p>
 <p><strong>版本与执行范围：</strong> 接口按本机 RegR <strong>0.1.3</strong>（源码快照 <code>0add2bb</code>）核对，使用 WSL R <strong>4.4.3</strong> 实际执行筛选、绘制 <strong>12 张 <code>plt_flo</code> 图和 8 张 <code>plt_flo2</code> 图</strong>并验证 PDF 保存。网页展示保存的汇总结果；先运行下面的共用准备代码，再运行所选标签页代码即可复现。</p>
 <p><strong>本次更新：</strong> 保留上述历史流程图与筛选结果；按已推送提交 <code>857677a</code> 新增 <code>save_plt()</code> 的 Cairo 设备说明，并实际导出、读回含 ≥、± 和希腊字母的 PDF。包版本仍为 0.1.3，设备默认值以安装源码为准。</p>
+<section id="all-preprocess-20261024" class="level2">
+<h2 class="anchored" data-anchor-id="all-preprocess-20261024">当前 get_all：先筛选，再重编码</h2>
+<!-- update-20261024: cohort_preprocess -->
+<p>2026-10-24 按已推送 RegR <code>2c01bb0</code>、UtilsR <code>875c710</code> 在 Windows / WSL R 4.4.3 执行。公共入口现在可在 <code>com.args</code> 内直接写 <code>get_flt</code> 条件与 <code>fct_cat</code> 重编码；正式筛选字段为 <code>get_flt</code>，短暂使用过的 <code>flt</code> 不作为兼容入口。返回对象的 <code>attr(result,"flt")</code> 仍叫 <code>flt</code>，不要把<strong>参数字段</strong>与<strong>历史属性</strong>混淆。</p>
+<section id="继续已有筛选链保留逐步人数" class="level3">
+<h3 class="anchored" data-anchor-id="继续已有筛选链保留逐步人数">继续已有筛选链，保留逐步人数</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(UtilsR)</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>d_all24 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Arm =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>), <span class="at">each =</span> <span class="dv">24</span>)),</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">site =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Head"</span>, <span class="st">"Body"</span>, <span class="st">"Tail"</span>, <span class="st">"Other"</span>), <span class="dv">12</span>), <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Head"</span>, <span class="st">"Body"</span>, <span class="st">"Tail"</span>, <span class="st">"Other"</span>)),</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">Age =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="dv">16</span>, <span class="dv">25</span>, <span class="dv">40</span>, <span class="dv">65</span>, <span class="dv">80</span>, <span class="dv">55</span>), <span class="dv">8</span>), <span class="at">size =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="dv">10</span>, <span class="dv">20</span>, <span class="dv">30</span>, <span class="dv">40</span>, <span class="dv">50</span>, <span class="dv">60</span>), <span class="dv">8</span>),</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">time =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">48</span>, <span class="at">DSS =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="dv">0</span>L, <span class="dv">1</span>L, <span class="dv">0</span>L, <span class="dv">1</span>L, <span class="dv">1</span>L, <span class="dv">0</span>L), <span class="dv">8</span>))</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>d_all24[[<span class="st">"DSS"</span>]][<span class="fu">c</span>(<span class="dv">3</span>, <span class="dv">14</span>, <span class="dv">34</span>)] <span class="ot">&lt;-</span> <span class="cn">NA_integer_</span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>original_all24 <span class="ot">&lt;-</span> d_all24</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>quiet_all24 <span class="ot">&lt;-</span> <span class="cf">function</span>(expr) { <span class="fu">invisible</span>(<span class="fu">capture.output</span>(ans <span class="ot">&lt;-</span> <span class="fu">force</span>(expr))); ans }</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>base_all24 <span class="ot">&lt;-</span> <span class="fu">quiet_all24</span>(<span class="fu">get_flt</span>(d_all24, Age <span class="sc">&gt;=</span> <span class="dv">18</span>))</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>log_all24 <span class="ot">&lt;-</span> <span class="fu">capture.output</span>(all24 <span class="ot">&lt;-</span> <span class="fu">get_all</span>(</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">com.args =</span> <span class="fu">list</span>(<span class="at">data =</span> base_all24,</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">get_flt =</span> site <span class="sc">!=</span> <span class="st">"Other"</span>,</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">get_flt =</span> <span class="fu">list</span>(Age <span class="sc">&lt;=</span> <span class="dv">75</span>),</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>    <span class="at">fct_cat =</span> <span class="fu">list</span>(<span class="fu">c</span>(site, <span class="at">Head_Body =</span> <span class="fu">c</span>(<span class="st">"Head"</span>, <span class="st">"Body"</span>)),</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>      <span class="fu">c</span>(<span class="at">Size_3 =</span> size, <span class="at">breaks =</span> <span class="fu">c</span>(<span class="dv">20</span>, <span class="dv">40</span>), <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"S"</span>, <span class="st">"M"</span>, <span class="st">"L"</span>)),</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>      <span class="fu">c</span>(Arm, <span class="at">reverse =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"size"</span>, <span class="st">"Size_3"</span>, <span class="st">"site"</span>), <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">time =</span> <span class="dv">24</span>),</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">tbl.args =</span> <span class="fu">list</span>(<span class="at">cat_var =</span> <span class="st">"Arm"</span>),</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">dis.args =</span> <span class="fu">list</span>(<span class="at">dis_var =</span> <span class="fu">c</span>(<span class="st">"Size_3"</span>, <span class="st">"site"</span>), <span class="at">type =</span> <span class="st">"bar"</span>, <span class="at">label =</span> <span class="st">"count_percent"</span>)))</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="co"># 显式的同一处理顺序作为对照；只在局部副本上操作。</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>manual_all24 <span class="ot">&lt;-</span> <span class="fu">quiet_all24</span>(<span class="fu">get_flt</span>(base_all24, site <span class="sc">!=</span> <span class="st">"Other"</span>, Age <span class="sc">&lt;=</span> <span class="dv">75</span>))</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>manual_all24[[<span class="st">"site"</span>]] <span class="ot">&lt;-</span> <span class="fu">fct_cat</span>(manual_all24[[<span class="st">"site"</span>]], <span class="at">Head_Body =</span> <span class="fu">c</span>(<span class="st">"Head"</span>, <span class="st">"Body"</span>))</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>manual_all24[[<span class="st">"Size_3"</span>]] <span class="ot">&lt;-</span> <span class="fu">fct_num</span>(manual_all24[[<span class="st">"size"</span>]], <span class="at">breaks =</span> <span class="fu">c</span>(<span class="dv">20</span>, <span class="dv">40</span>), <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"S"</span>, <span class="st">"M"</span>, <span class="st">"L"</span>))</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>manual_all24[[<span class="st">"Arm"</span>]] <span class="ot">&lt;-</span> <span class="fu">fct_cat</span>(manual_all24[[<span class="st">"Arm"</span>]], <span class="at">reverse =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>manual_all24 <span class="ot">&lt;-</span> manual_all24[<span class="fu">complete.cases</span>(manual_all24[<span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"DSS"</span>)]), , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>manual_table24 <span class="ot">&lt;-</span> <span class="fu">quiet_all24</span>(<span class="fu">get_gt_cat</span>(manual_all24, <span class="at">cat_var =</span> <span class="st">"Arm"</span>, <span class="at">com_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"size"</span>, <span class="st">"Size_3"</span>, <span class="st">"site"</span>)))</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>history_all24 <span class="ot">&lt;-</span> <span class="fu">attr</span>(all24, <span class="st">"flt"</span>)</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">is.null</span>(<span class="fu">attr</span>(all24, <span class="st">"failures"</span>)), <span class="fu">identical</span>(d_all24, original_all24),</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(all24[[<span class="st">"cat_gt"</span>]][[<span class="st">"_data"</span>]], manual_table24[[<span class="st">"_data"</span>]], <span class="at">check.attributes =</span> <span class="cn">FALSE</span>)),</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(history_all24[[<span class="st">"order"</span>]], <span class="dv">1</span><span class="sc">:</span><span class="dv">4</span>),</span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(history_all24[[<span class="st">"filter"</span>]], <span class="fu">c</span>(<span class="st">"Age &gt;= 18"</span>, <span class="st">'site != "Other"'</span>, <span class="st">"Age &lt;= 75"</span>, <span class="st">"!is.na(time) &amp; !is.na(DSS)"</span>)),</span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tail</span>(history_all24[[<span class="st">"res_pat"</span>]], <span class="dv">1</span>) <span class="sc">==</span> <span class="fu">nrow</span>(manual_all24),</span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">is.numeric</span>(manual_all24[[<span class="st">"size"</span>]]), <span class="fu">is.factor</span>(manual_all24[[<span class="st">"Size_3"</span>]]),</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(all24[[<span class="st">"dis"</span>]][[<span class="st">"data"</span>]][[<span class="st">"n"</span>]]) <span class="sc">==</span> <span class="fu">nrow</span>(manual_all24))</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(<span class="fu">as.data.frame</span>(history_all24[<span class="fu">c</span>(<span class="st">"order"</span>, <span class="st">"filter"</span>, <span class="st">"all_pat"</span>, <span class="st">"res_pat"</span>, <span class="st">"del_pat"</span>)])),</span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261024-update-all-history.html"</span>))</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(all24[[<span class="st">"cat_gt"</span>]], <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261024-update-all-table.html"</span>))</span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261024-update-all-distribution.pdf"</span>), all24[[<span class="st">"dis"</span>]], <span class="at">width =</span> <span class="fl">6.5</span>, <span class="at">height =</span> <span class="dv">4</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">逐步人数</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">同一处理后队列的表格</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-3" role="tab" aria-controls="tabset-1-3" aria-selected="false" href="">同一处理后队列的分布</a></li></ul>
+<div class="tab-content">
+<div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/flow-guide/20261024-update-all-history.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="已有历史、两次公共筛选和缺失结局处理形成连续四步。"><img src="images/flow-guide/20261024-update-all-history.png" class="img-fluid figure-img" alt="原生筛选历史表，顺序为年龄至少18、排除Other部位、年龄不超过75、去除缺失time或DSS；每步显示筛选前后人数。" loading="lazy" decoding="async" width="660" height="276" srcset="../assets/figure-previews/4a49f4b19a13b0926de9716bc6df5fed.webp"></a></p>
+<figcaption>已有历史、两次公共筛选和缺失结局处理形成连续四步。</figcaption>
+</figure>
+</div>
+<p><a href="images/flow-guide/20261024-update-all-history.html">原生 HTML</a></p>
+</div>
+<div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/flow-guide/20261024-update-all-table.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="新分箱列与原数值列一起进入描述表。"><img src="images/flow-guide/20261024-update-all-table.png" class="img-fluid figure-img" alt="原生基线表同时保留size与Size_3分箱，以及重编码site；Arm水平由Yes开始，人数与筛选历史末步一致。" loading="lazy" decoding="async" width="828" height="468" srcset="../assets/figure-previews/705ac114802cf57148729ef6a39bf16c.webp"></a></p>
+<figcaption>新分箱列与原数值列一起进入描述表。</figcaption>
+</figure>
+</div>
+<p><a href="images/flow-guide/20261024-update-all-table.html">原生 HTML</a></p>
+</div>
+<div id="tabset-1-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-3-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/flow-guide/20261024-update-all-distribution.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="分布图使用同一份筛选、重编码和完整结局队列。"><img src="images/flow-guide/20261024-update-all-distribution.png" class="img-fluid figure-img" alt="Size_3的S、M、L分箱中Head_Body与Tail的构成，计数与同一分析队列一致。" loading="lazy" decoding="async" width="943" height="580" srcset="../assets/figure-previews/46a498f64ececd1109c20c030c01ecf9.webp"></a></p>
+<figcaption>分布图使用同一份筛选、重编码和完整结局队列。</figcaption>
+</figure>
+</div>
+<p><a href="images/flow-guide/20261024-update-all-distribution.pdf">下载 PDF</a></p>
+</div>
+</div>
+</div>
+<p>顺序是：先执行全部 <code>get_flt</code> → 按书写顺序重编码 → 删除本模型所需的缺失结局 → 执行分析。重复的 <code>get_flt</code> 字段会逐步保留历史，已有 <code>get_flt()</code> 历史继续接上；即使把 <code>fct_cat</code> 写在筛选字段前面，筛选仍先执行。位置索引按<strong>筛选后</strong>剩余因子水平计数，稳定对比建议用水平名称。</p>
+<p><code>fct_cat=list(c(...),c(...))</code> 将多项重编码集中写；列名不命名会覆盖该列，<code>c(Size_3=size,...)</code> 则写入新列，原 size 保持数值。带 <code>breaks</code> / <code>nbins</code> 时转给 <code>fct_num()</code>；其余参数转给 <code>fct_cat()</code>，嵌套的水平向量不会被展开。合法切点、标签数和参考组规则沿用 <a href="../utilsr/factor-guide.html">UtilsR 因子教程</a>。控制台 Recoded 摘要显示列与新水平，筛选步骤另按人数对齐。</p>
+</section>
+<section id="预先构造参数列表时使用表达式或字符串" class="level3">
+<h3 class="anchored" data-anchor-id="预先构造参数列表时使用表达式或字符串">预先构造参数列表时使用表达式或字符串</h3>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>common_all24 <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">data =</span> base_all24,</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">get_flt =</span> rlang<span class="sc">::</span><span class="fu">exprs</span>(site <span class="sc">!=</span> <span class="st">"Other"</span>, Age <span class="sc">&lt;=</span> <span class="dv">75</span>),</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">fct_cat =</span> <span class="fu">list</span>(<span class="fu">list</span>(<span class="st">"site"</span>, <span class="at">Head_Body =</span> <span class="fu">c</span>(<span class="st">"Head"</span>, <span class="st">"Body"</span>)),</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">list</span>(<span class="at">Size_3 =</span> <span class="st">"size"</span>, <span class="at">breaks =</span> <span class="fu">c</span>(<span class="dv">20</span>, <span class="dv">40</span>), <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">"S"</span>, <span class="st">"M"</span>, <span class="st">"L"</span>)),</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">list</span>(<span class="st">"Arm"</span>, <span class="at">reverse =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"size"</span>, <span class="st">"Size_3"</span>, <span class="st">"site"</span>), <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">time =</span> <span class="dv">24</span>)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>prebuilt_all24 <span class="ot">&lt;-</span> <span class="fu">quiet_all24</span>(<span class="fu">get_all</span>(<span class="at">com.args =</span> common_all24, <span class="at">tbl.args =</span> <span class="fu">list</span>(<span class="at">cat_var =</span> <span class="st">"Arm"</span>)))</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(<span class="fu">attr</span>(prebuilt_all24, <span class="st">"flt"</span>), history_all24),</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(prebuilt_all24[[<span class="st">"cat_gt"</span>]][[<span class="st">"_data"</span>]], all24[[<span class="st">"cat_gt"</span>]][[<span class="st">"_data"</span>]], <span class="at">check.attributes =</span> <span class="cn">FALSE</span>)))</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>bad_field24 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_all</span>(<span class="at">com.args =</span> <span class="fu">list</span>(<span class="at">data =</span> d_all24, <span class="at">flt =</span> <span class="cn">TRUE</span>)), <span class="at">error =</span> identity)</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">inherits</span>(bad_field24, <span class="st">"error"</span>))</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">history =</span> <span class="fu">as.data.frame</span>(history_all24), <span class="at">table =</span> all24[[<span class="st">"cat_gt"</span>]][[<span class="st">"_data"</span>]],</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">distribution =</span> <span class="fu">as.data.frame</span>(all24[[<span class="st">"dis"</span>]][[<span class="st">"data"</span>]]), <span class="at">rows =</span> <span class="fu">nrow</span>(manual_all24),</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">lapply</span>(manual_all24[<span class="fu">c</span>(<span class="st">"Arm"</span>, <span class="st">"site"</span>, <span class="st">"Size_3"</span>)], levels))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>也可把 <code>get_flt</code> 写成 <code>c('site != "Other"','Age &lt;= 75')</code>。不能在预先构造的普通 <code>list()</code> 中让裸列条件提前求值；重编码的首个列名同样需用字符串 <code>list("site",...)</code>。调用环境中的阈值可在条件中引用，数据列优先由数据掩码解析。</p>
+<p>本例只启用 <code>tbl.args</code> 与 <code>dis.args</code>，没有拟合回归或自动启动其余分析。模拟年龄与大小含并列值，表格检验提示不能计算精确 P 值/区间，按当前检验使用近似结果；本节用于核对队列与接口。字段名错误会在分析前报错；某个已启用分析内部失败则检查 <code>attr(result,"failures")</code>，不能仅凭有返回值认定所有步骤成功。原始逐步筛选与<a href="#get-flt">流程图绘制</a>继续可独立使用。</p>
+<!-- /update-20261024: cohort_preprocess -->
+</section>
+</section>
 <section id="data" class="level2">
 <h2 class="anchored" data-anchor-id="data">示例数据与共用准备</h2>
 <p>使用 RegR 自带的 <code>seer_thyroid_mtc_2026</code>：<strong>4,387 人、92 列甲状腺髓样癌（MTC）示例数据</strong>。它已经过预筛选并带有 15 步历史；本页在副本上清除该属性，从现有 4,387 人重新演示三步筛选。图中的起始人数因此对应这份预筛选数据。</p>
 <!-- flow-run: setup -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(<span class="st">"seer_thyroid_mtc_2026"</span>, <span class="at">package =</span> <span class="st">"RegR"</span>)</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>start <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(seer_thyroid_mtc_2026)</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="co"># 仅为本页示例重新记录历史；真实分析应保留完整的原始筛选链。</span></span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(start, <span class="st">"flt"</span>) <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>cohort <span class="ot">&lt;-</span> <span class="fu">get_flt</span>(</span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  start,</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  Age <span class="sc">&gt;=</span> <span class="dv">18</span>,</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  Race <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"White"</span>, <span class="st">"Black"</span>),</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!</span><span class="fu">is.na</span>(Tum) <span class="sc">&amp;</span> Tum <span class="sc">&gt;</span> <span class="dv">0</span></span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="co"># get_flt 的条件表示“保留谁”；流程图上的标签表示“移除谁”。</span></span>
-<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>reasons <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
-<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">Age =</span> <span class="st">"Age &lt; 18 years"</span>,</span>
-<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">Race =</span> <span class="st">"Race other than White or Black"</span>,</span>
-<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">Tum =</span> <span class="st">"Tumor size missing or &lt;= 0"</span></span>
-<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a><span class="co"># 集中保存共用调用参数，标签页中用 modifyList() 局部覆盖。</span></span>
-<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>flow_args <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> cohort, <span class="at">inclu_row =</span> <span class="dv">0</span>,</span>
-<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">cohort =</span> <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Medullary thyroid carcinoma cohort"</span>),</span>
-<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>  <span class="at">analysis_label =</span> <span class="st">"Patients eligible for analysis"</span>,</span>
-<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>  <span class="at">name_map =</span> reasons,</span>
-<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">text_fs =</span> <span class="dv">9</span>),</span>
-<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">text_fs =</span> <span class="dv">12</span>, <span class="at">equal_width =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">data</span>(<span class="st">"seer_thyroid_mtc_2026"</span>, <span class="at">package =</span> <span class="st">"RegR"</span>)</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>start <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(seer_thyroid_mtc_2026)</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="co"># 仅为本页示例重新记录历史；真实分析应保留完整的原始筛选链。</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(start, <span class="st">"flt"</span>) <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>cohort <span class="ot">&lt;-</span> <span class="fu">get_flt</span>(</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  start,</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  Age <span class="sc">&gt;=</span> <span class="dv">18</span>,</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  Race <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"White"</span>, <span class="st">"Black"</span>),</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!</span><span class="fu">is.na</span>(Tum) <span class="sc">&amp;</span> Tum <span class="sc">&gt;</span> <span class="dv">0</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a><span class="co"># get_flt 的条件表示“保留谁”；流程图上的标签表示“移除谁”。</span></span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>reasons <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">Age =</span> <span class="st">"Age &lt; 18 years"</span>,</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">Race =</span> <span class="st">"Race other than White or Black"</span>,</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">Tum =</span> <span class="st">"Tumor size missing or &lt;= 0"</span></span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a><span class="co"># 集中保存共用调用参数，标签页中用 modifyList() 局部覆盖。</span></span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>flow_args <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> cohort, <span class="at">inclu_row =</span> <span class="dv">0</span>,</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">cohort =</span> <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Medullary thyroid carcinoma cohort"</span>),</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>  <span class="at">analysis_label =</span> <span class="st">"Patients eligible for analysis"</span>,</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>  <span class="at">name_map =</span> reasons,</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">text_fs =</span> <span class="dv">9</span>),</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">text_fs =</span> <span class="dv">12</span>, <span class="at">equal_width =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>页面中的 <code>flow_args</code> 交给 <code>do.call()</code> 展开为函数参数；<code>modifyList()</code> 合并局部设置，例如增加 <code>exc_args$pct</code> 时会保留已设定的 <code>text_fs = 9</code>。若直接调用 <code>plt_flo()</code>，命名 list 参数也支持局部覆盖，未指定的字段使用函数默认值。</p>
 </section>
 <section id="get-flt" class="level2">
 <h2 class="anchored" data-anchor-id="get-flt">get_flt()：筛选、历史与返回对象</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_flt</span>(data, ...)</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(cohort, <span class="st">"flt"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_flt</span>(data, ...)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(cohort, <span class="st">"flt"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>...</code> 接收<strong>不带参数名的筛选表达式</strong>。每个表达式单独执行，产生一行记录；一条合并表达式则只有一行记录。以上示例依次保留成年人、White / Black 族裔、肿瘤大小非缺失且大于 0 的患者，实际人数为：</p>
 <div class="table-responsive">
 <table class="caption-top table">
@@ -1357,32 +1459,32 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h3 class="anchored" data-anchor-id="inclusion">纳入与排除分开显示</h3>
 <p><code>inclu_row</code> 只改变历史如何归类显示，不会重新筛选数据。本例 <code>inclu_row = 1</code> 将 138 人归为未满足年龄纳入条件，把后两步共 643 人归为满足排除条件，总移除人数仍为 781。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">全部作为排除条件</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">纳入与排除分开</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">全部作为排除条件</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">纳入与排除分开</a></li></ul>
 <div class="tab-content">
-<div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
 <!-- flow-run: basic -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, flow_args)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, flow_args)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/basic.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="全部三步归入排除条件，最终保留 3,606 人。"><img src="images/flow-guide/basic.png" class="img-fluid figure-img" alt="起始 4387 人，三步移除 138、301、342 人，最终 3606 人。" loading="lazy" decoding="async" width="1552" height="874" srcset="../assets/figure-previews/5f62029d60f458a110f6924f5bc61870.webp"></a></p>
+<p><a href="images/flow-guide/basic.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="全部三步归入排除条件，最终保留 3,606 人。"><img src="images/flow-guide/basic.png" class="img-fluid figure-img" alt="起始 4387 人，三步移除 138、301、342 人，最终 3606 人。" loading="lazy" decoding="async" width="1552" height="874" srcset="../assets/figure-previews/5f62029d60f458a110f6924f5bc61870.webp"></a></p>
 <figcaption>全部三步归入排除条件，最终保留 3,606 人。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
 <p>同时演示 <code>header_style = "n_suffix"</code> 的汇总格式和起始样本百分比。<code>bullet</code> 仅用于明细行；<code>summary_fs_bump</code> 的两项分别增加总汇总与分块汇总的字号。</p>
 <!-- flow-run: inclusion -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">inclu_row =</span> <span class="dv">1</span>, <span class="at">count_style =</span> <span class="st">"prefix_aligned"</span>,</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">header_style =</span> <span class="st">"n_suffix"</span>, <span class="at">pct =</span> <span class="cn">TRUE</span>, <span class="at">bullet =</span> <span class="st">"- "</span>,</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">detail_indent =</span> <span class="dv">3</span>, <span class="at">count_gap =</span> <span class="dv">3</span>, <span class="at">sub_header_gap =</span> <span class="fl">0.6</span>,</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">summary_fs_bump =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">1</span>)</span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  )</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">inclu_row =</span> <span class="dv">1</span>, <span class="at">count_style =</span> <span class="st">"prefix_aligned"</span>,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">header_style =</span> <span class="st">"n_suffix"</span>, <span class="at">pct =</span> <span class="cn">TRUE</span>, <span class="at">bullet =</span> <span class="st">"- "</span>,</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">detail_indent =</span> <span class="dv">3</span>, <span class="at">count_gap =</span> <span class="dv">3</span>, <span class="at">sub_header_gap =</span> <span class="fl">0.6</span>,</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">summary_fs_bump =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">1</span>)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/inclusion.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="纳入与排除分块：138 人未满足纳入条件，643 人满足排除条件。"><img src="images/flow-guide/inclusion.png" class="img-fluid figure-img" alt="移除合计 781 人，占起始样本 17.8%；按纳入与排除原因分块。" loading="lazy" decoding="async" width="1880" height="1026" srcset="../assets/figure-previews/3153a55001282cd938a0de9b3671c65a.webp"></a></p>
+<p><a href="images/flow-guide/inclusion.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="纳入与排除分块：138 人未满足纳入条件，643 人满足排除条件。"><img src="images/flow-guide/inclusion.png" class="img-fluid figure-img" alt="移除合计 781 人，占起始样本 17.8%；按纳入与排除原因分块。" loading="lazy" decoding="async" width="1880" height="1026" srcset="../assets/figure-previews/3153a55001282cd938a0de9b3671c65a.webp"></a></p>
 <figcaption>纳入与排除分块：138 人未满足纳入条件，643 人满足排除条件。</figcaption>
 </figure>
 </div>
@@ -1396,54 +1498,54 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>四个标签页固定同一份筛选历史与 <code>pct = TRUE</code>，只改变 <code>count_style</code>。<strong>百分比始终以起始 4,387 人为分母</strong>，不是每一步筛选前的人数。138、301、342 人对应 3.1%、6.9%、7.8%，总计 17.8%；分别四舍五入后，明细百分比之和不一定等于显示的总百分比。</p>
 <p><code>prefix_aligned</code> 对齐人数后的原因列；<code>suffix_aligned</code> 对齐原因后的人数列。<code>exc_args$count_gap</code> 是这两列间的近似空格宽度，只在 <code>_aligned</code> 模式中生效；它不是英寸或像素。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">prefix：人数在前</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">prefix_aligned：对齐原因</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-3" role="tab" aria-controls="tabset-2-3" aria-selected="false" href="">suffix：人数在后</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-4" role="tab" aria-controls="tabset-2-4" aria-selected="false" href="">suffix_aligned：对齐人数</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">prefix：人数在前</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">prefix_aligned：对齐原因</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-3" role="tab" aria-controls="tabset-3-3" aria-selected="false" href="">suffix：人数在后</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-4" role="tab" aria-controls="tabset-3-4" aria-selected="false" href="">suffix_aligned：对齐人数</a></li></ul>
 <div class="tab-content">
-<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
 <!-- flow-run: count-prefix -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">count_style =</span> <span class="st">"prefix"</span>, <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">count_style =</span> <span class="st">"prefix"</span>, <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/count-prefix.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="prefix：人数和百分比在原因之前。"><img src="images/flow-guide/count-prefix.png" class="img-fluid figure-img" alt="人数在前，百分比使用起始样本为分母。" loading="lazy" decoding="async" width="1674" height="874" srcset="../assets/figure-previews/498fec1a0c50557e14f76b612b5c8212.webp"></a></p>
+<p><a href="images/flow-guide/count-prefix.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="prefix：人数和百分比在原因之前。"><img src="images/flow-guide/count-prefix.png" class="img-fluid figure-img" alt="人数在前，百分比使用起始样本为分母。" loading="lazy" decoding="async" width="1674" height="874" srcset="../assets/figure-previews/498fec1a0c50557e14f76b612b5c8212.webp"></a></p>
 <figcaption>prefix：人数和百分比在原因之前。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
 <!-- flow-run: count-prefix-aligned -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">count_style =</span> <span class="st">"prefix_aligned"</span>,</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>, <span class="at">count_gap =</span> <span class="dv">3</span>)</span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><a href="images/flow-guide/count-prefix-aligned.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="prefix_aligned：人数在前，原因列对齐。"><img src="images/flow-guide/count-prefix-aligned.png" class="img-fluid figure-img" alt="人数及百分比在前，原因从统一位置开始。" loading="lazy" decoding="async" width="1698" height="874" srcset="../assets/figure-previews/178a48c76242038edf7754f0246a0e42.webp"></a></p>
-<figcaption>prefix_aligned：人数在前，原因列对齐。</figcaption>
-</figure>
-</div>
-</div>
-<div id="tabset-2-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-3-tab">
-<!-- flow-run: count-suffix -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">count_style =</span> <span class="st">"suffix"</span>, <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><a href="images/flow-guide/count-suffix.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="suffix：原因在前，括号内显示人数和百分比。"><img src="images/flow-guide/count-suffix.png" class="img-fluid figure-img" alt="原因之后附人数和起始样本百分比。" loading="lazy" decoding="async" width="1749" height="874" srcset="../assets/figure-previews/0b3f6f214b168f59f09790dbc3ce0fa6.webp"></a></p>
-<figcaption>suffix：原因在前，括号内显示人数和百分比。</figcaption>
-</figure>
-</div>
-</div>
-<div id="tabset-2-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-4-tab">
-<!-- flow-run: count-suffix-aligned -->
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">count_style =</span> <span class="st">"suffix_aligned"</span>,</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">count_style =</span> <span class="st">"prefix_aligned"</span>,</span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>, <span class="at">count_gap =</span> <span class="dv">3</span>)</span>
 <span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/count-suffix-aligned.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="suffix_aligned：原因在前，括号内的人数列对齐。"><img src="images/flow-guide/count-suffix-aligned.png" class="img-fluid figure-img" alt="原因之后的 n 和百分比从统一位置开始。" loading="lazy" decoding="async" width="1772" height="874" srcset="../assets/figure-previews/8d7d5fc5360123b37351b8c6d1798912.webp"></a></p>
+<p><a href="images/flow-guide/count-prefix-aligned.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="prefix_aligned：人数在前，原因列对齐。"><img src="images/flow-guide/count-prefix-aligned.png" class="img-fluid figure-img" alt="人数及百分比在前，原因从统一位置开始。" loading="lazy" decoding="async" width="1698" height="874" srcset="../assets/figure-previews/178a48c76242038edf7754f0246a0e42.webp"></a></p>
+<figcaption>prefix_aligned：人数在前，原因列对齐。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-3-tab">
+<!-- flow-run: count-suffix -->
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">count_style =</span> <span class="st">"suffix"</span>, <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/flow-guide/count-suffix.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="suffix：原因在前，括号内显示人数和百分比。"><img src="images/flow-guide/count-suffix.png" class="img-fluid figure-img" alt="原因之后附人数和起始样本百分比。" loading="lazy" decoding="async" width="1749" height="874" srcset="../assets/figure-previews/0b3f6f214b168f59f09790dbc3ce0fa6.webp"></a></p>
+<figcaption>suffix：原因在前，括号内显示人数和百分比。</figcaption>
+</figure>
+</div>
+</div>
+<div id="tabset-3-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-4-tab">
+<!-- flow-run: count-suffix-aligned -->
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">count_style =</span> <span class="st">"suffix_aligned"</span>,</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>, <span class="at">count_gap =</span> <span class="dv">3</span>)</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/flow-guide/count-suffix-aligned.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="suffix_aligned：原因在前，括号内的人数列对齐。"><img src="images/flow-guide/count-suffix-aligned.png" class="img-fluid figure-img" alt="原因之后的 n 和百分比从统一位置开始。" loading="lazy" decoding="async" width="1772" height="874" srcset="../assets/figure-previews/8d7d5fc5360123b37351b8c6d1798912.webp"></a></p>
 <figcaption>suffix_aligned：原因在前，括号内的人数列对齐。</figcaption>
 </figure>
 </div>
@@ -1456,65 +1558,65 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>最终数据中 Female <strong>2,114 人</strong>、Male <strong>1,492 人</strong>。<code>split_var</code> 从数据自动生成标签与人数；若不提供 <code>split_var</code>，必须同时提供 <code>split_label</code> 和 <code>split_N</code>。提供自动分组列后，也可以只覆盖标签或人数。</p>
 <p>手动人数必须为非负、有限的整数，长度与标签一致；函数检查结构，不替用户验证这些数字是否与分析数据一致。本页所有手动人数均从同一份 <code>cohort</code> 计算。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">按列自动计数</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">手动指定标签与人数</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-3" role="tab" aria-controls="tabset-3-3" aria-selected="false" href="">第二级分组与汇合</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">按列自动计数</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">手动指定标签与人数</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-3" role="tab" aria-controls="tabset-4-3" aria-selected="false" href="">第二级分组与汇合</a></li></ul>
 <div class="tab-content">
-<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
+<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
 <!-- flow-run: split-auto -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(<span class="at">split_var =</span> <span class="st">"Sex"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(<span class="at">split_var =</span> <span class="st">"Sex"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/split-auto.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="split_var：按 Sex 自动生成两个分组框。"><img src="images/flow-guide/split-auto.png" class="img-fluid figure-img" alt="女性 2114 人，男性 1492 人，合计 3606 人。" loading="lazy" decoding="async" width="1552" height="1208" srcset="../assets/figure-previews/4adf1feb84708a267df20822b63691cc.webp"></a></p>
+<p><a href="images/flow-guide/split-auto.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="split_var：按 Sex 自动生成两个分组框。"><img src="images/flow-guide/split-auto.png" class="img-fluid figure-img" alt="女性 2114 人，男性 1492 人，合计 3606 人。" loading="lazy" decoding="async" width="1552" height="1208" srcset="../assets/figure-previews/4adf1feb84708a267df20822b63691cc.webp"></a></p>
 <figcaption>split_var：按 Sex 自动生成两个分组框。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
+<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
 <!-- flow-run: split-manual -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>groups <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>)</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>group_n <span class="ot">&lt;-</span> <span class="fu">vapply</span>(groups, <span class="cf">function</span>(sex) {</span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(cohort[[<span class="st">"Sex"</span>]] <span class="sc">==</span> sex, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>}, <span class="fu">integer</span>(<span class="dv">1</span>))</span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_label =</span> <span class="fu">c</span>(<span class="st">"Female patients"</span>, <span class="st">"Male patients"</span>),</span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_N =</span> group_n,</span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">group =</span> <span class="fl">0.5</span>)</span>
-<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>groups <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>)</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>group_n <span class="ot">&lt;-</span> <span class="fu">vapply</span>(groups, <span class="cf">function</span>(sex) {</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(cohort[[<span class="st">"Sex"</span>]] <span class="sc">==</span> sex, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>}, <span class="fu">integer</span>(<span class="dv">1</span>))</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_label =</span> <span class="fu">c</span>(<span class="st">"Female patients"</span>, <span class="st">"Male patients"</span>),</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_N =</span> group_n,</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">group =</span> <span class="fl">0.5</span>)</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/split-manual.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="split_label 与 split_N：用实际计数和自定义标签绘制分组。"><img src="images/flow-guide/split-manual.png" class="img-fluid figure-img" alt="两个分组的标签改变，人数仍为女性 2114、男性 1492。" loading="lazy" decoding="async" width="1619" height="1208" srcset="../assets/figure-previews/c444497f5c7d5d19099d4636095d3809.webp"></a></p>
+<p><a href="images/flow-guide/split-manual.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="split_label 与 split_N：用实际计数和自定义标签绘制分组。"><img src="images/flow-guide/split-manual.png" class="img-fluid figure-img" alt="两个分组的标签改变，人数仍为女性 2114、男性 1492。" loading="lazy" decoding="async" width="1619" height="1208" srcset="../assets/figure-previews/c444497f5c7d5d19099d4636095d3809.webp"></a></p>
 <figcaption>split_label 与 split_N：用实际计数和自定义标签绘制分组。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-3-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-3-tab">
+<div id="tabset-4-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-3-tab">
 <p>第二行演示各性别中记录的随访时间满 60 个月的样本：Female <strong>1,408 人</strong>、Male <strong>886 人</strong>，合计 <strong>2,294 人</strong>。这只是二级分组的计数与排版示例，并未拟合生存模型。</p>
 <p><code>split2$label</code> 与第一行一一对应；<code>N = NULL</code> 沿用第一行人数，本例则显式给出重新计算的人数。<code>merge</code> 设置汇合框文字；研究内容框接在汇合框之后。</p>
 <!-- flow-run: split-second -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>groups <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>)</span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>group_n <span class="ot">&lt;-</span> <span class="fu">vapply</span>(groups, <span class="cf">function</span>(sex) {</span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(cohort[[<span class="st">"Sex"</span>]] <span class="sc">==</span> sex, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>}, <span class="fu">integer</span>(<span class="dv">1</span>))</span>
-<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>followup_n <span class="ot">&lt;-</span> <span class="fu">vapply</span>(groups, <span class="cf">function</span>(sex) {</span>
-<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(cohort[[<span class="st">"Sex"</span>]] <span class="sc">==</span> sex <span class="sc">&amp;</span> cohort[[<span class="st">"time"</span>]] <span class="sc">&gt;=</span> <span class="dv">60</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>}, <span class="fu">integer</span>(<span class="dv">1</span>))</span>
-<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_label =</span> <span class="fu">c</span>(<span class="st">"Female patients"</span>, <span class="st">"Male patients"</span>), <span class="at">split_N =</span> group_n,</span>
-<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">split2 =</span> <span class="fu">list</span>(</span>
-<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">label =</span> <span class="fu">c</span>(<span class="st">"Female: follow-up &gt;= 60 months"</span>, <span class="st">"Male: follow-up &gt;= 60 months"</span>),</span>
-<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">N =</span> followup_n,</span>
-<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">merge =</span> <span class="fu">sprintf</span>(<span class="st">"Follow-up subset (N = %s)"</span>,</span>
-<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>                    <span class="fu">format</span>(<span class="fu">sum</span>(followup_n), <span class="at">big.mark =</span> <span class="st">","</span>, <span class="at">trim =</span> <span class="cn">TRUE</span>))</span>
-<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Clinical characteristics"</span>, <span class="st">"Survival endpoints"</span>),</span>
-<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">group =</span> <span class="fl">0.5</span>, <span class="at">content =</span> <span class="fl">0.5</span>),</span>
-<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Follow-up groups"</span>, <span class="st">"Study contents"</span>),</span>
-<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_style =</span> <span class="st">"box"</span></span>
-<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>groups <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>)</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>group_n <span class="ot">&lt;-</span> <span class="fu">vapply</span>(groups, <span class="cf">function</span>(sex) {</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(cohort[[<span class="st">"Sex"</span>]] <span class="sc">==</span> sex, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>}, <span class="fu">integer</span>(<span class="dv">1</span>))</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>followup_n <span class="ot">&lt;-</span> <span class="fu">vapply</span>(groups, <span class="cf">function</span>(sex) {</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(cohort[[<span class="st">"Sex"</span>]] <span class="sc">==</span> sex <span class="sc">&amp;</span> cohort[[<span class="st">"time"</span>]] <span class="sc">&gt;=</span> <span class="dv">60</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>}, <span class="fu">integer</span>(<span class="dv">1</span>))</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_label =</span> <span class="fu">c</span>(<span class="st">"Female patients"</span>, <span class="st">"Male patients"</span>), <span class="at">split_N =</span> group_n,</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">split2 =</span> <span class="fu">list</span>(</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">label =</span> <span class="fu">c</span>(<span class="st">"Female: follow-up &gt;= 60 months"</span>, <span class="st">"Male: follow-up &gt;= 60 months"</span>),</span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">N =</span> followup_n,</span>
+<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>    <span class="at">merge =</span> <span class="fu">sprintf</span>(<span class="st">"Follow-up subset (N = %s)"</span>,</span>
+<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>                    <span class="fu">format</span>(<span class="fu">sum</span>(followup_n), <span class="at">big.mark =</span> <span class="st">","</span>, <span class="at">trim =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Clinical characteristics"</span>, <span class="st">"Survival endpoints"</span>),</span>
+<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">group =</span> <span class="fl">0.5</span>, <span class="at">content =</span> <span class="fl">0.5</span>),</span>
+<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Follow-up groups"</span>, <span class="st">"Study contents"</span>),</span>
+<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_style =</span> <span class="st">"box"</span></span>
+<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/split-second.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="第二级分组：随访满 60 个月的两组样本汇合，再连接研究内容。"><img src="images/flow-guide/split-second.png" class="img-fluid figure-img" alt="第二级女性 1408 人、男性 886 人，汇合为 2294 人，连接临床特征和生存结局内容框。" loading="lazy" decoding="async" width="2214" height="2505" srcset="../assets/figure-previews/9abb04805dea0cce66131730d2222d92.webp"></a></p>
+<p><a href="images/flow-guide/split-second.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="第二级分组：随访满 60 个月的两组样本汇合，再连接研究内容。"><img src="images/flow-guide/split-second.png" class="img-fluid figure-img" alt="第二级女性 1408 人、男性 886 人，汇合为 2294 人，连接临床特征和生存结局内容框。" loading="lazy" decoding="async" width="2214" height="2505" srcset="../assets/figure-previews/9abb04805dea0cce66131730d2222d92.webp"></a></p>
 <figcaption>第二级分组：随访满 60 个月的两组样本汇合，再连接研究内容。</figcaption>
 </figure>
 </div>
@@ -1527,36 +1629,36 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p><code>content_labels</code> 在分组之后增加研究内容框；没有分组时不会单独生成这些内容框。省略 <code>split2$merge</code> 时，分组通过中央汇合连接线接到研究内容。<code>phase_labels</code> 按<strong>纳排、分组、研究内容</strong>的结构顺序给出，最多使用三个阶段。</p>
 <p>两个标签页只切换 <code>phase_style</code>，其他设置相同。长阶段标签可用 <code>\n</code> 换行；阶段框需要容纳旋转后的文字，较长的标签会增加整图的推荐尺寸。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">方括号阶段标记</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">阶段框</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">方括号阶段标记</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">阶段框</a></li></ul>
 <div class="tab-content">
-<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
+<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
 <!-- flow-run: phase-bracket -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="st">"Sex"</span>,</span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Clinical characteristics"</span>, <span class="st">"Survival analysis"</span>),</span>
-<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Sex subgroups"</span>, <span class="st">"Study contents"</span>),</span>
-<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_style =</span> <span class="st">"bracket"</span>, <span class="at">count_style =</span> <span class="st">"suffix_aligned"</span>,</span>
-<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="st">"Sex"</span>,</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Clinical characteristics"</span>, <span class="st">"Survival analysis"</span>),</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Sex subgroups"</span>, <span class="st">"Study contents"</span>),</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_style =</span> <span class="st">"bracket"</span>, <span class="at">count_style =</span> <span class="st">"suffix_aligned"</span>,</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/phase-bracket.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="phase_style = bracket：左侧方括号标识三个阶段。"><img src="images/flow-guide/phase-bracket.png" class="img-fluid figure-img" alt="纳排、性别分组、研究内容使用左侧方括号和旋转标签。" loading="lazy" decoding="async" width="1979" height="1652" srcset="../assets/figure-previews/d13b9c2558bb192371d67f890c28fd6d.webp"></a></p>
+<p><a href="images/flow-guide/phase-bracket.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="phase_style = bracket：左侧方括号标识三个阶段。"><img src="images/flow-guide/phase-bracket.png" class="img-fluid figure-img" alt="纳排、性别分组、研究内容使用左侧方括号和旋转标签。" loading="lazy" decoding="async" width="1979" height="1652" srcset="../assets/figure-previews/d13b9c2558bb192371d67f890c28fd6d.webp"></a></p>
 <figcaption>phase_style = bracket：左侧方括号标识三个阶段。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
+<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
 <!-- flow-run: phase-box -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="st">"Sex"</span>,</span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Clinical characteristics"</span>, <span class="st">"Survival analysis"</span>),</span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Sex subgroups"</span>, <span class="st">"Study contents"</span>),</span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_style =</span> <span class="st">"box"</span>, <span class="at">count_style =</span> <span class="st">"suffix_aligned"</span>,</span>
-<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="st">"Sex"</span>,</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Clinical characteristics"</span>, <span class="st">"Survival analysis"</span>),</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Sex subgroups"</span>, <span class="st">"Study contents"</span>),</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_style =</span> <span class="st">"box"</span>, <span class="at">count_style =</span> <span class="st">"suffix_aligned"</span>,</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/phase-box.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="phase_style = box：用左侧阶段框展示同一流程。"><img src="images/flow-guide/phase-box.png" class="img-fluid figure-img" alt="与方括号示例相同的计数、分组和研究内容，左侧改为阶段框。" loading="lazy" decoding="async" width="2019" height="1724" srcset="../assets/figure-previews/c699fd0fd1602f58c2bdb40c274dd54a.webp"></a></p>
+<p><a href="images/flow-guide/phase-box.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="phase_style = box：用左侧阶段框展示同一流程。"><img src="images/flow-guide/phase-box.png" class="img-fluid figure-img" alt="与方括号示例相同的计数、分组和研究内容，左侧改为阶段框。" loading="lazy" decoding="async" width="2019" height="1724" srcset="../assets/figure-previews/c699fd0fd1602f58c2bdb40c274dd54a.webp"></a></p>
 <figcaption>phase_style = box：用左侧阶段框展示同一流程。</figcaption>
 </figure>
 </div>
@@ -1628,25 +1730,25 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <p>下面在前一节的综合流程上增加箭头长度和排除框留白，并改用方角。只指定 PDF 文件名时，<code>plt_flo()</code> 会把该图的推荐宽高交给 <code>save_plt()</code>，无需套用通用的设备尺寸。</p>
 <!-- flow-run: layout-save -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 可把 pdf_file 改为自己的输出路径。</span></span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>pdf_file <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"cohort-flow.pdf"</span>)</span>
-<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
-<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="st">"Sex"</span>,</span>
-<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Clinical characteristics"</span>, <span class="st">"Survival analysis"</span>),</span>
-<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Sex subgroups"</span>, <span class="st">"Study contents"</span>),</span>
-<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_style =</span> <span class="st">"bracket"</span>, <span class="at">count_style =</span> <span class="st">"suffix_aligned"</span>,</span>
-<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>, <span class="at">text_fs =</span> <span class="dv">10</span>, <span class="at">right_gap =</span> <span class="fl">0.22</span>, <span class="at">arrow_length =</span> <span class="fl">0.9</span>),</span>
-<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">corner_radius =</span> <span class="dv">0</span>),</span>
-<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">group =</span> <span class="fl">0.8</span>, <span class="at">content =</span> <span class="fl">0.5</span>),</span>
-<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">fixed_size =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> pdf_file)</span>
-<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>)))</span>
-<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p, <span class="st">"flo_size"</span>)  <span class="co"># 推荐宽高，单位英寸</span></span>
-<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>pdf_file             <span class="co"># 查看已保存的 PDF 路径</span></span>
-<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>p</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 可把 pdf_file 改为自己的输出路径。</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>pdf_file <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"cohort-flow.pdf"</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="st">"Sex"</span>,</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Clinical characteristics"</span>, <span class="st">"Survival analysis"</span>),</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Sex subgroups"</span>, <span class="st">"Study contents"</span>),</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_style =</span> <span class="st">"bracket"</span>, <span class="at">count_style =</span> <span class="st">"suffix_aligned"</span>,</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">pct =</span> <span class="cn">TRUE</span>, <span class="at">text_fs =</span> <span class="dv">10</span>, <span class="at">right_gap =</span> <span class="fl">0.22</span>, <span class="at">arrow_length =</span> <span class="fl">0.9</span>),</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">corner_radius =</span> <span class="dv">0</span>),</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">group =</span> <span class="fl">0.8</span>, <span class="at">content =</span> <span class="fl">0.5</span>),</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">fixed_size =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> pdf_file)</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>)))</span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p, <span class="st">"flo_size"</span>)  <span class="co"># 推荐宽高，单位英寸</span></span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>pdf_file             <span class="co"># 查看已保存的 PDF 路径</span></span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>p</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/layout-save.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="方角、等宽主框、排除框留白与箭头长度的综合示例。"><img src="images/flow-guide/layout-save.png" class="img-fluid figure-img" alt="方角主框与分组框，排除框使用更长箭头和更大右侧留白，按推荐尺寸保存 PDF。" loading="lazy" decoding="async" width="2189" height="1671" srcset="../assets/figure-previews/e386b32c1af7411e195fa35ca5e73988.webp"></a></p>
+<p><a href="images/flow-guide/layout-save.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="方角、等宽主框、排除框留白与箭头长度的综合示例。"><img src="images/flow-guide/layout-save.png" class="img-fluid figure-img" alt="方角主框与分组框，排除框使用更长箭头和更大右侧留白，按推荐尺寸保存 PDF。" loading="lazy" decoding="async" width="2189" height="1671" srcset="../assets/figure-previews/e386b32c1af7411e195fa35ca5e73988.webp"></a></p>
 <figcaption>方角、等宽主框、排除框留白与箭头长度的综合示例。</figcaption>
 </figure>
 </div>
@@ -1654,24 +1756,24 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p><code>fixed_size = TRUE</code> 保持布局的物理宽度；设备过窄会裁剪，放大设备主要增加空白。<code>FALSE</code> 可让图适配较小绘图区，文字仍使用设定的 pt 字号。正数可指定绘制宽度，单位英寸；图形通过固定纵横比例保持框形，不会任意拉伸高度。</p>
 <p>保存 PNG 时也可读取推荐尺寸：</p>
 <!-- flow-run: save-png -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>size <span class="ot">&lt;-</span> <span class="fu">attr</span>(p, <span class="st">"flo_size"</span>)</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"cohort-flow.png"</span>), p,</span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>       <span class="at">width =</span> size[[<span class="st">"width"</span>]], <span class="at">height =</span> size[[<span class="st">"height"</span>]],</span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>       <span class="at">units =</span> <span class="st">"in"</span>, <span class="at">dpi =</span> <span class="dv">300</span>, <span class="at">bg =</span> <span class="st">"white"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>size <span class="ot">&lt;-</span> <span class="fu">attr</span>(p, <span class="st">"flo_size"</span>)</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"cohort-flow.png"</span>), p,</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>       <span class="at">width =</span> size[[<span class="st">"width"</span>]], <span class="at">height =</span> size[[<span class="st">"height"</span>]],</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>       <span class="at">units =</span> <span class="st">"in"</span>, <span class="at">dpi =</span> <span class="dv">300</span>, <span class="at">bg =</span> <span class="st">"white"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="return-checks" class="level2">
 <h2 class="anchored" data-anchor-id="return-checks">管道返回与复现检查</h2>
 <p>如果后续步骤还需要筛选后的数据，可使用 <code>return_data = TRUE</code>。保存功能仍然可以使用；默认的 <code>FALSE</code> 则返回 ggplot 对象供排版或保存。</p>
 <!-- flow-run: return-data -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>same_data <span class="ot">&lt;-</span> <span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(<span class="at">return_data =</span> <span class="cn">TRUE</span>)))</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(same_data, cohort))</span>
-<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>h <span class="ot">&lt;-</span> <span class="fu">attr</span>(cohort, <span class="st">"flt"</span>)</span>
-<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(</span>
-<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(h[[<span class="st">"all_pat"</span>]] <span class="sc">-</span> h[[<span class="st">"res_pat"</span>]] <span class="sc">==</span> h[[<span class="st">"del_pat"</span>]]),</span>
-<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">cumsum</span>(h[[<span class="st">"del_pat"</span>]]) <span class="sc">==</span> h[[<span class="st">"del_pat_sum"</span>]]),</span>
-<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(h[[<span class="st">"del_pat"</span>]]) <span class="sc">==</span> <span class="fu">nrow</span>(start) <span class="sc">-</span> <span class="fu">nrow</span>(cohort)</span>
-<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>same_data <span class="ot">&lt;-</span> <span class="fu">do.call</span>(plt_flo, <span class="fu">modifyList</span>(flow_args, <span class="fu">list</span>(<span class="at">return_data =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(same_data, cohort))</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>h <span class="ot">&lt;-</span> <span class="fu">attr</span>(cohort, <span class="st">"flt"</span>)</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(h[[<span class="st">"all_pat"</span>]] <span class="sc">-</span> h[[<span class="st">"res_pat"</span>]] <span class="sc">==</span> h[[<span class="st">"del_pat"</span>]]),</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">cumsum</span>(h[[<span class="st">"del_pat"</span>]]) <span class="sc">==</span> h[[<span class="st">"del_pat_sum"</span>]]),</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(h[[<span class="st">"del_pat"</span>]]) <span class="sc">==</span> <span class="fu">nrow</span>(start) <span class="sc">-</span> <span class="fu">nrow</span>(cohort)</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>复现时先确认安装版本支持页面使用的命名 list 字段。常见核对点包括：</p>
 <ul>
 <li><strong>历史是否连续：</strong> 已有历史会继续追加，真实分析不要中途清除 <code>flt</code>。</li>
@@ -1717,90 +1819,90 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h3 class="anchored" data-anchor-id="flo2-setup">共用阶段与队列人数</h3>
 <p>先运行 <a href="#data">共用准备代码</a>，再运行以下代码。<code>stages</code> 必须有名称：名称是阶段标题，值是该阶段的一条或多条说明；两者的顺序决定图中的顺序。</p>
 <!-- flow2-run: setup -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>stages <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Data preparation"</span> <span class="ot">=</span> <span class="fu">c</span>(</span>
-<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Check variables, missingness and outcome definition"</span>,</span>
-<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Separate development and validation data before preprocessing"</span>,</span>
-<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Estimate transformations using development data only"</span></span>
-<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Model selection"</span> <span class="ot">=</span> <span class="fu">c</span>(</span>
-<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Compare candidate algorithms with cross-validation"</span>,</span>
-<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Choose tuning parameters within the development data"</span></span>
-<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Model development"</span> <span class="ot">=</span> <span class="st">"Fit the selected model with the chosen parameters"</span>,</span>
-<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Model validation"</span> <span class="ot">=</span> <span class="fu">c</span>(</span>
-<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Evaluate discrimination and calibration on held-out data"</span>,</span>
-<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Report performance and uncertainty"</span></span>
-<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a>  ),</span>
-<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Model explanation"</span> <span class="ot">=</span> <span class="st">"Summarize feature contributions with SHAP"</span></span>
-<span id="cb17-17"><a href="#cb17-17" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb17-18"><a href="#cb17-18" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb17-19"><a href="#cb17-19" aria-hidden="true" tabindex="-1"></a><span class="co"># 从前面三步连续筛选的历史提取互不重复的移除人数。</span></span>
-<span id="cb17-20"><a href="#cb17-20" aria-hidden="true" tabindex="-1"></a>h <span class="ot">&lt;-</span> <span class="fu">attr</span>(cohort, <span class="st">"flt"</span>)</span>
-<span id="cb17-21"><a href="#cb17-21" aria-hidden="true" tabindex="-1"></a>excluded <span class="ot">&lt;-</span> <span class="fu">setNames</span>(h[[<span class="st">"del_pat"</span>]], <span class="fu">unname</span>(reasons[h[[<span class="st">"var"</span>]]]))</span>
-<span id="cb17-22"><a href="#cb17-22" aria-hidden="true" tabindex="-1"></a>cohort_spec <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb17-23"><a href="#cb17-23" aria-hidden="true" tabindex="-1"></a>  <span class="at">label =</span> <span class="st">"Medullary thyroid carcinoma cohort"</span>,</span>
-<span id="cb17-24"><a href="#cb17-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">N =</span> <span class="fu">nrow</span>(start),</span>
-<span id="cb17-25"><a href="#cb17-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">exclude =</span> excluded,</span>
-<span id="cb17-26"><a href="#cb17-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">final_label =</span> <span class="st">"Patients eligible for analysis"</span></span>
-<span id="cb17-27"><a href="#cb17-27" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb17-28"><a href="#cb17-28" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(cohort_spec[[<span class="st">"N"</span>]] <span class="sc">-</span> <span class="fu">sum</span>(excluded) <span class="sc">==</span> <span class="fu">nrow</span>(cohort))</span>
-<span id="cb17-29"><a href="#cb17-29" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb17-30"><a href="#cb17-30" aria-hidden="true" tabindex="-1"></a><span class="co"># 标签页用这份参数组合添加单队列与两个阶段标签。</span></span>
-<span id="cb17-31"><a href="#cb17-31" aria-hidden="true" tabindex="-1"></a>workflow_args <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb17-32"><a href="#cb17-32" aria-hidden="true" tabindex="-1"></a>  <span class="at">stages =</span> stages,</span>
-<span id="cb17-33"><a href="#cb17-33" aria-hidden="true" tabindex="-1"></a>  <span class="at">cohorts =</span> cohort_spec,</span>
-<span id="cb17-34"><a href="#cb17-34" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Study workflow"</span>)</span>
-<span id="cb17-35"><a href="#cb17-35" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>stages <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Data preparation"</span> <span class="ot">=</span> <span class="fu">c</span>(</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Check variables, missingness and outcome definition"</span>,</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Separate development and validation data before preprocessing"</span>,</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Estimate transformations using development data only"</span></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Model selection"</span> <span class="ot">=</span> <span class="fu">c</span>(</span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Compare candidate algorithms with cross-validation"</span>,</span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Choose tuning parameters within the development data"</span></span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Model development"</span> <span class="ot">=</span> <span class="st">"Fit the selected model with the chosen parameters"</span>,</span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Model validation"</span> <span class="ot">=</span> <span class="fu">c</span>(</span>
+<span id="cb19-13"><a href="#cb19-13" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Evaluate discrimination and calibration on held-out data"</span>,</span>
+<span id="cb19-14"><a href="#cb19-14" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Report performance and uncertainty"</span></span>
+<span id="cb19-15"><a href="#cb19-15" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb19-16"><a href="#cb19-16" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Model explanation"</span> <span class="ot">=</span> <span class="st">"Summarize feature contributions with SHAP"</span></span>
+<span id="cb19-17"><a href="#cb19-17" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb19-18"><a href="#cb19-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-19"><a href="#cb19-19" aria-hidden="true" tabindex="-1"></a><span class="co"># 从前面三步连续筛选的历史提取互不重复的移除人数。</span></span>
+<span id="cb19-20"><a href="#cb19-20" aria-hidden="true" tabindex="-1"></a>h <span class="ot">&lt;-</span> <span class="fu">attr</span>(cohort, <span class="st">"flt"</span>)</span>
+<span id="cb19-21"><a href="#cb19-21" aria-hidden="true" tabindex="-1"></a>excluded <span class="ot">&lt;-</span> <span class="fu">setNames</span>(h[[<span class="st">"del_pat"</span>]], <span class="fu">unname</span>(reasons[h[[<span class="st">"var"</span>]]]))</span>
+<span id="cb19-22"><a href="#cb19-22" aria-hidden="true" tabindex="-1"></a>cohort_spec <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb19-23"><a href="#cb19-23" aria-hidden="true" tabindex="-1"></a>  <span class="at">label =</span> <span class="st">"Medullary thyroid carcinoma cohort"</span>,</span>
+<span id="cb19-24"><a href="#cb19-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">N =</span> <span class="fu">nrow</span>(start),</span>
+<span id="cb19-25"><a href="#cb19-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">exclude =</span> excluded,</span>
+<span id="cb19-26"><a href="#cb19-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">final_label =</span> <span class="st">"Patients eligible for analysis"</span></span>
+<span id="cb19-27"><a href="#cb19-27" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb19-28"><a href="#cb19-28" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(cohort_spec[[<span class="st">"N"</span>]] <span class="sc">-</span> <span class="fu">sum</span>(excluded) <span class="sc">==</span> <span class="fu">nrow</span>(cohort))</span>
+<span id="cb19-29"><a href="#cb19-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-30"><a href="#cb19-30" aria-hidden="true" tabindex="-1"></a><span class="co"># 标签页用这份参数组合添加单队列与两个阶段标签。</span></span>
+<span id="cb19-31"><a href="#cb19-31" aria-hidden="true" tabindex="-1"></a>workflow_args <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb19-32"><a href="#cb19-32" aria-hidden="true" tabindex="-1"></a>  <span class="at">stages =</span> stages,</span>
+<span id="cb19-33"><a href="#cb19-33" aria-hidden="true" tabindex="-1"></a>  <span class="at">cohorts =</span> cohort_spec,</span>
+<span id="cb19-34"><a href="#cb19-34" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Study workflow"</span>)</span>
+<span id="cb19-35"><a href="#cb19-35" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>本例起始 <strong>4,387 人</strong>，三项移除人数分别为 <strong>138、301、342</strong>，最终 <strong>3,606 人</strong>。<code>cohorts$exclude</code> 会从 <code>N</code> 中减去各项人数，必须使用连续筛选的新增移除人数，避免把同一患者在多个条件下重复计数。</p>
 </section>
 <section id="flo2-cohorts" class="level3">
 <h3 class="anchored" data-anchor-id="flo2-cohorts">阶段、单队列与双队列</h3>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">仅研究阶段</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">单队列与阶段标签</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-3" role="tab" aria-controls="tabset-5-3" aria-selected="false" href="">双队列并列</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">仅研究阶段</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">单队列与阶段标签</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-3" role="tab" aria-controls="tabset-6-3" aria-selected="false" href="">双队列并列</a></li></ul>
 <div class="tab-content">
-<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
+<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
 <p><code>cohorts = NULL</code> 是默认值，适合只展示研究步骤。左侧标题自动换行，右侧说明按条目编号，默认统一说明框高度。</p>
 <!-- flow2-run: flo2-basic -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_flo2</span>(<span class="at">stages =</span> stages)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_flo2</span>(<span class="at">stages =</span> stages)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo2-basic.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="仅包含研究阶段的默认彩色流程图。"><img src="images/flow-guide/flo2-basic.png" class="img-fluid figure-img" alt="五个彩色阶段框用块状箭头连接，右侧对应编号说明，说明框默认等高。" loading="lazy" decoding="async" width="2157" height="1585" srcset="../assets/figure-previews/2598f3dc6cb3f0f084f59dc2fb00694e.webp"></a></p>
+<p><a href="images/flow-guide/flo2-basic.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="仅包含研究阶段的默认彩色流程图。"><img src="images/flow-guide/flo2-basic.png" class="img-fluid figure-img" alt="五个彩色阶段框用块状箭头连接，右侧对应编号说明，说明框默认等高。" loading="lazy" decoding="async" width="2157" height="1585" srcset="../assets/figure-previews/2598f3dc6cb3f0f084f59dc2fb00694e.webp"></a></p>
 <figcaption>仅包含研究阶段的默认彩色流程图。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
+<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
 <p>单队列可直接传入一份 specification，无需再包一层 list。<code>phase_labels</code> 按<strong>顶部队列区、下方研究步骤区</strong>对应两个标签；它不会逐个标记五个建模步骤。</p>
 <!-- flow2-run: flo2-cohort -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo2, workflow_args)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo2, workflow_args)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo2-cohort.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="单队列筛选与研究步骤组合，左侧显示两个阶段标签。"><img src="images/flow-guide/flo2-cohort.png" class="img-fluid figure-img" alt="顶部队列从4387人排除三项合计781人后纳入3606人，下方绘制五个研究步骤。" loading="lazy" decoding="async" width="2357" height="2490" srcset="../assets/figure-previews/062d9eaf047569e92477f13e0d368339.webp"></a></p>
+<p><a href="images/flow-guide/flo2-cohort.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="单队列筛选与研究步骤组合，左侧显示两个阶段标签。"><img src="images/flow-guide/flo2-cohort.png" class="img-fluid figure-img" alt="顶部队列从4387人排除三项合计781人后纳入3606人，下方绘制五个研究步骤。" loading="lazy" decoding="async" width="2357" height="2490" srcset="../assets/figure-previews/062d9eaf047569e92477f13e0d368339.webp"></a></p>
 <figcaption>单队列筛选与研究步骤组合，左侧显示两个阶段标签。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-5-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-3-tab">
+<div id="tabset-6-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-3-tab">
 <p>传入外层 list 后，各队列从左到右独立绘制。本例分别在原始女性、男性子集中重新执行相同筛选；两个队列均是同一示例数据的性别子集，不能据此称为独立外部验证队列。</p>
 <!-- flow2-run: flo2-cohorts -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>sex_cohorts <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), <span class="cf">function</span>(sex) {</span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> start[start[[<span class="st">"Sex"</span>]] <span class="sc">==</span> sex <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(start[[<span class="st">"Sex"</span>]]), ]</span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">attr</span>(d, <span class="st">"flt"</span>) <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  kept <span class="ot">&lt;-</span> <span class="fu">get_flt</span>(d, Age <span class="sc">&gt;=</span> <span class="dv">18</span>, Race <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"White"</span>, <span class="st">"Black"</span>),</span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>                  <span class="sc">!</span><span class="fu">is.na</span>(Tum) <span class="sc">&amp;</span> Tum <span class="sc">&gt;</span> <span class="dv">0</span>)</span>
-<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>  history <span class="ot">&lt;-</span> <span class="fu">attr</span>(kept, <span class="st">"flt"</span>)</span>
-<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>  removed <span class="ot">&lt;-</span> <span class="fu">setNames</span>(history[[<span class="st">"del_pat"</span>]],</span>
-<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>                      <span class="fu">unname</span>(reasons[history[[<span class="st">"var"</span>]]]))</span>
-<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">nrow</span>(d) <span class="sc">-</span> <span class="fu">sum</span>(removed) <span class="sc">==</span> <span class="fu">nrow</span>(kept))</span>
-<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="fu">paste</span>(sex, <span class="st">"MTC patients"</span>), <span class="at">N =</span> <span class="fu">nrow</span>(d), <span class="at">exclude =</span> removed,</span>
-<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>       <span class="at">final_label =</span> <span class="fu">paste</span>(sex, <span class="st">"patients included"</span>))</span>
-<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>})</span>
-<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_flo2</span>(<span class="at">stages =</span> stages, <span class="at">cohorts =</span> sex_cohorts,</span>
-<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>         <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Study workflow"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>sex_cohorts <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), <span class="cf">function</span>(sex) {</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  d <span class="ot">&lt;-</span> start[start[[<span class="st">"Sex"</span>]] <span class="sc">==</span> sex <span class="sc">&amp;</span> <span class="sc">!</span><span class="fu">is.na</span>(start[[<span class="st">"Sex"</span>]]), ]</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">attr</span>(d, <span class="st">"flt"</span>) <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>  kept <span class="ot">&lt;-</span> <span class="fu">get_flt</span>(d, Age <span class="sc">&gt;=</span> <span class="dv">18</span>, Race <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"White"</span>, <span class="st">"Black"</span>),</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>                  <span class="sc">!</span><span class="fu">is.na</span>(Tum) <span class="sc">&amp;</span> Tum <span class="sc">&gt;</span> <span class="dv">0</span>)</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>  history <span class="ot">&lt;-</span> <span class="fu">attr</span>(kept, <span class="st">"flt"</span>)</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>  removed <span class="ot">&lt;-</span> <span class="fu">setNames</span>(history[[<span class="st">"del_pat"</span>]],</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>                      <span class="fu">unname</span>(reasons[history[[<span class="st">"var"</span>]]]))</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">nrow</span>(d) <span class="sc">-</span> <span class="fu">sum</span>(removed) <span class="sc">==</span> <span class="fu">nrow</span>(kept))</span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="fu">paste</span>(sex, <span class="st">"MTC patients"</span>), <span class="at">N =</span> <span class="fu">nrow</span>(d), <span class="at">exclude =</span> removed,</span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>       <span class="at">final_label =</span> <span class="fu">paste</span>(sex, <span class="st">"patients included"</span>))</span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_flo2</span>(<span class="at">stages =</span> stages, <span class="at">cohorts =</span> sex_cohorts,</span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a>         <span class="at">phase_labels =</span> <span class="fu">c</span>(<span class="st">"Patient selection"</span>, <span class="st">"Study workflow"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo2-cohorts.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="两个性别子队列并列筛选后连接到共同研究步骤。"><img src="images/flow-guide/flo2-cohorts.png" class="img-fluid figure-img" alt="女性与男性子队列各自显示起始人数、三项排除人数和最终人数，女性2114人、男性1492人。" loading="lazy" decoding="async" width="2357" height="2796" srcset="../assets/figure-previews/9070658266f091367abf3c25d344199e.webp"></a></p>
+<p><a href="images/flow-guide/flo2-cohorts.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="两个性别子队列并列筛选后连接到共同研究步骤。"><img src="images/flow-guide/flo2-cohorts.png" class="img-fluid figure-img" alt="女性与男性子队列各自显示起始人数、三项排除人数和最终人数，女性2114人、男性1492人。" loading="lazy" decoding="async" width="2357" height="2796" srcset="../assets/figure-previews/9070658266f091367abf3c25d344199e.webp"></a></p>
 <figcaption>两个性别子队列并列筛选后连接到共同研究步骤。</figcaption>
 </figure>
 </div>
@@ -1811,43 +1913,43 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="flo2-boxes" class="level3">
 <h3 class="anchored" data-anchor-id="flo2-boxes">配色、换行与框高</h3>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">配色与方角</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">控制文本换行</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-3" role="tab" aria-controls="tabset-6-3" aria-selected="false" href="">说明框随内容收紧</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-7-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-1" role="tab" aria-controls="tabset-7-1" aria-selected="true" href="">配色与方角</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-2" role="tab" aria-controls="tabset-7-2" aria-selected="false" href="">控制文本换行</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-3" role="tab" aria-controls="tabset-7-3" aria-selected="false" href="">说明框随内容收紧</a></li></ul>
 <div class="tab-content">
-<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
+<div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
 <p><code>palette</code> 同时控制阶段框、块状箭头、横线和说明框边框；颜色不足时循环使用。队列默认取调色板首尾颜色，也可通过每个 specification 的 <code>color</code> 单独指定。<code>corner_radius = 0</code> 把阶段框和说明框改成方角；队列与阶段标签框始终为方角。</p>
 <!-- flow2-run: flo2-palette -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo2, <span class="fu">modifyList</span>(workflow_args, <span class="fu">list</span>(</span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">palette =</span> <span class="fu">c</span>(<span class="st">"#264653"</span>, <span class="st">"#287271"</span>, <span class="st">"#8E3B46"</span>),</span>
-<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">cohorts =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#65518A"</span>),</span>
-<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">corner_radius =</span> <span class="dv">0</span>)</span>
-<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo2, <span class="fu">modifyList</span>(workflow_args, <span class="fu">list</span>(</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">palette =</span> <span class="fu">c</span>(<span class="st">"#264653"</span>, <span class="st">"#287271"</span>, <span class="st">"#8E3B46"</span>),</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">cohorts =</span> <span class="fu">list</span>(<span class="at">color =</span> <span class="st">"#65518A"</span>),</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">corner_radius =</span> <span class="dv">0</span>)</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo2-palette.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="循环使用三种阶段颜色，队列独立指定紫色，说明框改为方角。"><img src="images/flow-guide/flo2-palette.png" class="img-fluid figure-img" alt="五个研究阶段循环使用三色调色板，顶部队列使用紫色，阶段与说明框均为方角。" loading="lazy" decoding="async" width="2357" height="2490" srcset="../assets/figure-previews/7e5ebd7bdea1cad0a94486ee96723931.webp"></a></p>
+<p><a href="images/flow-guide/flo2-palette.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="循环使用三种阶段颜色，队列独立指定紫色，说明框改为方角。"><img src="images/flow-guide/flo2-palette.png" class="img-fluid figure-img" alt="五个研究阶段循环使用三色调色板，顶部队列使用紫色，阶段与说明框均为方角。" loading="lazy" decoding="async" width="2357" height="2490" srcset="../assets/figure-previews/7e5ebd7bdea1cad0a94486ee96723931.webp"></a></p>
 <figcaption>循环使用三种阶段颜色，队列独立指定紫色，说明框改为方角。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
+<div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
 <p><code>stage_width</code> 指定标题内宽；<code>desc_width</code> 与 <code>exc_width</code> 是说明、排除文字的换行上限，单位都是英寸。后两者并不强制框宽：实际框仍按最长的换行文本贴合。排除行的宽度包含末尾的 <code>n=...</code>，续行自动悬挂缩进。</p>
 <!-- flow2-run: flo2-wrap -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo2, <span class="fu">modifyList</span>(workflow_args, <span class="fu">list</span>(</span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">stage_width =</span> <span class="fl">1.5</span>, <span class="at">desc_width =</span> <span class="fl">3.2</span>, <span class="at">exc_width =</span> <span class="fl">2.2</span>)</span>
-<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">do.call</span>(plt_flo2, <span class="fu">modifyList</span>(workflow_args, <span class="fu">list</span>(</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">stage_width =</span> <span class="fl">1.5</span>, <span class="at">desc_width =</span> <span class="fl">3.2</span>, <span class="at">exc_width =</span> <span class="fl">2.2</span>)</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo2-wrap.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="缩小文本宽度后，阶段说明与排除原因自动换行。"><img src="images/flow-guide/flo2-wrap.png" class="img-fluid figure-img" alt="标题使用1.5英寸内宽，说明按3.2英寸上限换行，排除原因按2.2英寸上限换行并保留缩进。" loading="lazy" decoding="async" width="2133" height="3103" srcset="../assets/figure-previews/822dfe7d8477b49950193ef830d84a91.webp"></a></p>
+<p><a href="images/flow-guide/flo2-wrap.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="缩小文本宽度后，阶段说明与排除原因自动换行。"><img src="images/flow-guide/flo2-wrap.png" class="img-fluid figure-img" alt="标题使用1.5英寸内宽，说明按3.2英寸上限换行，排除原因按2.2英寸上限换行并保留缩进。" loading="lazy" decoding="async" width="2133" height="3103" srcset="../assets/figure-previews/822dfe7d8477b49950193ef830d84a91.webp"></a></p>
 <figcaption>缩小文本宽度后，阶段说明与排除原因自动换行。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-6-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-3-tab">
+<div id="tabset-7-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-3-tab">
 <p>与 <a href="#flo2-cohorts">默认等高示例</a> 比较：<code>equal_height = FALSE</code> 让每个说明框贴合自身内容，单条说明的框更矮，多条说明的框更高。阶段框仍保持统一高度，垂直箭头随行高变化。</p>
 <!-- flow2-run: flo2-height -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_flo2</span>(<span class="at">stages =</span> stages, <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">equal_height =</span> <span class="cn">FALSE</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_flo2</span>(<span class="at">stages =</span> stages, <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">equal_height =</span> <span class="cn">FALSE</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo2-height.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="取消说明框等高后，不同阶段按自身文字量调整框高。"><img src="images/flow-guide/flo2-height.png" class="img-fluid figure-img" alt="数据准备阶段的三项说明框较高，模型开发与解释的单项说明框较矮。" loading="lazy" decoding="async" width="2157" height="1585" srcset="../assets/figure-previews/3782af11705081ea8181b465526b4000.webp"></a></p>
+<p><a href="images/flow-guide/flo2-height.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="取消说明框等高后，不同阶段按自身文字量调整框高。"><img src="images/flow-guide/flo2-height.png" class="img-fluid figure-img" alt="数据准备阶段的三项说明框较高，模型开发与解释的单项说明框较矮。" loading="lazy" decoding="async" width="2157" height="1585" srcset="../assets/figure-previews/3782af11705081ea8181b465526b4000.webp"></a></p>
 <figcaption>取消说明框等高后，不同阶段按自身文字量调整框高。</figcaption>
 </figure>
 </div>
@@ -1858,40 +1960,40 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="flo2-save" class="level3">
 <h3 class="anchored" data-anchor-id="flo2-save">字号、间距与保存</h3>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-7-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-1" role="tab" aria-controls="tabset-7-1" aria-selected="true" href="">加大字号与间距，保存 PDF</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-2" role="tab" aria-controls="tabset-7-2" aria-selected="false" href="">小设备整体缩放</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-8-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-1" role="tab" aria-controls="tabset-8-1" aria-selected="true" href="">加大字号与间距，保存 PDF</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-8-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-2" role="tab" aria-controls="tabset-8-2" aria-selected="false" href="">小设备整体缩放</a></li></ul>
 <div class="tab-content">
-<div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
+<div id="tabset-8-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-8-1-tab">
 <p>字号用 <strong>pt</strong>，宽度和间距用<strong>英寸</strong>。增大 <code>text_fs</code> 时，应同步增大 <code>gap_args$line</code>，它不会自动随字号调整。</p>
 <!-- flow2-run: flo2-spacing-save -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>pdf_file2 <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"flo2-workflow.pdf"</span>)</span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>p_flo2 <span class="ot">&lt;-</span> <span class="fu">do.call</span>(plt_flo2, <span class="fu">modifyList</span>(workflow_args, <span class="fu">list</span>(</span>
-<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">text_fs =</span> <span class="dv">12</span>, <span class="at">stage_fs =</span> <span class="dv">14</span>, <span class="at">desc_width =</span> <span class="fl">4.8</span>),</span>
-<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">connector =</span> <span class="dv">1</span>, <span class="at">row =</span> <span class="fl">0.35</span>, <span class="at">line =</span> <span class="fl">0.20</span>,</span>
-<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>                  <span class="at">item =</span> <span class="fl">0.32</span>, <span class="at">exclude =</span> <span class="fl">0.8</span>, <span class="at">section =</span> <span class="fl">0.8</span>),</span>
-<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">fixed_size =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> pdf_file2)</span>
-<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>)))</span>
-<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_flo2, <span class="st">"flo_size"</span>)  <span class="co"># 推荐宽高，单位英寸</span></span>
-<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>pdf_file2</span>
-<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>p_flo2</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>pdf_file2 <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"flo2-workflow.pdf"</span>)</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>p_flo2 <span class="ot">&lt;-</span> <span class="fu">do.call</span>(plt_flo2, <span class="fu">modifyList</span>(workflow_args, <span class="fu">list</span>(</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">text_fs =</span> <span class="dv">12</span>, <span class="at">stage_fs =</span> <span class="dv">14</span>, <span class="at">desc_width =</span> <span class="fl">4.8</span>),</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">connector =</span> <span class="dv">1</span>, <span class="at">row =</span> <span class="fl">0.35</span>, <span class="at">line =</span> <span class="fl">0.20</span>,</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>                  <span class="at">item =</span> <span class="fl">0.32</span>, <span class="at">exclude =</span> <span class="fl">0.8</span>, <span class="at">section =</span> <span class="fl">0.8</span>),</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">fixed_size =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> pdf_file2)</span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>)))</span>
+<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_flo2, <span class="st">"flo_size"</span>)  <span class="co"># 推荐宽高，单位英寸</span></span>
+<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>pdf_file2</span>
+<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a>p_flo2</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo2-spacing-save.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="加大字号、行间距、条目间距与区块间距，并按推荐尺寸保存。"><img src="images/flow-guide/flo2-spacing-save.png" class="img-fluid figure-img" alt="研究流程使用12pt正文字号和14pt阶段标题，扩大连线、行、条目与队列区间距。" loading="lazy" decoding="async" width="2565" height="3402" srcset="../assets/figure-previews/73128df07dfab97452b5719251662112.webp"></a></p>
+<p><a href="images/flow-guide/flo2-spacing-save.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="加大字号、行间距、条目间距与区块间距，并按推荐尺寸保存。"><img src="images/flow-guide/flo2-spacing-save.png" class="img-fluid figure-img" alt="研究流程使用12pt正文字号和14pt阶段标题，扩大连线、行、条目与队列区间距。" loading="lazy" decoding="async" width="2565" height="3402" srcset="../assets/figure-previews/73128df07dfab97452b5719251662112.webp"></a></p>
 <figcaption>加大字号、行间距、条目间距与区块间距，并按推荐尺寸保存。</figcaption>
 </figure>
 </div>
 <p><a href="images/flow-guide/flo2-workflow.pdf">下载此例生成的 PDF</a>。只指定文件名时，保存功能自动采用 <code>flo_size</code> 的推荐尺寸；<code>save = list()</code> 或 <code>NULL</code> 不保存文件。</p>
 </div>
-<div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
+<div id="tabset-8-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-8-2-tab">
 <p>默认 <code>fixed_size = TRUE</code> 的对象带有 <code>flo2_plot</code> 打印方法：小设备会把<strong>图形、文字和线宽一起缩小</strong>，完整显示布局。下面把单队列示例保存到 4 × 4 英寸 PNG；点击图片可放大查看。</p>
 <!-- flow2-run: flo2-small-device -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>p_small <span class="ot">&lt;-</span> <span class="fu">do.call</span>(plt_flo2, workflow_args)</span>
-<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"flo2-small-device.png"</span>), p_small,</span>
-<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>       <span class="at">width =</span> <span class="dv">4</span>, <span class="at">height =</span> <span class="dv">4</span>, <span class="at">units =</span> <span class="st">"in"</span>, <span class="at">dpi =</span> <span class="dv">300</span>, <span class="at">bg =</span> <span class="st">"white"</span>)</span>
-<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>p_small</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>p_small <span class="ot">&lt;-</span> <span class="fu">do.call</span>(plt_flo2, workflow_args)</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"flo2-small-device.png"</span>), p_small,</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>       <span class="at">width =</span> <span class="dv">4</span>, <span class="at">height =</span> <span class="dv">4</span>, <span class="at">units =</span> <span class="st">"in"</span>, <span class="at">dpi =</span> <span class="dv">300</span>, <span class="at">bg =</span> <span class="st">"white"</span>)</span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>p_small</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo2-small-device.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="同一研究流程在4乘4英寸设备上整体缩小，保持完整布局。"><img src="images/flow-guide/flo2-small-device.png" class="img-fluid figure-img" alt="默认固定尺寸研究流程在4乘4英寸设备上整体缩放，文字、框和箭头保持相对比例。" loading="lazy" decoding="async" width="1200" height="1200" srcset="../assets/figure-previews/6c189594ccf41eca6319f6ecd12be6e9.webp"></a></p>
+<p><a href="images/flow-guide/flo2-small-device.png" class="lightbox" data-gallery="quarto-lightbox-gallery-23" title="同一研究流程在4乘4英寸设备上整体缩小，保持完整布局。"><img src="images/flow-guide/flo2-small-device.png" class="img-fluid figure-img" alt="默认固定尺寸研究流程在4乘4英寸设备上整体缩放，文字、框和箭头保持相对比例。" loading="lazy" decoding="async" width="1200" height="1200" srcset="../assets/figure-previews/6c189594ccf41eca6319f6ecd12be6e9.webp"></a></p>
 <figcaption>同一研究流程在4乘4英寸设备上整体缩小，保持完整布局。</figcaption>
 </figure>
 </div>
@@ -1965,67 +2067,67 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="plt-flo3">plt_flo3()：多队列、分组与研究内容</h2>
 <p><code>plt_flo3()</code> 适合开发 / 验证队列并行筛选，再连接终末分组和研究内容。函数不读取患者数据或执行筛选，所有人数由 <code>cohorts</code> 提供。下面使用模拟计数，与本页前方真实MTC筛选人数无关。</p>
 <p>本节按包含 <code>9e4b9e8</code> 及后续布局修复的本机源码实际绘制，2026-10-13复核时该接口已包含于已推送基线 <code>a3881fa</code>（版本0.1.3）。旧 <code>plt_flo()</code> / <code>plt_flo2()</code> 图和筛选记录保留原快照。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>cohorts3 <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Development cohort</span><span class="sc">\n</span><span class="st">2011-2020"</span>, <span class="at">N =</span> <span class="dv">900</span>,</span>
-<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">exclude =</span> <span class="fu">c</span>(<span class="st">"Missing predictors"</span> <span class="ot">=</span> <span class="dv">150</span>, <span class="st">"No follow-up"</span> <span class="ot">=</span> <span class="dv">50</span>),</span>
-<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">split =</span> <span class="fu">c</span>(<span class="st">"Low risk"</span> <span class="ot">=</span> <span class="dv">280</span>, <span class="st">"Intermediate risk"</span> <span class="ot">=</span> <span class="dv">220</span>, <span class="st">"High risk"</span> <span class="ot">=</span> <span class="dv">200</span>),</span>
-<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">final_label =</span> <span class="st">"Development sample"</span>),</span>
-<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Validation cohort</span><span class="sc">\n</span><span class="st">2021-2023"</span>, <span class="at">N =</span> <span class="dv">420</span>,</span>
-<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">exclude =</span> <span class="fu">c</span>(<span class="st">"Missing predictors"</span> <span class="ot">=</span> <span class="dv">40</span>, <span class="st">"No follow-up"</span> <span class="ot">=</span> <span class="dv">20</span>),</span>
-<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">split =</span> <span class="fu">c</span>(<span class="st">"Low risk"</span> <span class="ot">=</span> <span class="dv">160</span>, <span class="st">"Intermediate risk"</span> <span class="ot">=</span> <span class="dv">120</span>, <span class="st">"High risk"</span> <span class="ot">=</span> <span class="dv">80</span>),</span>
-<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">final_label =</span> <span class="st">"Validation sample"</span>)</span>
-<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a>contents3 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Group characteristics"</span>, <span class="st">"Survival comparison"</span>, <span class="st">"Model evaluation"</span>)</span>
-<span id="cb26-12"><a href="#cb26-12" aria-hidden="true" tabindex="-1"></a>phases3 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Selection"</span>, <span class="st">"Risk groups"</span>, <span class="st">"Study content"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>cohorts3 <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Development cohort</span><span class="sc">\n</span><span class="st">2011-2020"</span>, <span class="at">N =</span> <span class="dv">900</span>,</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">exclude =</span> <span class="fu">c</span>(<span class="st">"Missing predictors"</span> <span class="ot">=</span> <span class="dv">150</span>, <span class="st">"No follow-up"</span> <span class="ot">=</span> <span class="dv">50</span>),</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">split =</span> <span class="fu">c</span>(<span class="st">"Low risk"</span> <span class="ot">=</span> <span class="dv">280</span>, <span class="st">"Intermediate risk"</span> <span class="ot">=</span> <span class="dv">220</span>, <span class="st">"High risk"</span> <span class="ot">=</span> <span class="dv">200</span>),</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">final_label =</span> <span class="st">"Development sample"</span>),</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Validation cohort</span><span class="sc">\n</span><span class="st">2021-2023"</span>, <span class="at">N =</span> <span class="dv">420</span>,</span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">exclude =</span> <span class="fu">c</span>(<span class="st">"Missing predictors"</span> <span class="ot">=</span> <span class="dv">40</span>, <span class="st">"No follow-up"</span> <span class="ot">=</span> <span class="dv">20</span>),</span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">split =</span> <span class="fu">c</span>(<span class="st">"Low risk"</span> <span class="ot">=</span> <span class="dv">160</span>, <span class="st">"Intermediate risk"</span> <span class="ot">=</span> <span class="dv">120</span>, <span class="st">"High risk"</span> <span class="ot">=</span> <span class="dv">80</span>),</span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">final_label =</span> <span class="st">"Validation sample"</span>)</span>
+<span id="cb28-10"><a href="#cb28-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb28-11"><a href="#cb28-11" aria-hidden="true" tabindex="-1"></a>contents3 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Group characteristics"</span>, <span class="st">"Survival comparison"</span>, <span class="st">"Model evaluation"</span>)</span>
+<span id="cb28-12"><a href="#cb28-12" aria-hidden="true" tabindex="-1"></a>phases3 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Selection"</span>, <span class="st">"Risk groups"</span>, <span class="st">"Study content"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-8-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-1" role="tab" aria-controls="tabset-8-1" aria-selected="true" href="">每个队列各自分组</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-8-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-2" role="tab" aria-controls="tabset-8-2" aria-selected="false" href="">同一行汇总各队列人数</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-8-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-3" role="tab" aria-controls="tabset-8-3" aria-selected="false" href="">仅首个队列分组</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-8-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-4" role="tab" aria-controls="tabset-8-4" aria-selected="false" href="">阶段框、换行与间距</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-9-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-1" role="tab" aria-controls="tabset-9-1" aria-selected="true" href="">每个队列各自分组</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-9-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-2" role="tab" aria-controls="tabset-9-2" aria-selected="false" href="">同一行汇总各队列人数</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-9-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-3" role="tab" aria-controls="tabset-9-3" aria-selected="false" href="">仅首个队列分组</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-9-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-9-4" role="tab" aria-controls="tabset-9-4" aria-selected="false" href="">阶段框、换行与间距</a></li></ul>
 <div class="tab-content">
-<div id="tabset-8-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-8-1-tab">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>p_flo3_separate <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts3, <span class="at">split_layout =</span> <span class="st">"separate"</span>,</span>
-<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> contents3, <span class="at">phase_labels =</span> phases3)</span>
-<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>p_flo3_separate</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="tabset-9-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-9-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>p_flo3_separate <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts3, <span class="at">split_layout =</span> <span class="st">"separate"</span>,</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> contents3, <span class="at">phase_labels =</span> phases3)</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>p_flo3_separate</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo3-separate.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="两个队列各自连接三个风险组，再汇入共同研究内容。"><img src="images/flow-guide/flo3-separate.png" class="img-fluid figure-img" alt="开发900人筛除200后为700，验证420人筛除60后为360；两个队列分别连接三个风险组。" loading="lazy" decoding="async" width="1563" height="871" srcset="../assets/figure-previews/395ee4fe8754f3bd4e8df84fddb9b693.webp"></a></p>
+<p><a href="images/flow-guide/flo3-separate.png" class="lightbox" data-gallery="quarto-lightbox-gallery-24" title="两个队列各自连接三个风险组，再汇入共同研究内容。"><img src="images/flow-guide/flo3-separate.png" class="img-fluid figure-img" alt="开发900人筛除200后为700，验证420人筛除60后为360；两个队列分别连接三个风险组。" loading="lazy" decoding="async" width="1563" height="871" srcset="../assets/figure-previews/395ee4fe8754f3bd4e8df84fddb9b693.webp"></a></p>
 <figcaption>两个队列各自连接三个风险组，再汇入共同研究内容。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-8-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-8-2-tab">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>p_flo3_pooled <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts3, <span class="at">split_layout =</span> <span class="st">"pooled"</span>,</span>
-<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> contents3, <span class="at">phase_labels =</span> phases3,</span>
-<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"flo3-pooled.pdf"</span>)))</span>
-<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>p_flo3_pooled</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="tabset-9-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-9-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>p_flo3_pooled <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts3, <span class="at">split_layout =</span> <span class="st">"pooled"</span>,</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> contents3, <span class="at">phase_labels =</span> phases3,</span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"flo3-pooled.pdf"</span>)))</span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>p_flo3_pooled</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo3-pooled.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="共享风险组框分别列出两个队列人数，避免把模拟人数当作自动计算结果。"><img src="images/flow-guide/flo3-pooled.png" class="img-fluid figure-img" alt="开发和验证队列汇入同一排风险组框，每组明确显示两个队列各自人数。" loading="lazy" decoding="async" width="1152" height="909" srcset="../assets/figure-previews/b26a26dfcabd45e616ca76576ade4b42.webp"></a></p>
+<p><a href="images/flow-guide/flo3-pooled.png" class="lightbox" data-gallery="quarto-lightbox-gallery-25" title="共享风险组框分别列出两个队列人数，避免把模拟人数当作自动计算结果。"><img src="images/flow-guide/flo3-pooled.png" class="img-fluid figure-img" alt="开发和验证队列汇入同一排风险组框，每组明确显示两个队列各自人数。" loading="lazy" decoding="async" width="1152" height="909" srcset="../assets/figure-previews/b26a26dfcabd45e616ca76576ade4b42.webp"></a></p>
 <figcaption>共享风险组框分别列出两个队列人数，避免把模拟人数当作自动计算结果。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-8-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-8-3-tab">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>cohorts_first <span class="ot">&lt;-</span> cohorts3</span>
-<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>cohorts_first[[<span class="dv">2</span>]][[<span class="st">"split"</span>]] <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>p_flo3_first <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts_first, <span class="at">split_layout =</span> <span class="st">"first"</span>,</span>
-<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> contents3, <span class="at">phase_labels =</span> phases3)</span>
-<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a>p_flo3_first</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="tabset-9-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-9-3-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>cohorts_first <span class="ot">&lt;-</span> cohorts3</span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>cohorts_first[[<span class="dv">2</span>]][[<span class="st">"split"</span>]] <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a>p_flo3_first <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts_first, <span class="at">split_layout =</span> <span class="st">"first"</span>,</span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> contents3, <span class="at">phase_labels =</span> phases3)</span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>p_flo3_first</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo3-first.png" class="lightbox" data-gallery="quarto-lightbox-gallery-23" title="开发队列分组，验证样本直接连向研究内容。"><img src="images/flow-guide/flo3-first.png" class="img-fluid figure-img" alt="只有开发队列连接三个风险组，验证队列不显示分组，直接接入共同研究内容。" loading="lazy" decoding="async" width="1084" height="871" srcset="../assets/figure-previews/54fcf062da122d35a536dd950edcc2e6.webp"></a></p>
+<p><a href="images/flow-guide/flo3-first.png" class="lightbox" data-gallery="quarto-lightbox-gallery-26" title="开发队列分组，验证样本直接连向研究内容。"><img src="images/flow-guide/flo3-first.png" class="img-fluid figure-img" alt="只有开发队列连接三个风险组，验证队列不显示分组，直接接入共同研究内容。" loading="lazy" decoding="async" width="1084" height="871" srcset="../assets/figure-previews/54fcf062da122d35a536dd950edcc2e6.webp"></a></p>
 <figcaption>开发队列分组，验证样本直接连向研究内容。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-8-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-8-4-tab">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>p_flo3_style <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts3, <span class="at">split_layout =</span> <span class="st">"separate"</span>,</span>
-<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Baseline</span><span class="sc">\n</span><span class="st">characteristics"</span>, <span class="st">"Survival</span><span class="sc">\n</span><span class="st">comparison"</span>, <span class="st">"Model evaluation"</span>),</span>
-<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> phases3, <span class="at">phase_style =</span> <span class="st">"box"</span>,</span>
-<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">group =</span> <span class="fl">0.45</span>, <span class="at">content =</span> <span class="fl">0.45</span>, <span class="at">content_arrow =</span> <span class="fl">0.7</span>),</span>
-<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">equal_group_width =</span> <span class="cn">FALSE</span>, <span class="at">content_width =</span> <span class="fl">1.8</span>, <span class="at">text_fs =</span> <span class="dv">10</span>))</span>
-<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>p_flo3_style</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div id="tabset-9-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-9-4-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>p_flo3_style <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts3, <span class="at">split_layout =</span> <span class="st">"separate"</span>,</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> <span class="fu">c</span>(<span class="st">"Baseline</span><span class="sc">\n</span><span class="st">characteristics"</span>, <span class="st">"Survival</span><span class="sc">\n</span><span class="st">comparison"</span>, <span class="st">"Model evaluation"</span>),</span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">phase_labels =</span> phases3, <span class="at">phase_style =</span> <span class="st">"box"</span>,</span>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">gap_args =</span> <span class="fu">list</span>(<span class="at">group =</span> <span class="fl">0.45</span>, <span class="at">content =</span> <span class="fl">0.45</span>, <span class="at">content_arrow =</span> <span class="fl">0.7</span>),</span>
+<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">box_args =</span> <span class="fu">list</span>(<span class="at">equal_group_width =</span> <span class="cn">FALSE</span>, <span class="at">content_width =</span> <span class="fl">1.8</span>, <span class="at">text_fs =</span> <span class="dv">10</span>))</span>
+<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a>p_flo3_style</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/flo3-style.png" class="lightbox" data-gallery="quarto-lightbox-gallery-24" title="阶段标签换成矩形框，手工换行保留，内容箭头和框间距可分别调整。"><img src="images/flow-guide/flo3-style.png" class="img-fluid figure-img" alt="矩形阶段标签的双队列流程，风险框按各自文字宽度，研究内容保留手工换行。" loading="lazy" decoding="async" width="1354" height="908" srcset="../assets/figure-previews/4aaea9bb9a9a9e530e45e9fc859760bf.webp"></a></p>
+<p><a href="images/flow-guide/flo3-style.png" class="lightbox" data-gallery="quarto-lightbox-gallery-27" title="阶段标签换成矩形框，手工换行保留，内容箭头和框间距可分别调整。"><img src="images/flow-guide/flo3-style.png" class="img-fluid figure-img" alt="矩形阶段标签的双队列流程，风险框按各自文字宽度，研究内容保留手工换行。" loading="lazy" decoding="async" width="1354" height="908" srcset="../assets/figure-previews/4aaea9bb9a9a9e530e45e9fc859760bf.webp"></a></p>
 <figcaption>阶段标签换成矩形框，手工换行保留，内容箭头和框间距可分别调整。</figcaption>
 </figure>
 </div>
@@ -2090,14 +2192,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="pdf-device" class="level2">
 <h2 class="anchored" data-anchor-id="pdf-device">PDF 设备与特殊字符</h2>
 <p>当前 <code>RegR::save_plt()</code> 默认 <code>device = "cairo"</code>，支持普通文本标签里的 ≥、± 和希腊字母，并嵌入字体。宽高以英寸计，默认 10 × 11；文件名没有扩展名时补 <code>.pdf</code>，其他扩展名会报错。图形采用测量布局时，优先用前面的推荐尺寸。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>p_unicode <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(<span class="fu">data.frame</span>(<span class="at">x =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>, <span class="at">y =</span> <span class="fu">c</span>(<span class="fl">0.8</span>, <span class="dv">1</span>, <span class="fl">1.2</span>)), <span class="fu">aes</span>(x, y)) <span class="sc">+</span></span>
-<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="dv">3</span>) <span class="sc">+</span> <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">13</span>) <span class="sc">+</span></span>
-<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Unicode labels: α, β, Δ ± 1"</span>, <span class="at">x =</span> <span class="st">"Value ≥ 1"</span>, <span class="at">y =</span> <span class="st">"Ratio"</span>)</span>
-<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>pdf_unicode <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"unicode-cairo.pdf"</span>)</span>
-<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>RegR<span class="sc">::</span><span class="fu">save_plt</span>(p_unicode, <span class="at">filename =</span> pdf_unicode, <span class="at">width =</span> <span class="dv">7</span>, <span class="at">height =</span> <span class="fl">4.5</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>p_unicode <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(<span class="fu">data.frame</span>(<span class="at">x =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>, <span class="at">y =</span> <span class="fu">c</span>(<span class="fl">0.8</span>, <span class="dv">1</span>, <span class="fl">1.2</span>)), <span class="fu">aes</span>(x, y)) <span class="sc">+</span></span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="dv">3</span>) <span class="sc">+</span> <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">13</span>) <span class="sc">+</span></span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Unicode labels: α, β, Δ ± 1"</span>, <span class="at">x =</span> <span class="st">"Value ≥ 1"</span>, <span class="at">y =</span> <span class="st">"Ratio"</span>)</span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a>pdf_unicode <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"unicode-cairo.pdf"</span>)</span>
+<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a>RegR<span class="sc">::</span><span class="fu">save_plt</span>(p_unicode, <span class="at">filename =</span> pdf_unicode, <span class="at">width =</span> <span class="dv">7</span>, <span class="at">height =</span> <span class="fl">4.5</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/unicode-cairo.png" class="lightbox" data-gallery="quarto-lightbox-gallery-25" title="普通字符串中的希腊字母、加减号与大于等于号使用 Cairo PDF 正常保存。"><img src="images/flow-guide/unicode-cairo.png" class="img-fluid figure-img" alt="散点图标题含 α、β、Δ 和 ±，横轴标题含 ≥，对应 PDF 已读回确认字符与嵌入字体。" loading="lazy" decoding="async" width="1050" height="675" srcset="../assets/figure-previews/c7dfcc5eaeef373fb15178a3a3b31ecf.webp"></a></p>
+<p><a href="images/flow-guide/unicode-cairo.png" class="lightbox" data-gallery="quarto-lightbox-gallery-28" title="普通字符串中的希腊字母、加减号与大于等于号使用 Cairo PDF 正常保存。"><img src="images/flow-guide/unicode-cairo.png" class="img-fluid figure-img" alt="散点图标题含 α、β、Δ 和 ±，横轴标题含 ≥，对应 PDF 已读回确认字符与嵌入字体。" loading="lazy" decoding="async" width="1050" height="675" srcset="../assets/figure-previews/c7dfcc5eaeef373fb15178a3a3b31ecf.webp"></a></p>
 <figcaption>普通字符串中的希腊字母、加减号与大于等于号使用 Cairo PDF 正常保存。</figcaption>
 </figure>
 </div>
@@ -2110,46 +2212,46 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="bold-20261018" class="level2">
 <h2 class="anchored" data-anchor-id="bold-20261018">当前内容框：整行粗体与手动换行</h2>
 <p>2026-10-18按已推送RegR <code>7265b31</code>，在Windows / WSL R 4.4.3实际绘制。plt_flo与plt_flo3的content_labels可用<code>**...**</code>标记整行粗体，一对标记也可跨越多行；普通说明行保持常规字重。它不是通用Markdown，不能把句中任意单词加粗。手动换行用<code>\n</code>，函数按各行字重测量内容框。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>d_flow <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="dv">20</span><span class="sc">:</span><span class="dv">119</span>, <span class="at">Tx =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>), <span class="dv">50</span>)),</span>
-<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">Marker =</span> <span class="fu">c</span>(<span class="cn">NA</span>, <span class="fu">seq_len</span>(<span class="dv">99</span>)))</span>
-<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>selected_flow <span class="ot">&lt;-</span> d_flow <span class="sc">|&gt;</span> <span class="fu">get_flt</span>(Age <span class="sc">&gt;=</span> <span class="dv">30</span>) <span class="sc">|&gt;</span> <span class="fu">get_flt</span>(<span class="sc">!</span><span class="fu">is.na</span>(Marker))</span>
-<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>contents_current <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"**Survival analysis**</span><span class="sc">\n</span><span class="st">(curves and models)"</span>,</span>
-<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">"**Model</span><span class="sc">\n</span><span class="st">checking**</span><span class="sc">\n</span><span class="st">(calibration)"</span>)</span>
-<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a>p_flow <span class="ot">&lt;-</span> <span class="fu">plt_flo</span>(selected_flow, <span class="at">inclu_row =</span> <span class="dv">0</span>,</span>
-<span id="cb32-7"><a href="#cb32-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">cohort =</span> <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Simulated records"</span>), <span class="at">split_var =</span> <span class="st">"Tx"</span>,</span>
-<span id="cb32-8"><a href="#cb32-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> contents_current, <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">bold_summary =</span> <span class="cn">FALSE</span>),</span>
-<span id="cb32-9"><a href="#cb32-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">name_map =</span> <span class="fu">c</span>(<span class="at">Age =</span> <span class="st">"Age &lt; 30 years"</span>, <span class="at">Marker =</span> <span class="st">"Missing marker"</span>))</span>
-<span id="cb32-10"><a href="#cb32-10" aria-hidden="true" tabindex="-1"></a>p_flow</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>d_flow <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="dv">20</span><span class="sc">:</span><span class="dv">119</span>, <span class="at">Tx =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>), <span class="dv">50</span>)),</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">Marker =</span> <span class="fu">c</span>(<span class="cn">NA</span>, <span class="fu">seq_len</span>(<span class="dv">99</span>)))</span>
+<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a>selected_flow <span class="ot">&lt;-</span> d_flow <span class="sc">|&gt;</span> <span class="fu">get_flt</span>(Age <span class="sc">&gt;=</span> <span class="dv">30</span>) <span class="sc">|&gt;</span> <span class="fu">get_flt</span>(<span class="sc">!</span><span class="fu">is.na</span>(Marker))</span>
+<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a>contents_current <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"**Survival analysis**</span><span class="sc">\n</span><span class="st">(curves and models)"</span>,</span>
+<span id="cb34-5"><a href="#cb34-5" aria-hidden="true" tabindex="-1"></a>  <span class="st">"**Model</span><span class="sc">\n</span><span class="st">checking**</span><span class="sc">\n</span><span class="st">(calibration)"</span>)</span>
+<span id="cb34-6"><a href="#cb34-6" aria-hidden="true" tabindex="-1"></a>p_flow <span class="ot">&lt;-</span> <span class="fu">plt_flo</span>(selected_flow, <span class="at">inclu_row =</span> <span class="dv">0</span>,</span>
+<span id="cb34-7"><a href="#cb34-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">cohort =</span> <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Simulated records"</span>), <span class="at">split_var =</span> <span class="st">"Tx"</span>,</span>
+<span id="cb34-8"><a href="#cb34-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">content_labels =</span> contents_current, <span class="at">exc_args =</span> <span class="fu">list</span>(<span class="at">bold_summary =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb34-9"><a href="#cb34-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">name_map =</span> <span class="fu">c</span>(<span class="at">Age =</span> <span class="st">"Age &lt; 30 years"</span>, <span class="at">Marker =</span> <span class="st">"Missing marker"</span>))</span>
+<span id="cb34-10"><a href="#cb34-10" aria-hidden="true" tabindex="-1"></a>p_flow</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/20261018-flow-bold.png" class="lightbox" data-gallery="quarto-lightbox-gallery-26" title="单队列中将内容标题加粗、说明保留常规字重。"><img src="images/flow-guide/20261018-flow-bold.png" class="img-fluid figure-img" alt="100条模拟记录排除10条小于30岁的记录，90条分成No和Yes各45条，底部两个内容框展示整行粗体和跨行粗体。" loading="lazy" decoding="async" width="611" height="653" srcset="../assets/figure-previews/e847c72383f18a0470b20dd9708ae123.webp"></a></p>
+<p><a href="images/flow-guide/20261018-flow-bold.png" class="lightbox" data-gallery="quarto-lightbox-gallery-29" title="单队列中将内容标题加粗、说明保留常规字重。"><img src="images/flow-guide/20261018-flow-bold.png" class="img-fluid figure-img" alt="100条模拟记录排除10条小于30岁的记录，90条分成No和Yes各45条，底部两个内容框展示整行粗体和跨行粗体。" loading="lazy" decoding="async" width="611" height="653" srcset="../assets/figure-previews/e847c72383f18a0470b20dd9708ae123.webp"></a></p>
 <figcaption>单队列中将内容标题加粗、说明保留常规字重。</figcaption>
 </figure>
 </div>
 <p>筛选条件表示保留谁，<code>name_map</code>写排除原因，必须与条件相符。Marker缺失所在行已在第一步排除，本例第二步新增排除数为0；不能把每步移除数重复相加。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>cohorts_current <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
-<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Development"</span>, <span class="at">N =</span> <span class="dv">120</span>, <span class="at">exclude =</span> <span class="fu">c</span>(<span class="st">"Missing"</span> <span class="ot">=</span> <span class="dv">20</span>),</span>
-<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">split =</span> <span class="fu">c</span>(<span class="st">"Low"</span> <span class="ot">=</span> <span class="dv">60</span>, <span class="st">"High"</span> <span class="ot">=</span> <span class="dv">40</span>)),</span>
-<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Validation"</span>, <span class="at">N =</span> <span class="dv">80</span>, <span class="at">exclude =</span> <span class="fu">c</span>(<span class="st">"Missing"</span> <span class="ot">=</span> <span class="dv">10</span>),</span>
-<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">split =</span> <span class="fu">c</span>(<span class="st">"Low"</span> <span class="ot">=</span> <span class="dv">40</span>, <span class="st">"High"</span> <span class="ot">=</span> <span class="dv">30</span>)))</span>
-<span id="cb33-6"><a href="#cb33-6" aria-hidden="true" tabindex="-1"></a>p_flow3 <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts_current, <span class="at">content_labels =</span> contents_current)</span>
-<span id="cb33-7"><a href="#cb33-7" aria-hidden="true" tabindex="-1"></a>p_flow3</span>
-<span id="cb33-8"><a href="#cb33-8" aria-hidden="true" tabindex="-1"></a><span class="co"># 按各图返回的flo_size保存；不要用更小设备挤压内容。</span></span>
-<span id="cb33-9"><a href="#cb33-9" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_flow, <span class="st">"flo_size"</span>)</span>
-<span id="cb33-10"><a href="#cb33-10" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_flow3, <span class="st">"flo_size"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>cohorts_current <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Development"</span>, <span class="at">N =</span> <span class="dv">120</span>, <span class="at">exclude =</span> <span class="fu">c</span>(<span class="st">"Missing"</span> <span class="ot">=</span> <span class="dv">20</span>),</span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">split =</span> <span class="fu">c</span>(<span class="st">"Low"</span> <span class="ot">=</span> <span class="dv">60</span>, <span class="st">"High"</span> <span class="ot">=</span> <span class="dv">40</span>)),</span>
+<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">label =</span> <span class="st">"Validation"</span>, <span class="at">N =</span> <span class="dv">80</span>, <span class="at">exclude =</span> <span class="fu">c</span>(<span class="st">"Missing"</span> <span class="ot">=</span> <span class="dv">10</span>),</span>
+<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">split =</span> <span class="fu">c</span>(<span class="st">"Low"</span> <span class="ot">=</span> <span class="dv">40</span>, <span class="st">"High"</span> <span class="ot">=</span> <span class="dv">30</span>)))</span>
+<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a>p_flow3 <span class="ot">&lt;-</span> <span class="fu">plt_flo3</span>(cohorts_current, <span class="at">content_labels =</span> contents_current)</span>
+<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a>p_flow3</span>
+<span id="cb35-8"><a href="#cb35-8" aria-hidden="true" tabindex="-1"></a><span class="co"># 按各图返回的flo_size保存；不要用更小设备挤压内容。</span></span>
+<span id="cb35-9"><a href="#cb35-9" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_flow, <span class="st">"flo_size"</span>)</span>
+<span id="cb35-10"><a href="#cb35-10" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_flow3, <span class="st">"flo_size"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/flow-guide/20261018-flow3-bold.png" class="lightbox" data-gallery="quarto-lightbox-gallery-27" title="多队列共用底部研究内容框。"><img src="images/flow-guide/20261018-flow3-bold.png" class="img-fluid figure-img" alt="模拟开发和验证队列分别纳入100和70条记录，再分Low与High；下方共用带整行粗体的研究内容框。" loading="lazy" decoding="async" width="721" height="815" srcset="../assets/figure-previews/909e262c7575cae8e03c1a11666fbdcb.webp"></a></p>
+<p><a href="images/flow-guide/20261018-flow3-bold.png" class="lightbox" data-gallery="quarto-lightbox-gallery-30" title="多队列共用底部研究内容框。"><img src="images/flow-guide/20261018-flow3-bold.png" class="img-fluid figure-img" alt="模拟开发和验证队列分别纳入100和70条记录，再分Low与High；下方共用带整行粗体的研究内容框。" loading="lazy" decoding="async" width="721" height="815" srcset="../assets/figure-previews/909e262c7575cae8e03c1a11666fbdcb.webp"></a></p>
 <figcaption>多队列共用底部研究内容框。</figcaption>
 </figure>
 </div>
 <section id="factor-20261018" class="level3">
 <h3 class="anchored" data-anchor-id="factor-20261018">因子水平晚出现也要保留</h3>
 <p>get_flt先检查每个因子前10,000行是否包含全部水平；没出现齐时会回查完整结果，再只清理真正空的水平。这里实际验证late仅在第20,001行出现仍被保留，unused被移除：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a>late <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">flag =</span> <span class="fu">factor</span>(<span class="fu">c</span>(<span class="fu">rep</span>(<span class="st">"common"</span>, <span class="dv">20000</span>), <span class="st">"late"</span>),</span>
-<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"common"</span>, <span class="st">"late"</span>, <span class="st">"unused"</span>)))</span>
-<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a>kept <span class="ot">&lt;-</span> <span class="fu">get_flt</span>(late, flag <span class="sc">!=</span> <span class="st">"unused"</span>)</span>
-<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(kept) <span class="sc">==</span> <span class="dv">20001</span>L, <span class="fu">identical</span>(<span class="fu">levels</span>(kept[[<span class="st">"flag"</span>]]), <span class="fu">c</span>(<span class="st">"common"</span>, <span class="st">"late"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>late <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">flag =</span> <span class="fu">factor</span>(<span class="fu">c</span>(<span class="fu">rep</span>(<span class="st">"common"</span>, <span class="dv">20000</span>), <span class="st">"late"</span>),</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"common"</span>, <span class="st">"late"</span>, <span class="st">"unused"</span>)))</span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a>kept <span class="ot">&lt;-</span> <span class="fu">get_flt</span>(late, flag <span class="sc">!=</span> <span class="st">"unused"</span>)</span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(kept) <span class="sc">==</span> <span class="dv">20001</span>L, <span class="fu">identical</span>(<span class="fu">levels</span>(kept[[<span class="st">"flag"</span>]]), <span class="fu">c</span>(<span class="st">"common"</span>, <span class="st">"late"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>这是水平清理的计算路径调整，不是只分析前10,000行，也不会恢复已被条件排除的记录。本轮未进行新计时。<a href="https://hui950319.github.io/RegR/reference/get_flt.html"><code>get_flt()</code> 帮助页</a> · <a href="https://hui950319.github.io/RegR/reference/plt_flo.html"><code>plt_flo()</code> 帮助页</a></p>
 
 
