@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -24,6 +25,7 @@ config = yaml.safe_load((root / "_quarto.yml").read_text(encoding="utf-8-sig"))
 docs = root / config["project"]["output-dir"]
 pages = [docs / Path(p).with_suffix(".html") for p in chapters(config["book"]["chapters"])]
 originals = set()
+preview_lock = threading.Lock()
 for page in pages:
     if page.is_file():
         soup = BeautifulSoup(page.read_text(encoding="utf-8"), "html.parser")
@@ -49,11 +51,15 @@ def preview(path):
             with Image.open(io.BytesIO(encoded)) as decoded:
                 assert decoded.size == size and decoded.convert("RGBA").tobytes() == image.convert("RGBA").tobytes(), path
             source.parent.mkdir(parents=True, exist_ok=True)
-            source.write_bytes(encoded)
+            # Different PNG paths can share one content hash on Windows.
+            with preview_lock:
+                if not source.exists():
+                    source.write_bytes(encoded)
     output = docs / "assets/figure-previews" / name
     output.parent.mkdir(parents=True, exist_ok=True)
-    if not output.exists() or output.read_bytes() != source.read_bytes():
-        shutil.copy2(source, output)
+    with preview_lock:
+        if not output.exists() or output.read_bytes() != source.read_bytes():
+            shutil.copy2(source, output)
     return path, size, output
 
 
