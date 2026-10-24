@@ -11,7 +11,7 @@ from playwright.sync_api import sync_playwright
 PAGES = [
     "index.html", "regr/facet-guide.html", "regr/rpa-guide.html",
     "regr/eff-cat-guide.html", "regr/interaction-guide.html", "mlr/index.html",
-    "mlr/shap-guide.html", "utilsr/composition-guide.html",
+    "mlr/shap-guide.html", "mlr/imp-guide.html", "utilsr/composition-guide.html",
     "utilsr/function-modules.html", "causalr/function-modules.html",
     "causalr/shap-guide.html",
     "regr/rcs-guide.html", "regr/cut-guide.html", "regr/flow-guide.html",

@@ -4,17 +4,136 @@ description: "比较 SHAP、impurity/Gain、permutation 与 rfsrc 的 VIMP/最�
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-10-21
+date-modified: 2026-10-25
 directory:
   title: "特征重要性：rfsrc、重复稳定性与9类图"
   topic: 模型解释
-  updated: 2026-10-21
+  updated: 2026-10-25
 ---
 
 本页先说明 `get_imp()` 如何组织多种重要性，再用同一份结果比较全部 9 个 `plt_imp_*()` 函数。关键选项放在标签页中，代码与图片相邻；点击图片可放大。重要性回答变量对预测贡献有多大，方向与个体解释接着看 [SHAP 页](shap-guide.qmd)。
 
 **版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出本页 **25 张参数对照图**。绘图复用 ToyData::toy_imp，没有重新训练 get_imp 的模型。环形图按实际基础绘图设备导出；其余图检查构建或实际保存边界。
 
+
+## 当前标签、份额与绘图缩放 {#labels-shares-20261025}
+
+<!-- update-20261025: mlr_importance -->
+
+2026-10-25 按已推送 MLR `273f72a`、UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。本节使用 **5 个变量 × 3 种方法的合成重要性表**，只验证绘图合同，没有训练模型；所有预览来自实际 PDF。原来的模型计算和 25 张参数图保留其执行范围。
+
+### 环形与网络标签改用 label_args
+
+环形图 `label_args` 用 `cex` 控制基础绘图字号，网络图用 ggplot 的 `size`；两者不能把同一个字号数值直接照搬。`wrap` 按空格换行变量名，百分比单列在前；单个无空格长词不会被强制拆开。环形图换行写作 `label_args=list(wrap=...)`，没有顶层 `label_wrap` 参数；网络图旧 `network_args$label_size / label_offset` 暂时警告兼容，应迁移到 `label_args$size / offset`，显式的新字段优先。网络内部节点文字仍由 `network_args$node_text_*` 控制。
+
+```r
+library(MLR)
+vars_imp25 <- paste0("F", 1:5)
+methods_imp25 <- c("mean.SHAP", "impurity", "permutation")
+raw_imp25 <- list(c(10, 6, 3, 1, .5), c(4, 9, 3, 2, 1), c(3, 2, 8, 1, .5))
+imp25 <- do.call(rbind, Map(function(method, raw) data.frame(var = vars_imp25,
+  yhat = (raw - min(raw)) / diff(range(raw)), order = rank(-raw, ties.method = "first"),
+  imp_type = method, yhat_raw = raw), methods_imp25, raw_imp25))
+attr(imp25, "imp_types") <- methods_imp25
+original_imp25 <- imp25
+long_names25 <- setNames(c("Tumor size at diagnosis", "Age at initial diagnosis",
+  "Regional lymph node count", "Treatment sequence group", "Clinical marker score"), vars_imp25)
+short_names25 <- setNames(c("Tumor size", "Age", "Node count", "Treatment", "Marker"), vars_imp25)
+save_imp25 <- function(name, width = 9, height = 9) list(
+  filename = file.path(tempdir(), paste0("20261025-update-", name)), width = width, height = height)
+plt_imp_circ(imp25, add_name = long_names25, label_args = list(cex = .55, offset = 3),
+  save = save_imp25("imp-circle-line", 10, 10))
+plt_imp_circ(imp25, add_name = long_names25,
+  label_args = list(wrap = 13, cex = .62, lineheight = .9, offset = 3, col = "grey20"),
+  save = save_imp25("imp-circle-wrap", 10, 10))
+network_imp25 <- plt_imp_network(imp25, add_name = long_names25, y_hat = "percent",
+  label_args = list(wrap = 13, size = 2.5, lineheight = .9, offset = 1.5, col = "grey20"),
+  save = save_imp25("imp-network-wrap", 10, 10))
+generic_network25 <- plt_network(data.frame(group = imp25[["imp_type"]],
+  vars = imp25[["var"]], value = imp25[["yhat_raw"]]),
+  label_args = list(wrap = 8, size = 2.5), show_percent = FALSE)
+stopifnot(inherits(network_imp25, "ggplot"), inherits(generic_network25, "ggplot"))
+ggplot2::ggplot_build(network_imp25)
+ggplot2::ggplot_build(generic_network25)
+```
+
+::: {.panel-tabset}
+
+### 环形单行 {.unnumbered}
+
+![相同长名称在单行环形标签中的布局。](images/imp-guide/20261025-update-imp-circle-line.png){fig-alt="原生环形重要性PDF，三种方法与五个合成变量使用单行长标签，变量百分比基于完整输入。"}
+
+[PDF](images/imp-guide/20261025-update-imp-circle-line.pdf)
+
+### 环形换行 {.unnumbered}
+
+![只改变标签排版，同一组重要性保持不变。](images/imp-guide/20261025-update-imp-circle-wrap.png){fig-alt="与单行图相同的合成重要性，label_args wrap将有空格的变量名分行，百分比单列在前。"}
+
+[PDF](images/imp-guide/20261025-update-imp-circle-wrap.pdf)
+
+### 网络换行 {.unnumbered}
+
+![网络图统一使用 label_args，中心节点与外围标签分别控制。](images/imp-guide/20261025-update-imp-network-wrap.png){fig-alt="实际径向网络重要性图，外围变量名换行并显示百分比，中心为三种重要性方法。"}
+
+[PDF](images/imp-guide/20261025-update-imp-network-wrap.pdf)
+
+:::
+
+### Top N 百分比仍以完整输入为分母
+
+`plt_imp_bump(value_type="percent")` 先在每个方法的**完整输入**中计算份额，再按平均秩选 `top_n`；显示项之和可以小于 100%。有原始值时使用非负原始重要性，否则按当前回退规则使用缩放值。`value_digits` 不改变百分比标签固定的一位小数。预先截掉数据再调用会换分母，不能与单纯 `top_n` 混用解释。
+
+```r
+bump_imp25 <- plt_imp_bump(imp25, top_n = 3, value_type = "percent", add_name = short_names25,
+  bump_args = list(value_size = 9, group_label_size = 9, rank_label_size = 9),
+  save = save_imp25("imp-bump-percent", 9, 5))
+label_bump25 <- ggplot2::ggplot_build(bump_imp25)[["data"]][[3]][["label"]]
+full_shares25 <- unlist(lapply(raw_imp25, function(raw) paste0(sprintf("%.1f", 100 * raw / sum(raw)), "%")))
+stopifnot(length(label_bump25) == 9L, all(label_bump25 %in% full_shares25))
+```
+
+![Top 3 标签保留各方法完整五项的分母。](images/imp-guide/20261025-update-imp-bump-percent.png){fig-alt="原生bump图展示按平均秩选择的三个变量；节点百分比按每个方法完整五变量的重要性总量计算。"}
+
+[PDF](images/imp-guide/20261025-update-imp-bump-percent.pdf)
+
+### 流向图的 fmt_args 先改值，再归一化与重排
+
+`plt_imp_flo2(fmt_args=list(cha_var="F1",cha_mult=.2))` 用**原列名**匹配，先缩放重要性，再重算各方法的份额、排序、标签及高度。它是绘图变换，不是重新计算模型重要性；报告中应说明缩放原因。只给 `cha_var`、不给倍数会警告并跳过缩放。
+
+```r
+flow_base25 <- plt_imp_flo2(imp25, add_name = short_names25, gap = 0, label.size = 2.4,
+  save = save_imp25("imp-flow-original", 9, 7))
+flow_scaled25 <- plt_imp_flo2(imp25, add_name = short_names25, gap = 0, label.size = 2.4,
+  fmt_args = list(cha_var = "F1", cha_mult = .2),
+  save = save_imp25("imp-flow-scaled", 9, 7))
+scaled_shap25 <- flow_scaled25[["data"]]
+scaled_shap25 <- scaled_shap25[!scaled_shap25[["is_gap"]] & scaled_shap25[["imp_type"]] == "mean.SHAP", ]
+scaled_shap25 <- scaled_shap25[order(scaled_shap25[["var_raw"]]), ]
+want_scaled25 <- raw_imp25[[1]]; want_scaled25[1] <- want_scaled25[1] * .2
+stopifnot(isTRUE(all.equal(scaled_shap25[["fill_value"]], want_scaled25 / sum(want_scaled25))),
+  identical(as.integer(scaled_shap25[["order"]]), as.integer(rank(-want_scaled25, ties.method = "first"))),
+  identical(imp25, original_imp25))
+validation_values <- list(bump_labels = label_bump25,
+  scaled = scaled_shap25[c("var_raw", "fill_value", "order")], unchanged = identical(imp25, original_imp25))
+```
+
+::: {.panel-tabset}
+
+### 原始值 {.unnumbered}
+
+![同一合成输入未经变量倍数调整。](images/imp-guide/20261025-update-imp-flow-original.png){fig-alt="原生重要性流向图按未变换的完整五项原值计算各方法份额和排序。"}
+
+[PDF](images/imp-guide/20261025-update-imp-flow-original.pdf)
+
+### F1 乘 0.2 {.unnumbered}
+
+![F1 缩放后，份额与排序同步改变。](images/imp-guide/20261025-update-imp-flow-scaled.png){fig-alt="同一输入只将F1重要性乘0.2；流向图在归一化前应用倍数并同步重排，原始输入对象未被修改。"}
+
+[PDF](images/imp-guide/20261025-update-imp-flow-scaled.pdf)
+
+:::
+
+<!-- /update-20261025: mlr_importance -->
 
 ## 示例准备与读图规则 {#data}
 
@@ -28,7 +147,7 @@ directory:
 | `yhat` | 方法内部 min–max 值 | 映射到 0–1；不是解释方差 |
 | `order` | 方法内部排名 | 第一名是本方法最重要的变量 |
 
-百分比图优先使用非负 `yhat_raw`，原始值缺失或全部非正时回退到 `yhat`。筛选到八个变量之后，份额以这八项为分母。变量名称用自定义标签覆盖，避免把图中名称映射当作疾病定义。
+百分比图优先使用非负 `yhat_raw`，原始值缺失或全部非正时回退到 `yhat`。本页预先构造 `imp8` 后再传入网络/环形图时，份额以这八项输入为分母；`plt_imp_bump(imp, top_n=...)` 仅限制显示，百分比仍以传入的完整方法结果为分母，见[当前例子](#labels-shares-20261025)。变量名称用自定义标签覆盖，避免把图中名称映射当作疾病定义。
 
 ```r
 library(MLR)
@@ -624,7 +743,7 @@ plt_imp_circ(imp8, imp_type = c("permutation", "mean.SHAP"), add_name = labels, 
 
 
 ```r
-plt_imp_network(imp8, add_name = labels, outer_style = "bar", network_args = list(label_size = 2.6))
+plt_imp_network(imp8, add_name = labels, outer_style = "bar", label_args = list(size = 2.6))
 ```
 
 
@@ -638,7 +757,7 @@ plt_imp_network(imp8, add_name = labels, outer_style = "bar", network_args = lis
 
 
 ```r
-plt_imp_network(imp8, add_name = labels, outer_style = "bubble", y_hat = "percent", start_position = "right", network_args = list(label_size = 2.6))
+plt_imp_network(imp8, add_name = labels, outer_style = "bubble", y_hat = "percent", start_position = "right", label_args = list(size = 2.6))
 ```
 
 
