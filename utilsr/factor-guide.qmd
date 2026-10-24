@@ -2,18 +2,53 @@
 title: "因子与统计文本：排序、合并、分箱和区间格式化"
 description: "fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界；参数对照及重编码、缺失和分箱边界。"
 date: 2026-10-20
-date-modified: 2026-10-24
+date-modified: 2026-10-25
 lightbox: true
 toc-depth: 2
 directory:
   title: "因子与统计文本：排序、合并、分箱和区间格式化及数据边界"
   topic: 数据准备与筛选
-  updated: 2026-10-24
+  updated: 2026-10-25
 ---
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **版本与执行范围：** 原有 33 个参数示例按 UtilsR **0.6.8** 执行，3 张预览保留原次导出。2026-10-20 按已推送 `cea978f4` 补充下方数据边界，并在 Windows / WSL R 4.4.3 执行新旧示例；本轮未重新导出原有图片。使用固定随机种子的模拟数据。
+
+## 当前 ref_idx=0：保持多水平 {#zero-reference-20261025}
+
+<!-- update-20261025: factor_zero -->
+
+2026-10-25 按已推送 UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。**单个数值 `ref_idx=0` 与 `NULL` 相同**，不合并参考组，也不占用互斥模式；因此可与 `reverse=TRUE` 或命名重编码一起使用。普通正整数仍是 1-based 水平位置。
+
+```r
+library(UtilsR)
+stage_zero25 <- factor(c("I", "II", "III", NA), levels = c("I", "II", "III"))
+keep_zero25 <- fct_cat(stage_zero25, ref_idx = 0)
+reverse_zero25 <- fct_cat(stage_zero25, ref_idx = 0, reverse = TRUE)
+renamed_zero25 <- fct_cat(stage_zero25, Early = c("I", "II"), ref_idx = 0)
+stopifnot(identical(keep_zero25, stage_zero25),
+  identical(reverse_zero25, fct_cat(stage_zero25, reverse = TRUE)),
+  identical(renamed_zero25, fct_cat(stage_zero25, Early = c("I", "II"))))
+bad_zero25 <- tryCatch(fct_cat(stage_zero25, ref_idx = c(0, 1)), error = identity)
+names_zero25 <- factor(c("0", "1", "2"), levels = c("0", "1", "2"))
+named_zero25 <- fct_cat(names_zero25, ref_idx = "0")
+stopifnot(inherits(bad_zero25, "error"), identical(levels(named_zero25), c("0", "Oth")))
+zero_preview25 <- data.frame(setting = c("Original", "ref_idx = 0", "0 + reverse", "0 + recode"),
+  levels = vapply(list(stage_zero25, keep_zero25, reverse_zero25, renamed_zero25),
+    function(x) paste(levels(x), collapse = " / "), character(1)), missing = 1L)
+gt::gtsave(gt::gt(zero_preview25), file.path(tempdir(), "20261025-update-reference-zero.html"))
+validation_values <- list(preview = zero_preview25, named_zero = as.character(named_zero25),
+  missing = is.na(keep_zero25))
+```
+
+![单个数值零保留原水平，也可与反转或重编码同时使用。](images/factor-guide/20261025-update-reference-zero.png){fig-alt="原生因子核对表：原始与ref_idx为0均保留I、II、III；加reverse改变水平顺序；加命名重编码合并Early。缺失均保持一项。"}
+
+[原生 HTML 表](images/factor-guide/20261025-update-reference-zero.html)
+
+`c(0,1)` 不是“关闭再选第一项”，仍属非法位置向量。字符 `"0"` 则按**水平名称**匹配，可以把名为 0 的水平作为参考；它不等同于数值 0。缺失不因关闭合并而变成一个类别。此前的[名称与位置对照](#ref-ci-20261024)继续适用；RegR 交互入口也接受数值 0 表示不合并。
+
+<!-- /update-20261025: factor_zero -->
 
 ## 当前参考组与区间文本合同 {#ref-ci-20261024}
 
@@ -533,7 +568,7 @@ data.frame(case = names(invalid), rejected = unname(invalid))
 ```
 <!-- /refresh-20261020: factor -->
 
-本例 12 项均为 TRUE。索引还必须有限、非缺失、为整数且在当前水平范围内；空分组不新增水平。`ref_idx` 的新名称不能在仍有其他水平时与 `Oth` 冲突。`fct_num()` 的 `x` 和 `breaks` 不支持 `bit64::integer64` 存储；这与因子工具接受经校验并转为原生整数的索引是两种合同，不应混用。
+本例 12 项均为 TRUE。除单个数值 `ref_idx=0` 作为关闭开关外，索引还必须有限、非缺失、为整数且在当前水平范围内；空分组不新增水平。`ref_idx` 的新名称不能在仍有其他水平时与 `Oth` 冲突。`fct_num()` 的 `x` 和 `breaks` 不支持 `bit64::integer64` 存储；这与因子工具接受经校验并转为原生整数的索引是两种合同，不应混用。
 
 自动分箱不能把常量拆成多组；含并列但不恒定的数据仍可能减少实际分位组数，须按返回的 `nlevels()` 核对标签数量。固定切点会先排序，标签应按从低到高的区间提供。
 
