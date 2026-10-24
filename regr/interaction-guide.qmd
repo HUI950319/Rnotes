@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、绝对风险与表格导出"
 description: "交互分析的接口、结果与参数对照；包含 get_fit_ms 的多分类与连续变量整体检验，及 get_inter_abs 的 mets 联合 CIF 协方差、默认 delta／可选 boot 示例，以及 4,387 人队列的实测加速结果。"
 date: 2026-10-09
-date-modified: 2026-10-24
+date-modified: 2026-10-25
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：亚组效应核对与导出"
   topic: 回归与生存分析
-  updated: 2026-10-24
+  updated: 2026-10-25
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -33,6 +33,91 @@ directory:
 **2026-10-02 更新：** [竞争风险绝对交互的 mets 优化](#cif-mets-update) 按 RegR 源码快照 `cefc1a5`、mets **1.3.13** 补充，包含默认 `delta` 与可选 `boot` 的真实结果、完整调用计时及可下载记录。该节更新了下文 Fine–Gray 区间的计算说明。
 
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
+
+## 当前不合并开关与结果打印 {#reference-print-20261025}
+
+<!-- update-20261025: inter_print -->
+
+2026-10-25 按已推送 RegR `a121af8`、UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。`get_inter()`、`get_inter_abs()`、`get_eff_inter()` 的**单个数值 `ref_idx=0` 与 `NULL` 等价**，不主动把多水平变量合并成参考组与 Oth。原来只接受二分类的路径仍有相同限制；零不表示选择第一个水平。
+
+### 保留三个水平，不悄悄改成二分类
+
+```r
+library(RegR)
+set.seed(102501)
+d_print25 <- expand.grid(Tx = factor(c("No", "Yes")),
+  Grade = factor(c("Low", "Mid", "High"), levels = c("Low", "Mid", "High")),
+  Sex = factor(c("Female", "Male")), id = 1:30)
+d_print25[["Age"]] <- rnorm(nrow(d_print25), 55, 8)
+d_print25[["time"]] <- rexp(nrow(d_print25), exp(.5 * (d_print25[["Tx"]] == "Yes") +
+  .3 * (d_print25[["Grade"]] == "High")) / 60) + .1
+d_print25[["DSS"]] <- rbinom(nrow(d_print25), 1, .7)
+original_print25 <- d_print25
+quiet_print25 <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
+ratio_none25 <- quiet_print25(get_inter(d_print25, c("Tx", "Grade"), adj_var = "Age",
+  surv = TRUE, ref_idx = NULL, multicat_model = "separate"))
+ratio_zero25 <- quiet_print25(get_inter(d_print25, c("Tx", "Grade"), adj_var = "Age",
+  surv = TRUE, ref_idx = 0, multicat_model = "separate"))
+abs_none25 <- quiet_print25(get_inter_abs(d_print25, c("Tx", "Grade"), surv = TRUE,
+  sur_time = 24, ref_idx = NULL, multicat_model = "interaction"))
+abs_zero25 <- quiet_print25(get_inter_abs(d_print25, c("Tx", "Grade"), surv = TRUE,
+  sur_time = 24, ref_idx = 0, multicat_model = "interaction"))
+stopifnot(isTRUE(all.equal(ratio_none25, ratio_zero25, check.attributes = FALSE)),
+  isTRUE(all.equal(abs_none25, abs_zero25, check.attributes = FALSE)),
+  identical(levels(d_print25[["Grade"]]), c("Low", "Mid", "High")),
+  identical(original_print25, d_print25))
+eff_zero25 <- lapply(list(NULL, 0), function(ref)
+  quiet_print25(get_eff_inter(d_print25, "Tx", "Grade", adj_var = "Age", ref_idx = ref)))
+stopifnot(isTRUE(all.equal(eff_zero25[[1]], eff_zero25[[2]], check.attributes = FALSE)))
+eff_errors25 <- lapply(list(NULL, 0), function(ref) tryCatch(
+  quiet_print25(get_eff_inter(d_print25, "Grade", "Sex", adj_var = "Age", ref_idx = ref)), error = identity))
+stopifnot(all(vapply(eff_errors25, inherits, logical(1), "error")),
+  identical(conditionMessage(eff_errors25[[1]]), conditionMessage(eff_errors25[[2]])))
+```
+
+这里比值交互保留 Low 对 Mid、Low 对 High 的逐对结果；绝对风险使用多水平交互模型及其对比。`get_eff_inter()` 可保留三水平的 `sub_var="Grade"`，但其 `cat_var` 仍须二分类；把 Grade 作为 `cat_var` 时，`0` 与 `NULL` 同样拒绝。需要合并时明确指定 `ref_idx="Low"`。字符 `"0"` 是名称匹配，规则见[UtilsR 因子示例](../utilsr/factor-guide.qmd#zero-reference-20261025)。
+
+### 类标签、参数块与核对结论分层显示
+
+`get_inter_abs()` 首行保留模型和时间，暴露名称、风险单元及区间方法放在键值块；下方再列各结果表。`check_inter()` 的结论、单元状态与不共享模型的提示也使用同一套构件。下面打印**实际拟合返回对象**，不是手工拼接的控制台样式。
+
+```r
+ratio_binary25 <- quiet_print25(get_inter(d_print25, c("Tx", "Sex"), adj_var = "Age", surv = TRUE))
+facet_binary25 <- quiet_print25(get_facet(d_print25, split_var = "Sex", cat_var = "Tx",
+  adj_var = "Age", surv = TRUE, method = "both", subgroup_model = "interaction"))
+check_print25 <- check_inter(ratio_binary25, target = facet_binary25)
+pairs_print25 <- local({ inter_demo <- ratio_binary25; facet_demo <- facet_binary25; check_inter() })
+stopifnot(isTRUE(check_print25[["consistent"]]), length(pairs_print25) == 1L,
+  isTRUE(pairs_print25[[1]][["consistent"]]))
+abs_before_print25 <- abs_zero25
+console_inter25 <- withr::with_options(list(cli.num_colors = 1, cli.width = 100, width = 100),
+  capture.output({ print(abs_zero25); print(check_print25); print(pairs_print25) }))
+stopifnot(identical(abs_before_print25, abs_zero25),
+  !withVisible(print(check_print25))[["visible"]],
+  any(grepl("Cox model", console_inter25, fixed = TRUE)),
+  any(grepl("t = 24", console_inter25, fixed = TRUE)))
+save_console25 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '</style><pre data-native-console>', body, '</pre>'),
+    file.path(tempdir(), paste0("20261025-update-", name, ".html")), useBytes = TRUE)
+}
+save_console25(console_inter25, "inter-console")
+validation_values <- list(ratio = lapply(ratio_zero25, function(x) lapply(x, as.data.frame)),
+  absolute = lapply(abs_zero25, as.data.frame),
+  checks = check_print25[["comparison"]], zero_keeps_levels = levels(d_print25[["Grade"]]),
+  unchanged = identical(original_print25, d_print25))
+```
+
+![绝对风险、单项核对与自动配对结果的原生无色输出。](images/interaction-guide/20261025-update-inter-console.png){fig-alt="实际R输出先显示get_inter_abs类名、Cox模型和24月，再列暴露与区间设置及结果；check_inter和check_inter_pairs分别显示一致单元和配对总计。"}
+
+[原生 HTML 输出](images/interaction-guide/20261025-update-inter-console.html)
+
+显示更新不改变统计尺度或返回对象。`consistent` 表示所比较单元在相应模型合同下一致，不是模型正确、无偏或存在交互的证明；自动配对的未匹配对象和 `not checked` 仍需逐项处理。不同模型重拟合预期会产生差异时，应结合 `same_model_expected` 与提示核对，详见[现有诊断例子](#check-target-20261022)。本例保留预防性暴露提示；get_facet 同时触发既有 ggplot 弃用和缺失置信带行提示，本节只核对返回的数值单元与打印，不把该绘图当作已通过的新预览。
+
+<!-- /update-20261025: inter_print -->
 
 ## 当前参考组、连续变量与亚组表 {#reference-subgroup-20261024}
 
