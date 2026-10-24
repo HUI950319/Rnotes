@@ -2,18 +2,114 @@
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
 description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
-date-modified: 2026-10-24
+date-modified: 2026-10-25
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-10-24
+  updated: 2026-10-25
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 9 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。数据质量报告的四张表与 [当前检视](#inspection-20261021) 一节于 2026-10-22 按已推送 UtilsR `cdfdfec` 在 Windows / WSL R 4.4.3 重新执行，两边结果一致。
+
+## 当前环境诊断：包副本与实时可用内存 {#environment-20261025}
+
+<!-- update-20261025: environment_checks -->
+
+2026-10-25 按已推送 UtilsR **0.6.10** `0e4cffe` 在 Windows / WSL R 4.4.3 执行。旧入口 `count_packages_in_libpaths()` 已移除，正式名称是 **`check_packages(refresh=FALSE)`**；不是保留旧名的别名迁移。
+
+### 安装库计数：返回完整路径，Total 不是去重包名数
+
+默认打印报告并**不可见返回 data.frame**，包含 `Library_Path`、数值 `Package_Count` 和末尾 `Total` 行。跨库的同名包按每个安装副本分别计数；普通文件夹和安装锁不计为包。`refresh=TRUE` 绕过 installed.packages 缓存，不执行更新或安装。下面只在临时目录复制随 R 提供的 compiler 作夹具，不动用户安装库。
+
+```r
+library(UtilsR)
+lib_demo25 <- file.path(tempdir(), "package-count-demo")
+one_lib25 <- file.path(lib_demo25, "one-copy")
+empty_lib25 <- file.path(lib_demo25, "empty")
+dir.create(one_lib25, recursive = TRUE, showWarnings = FALSE)
+dir.create(empty_lib25, recursive = TRUE, showWarnings = FALSE)
+stopifnot(file.copy(system.file(package = "compiler"), one_lib25, recursive = TRUE))
+dir.create(file.path(one_lib25, "notes"), showWarnings = FALSE)
+dir.create(file.path(one_lib25, "00LOCK-unfinished"), showWarnings = FALSE)
+packages25 <- local({
+  old <- .libPaths(); on.exit(.libPaths(old))
+  .libPaths(c(one_lib25, empty_lib25, old))
+  capture.output(first <- withVisible(check_packages()))
+  capture.output(fresh <- withVisible(check_packages(refresh = TRUE)))
+  stopifnot(!first[["visible"]], !fresh[["visible"]],
+    identical(names(first[["value"]]), c("Library_Path", "Package_Count")),
+    identical(first[["value"]][["Package_Count"]][1:2], c(1L, 0L)),
+    identical(fresh[["value"]][["Package_Count"]][1:2], c(1L, 0L)),
+    identical(first[["value"]][["Library_Path"]][1:2], .libPaths()[1:2]))
+  result <- fresh[["value"]]
+  stopifnot(tail(result[["Package_Count"]], 1) == sum(head(result[["Package_Count"]], -1)))
+  result
+})
+package_preview25 <- data.frame(Library = c("Temporary compiler copy", "Temporary empty library"),
+  Installed_copies = packages25[["Package_Count"]][1:2])
+gt::gtsave(gt::gt(package_preview25), file.path(tempdir(), "20261025-update-package-counts.html"))
+```
+
+![两个临时库分别统计一份 compiler 和零个安装包。](images/missing-guide/20261025-update-package-counts.png){fig-alt="原生gt表中临时compiler副本库为1，空库为0；无关目录与安装锁不增加计数。"}
+
+[原生 HTML](images/missing-guide/20261025-update-package-counts.html)
+
+任一库无法读取时会逐库警告，该行和 **Total 均为 NA**；仍返回其他库的已知计数，不能把它们的部分和写成完整总计。终端中长路径可截短、计数可带千分位，返回对象始终保留完整路径和数值，供后续程序使用。本例未通过改变权限模拟不可读库；该分支按当前源码和帮助核对。
+
+### 系统与 R 堆：先辨认单位和计量范围
+
+`check_system(return_result=TRUE)` 可见返回列表；默认仍打印并不可见返回列表。Windows/macOS 优先通过 ps 读取**实时内存**，Windows 仅缓存静态系统元数据，必要时回退到 CIM/WMIC；Linux 使用可用的 /proc 数据。不可得值保留 NA，不填零。两平台的内存和 CPU 数量不要求相同，也不固定一次调用与下一次的实时数值。
+
+```r
+capture.output(sys25 <- check_system(return_result = TRUE))
+mem25 <- sys25[["system_memory"]]
+heap25 <- sys25[["r_memory"]]
+known_mem25 <- all(is.finite(unlist(mem25)))
+stopifnot(all(c("system_info", "r_environment", "r_memory", "system_memory", "cpu", "warnings", "timestamp") %in% names(sys25)),
+  isTRUE(all.equal(heap25[["used_gb"]], heap25[["used_bytes"]] / 1024^3)))
+if (known_mem25) stopifnot(mem25[["total_gb"]] > 0,
+  mem25[["free_gb"]] >= 0, mem25[["free_gb"]] <= mem25[["total_gb"]],
+  isTRUE(all.equal(mem25[["used_gb"]], mem25[["total_gb"]] - mem25[["free_gb"]])),
+  isTRUE(all.equal(mem25[["usage_percent"]], 100 * mem25[["used_gb"]] / mem25[["total_gb"]])))
+cpu25 <- sys25[["cpu"]]
+stopifnot(all(c("logical_cores", "physical_cores") %in% names(cpu25)))
+if (is.finite(cpu25[["physical_cores"]]) && is.finite(cpu25[["logical_cores"]]))
+  stopifnot(cpu25[["physical_cores"]] <= cpu25[["logical_cores"]])
+schema25 <- data.frame(Field = c("r_memory.used_bytes / used_gb", "system_memory.*_gb",
+  "system_memory.free_gb", "system_memory.used_gb", "cpu logical / physical"),
+  Meaning = c("R heap bytes / 1024^3", "GiB (1024^3 bytes)", "Available memory",
+    "Total minus available", "Separate reported core counts"),
+  Checked = c(TRUE, TRUE, known_mem25, known_mem25, TRUE))
+platform25 <- if (.Platform[["OS.type"]] == "windows") "windows" else "wsl"
+gt::gtsave(gt::gt(schema25), file.path(tempdir(), paste0("20261025-update-system-", platform25, ".html")))
+validation_values <- list(package_preview = package_preview25,
+  package_return_invisible = TRUE, heap_conversion = TRUE, memory_formula = known_mem25,
+  cpu_schema = all(c("logical_cores", "physical_cores") %in% names(cpu25)))
+```
+
+::: {.panel-tabset}
+
+### Windows {.unnumbered}
+
+![Windows 实际返回对象的单位与公式检查。](images/missing-guide/20261025-update-system-windows.png){fig-alt="Windows原生字段核对表，确认R堆bytes转GiB、系统可用内存及总量减可用量公式，CPU逻辑与物理核心分开。"}
+
+[原生 HTML](images/missing-guide/20261025-update-system-windows.html)
+
+### WSL {.unnumbered}
+
+![WSL 实际返回对象的单位与公式检查。](images/missing-guide/20261025-update-system-wsl.png){fig-alt="WSL原生字段核对表，独立核对R堆转换、系统内存公式和CPU字段；没有要求其数值等于Windows。"}
+
+[原生 HTML](images/missing-guide/20261025-update-system-wsl.html)
+
+:::
+
+字段名虽以 `_gb` 结尾，单位实际是 **GiB**；`free_gb` 表示**可用内存**，并非只计完全空闲页。`r_memory.used_bytes` 优先采用 lobstr，回退时按当前架构的 Ncell 字节数与 Vcell×8 估算 R 堆；它不等于整个 R 进程的 RSS。物理核心无法识别时显示未知，不把逻辑核心冒充物理核心。本节公开字段核对表，未发布本机用户名、安装库路径或 CPU 型号。
+
+<!-- /update-20261025: environment_checks -->
 
 ## 当前 lv：原生报告与分组边界 {#lv-report-20261024}
 
@@ -138,7 +234,7 @@ validation_values <- list(default_tables = length(lv_tables(lv_default)),
 
 ### 环境诊断的计数口径
 
-`check_system()` 的 Windows 硬件查询优先使用 PowerShell CIM，必要时再回退 WMIC，后者不可用不等于硬件缺失。`count_packages_in_libpaths()` 按各库的 `installed.packages()` 记录计数，排除普通目录和安装锁；Total 是跨库安装副本数，同一包在两个库中会计两次，不是去重后的包数量。这两项依赖实际主机环境，本页不公开硬件标识或把两平台包数量强行比较为相同。
+此前的 Windows 静态硬件查询走 CIM / WMIC 回退，当前实时内存已优先使用 ps。包计数正式入口现为 `check_packages()`，Total 仍是跨库安装副本数；旧名已经移除。完整返回、缺失与单位规则见[当前环境诊断](#environment-20261025)。这两项依赖实际主机环境，不把两平台包数量强行比较为相同。
 
 <!-- /update-20261024: lv_reports -->
 
