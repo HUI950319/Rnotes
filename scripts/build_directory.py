@@ -24,7 +24,8 @@ from check_site import chapters
 
 root = Path(__file__).resolve().parents[1]
 packages = {"regr": "RegR", "mlr": "MLR", "utilsr": "UtilsR", "seerr": "seerR", "labr": "LabR",
-            "scmmr": "scMMR", "toydata": "ToyData", "causalr": "causalR", "troubleshooting": "R 问题排查"}
+            "scmmr": "scMMR", "toydata": "ToyData", "causalr": "causalR", "troubleshooting": "R 问题排查",
+            "console-print": "打印信息"}
 config = yaml.safe_load((root / "_quarto.yml").read_text(encoding="utf-8-sig"))
 rows, errors = [], []
 for page in chapters(config["book"]["chapters"]):

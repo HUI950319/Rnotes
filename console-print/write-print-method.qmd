@@ -1,0 +1,104 @@
+---
+title: "编写 print 方法与测试"
+description: "用 UtilsR 的 pr_* 给自己的结果类写 print 方法：首行、设定、分节表格、注释与可复制调用的标准结构，我的几个包沿用的打印习惯（英文标签加中文注释、提示以函数名开头、可复制行不加颜色、保存提示格式、颜色只表达含义），以及 testthat 里测试打印和提示的写法。"
+date: 2026-10-25
+execute:
+  eval: false
+directory:
+  title: "编写 print 方法与测试：结构、打印习惯与 testthat 写法"
+  topic: 打印信息
+  updated: 2026-10-25
+---
+
+这一页写给要给新结果类加 print 方法、或者改已有打印的人。示例沿用[总览页](index.qmd#example)的 `demo_res`。
+
+## 标准结构 {#skeleton}
+
+一个 print 方法按下面的顺序写，每一步对应一个函数：
+
+1. `pr_head(类名, 方法或后端, 规模)`：一行，关键信息放前面。
+2. `pr_kv(list(...))`：模型、结局、暴露、调整变量等设定；可选项直接传，`NULL` 不显示。
+3. `pr_section("标题")` 加结果表：表是 tibble 时照常 `print()`，要标 P 值或高亮时用 `pr_table()`。几张表就几条分节线。
+4. `cat("\n")` 后用 `pr_note()` 写注意事项，最后一条给出下一步可以运行的调用（通常是对应的绘图函数及建议参数）。
+5. `invisible(x)`：返回对象本身，不返回打印的行。
+
+```r
+print.demo_res <- function(x, ...) {
+  a <- attr(x, "analysis")
+  pr_head("demo_res", sprintf('method = "%s"', a$method), "simulated",
+          sprintf("n = %s", format(a$n, big.mark = ",")))
+  pr_kv(list(outcome = a$outcome, exposure = a$exposure,
+             adjustment = a$adj_var, time = a$time, events = a$events))
+  pr_section("Hazard ratios")
+  pr_table(x$stats, p_col = "P", highlight = 1)
+  cat("\n")
+  pr_note("HR > 1 means a higher hazard; P values are two-sided.")
+  pr_note("Plot with {.code plt_demo(res, xlim = c(0.5, 2.5))}")
+  invisible(x)
+}
+```
+
+包里调用时写 `UtilsR::pr_head()` 等完整名称，并在 `DESCRIPTION` 的 Imports 写 `UtilsR (>= 0.6.10)`；用到更新版本才有的参数时提高这个下限。
+
+## 打印习惯 {#conventions}
+
+我的几个包在打印上沿用以下做法：
+
+- **打印摘要，不倾倒组件**：结果里的大表、模型、图形不直接打印，只写规模和范围，读者从对象里取。RegR 的 `eff_res` 只打印分析摘要和效应范围，效应表本身不打印。
+- **元数据缺失时退回结果表**：RegR 的结果对象上 `analysis` 属性缺失（例如旧版本保存的对象）时，跳过分析摘要，只打印结果部分，不报错。
+- **文字用英文**：键名、分节标题和注释用英文；分析摘要的键名可以加中文注释，如 RegR 的 `univariate (单因素)`。整份中文只用于面向中文读者的报告，如 UtilsR 的 `check_system()`。
+- **空值的写法**：设定为空时写 `none`，表格里的缺失写 `-`（RegR 的 `eff_res`）；`pr_table()` 自身把缺失显示为灰色 `NA`。
+- **可复制的调用行不加颜色**：RegR `eff_res` 的 Visualization 分节用纯 `cat()` 输出 `plt_eff(display = "c")` 和它的参数，保存图形后提示的 `save = list(filename = ..., width = , height = )` 也不加样式，复制出来就能运行。样式只加在前面的说明文字上。
+- **保存提示的格式**：RegR 保存图表后统一提示 `<说明>: <路径> [<尺寸>, new PDF]`；覆盖已有文件时改为红字 `replaced the existing PDF`。新的保存功能沿用这个格式。
+- **颜色只表达含义**：结果打印里的红色只表示显著，或“覆盖了已有文件”这类需要注意的状态；运行提示按 `.cat_message()` 的类型着色。不为装饰上色。
+- **运行提示以函数名开头，并受 `verbose` 控制**：见[运行提示与步骤进度](runtime-messages.qmd#cat-message)。
+
+## 常见的坑 {#pitfalls}
+
+- **首行被截断**：首行按控制台宽度截断，长内容放进 `pr_kv()` 或 `pr_note()`，见 [pr_head()](result-blocks.qmd#pr-head)。
+- **注释里的花括号**：数据通过 `"{x}"` 交给 cli 代入，不要 `paste()` 进模板，见 [pr_note()](result-blocks.qmd#pr-note)。
+- **包装 `.cat_step()`**：转发 `.envir = parent.frame()`，见 [.cat_step()](runtime-messages.qmd#cat-step)。
+- **不要自己判断颜色**：不手写 ANSI 代码，也不写 `if (有颜色)` 分支；`pr_*` 会按输出环境自动退化。
+- **打印方法里不发消息**：print 方法只写标准输出，否则 `capture.output()` 抓不全；运行提示也不要用 `cat()`，否则关不掉。
+
+## 测试 {#testing}
+
+```r
+test_that("print shows the class label and P-value stars", {
+  out <- capture.output(print(demo_res))      # tests run without colour
+  expect_match(out[1], "^<demo_res>")
+  expect_true(any(grepl("<0.001***", out, fixed = TRUE)))
+  expect_true(any(grepl("^>", out)))          # the highlighted row
+})
+
+test_that("colours appear when the console has them", {
+  withr::local_options(cli.num_colors = 256)
+  out <- capture.output(print(demo_res))
+  expect_true(any(grepl("\033[", out, fixed = TRUE)))
+})
+
+test_that("print returns the object invisibly and leaves it unchanged", {
+  before <- demo_res
+  capture.output(ret <- withVisible(print(demo_res)))
+  expect_false(ret$visible)
+  expect_identical(ret$value, before)
+})
+
+test_that("running notices are messages", {
+  expect_message(UtilsR::.cat_message("Loading data", style = "chip"), "Loading data")
+  expect_silent(UtilsR::.cat_message("Loading data", verbose = FALSE))
+  long <- paste(rep("a long notice that wraps", 6), collapse = " ")
+  msg <- tryCatch(UtilsR::.cat_message(long, style = "chip"),
+                  message = conditionMessage)
+  # the notice wraps at the console width: join the lines before matching
+  expect_match(gsub("\\s+", " ", cli::ansi_strip(msg)), long, fixed = TRUE)
+})
+```
+
+- **默认无色**：测试运行时标准输出不支持颜色，断言写无色形式：`<类名>`、`[key: value]`、P 值星号、高亮行的 `>`。
+- **测颜色**：用 `withr::local_options(cli.num_colors = 256)` 强制颜色。不要去模拟 `stdout()`：`capture.output()` 期间它是一个名为 `"rval"` 的文本连接，按流名判断的模拟会失效（2026-10-24 曾因此提交了一个失败的测试）。
+- **结果打印与提示分开测**：`pr_*` 的输出用 `capture.output()` 或 `expect_output()`；`.cat_message()` 是消息，用 `expect_message()` 或 `tryCatch(..., message = conditionMessage)`。
+- **换行**：提示和长注释按宽度折行，匹配整句前先合并空白，如上面最后一个测试。2026-10-24 提示改为折行后，UtilsR 的 `set_wd()` 和 MLR 的 `get_vpd()` 测试都因整句匹配失败而修改过。
+- 改了打印格式，要同时改下游包里断言旧输出的测试。
+
+上面四个测试在 Windows 与 WSL 的 R 4.4.3、testthat 第 3 版下都通过。

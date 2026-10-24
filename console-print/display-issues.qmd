@@ -1,0 +1,98 @@
+---
+title: "打印显示问题排查"
+description: "控制台打印的常见问题与处理：没有颜色或类名写成尖括号、日志里出现颜色代码、suppressMessages() 关不掉 RegR 的提示、capture.output() 抓不到提示、首行被截断、表格少了行列、宽度不对、中文对不齐、图标显示成方框，以及渲染文档里步骤进度重复。"
+date: 2026-10-25
+execute:
+  eval: false
+directory:
+  title: "打印显示问题排查：颜色、提示通道、宽度与中文对齐"
+  topic: 打印信息
+  updated: 2026-10-25
+---
+
+每一节按“现象、原因、处理”写。先确认两件事，大部分问题就能定位：当前输出支不支持颜色（`cli::num_ansi_colors(stdout())`），以及看到的是结果打印（标准输出）还是运行提示（消息）。
+
+## 没有颜色，类名写成尖括号 {#no-colour}
+
+**现象**：首行是 `<eff_res>` 而不是彩色标签，P 值后面带星号。
+
+**原因**：`pr_*` 只在标准输出支持颜色时上色，否则自动退化为无色写法。常见的无色环境：
+
+- knitr / Quarto 渲染的代码块输出；
+- 输出被重定向到文件，如 `Rscript run.R > log.txt` 或 `sink()`；
+- 设置了 `options(cli.num_colors = 1)` 或环境变量 `NO_COLOR`；
+- RStudio 关闭了控制台的 ANSI 颜色。
+
+**处理**：在控制台运行 `cli::num_ansi_colors(stdout())`，返回 1 就是无色。RStudio 在 Tools → Global Options → Console 里把 ANSI escape codes 设为显示颜色。渲染文档里的无色是有意的：星号和行首 `>` 保留了显著性和高亮的含义。
+
+## 日志里出现颜色代码 {#escape-codes}
+
+**现象**：日志文件里夹着 `ESC[31m`、`\033[1m` 之类的字符。
+
+**原因**：颜色被全局强制打开了，比如 `.Rprofile` 里写了 `options(cli.num_colors = 256)`，或设置了环境变量 `R_CLI_NUM_COLORS`。这时 `pr_*` 以为输出支持颜色，写进文件时也带上了颜色代码。没有强制时，写到文件的输出会自动去掉颜色代码。
+
+**处理**：不要全局强制颜色，只在需要截图时用 `withr::with_options(list(cli.num_colors = 256), ...)` 临时打开。已经写进文件的颜色代码可以用 `cli::ansi_strip()` 去掉。
+
+## suppressMessages() 关不掉 RegR 的提示 {#regr-local-notice}
+
+**现象**：`suppressMessages(RegR::get_all(...))` 之后，带时间戳的提示仍然出现。
+
+**原因**：RegR 包内有一份自己的旧版 `.cat_message()`，用 `cat()` 写到标准输出，不是消息，`suppressMessages()` 对它无效。RegR 的保存提示（如“the plot has been saved to …”）也走这条路。UtilsR 的 `.cat_message()` 是 cli 消息，可以被关掉。旧式的 `.cat_line()`、`.cat_box()`、`.cat_formula()` 同样写标准输出。
+
+**处理**：优先用函数自己的 `verbose = FALSE`。没有这个参数时，用 `invisible(capture.output(res <- RegR::fun(...)))` 截掉标准输出，注意要把结果赋值出来，否则返回值也会被截走。
+
+## capture.output() 抓不到提示 {#capture}
+
+**现象**：`capture.output(f())` 里没有 `.cat_message()` 的提示，提示仍然显示在控制台。
+
+**原因**：UtilsR 的 `.cat_message()` 和 `.cat_step()` 发的是消息，`capture.output()` 默认只截标准输出。
+
+**处理**：用 `capture.output(f(), type = "message")`，或 `withCallingHandlers()` 收集 `conditionMessage()`；测试里用 `expect_message()`。命令行批量运行时，`Rscript run.R > log.txt 2>&1` 把消息一起写进日志。
+
+## 首行末尾变成省略号 {#truncated-head}
+
+**现象**：首行结尾是 `…`，后半句看不到。
+
+**原因**：`pr_head()` 把整行截到控制台宽度。
+
+**处理**：加宽控制台，或 `options(cli.width = 120)`。被截掉的通常是方法说明这类次要信息，主要设定在下面的键值块里。写 print 方法时把关键信息放在首行前面，见 [pr_head()](result-blocks.qmd#pr-head)。
+
+## 表格少了行或列 {#table-columns}
+
+**现象**：表尾写着 `# … 25 more rows; … 2 more columns: …`。
+
+**原因**：`pr_table()` 默认只显示 20 行，按控制台宽度保留首列和 P 值列，其余列放不下就省略。
+
+**处理**：屏幕表只是摘要，完整结果从对象里读，例如 `res$stats`，或者 `print(as.data.frame(res$stats))`。加宽控制台可以多显示几列。
+
+## 宽度不对 {#width}
+
+**现象**：在宽屏上分节线、表格仍按 80 列排；或者窄窗口里折行过早。
+
+**原因**：宽度取自 `cli::console_width()`：先看 `cli.width` 选项；没有设置时，RStudio 控制台用面板宽度，终端用终端宽度，其他情况（如 `Rscript` 输出到文件）用 `width` 选项，默认 80。分节线本身最宽 80 列。
+
+**处理**：`options(cli.width = 120)` 固定宽度，用完恢复。
+
+## 中文对不齐、长中文不换行 {#cjk}
+
+**现象**：中文键名或中文列错位；中文长句超出屏幕不换行。
+
+**原因**：对齐按显示宽度计算，中文按两个英文字符宽。字体里中文不正好是两个英文字符宽时就会错位：例如 Consolas 本身没有中文，中文由另一种字体补上，宽度对不上。折行只在空格处断开，没有空格的中文长句不会折行。另外，`≥`、`±` 这类字符按一个字符宽计算，有些中文字体却画成两个字符宽。
+
+**处理**：控制台改用中英文严格 2:1 的等宽字体，如更纱黑体（Sarasa Mono SC），RStudio 在 Tools → Global Options → Appearance 里设置。长注释用英文，或自己分成几次 `pr_note()`。标签里用 `>=` 代替 `≥`。本站的截图逐个固定了非 ASCII 字符的宽度，所以看起来是对齐的。
+
+## 图标显示成方框或问号 {#symbols}
+
+**现象**：`ℹ`、`✔`、`⚠`、树形连线显示成方框或问号。
+
+**原因**：输出环境不支持 UTF-8，或字体缺这些字符。cli 的符号（`pr_*` 用到的省略号、分节线、树形连线、步骤图标）在不支持 UTF-8 的输出里会自动换成 ASCII，可以用 `options(cli.unicode = FALSE)` 强制；`.cat_message()` 的四个类型图标固定用 Unicode，不随这个选项切换。
+
+**处理**：用 RStudio 或 Windows Terminal 等支持 UTF-8 的终端，并选用包含这些符号的字体。`cli::is_utf8_output()` 返回 `FALSE` 时说明当前输出不是 UTF-8。
+
+## 渲染文档里每个步骤出现两行 {#steps-in-docs}
+
+**现象**：在 Quarto / R Markdown 里，`.cat_step()` 的每一步都有开始、完成两行。
+
+**原因**：渲染时不能原地刷新同一行，cli 把开始和完成分别输出。在 RStudio 控制台里同一行会原地更新，最后只剩带耗时的完成行。
+
+**处理**：报告里不需要进度时传 `verbose = FALSE`；或者给代码块设 `message: false`，它们是消息，会一起隐藏。

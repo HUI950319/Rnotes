@@ -1,0 +1,112 @@
+---
+title: "结果表与 P 值：pr_table"
+description: "UtilsR::pr_table() 在控制台打印结果表：P 值列按 stat_pval() 写法与显著性着色，无色时加星号；整数与小数列的位数规则、高亮行、缺失值、按宽度保留首列和 P 值列并在表尾列出省略的行列，以及中文列按显示宽度对齐。"
+date: 2026-10-25
+execute:
+  eval: false
+directory:
+  title: "结果表与 P 值：pr_table 的着色、位数、高亮与省略"
+  topic: 打印信息
+  updated: 2026-10-25
+---
+
+`pr_table(data, p_col = NULL, highlight = NULL, n = 20, align = NULL, digits = 2, width = NULL, indent = 2)` 把数据框打印成对齐的纯文本表：粗体表头、一条灰线，然后每行一条。它不修改数据，屏幕上省略的行列仍在对象里。
+
+## 示例 {#example}
+
+第一张表演示 P 值、位数、高亮和缺失值；第二张是 30 行、8 列的宽表，只显示前 5 行。
+
+```r
+library(UtilsR)
+
+tab <- data.frame(
+  Variable = c("Age >= 55", "Male", "Multifocal", "Extrathyroidal", "Unknown"),
+  n        = c(1203L, 987L, 455L, 210L, 31L),
+  HR       = c(1.853, 1.25, 1.083, 2.4, NA),
+  beta     = c(0.0003, 0.012, 0.21, 0.0007, NA),
+  P        = c(0.00004, 0.0062, 0.049, 0.05, NA),
+  P_adj    = c("<0.001", "0.019", "0.098", "<0.05", NA))
+pr_table(tab, p_col = c("P", "P_adj"), highlight = 1)
+
+set.seed(20261025)
+wide <- data.frame(term = paste("Variable", 1:30),
+                   matrix(round(rnorm(30 * 6, 0, 50), 2), 30,
+                          dimnames = list(NULL, paste0("estimate_", 1:6))),
+                   P = sort(runif(30, 0, 0.6)))
+wide$P[1:2] <- c(0.0004, 0.004)
+pr_table(wide, p_col = "P", n = 5)
+```
+
+::: {.panel-tabset}
+
+### 彩色终端 {.unnumbered}
+
+![P 值按显著性着色，第一行浅黄底高亮。](images/table-color.png){fig-alt="两张彩色表。第一张：第一行浅黄底，P 值 0.006 和 0.049 红色，0.050 灰色，P_adj 的 0.019 和 小于 0.05 红色，Unknown 行全为灰色 NA。第二张：5 行，P 列 小于 0.001 粗红、0.004 红，表尾灰字注明省略 25 行和 2 列。"}
+
+[原生 HTML](images/table-color.html)
+
+### 无色日志 {.unnumbered}
+
+![无色时 P 值加星号，高亮行以大于号开头。](images/table-plain.png){fig-alt="同样两张表的无色输出：小于 0.001 加三星、0.006**、0.049*、0.050 无星号，P_adj 的 小于 0.05 加一星；第一行以大于号开头；表尾注明 25 more rows 与 2 more columns: estimate_5, estimate_6。"}
+
+[原生 HTML](images/table-plain.html)
+
+### 40 列窄屏 {.unnumbered}
+
+![窄屏时只保留首列和 P 值列，其余列在表尾列出。](images/table-narrow.png){fig-alt="40 列宽的无色输出：第一张表只剩 Variable、P、P_adj 三列，表尾写明省略 n、HR、beta；第二张只剩 term、estimate_1 和 P，表尾的省略说明折成三行。"}
+
+[原生 HTML](images/table-narrow.html)
+
+:::
+
+## P 值列 {#p-values}
+
+`p_col` 指定 P 值列，可以不止一列。
+
+- 数值列按 [`stat_pval(mode = "pvalue")`](https://hui950319.github.io/UtilsR/reference/stat_pval.html) 的写法显示，小于 0.001 写成 `<0.001`；文本列照原文。
+- 颜色：小于 0.001 粗体红，小于 0.05 红，其余灰。阈值按原数值判断，`0.05` 本身不算显著，示例里的 `0.050` 是灰色、没有星号。
+- 文本里的上界也能识别：`"<0.05"` 按低于 0.05 处理，显示为红色（无色时带一个星号）。
+- 无色时用星号表达显著性：`***` 小于 0.001，`**` 小于 0.01，`*` 小于 0.05。
+- `p_col` 写了数据里没有的列名时报错。
+
+## 数值位数 {#numbers}
+
+- 整数列原样显示。
+- 小数列默认保留 `digits = 2` 位；整列都是整数值时不带小数。
+- 如果一列里最小的非零绝对值按 `digits` 舍入后会变成 0，整列改为保留两位有效数字所需的位数，最多 6 位。示例的 `beta` 最小值是 0.0003，所以整列显示 5 位小数（`0.00030`、`0.21000`）。
+- 数值缺失显示为灰色 `NA`；文本缺失在无色时写成 `<NA>`，与字符串 `"NA"` 区分。
+
+位数规则只管显示。需要论文格式的数字时，先用 UtilsR 的 `fmt_*` 函数把列转成文本再传入。
+
+## 高亮行 {#highlight}
+
+`highlight` 接受行号或逻辑向量。高亮行整行浅黄底、黑字，**行内其他颜色去掉**，所以示例第一行的 `<0.001` 不是红色。无色时高亮行行首写 `>`，表格整体靠两格缩进对齐。
+
+## 行数、宽度与省略 {#width}
+
+- `n` 控制显示的行数，默认 20，`NULL` 显示全部。多出的行数写在表尾。
+- 宽度默认取控制台宽度，可用 `width` 指定。首列和所有 P 值列总是显示，其余列按原顺序放到放不下为止；省略的列在表尾写出列名。
+- 表尾用灰色 `#` 行，过长时按宽度折行。
+
+屏幕表只是摘要：省略的行列、未舍入的数值都在原对象里，程序里分析时直接读取对象。
+
+## 对齐 {#align}
+
+`align` 默认把数值列和 P 值列右对齐、其余列左对齐，也可以给 `"left"`、`"right"`、`"center"`，按列循环使用。列宽按显示宽度计算，中文占两列，中文表头和内容同样对齐：
+
+```r
+pr_table(data.frame(变量 = c("年龄 55 岁及以上", "男性", "多灶"),
+                    例数 = c(1203L, 987L, 455L),
+                    HR = c(1.85, 1.25, 1.08),
+                    P = c(0.0003, 0.012, 0.21)), p_col = "P")
+```
+
+![中文列按显示宽度对齐。](images/table-cjk-color.png){fig-alt="中文表头变量、例数、HR、P 的彩色表，年龄 55 岁及以上、男性、多灶三行，数字列右对齐，P 值 小于 0.001 粗红、0.012 红、0.210 灰。"}
+
+[原生 HTML](images/table-cjk-color.html)
+
+终端里要真正对齐，需要中文正好占两个英文字符宽的等宽字体；字体不满足时会错位，见[打印显示问题排查](display-issues.qmd#cjk)。
+
+## 什么时候直接打印 tibble {#vs-tibble}
+
+tibble 自带的打印会显示列类型，列多时把放不下的列名列在表尾，也足够清楚。需要下面几项时才换成 `pr_table()`：P 值着色或星号、高亮某些行、中文列对齐、与其他 `pr_*` 输出统一缩进。causalR 的 `psw_res` 就保留了 tibble 的打印，见[各包结果打印实例](package-print-methods.qmd#causalr)。

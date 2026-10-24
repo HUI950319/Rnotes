@@ -1,0 +1,103 @@
+---
+title: "结构树、摘要框与分布：pr_tree、pr_box、pr_spark"
+description: "UtilsR 的三个辅助打印构件：pr_tree() 以树形列出嵌套结果的组成与属性，pr_box() 用圆角框放短摘要，pr_spark() 每列一行显示迷你分布、均值与缺失比例；含深度、条目与行数限制和各类变量的显示规则。"
+date: 2026-10-25
+execute:
+  eval: false
+directory:
+  title: "结构树、摘要框与分布：pr_tree / pr_box / pr_spark"
+  topic: 打印信息
+  updated: 2026-10-25
+---
+
+这三个函数不是每个 print 方法都要用：`pr_tree()` 看清一个嵌套结果里有什么，`pr_box()` 把模型设定这类短摘要框起来，`pr_spark()` 在建模前快速看一眼各列分布。
+
+## 示例 {#example}
+
+```r
+library(UtilsR)
+
+res <- structure(
+  list(Overall = list(table = data.frame(term = c("Age", "Sex", "Stage"),
+                                         HR = c(1.85, 1.25, 0.97)),
+                      method = "cox",
+                      fit = list(coef = c(0.62, 0.22, -0.03), iter = 4L)),
+       Subgroup = list(Male = data.frame(term = "Age", HR = 1.7),
+                       Female = data.frame(term = "Age", HR = 2.0)),
+       model = lm(mpg ~ wt, data = mtcars)),
+  class = c("demo_res", "list"),
+  analysis = list(n = 2314L, outcome = "DSS"))
+pr_tree(res, max_depth = 2)
+
+pr_box(list(Outcome = "Surv(time, DSS)", Exposure = "Surgery (Yes vs No)",
+            Adjust = "Age + Sex + Stage", N = "2,314 (412 events)"),
+       header = "Cox model", footer = "simulated")
+
+set.seed(1)
+df <- data.frame(
+  age     = round(rnorm(300, 56, 11)),
+  size_mm = rlnorm(300, 2.6, 0.5),
+  nodes   = rpois(300, 1.2),
+  stage   = factor(sample(c("I", "II", "III", "IV"), 300, TRUE, c(.5, .25, .15, .1))),
+  smoker  = sample(c(TRUE, FALSE, NA), 300, TRUE, c(.3, .6, .1)),
+  dx_date = as.Date("2015-01-01") + sample(0:3000, 300))
+pr_spark(df)
+```
+
+::: {.panel-tabset}
+
+### 彩色终端 {.unnumbered}
+
+![结构树、摘要框和迷你分布的彩色输出。](images/structure-color.png){fig-alt="上部是以蓝底 demo_res 为根的结构树，列出 Overall、Subgroup、model 和青色 attr analysis，fit 后有省略号；中部是青色圆角框，顶边写 Cox model、底边写 simulated，框内四行键值；下部是六列的青色迷你分布条，右侧为均值与标准差、水平数与最多水平或日期范围，最右为缺失比例。"}
+
+[原生 HTML](images/structure-color.html)
+
+### 无色日志 {.unnumbered}
+
+![无色输出：根节点写成尖括号类名。](images/structure-plain.png){fig-alt="同一示例的无色输出，根节点为 尖括号包住的 demo_res 与 list 3，树线、圆角框和分布条的字符不变。"}
+
+[原生 HTML](images/structure-plain.html)
+
+:::
+
+示例的内容都不长，40 列时的输出与 80 列相同。`pr_box()` 的内容超出宽度时会折行；`pr_tree()` 和 `pr_spark()` 不折行。
+
+## pr_tree()：结构树 {#pr-tree}
+
+`pr_tree(x, max_depth = 3, max_items = 20, max_lines = 200, attrs = TRUE)` 把列表形式的结果画成树，每个元素后面跟一句灰色描述，比 `str()` 更容易看清嵌套结果的组成。
+
+- 会展开普通列表，以及同时继承 `"list"` 的类对象（如 `c("eff_res", "list")`）。数据框、模型、图形等其他对象作为叶子，只写类型和大小，例如 `<data.frame 3 x 2>`、`<lm>`。
+- 原子向量写出类型、长度和前几个值，如 `<chr> "cox"`、`<chr 3> "Age", "Sex", "Stage"`：最多取前 10 个值，预览截到 40 个字符。
+- `max_depth` 控制展开的层数；停在这一层、还没展开的列表后面加省略号，示例里的 `fit` 就是这样。
+- 每个节点最多列 `max_items` 个元素，其余写成 `… n more`；整棵树最多 `max_lines` 行，超出的行数写在末尾。
+- `attrs = TRUE` 时，除名称、类、维度、行名和 srcref 以外的属性也列出来，标为青色 `attr`，示例里的 `analysis` 就是属性。
+
+## pr_box()：摘要框 {#pr-box}
+
+`pr_box(x, header = NULL, footer = NULL, col = "cyan")` 画一个圆角框。
+
+- `x` 是具名列表或具名向量时，框内按 `pr_kv()` 的规则显示对齐的键值，`NULL` 项同样丢弃；是无名字符向量时逐行显示。
+- `header` 嵌在顶边、粗体，`footer` 嵌在底边、灰色；`col` 是边框颜色。
+- 内容按控制台宽度减去边框后折行。
+
+框适合放一小段需要醒目的内容，比如模型的结局、暴露、协变量和样本量；不要把整个输出都框起来。
+
+## pr_spark()：迷你分布 {#pr-spark}
+
+`pr_spark(data, vars = NULL, bins = 12, indent = 2)` 每列打印一行：列名、青色迷你分布条、摘要和缺失比例。
+
+::: {.table-responsive tabindex="0" role="region" aria-label="表格，可横向滚动"}
+
+| 列的类型 | 分布条 | 摘要 |
+|:--|:--|:--|
+| 数值 | 在有限值上分 `bins` 个等宽区间的直方图 | 均值和标准差，3 位有效数字 |
+| 不同取值不超过 `bins` 个的整数 | 每个取值一根条，中间不会出现空区间（示例的 `nodes`） | 均值和标准差 |
+| 日期、日期时间 | 同样的直方图 | 最早到最晚日期 |
+| 因子、字符、逻辑 | 各水平的计数，按水平顺序；水平多于 `bins` 个时取最多的 `bins` 个 | 水平数，以及最多的水平和它在非缺失值中的比例 |
+| 其他 | 无 | 只写类名 |
+
+:::
+
+最右一列是缺失比例，按全部行计算；分类变量“最多水平”的比例以非缺失值为分母，示例的 `smoker` 缺失 9.0%，`FALSE` 占非缺失值的 68.5%。
+
+分布条只用于快速浏览，不能代替正式的分布图；画分布图见 UtilsR 的[连续变量分布](../utilsr/continuous-guide.qmd)与[分类变量](../utilsr/categorical-guide.qmd)。
