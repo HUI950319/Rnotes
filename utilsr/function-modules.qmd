@@ -2,7 +2,7 @@
 title: "UtilsR 功能模块图"
 description: "通用数据与绘图工具：数据检视、因子整理、格式化、配色、主题和图形加工。"
 date: 2026-09-30
-date-modified: 2026-10-24
+date-modified: 2026-10-25
 lightbox: true
 format:
   html:
@@ -36,6 +36,113 @@ directory: false
 - [格式化：嵌套布局、标签、条带与坐标轴](format-guide.qmd)。
 - [组合与导出：嵌套图形、命名 list 和三种栅格化后端](composition-guide.qmd)。
 - [fmt_* 优化总结：行为变化与逐函数明细](fmt-optimization-20261018.qmd#behavior-changes)。
+
+## 当前控制台构件与运行提示 {#console-helpers-20261025}
+
+<!-- update-20261025: console_helpers -->
+
+2026-10-25 按已推送 UtilsR **0.6.10** `0e4cffe` 核对 `NAMESPACE`，当前为 **103 项显式导出**：增加 9 个 `pr_*` 与 `.cat_step()`；`check_packages()` 替换已移除的 `count_packages_in_libpaths()`，改名本身不增加数量。以下示例在 Windows / WSL R 4.4.3 实际执行。原三张模块图保留其注明日期的历史快照，新增入口以本节为准。
+
+### 结果打印：标题、参数、表格与结构
+
+`pr_*` 写入标准输出，通常不可见返回打印行；**`pr_badge()` 只返回字符串，需要显式 `cat()`**。下例是人为构造的显示样本，HR/P 仅用于检验排版，没有拟合临床模型。
+
+```r
+library(UtilsR)
+demo_print25 <- data.frame(Variable = c("Age", "Stage", "Treatment", "Unknown", "Marker"),
+  HR = c(1.853, 1.25, .83, NA, .000004), n = c(412L, 87L, 96L, 5L, 8L),
+  P = c(.0004, .015, .05, NA, .9))
+original_print25 <- demo_print25
+show_print25 <- function() {
+  pr_head("demo_result", "display fixture", "n = 608")
+  pr_kv(list(model = "Cox", levels = c("I", "II", "III"),
+    settings = "A long setting belongs here and wraps below its own value column.", absent = NULL))
+  cat(pr_badge("status", "example"), "\n")
+  pr_section("Estimates")
+  pr_table(demo_print25, p_col = "P", highlight = 1, n = 4, digits = 2)
+  pr_note("Read the original P values; {.strong rounding does not change significance}.")
+  pr_section("Returned structure")
+  pr_tree(list(stats = demo_print25, settings = list(seed = 25L, conf_level = .95)), max_depth = 2)
+  pr_box(list(rows = 608L, missing = 5L), header = "Short summary", footer = "Simulated display")
+  pr_spark(data.frame(age = c(40, 45, 45, 60, NA),
+    group = c("A", "A", "B", "B", NA), day = as.Date("2026-01-01") + 0:4), bins = 8)
+}
+capture_print25 <- function(colors, width) withr::with_options(
+  list(cli.num_colors = colors, cli.width = width, width = width,
+    cli.unicode = TRUE, cli.hyperlink = FALSE), capture.output(show_print25()))
+colored_print25 <- capture_print25(256, 80)
+plain_print25 <- capture_print25(1, 80)
+narrow_print25 <- capture_print25(1, 40)
+stopifnot(identical(demo_print25, original_print25),
+  any(grepl("\033[", colored_print25, fixed = TRUE)),
+  !any(grepl("\033[", plain_print25, fixed = TRUE)),
+  any(grepl("<demo_result>", plain_print25, fixed = TRUE)),
+  length(capture.output({ badge_silent25 <- pr_badge("silent", "string"); invisible(NULL) })) == 0L,
+  !withVisible(pr_head("visibility"))[["visible"]])
+save_console25 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '</style><pre data-native-console>', body, '</pre>'),
+    file.path(tempdir(), paste0("20261025-update-", name, ".html")), useBytes = TRUE)
+}
+save_console25(colored_print25, "console-color")
+save_console25(plain_print25, "console-plain")
+save_console25(narrow_print25, "console-narrow")
+```
+
+::: {.panel-tabset}
+
+### 彩色终端 {.unnumbered}
+
+![九个 pr 构件的实际彩色输出。](images/function-modules/20261025-update-console-color.png){fig-alt="实际R标准输出包含类标签、键值、徽章、分节表、注释、结构树、短摘要框及迷你分布。"}
+
+[原生 HTML](images/function-modules/20261025-update-console-color.html)
+
+### 无色日志 {.unnumbered}
+
+![相同数据在无色模式显示类名与显著性星号。](images/function-modules/20261025-update-console-plain.png){fig-alt="无色R输出用尖括号类名、星号及行首大于号保留打印语义，不输出ANSI转义码。"}
+
+[原生 HTML](images/function-modules/20261025-update-console-plain.html)
+
+### 40 列窄屏 {.unnumbered}
+
+![窄终端中键值折行，表格优先保留首列与 P 值列。](images/function-modules/20261025-update-console-narrow.png){fig-alt="40列的实际R输出示例，长参数续行对齐，省略行列有提示，树与摘要保持独立层级。"}
+
+[原生 HTML](images/function-modules/20261025-update-console-narrow.html)
+
+:::
+
+`pr_head()` 只放类名和简短状态，过长会截断；公式与详细设置放 `pr_kv()`。`pr_table()` 默认最多 20 行，按终端宽度保留首列和指定 P 列，省略项有提示；完整结果仍从对象取。无色输出用 `*** / ** / *` 表示 P<0.001 / 0.01 / 0.05，P=0.05 无星号；彩色输出的阈值也按原数值判断。`pr_tree()` 受深度、项目数和总行数限制；`pr_box()` 适合短摘要；`pr_spark()` 的分类频率以非缺失值为分母，直方图不替代正式分布图。
+
+### 运行提示：消息通道与步骤生命周期
+
+`UtilsR::.cat_message()` 使用 cli 消息条件，可用 `suppressMessages()` 关闭；不要只重定向 stdout 就认定提示已关闭。`style="chip"` 采用紧凑标签，默认 `"full"` 保留时间戳；下例关闭时间戳以便复核。`.cat_step()` 的结束状态跟随**调用函数退出或下一步骤开始**，包装函数应把 `.envir` 传给真实调用层。
+
+```r
+notice25 <- character()
+stdout25 <- capture.output(withCallingHandlers(
+  UtilsR::.cat_message("Literal {braces} are retained", style = "chip", timestamp_format = ""),
+  message = function(cnd) { notice25 <<- c(notice25, conditionMessage(cnd)); invokeRestart("muffleMessage") }))
+muted25 <- character()
+withCallingHandlers(suppressMessages(
+  UtilsR::.cat_message("Hidden", style = "chip", timestamp_format = "")),
+  message = function(cnd) { muted25 <<- c(muted25, conditionMessage(cnd)); invokeRestart("muffleMessage") })
+silent_step25 <- function() UtilsR::.cat_step("Hidden step", verbose = FALSE)
+stopifnot(length(stdout25) == 0L, length(notice25) > 0L,
+  grepl("Literal {braces}", paste(notice25, collapse = ""), fixed = TRUE),
+  length(muted25) == 0L, length(capture.output(silent_step25())) == 0L)
+validation_values <- list(plain = plain_print25, narrow = narrow_print25,
+  unchanged = identical(demo_print25, original_print25), message_channel = length(stdout25) == 0L,
+  muted = length(muted25) == 0L)
+```
+
+打印样式不改变返回对象、拟合或置信区间。RegR、MLR、causalR 的结果类已陆续采用这些构件，具体输出仍看对应类的方法；例如 RegR 自己的旧 `.cat_message()` 仍有 stdout 路径，不能把 UtilsR 的消息通道规则直接套用给所有包。
+
+分布接口迁移见[五组 list 控制](flow-guide.qmd#distribution-lists-20261025)，参考组合并开关见[单个数值零](factor-guide.qmd#zero-reference-20261025)，包计数与内存诊断见[当前环境诊断](missing-guide.qmd#environment-20261025)。
+
+<!-- /update-20261025: console_helpers -->
 
 ## 当前检视、分布与统计文本 {#updates-20261024}
 
