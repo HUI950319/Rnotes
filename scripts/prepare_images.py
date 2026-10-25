@@ -98,7 +98,8 @@ for page in pages:
         count += 1
         return raw
 
-    body = re.sub(r"<img\b[^>]*>", optimize, main.group())
+    # quoted attribute values may contain ">", as in an alt text "<0.001"
+    body = re.sub(r"<img\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*>", optimize, main.group())
     updated = text[:main.start()] + body + text[main.end():]
     if updated != text:
         page.write_text(updated, encoding="utf-8", newline="\n")
