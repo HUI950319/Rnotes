@@ -28,657 +28,13 @@ directory:
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
 
+Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
 **版本与执行范围：** 接口按 RegR **0.1.3** 的本机源码快照 `0add2bb` 核对，使用 WSL R **4.4.3** 实际拟合模型，生成 **21 张不同的结果图**，并验证 3 份 Word 导出文件。页面展示已保存的汇总结果；代码可在装有相应版本 RegR 及依赖的 R 环境中复现。
 
 **2026-10-02 更新：** [竞争风险绝对交互的 mets 优化](#cif-mets-update) 按 RegR 源码快照 `cefc1a5`、mets **1.3.13** 补充，包含默认 `delta` 与可选 `boot` 的真实结果、完整调用计时及可下载记录。该节更新了下文 Fine–Gray 区间的计算说明。
-
-Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
-
-## 当前不合并开关与结果打印 {#reference-print-20261025}
-
-<!-- update-20261025: inter_print -->
-
-2026-10-25 按已推送 RegR `a121af8`、UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。`get_inter()`、`get_inter_abs()`、`get_eff_inter()` 的**单个数值 `ref_idx=0` 与 `NULL` 等价**，不主动把多水平变量合并成参考组与 Oth。原来只接受二分类的路径仍有相同限制；零不表示选择第一个水平。
-
-### 保留三个水平，不悄悄改成二分类
-
-```r
-library(RegR)
-set.seed(102501)
-d_print25 <- expand.grid(Tx = factor(c("No", "Yes")),
-  Grade = factor(c("Low", "Mid", "High"), levels = c("Low", "Mid", "High")),
-  Sex = factor(c("Female", "Male")), id = 1:30)
-d_print25[["Age"]] <- rnorm(nrow(d_print25), 55, 8)
-d_print25[["time"]] <- rexp(nrow(d_print25), exp(.5 * (d_print25[["Tx"]] == "Yes") +
-  .3 * (d_print25[["Grade"]] == "High")) / 60) + .1
-d_print25[["DSS"]] <- rbinom(nrow(d_print25), 1, .7)
-original_print25 <- d_print25
-quiet_print25 <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
-ratio_none25 <- quiet_print25(get_inter(d_print25, c("Tx", "Grade"), adj_var = "Age",
-  surv = TRUE, ref_idx = NULL, multicat_model = "separate"))
-ratio_zero25 <- quiet_print25(get_inter(d_print25, c("Tx", "Grade"), adj_var = "Age",
-  surv = TRUE, ref_idx = 0, multicat_model = "separate"))
-abs_none25 <- quiet_print25(get_inter_abs(d_print25, c("Tx", "Grade"), surv = TRUE,
-  sur_time = 24, ref_idx = NULL, multicat_model = "interaction"))
-abs_zero25 <- quiet_print25(get_inter_abs(d_print25, c("Tx", "Grade"), surv = TRUE,
-  sur_time = 24, ref_idx = 0, multicat_model = "interaction"))
-stopifnot(isTRUE(all.equal(ratio_none25, ratio_zero25, check.attributes = FALSE)),
-  isTRUE(all.equal(abs_none25, abs_zero25, check.attributes = FALSE)),
-  identical(levels(d_print25[["Grade"]]), c("Low", "Mid", "High")),
-  identical(original_print25, d_print25))
-eff_zero25 <- lapply(list(NULL, 0), function(ref)
-  quiet_print25(get_eff_inter(d_print25, "Tx", "Grade", adj_var = "Age", ref_idx = ref)))
-stopifnot(isTRUE(all.equal(eff_zero25[[1]], eff_zero25[[2]], check.attributes = FALSE)))
-eff_errors25 <- lapply(list(NULL, 0), function(ref) tryCatch(
-  quiet_print25(get_eff_inter(d_print25, "Grade", "Sex", adj_var = "Age", ref_idx = ref)), error = identity))
-stopifnot(all(vapply(eff_errors25, inherits, logical(1), "error")),
-  identical(conditionMessage(eff_errors25[[1]]), conditionMessage(eff_errors25[[2]])))
-```
-
-这里比值交互保留 Low 对 Mid、Low 对 High 的逐对结果；绝对风险使用多水平交互模型及其对比。`get_eff_inter()` 可保留三水平的 `sub_var="Grade"`，但其 `cat_var` 仍须二分类；把 Grade 作为 `cat_var` 时，`0` 与 `NULL` 同样拒绝。需要合并时明确指定 `ref_idx="Low"`。字符 `"0"` 是名称匹配，规则见[UtilsR 因子示例](../utilsr/factor-guide.qmd#zero-reference-20261025)。
-
-### 类标签、参数块与核对结论分层显示
-
-`get_inter_abs()` 首行保留模型和时间，暴露名称、风险单元及区间方法放在键值块；下方再列各结果表。`check_inter()` 的结论、单元状态与不共享模型的提示也使用同一套构件。下面打印**实际拟合返回对象**，不是手工拼接的控制台样式。
-
-```r
-ratio_binary25 <- quiet_print25(get_inter(d_print25, c("Tx", "Sex"), adj_var = "Age", surv = TRUE))
-facet_binary25 <- quiet_print25(get_facet(d_print25, split_var = "Sex", cat_var = "Tx",
-  adj_var = "Age", surv = TRUE, method = "both", subgroup_model = "interaction"))
-check_print25 <- check_inter(ratio_binary25, target = facet_binary25)
-pairs_print25 <- local({ inter_demo <- ratio_binary25; facet_demo <- facet_binary25; check_inter() })
-stopifnot(isTRUE(check_print25[["consistent"]]), length(pairs_print25) == 1L,
-  isTRUE(pairs_print25[[1]][["consistent"]]))
-abs_before_print25 <- abs_zero25
-console_inter25 <- withr::with_options(list(cli.num_colors = 1, cli.width = 100, width = 100),
-  capture.output({ print(abs_zero25); print(check_print25); print(pairs_print25) }))
-stopifnot(identical(abs_before_print25, abs_zero25),
-  !withVisible(print(check_print25))[["visible"]],
-  any(grepl("Cox model", console_inter25, fixed = TRUE)),
-  any(grepl("t = 24", console_inter25, fixed = TRUE)))
-save_console25 <- function(lines, name) {
-  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
-  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
-    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
-    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
-    '</style><pre data-native-console>', body, '</pre>'),
-    file.path(tempdir(), paste0("20261025-update-", name, ".html")), useBytes = TRUE)
-}
-save_console25(console_inter25, "inter-console")
-validation_values <- list(ratio = lapply(ratio_zero25, function(x) lapply(x, as.data.frame)),
-  absolute = lapply(abs_zero25, as.data.frame),
-  checks = check_print25[["comparison"]], zero_keeps_levels = levels(d_print25[["Grade"]]),
-  unchanged = identical(original_print25, d_print25))
-```
-
-![绝对风险、单项核对与自动配对结果的原生无色输出。](images/interaction-guide/20261025-update-inter-console.png){fig-alt="实际R输出先显示get_inter_abs类名、Cox模型和24月，再列暴露与区间设置及结果；check_inter和check_inter_pairs分别显示一致单元和配对总计。"}
-
-[原生 HTML 输出](images/interaction-guide/20261025-update-inter-console.html)
-
-显示更新不改变统计尺度或返回对象。`consistent` 表示所比较单元在相应模型合同下一致，不是模型正确、无偏或存在交互的证明；自动配对的未匹配对象和 `not checked` 仍需逐项处理。不同模型重拟合预期会产生差异时，应结合 `same_model_expected` 与提示核对，详见[现有诊断例子](#check-target-20261022)。本例保留预防性暴露提示；get_facet 同时触发既有 ggplot 弃用和缺失置信带行提示，本节只核对返回的数值单元与打印，不把该绘图当作已通过的新预览。
-
-<!-- /update-20261025: inter_print -->
-
-## 当前参考组、连续变量与亚组表 {#reference-subgroup-20261024}
-
-<!-- update-20261024: inter_reference -->
-
-2026-10-24 按已推送 RegR `2c01bb0` 在 Windows / WSL R 4.4.3 执行。比值交互与绝对交互入口均以 `ref_idx` 为正式参数，支持当前水平名称或位置；`binary_ref` 仍警告兼容，不能与新名同给。`get_eff_inter()` 新增 `ref_idx`，`get_inter(eff_inter=TRUE)` 也会转发。下面用模拟 Cox 数据核对。
-
-### 一个暴露自动逐对分析，连续变量先二分
-
-```r
-library(RegR)
-set.seed(102401)
-d_ref <- expand.grid(Tx = factor(c("No", "Yes")),
-  Grade = factor(c("Low", "Mid", "High"), levels = c("Low", "Mid", "High")),
-  Sex = factor(c("Female", "Male")), id = 1:40)
-d_ref[["Age"]] <- rnorm(nrow(d_ref), 55, 9)
-d_ref[["time"]] <- rexp(nrow(d_ref), exp(.5 * (d_ref[["Tx"]] == "Yes") +
-  .02 * (d_ref[["Age"]] - 55) + .4 * (d_ref[["Grade"]] == "High")) / 60) + .1
-d_ref[["DSS"]] <- rbinom(nrow(d_ref), 1, .65)
-d_ref[["event"]] <- d_ref[["DSS"]]
-quiet_ref <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
-cells_ref <- function(x) unname(as.matrix(x[, -1L, drop = FALSE]))
-one_ref <- quiet_ref(get_inter(d_ref, "Tx", adj_var = c("Grade", "Age"), surv = TRUE))
-pair_ref <- quiet_ref(get_inter(d_ref, c("Tx", "Grade"), adj_var = "Age",
-  surv = TRUE, multicat_model = "separate"))
-cut_ref <- median(d_ref[["Age"]])
-cut_levels <- paste0(c("≤", ">"), format(signif(cut_ref, 3L)))
-d_cut <- d_ref
-d_cut[["Age_cut"]] <- factor(cut_levels[1L + (d_ref[["Age"]] > cut_ref)], levels = cut_levels)
-age_ref <- quiet_ref(get_inter(d_cut, c("Tx", "Age_cut"), adj_var = "Grade", surv = TRUE))
-stopifnot(identical(attr(one_ref, "inter_type"), "mul"), length(one_ref) == 3L,
-  identical(cells_ref(one_ref[[1]][["Adjus"]]), cells_ref(pair_ref[[1]][["Adjus"]])),
-  identical(cells_ref(one_ref[[2]][["Adjus"]]), cells_ref(pair_ref[[2]][["Adjus"]])),
-  identical(cells_ref(one_ref[[3]][["Adjus"]]), cells_ref(age_ref[["Adjus"]])))
-gt::gtsave(fmt_inter_gt(one_ref),
-  file.path(tempdir(), "20261024-update-inter-one.html"))
-```
-
-![单暴露与 Grade、Age 逐对形成三份交互结果。](images/interaction-guide/20261024-update-inter-one.png){fig-alt="原生交互表，Tx与Grade的Low对Mid、Low对High两组对比，以及Tx与按中位数分组Age的对比，均含未调整和调整模型。"}
-
-[原生 HTML 表](images/interaction-guide/20261024-update-inter-one.html)
-
-`exposure_names="Tx"` 时，`adj_var` 同时提供候选修饰变量；每对模型仍调整其余变量。Grade 的两对分析保留连续 Age 调整；只有 Tx×Age 那一对把 Age 二分为 `≤中位数` 和 `>中位数`。有三个以上取值的数值暴露会这样二分，中位数取本次完整病例；并列中位数属于低组。不要把数字分类编码留作连续值。自动二分会改变研究问题，预设临床切点应先显式分箱。
-
-### 合并参考组后，表题与事件分母一起核对
-
-```r
-d_miss <- d_ref
-d_miss[["DSS"]][c(5, 93, 255)] <- NA_integer_
-d_miss[["event"]] <- d_miss[["DSS"]]
-eff_ref <- quiet_ref(get_eff_inter(d_miss, "Tx", "Grade", adj_var = "Age",
-  surv = TRUE, ref_idx = "Low", subgroup_model = "interaction"))
-via_ref <- quiet_ref(get_inter(d_miss, c("Tx", "Grade"), adj_var = "Age",
-  surv = TRUE, ref_idx = 1L, eff_inter = TRUE))
-stopifnot(isTRUE(all.equal(as.data.frame(eff_ref), as.data.frame(via_ref), check.attributes = FALSE)),
-  identical(eff_ref[["subgroup"]][eff_ref[["variable"]] %in% "Grade"], c("Grade", "Low", "Oth")))
-overall_ref <- which(eff_ref[["subgroup"]] == "All patients")
-want_events <- paste0(sum(d_miss[["DSS"]] == 1L, na.rm = TRUE), "/", sum(!is.na(d_miss[["DSS"]])))
-stopifnot(length(overall_ref) == 1L,
-  identical(gsub(" ", "", eff_ref[["event"]][overall_ref]), want_events),
-  grepl(as.character(nrow(d_miss)), eff_ref[["n"]][overall_ref], fixed = TRUE))
-gt::gtsave(fmt_eff_inter_gt(eff_ref),
-  file.path(tempdir(), "20261024-update-eff-reference.html"))
-validation_values <- list(cut = cut_ref, labels = attr(one_ref, "table_names"),
-  adjusted = lapply(one_ref, function(x) as.data.frame(x[["Adjus"]])),
-  effects = as.data.frame(eff_ref), total_rows = nrow(d_miss), observed_outcomes = sum(!is.na(d_miss[["DSS"]])))
-```
-
-![当前亚组表注明 Cox、Tx 的对比方向、调整项与各组事件分母。](images/interaction-guide/20261024-update-eff-reference.png){fig-alt="Tx的Cox亚组效应原生表，标题说明模型，副标题Yes对No，Grade合并为Low和Oth，底部注明Age调整。"}
-
-[原生 HTML 表](images/interaction-guide/20261024-update-eff-reference.html)
-
-多水平 `cat_var` / `sub_var` 在外层分层前合并，二分类变量保持原状；同一 `ref_idx` 会应用到所有需要合并的变量，名称必须在各变量中存在。表头 `Subgroups`、可读的变量分组名、模型与对比方向帮助区分层级；分组名加粗，`show_color=TRUE` 时带显著交互单元的分组名标红。红色仍需结合原检验、模型和多重比较解读。
-
-本例描述性 No.(%) 计全部 480 行；事件分母只计 477 个非缺失结局，缺失结局不再把整个亚组的事件格变为空白。拟合仍按相应模型完整病例进行，描述人数不等于模型样本数。示例出现预防性暴露提示，解读 RERI 前需核对参考编码和比值方向；HR 上的 RERI 不能直接当作绝对风险交互。固定 95% 的模板表头与非 95% 参数之间的限制仍见[此前说明](#joint-cat-20261020)。
-
-<!-- /update-20261024: inter_reference -->
-
-## 当前绝对交互：逐模型计算与导出 {#abs-models-20261023}
-
-<!-- update-20261023: abs_models -->
-
-2026-10-23 按已推送 RegR `aaeda5f`（扩展 `fbad080`）在 Windows / WSL R 4.4.3 执行。`get_inter_abs()` 现在与 `get_inter()` 一样，按 `surv` 的每个模型分别返回完整结果；旧版多值输入可能只走一个分支。这里使用 360 条模拟记录，不调整协变量，比较 24 月的 `1-KM` 风险与 Aalen–Johansen CIF，不能将前者当成竞争风险累计发生率。
-
-```r
-library(RegR)
-set.seed(1023)
-d_multi <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), id = 1:90)
-d_multi[["Age"]] <- rnorm(360, 55, 10)
-t1 <- rexp(360, exp(.35 * (d_multi[["Tx"]] == "Yes") +
-  .25 * (d_multi[["Sex"]] == "Male") + .02 * (d_multi[["Age"]] - 55)) / 80)
-t2 <- rexp(360, 1 / 130); tc <- rexp(360, 1 / 160)
-d_multi[["time"]] <- pmin(t1, t2, tc) + .2
-d_multi[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
-d_multi[["DSS"]] <- as.integer(d_multi[["event"]] == 1L)
-abs_multi <- get_inter_abs(d_multi, c("Tx", "Sex"), adj_var = NULL,
-  surv = c(TRUE, FALSE), sur_time = 24)
-abs_sur <- get_inter_abs(d_multi, c("Tx", "Sex"), adj_var = NULL,
-  surv = TRUE, sur_time = 24)
-abs_cif <- get_inter_abs(d_multi, c("Tx", "Sex"), adj_var = NULL,
-  surv = FALSE, sur_time = 24)
-stopifnot(inherits(abs_multi, "surv_models"), identical(names(abs_multi), c("sur", "cif")),
-  identical(attr(abs_multi[["sur"]], "risks"), attr(abs_sur, "risks")),
-  identical(attr(abs_multi[["cif"]], "estimates"), attr(abs_cif, "estimates")))
-```
-
-### 无名结果列表仍可识别模型
-
-```r
-abs_plain <- unname(unclass(abs_multi))
-word_paths <- file.path(tempdir(), c("20261023-update-abs-sur", "20261023-update-abs-cif"))
-abs_tables <- save_tb_inter(abs_plain, title = word_paths,
-  layout = list("vertical", "horizontal"), landscape = list(FALSE, TRUE),
-  show_model = "unadjusted", font_size = list(9, 9),
-  note = c(cif = "Competing-risk CIF at month 24.", sur = "One minus KM at month 24."))
-stopifnot(identical(names(abs_tables), c("sur", "cif")),
-  all(vapply(abs_tables, inherits, logical(1), "flextable")),
-  all(file.exists(paste0(word_paths, ".docx"))))
-flextable::save_as_html(abs_tables[["sur"]], path = paste0(word_paths[[1]], ".html"))
-flextable::save_as_html(abs_tables[["cif"]], path = paste0(word_paths[[2]], ".html"))
-```
-
-::: {.panel-tabset}
-
-### 生存风险表 {.unnumbered}
-
-![未调整的 24 月生存风险绝对交互表。](images/interaction-guide/20261023-update-abs-sur.png){fig-alt="原生flextable网页预览，展示Tx与Sex四个联合组的24月风险、风险差及绝对交互IC；脚注说明使用1减KM。"}
-
-[下载 Word](images/interaction-guide/20261023-update-abs-sur.docx) · [原生表格预览](images/interaction-guide/20261023-update-abs-sur.html)
-
-### 竞争风险表 {.unnumbered}
-
-![相同队列的 24 月 CIF 绝对交互表。](images/interaction-guide/20261023-update-abs-cif.png){fig-alt="原生flextable网页预览，相同联合组的目标事件CIF及IC，脚注注明竞争风险CIF，Word文件为横向页面。"}
-
-[下载 Word](images/interaction-guide/20261023-update-abs-cif.docx) · [原生表格预览](images/interaction-guide/20261023-update-abs-cif.html)
-
 :::
-
-无名列表依各结果的 `attr(.,"surv")` 命名；较旧结果缺少该记录时，用 `list(sur=...,cif=...)`。`title` 向量逐模型分配路径，同时其 basename 是表题。其他逐模型设置可用命名 list 或同模型数的无名 list。**无名 `note` 字符向量仍是每个表共用的多行脚注**；要逐模型脚注，像上例按模型命名，或使用 list。错误长度会报错。
-
-### 风险时点与人时单位不能混传
-
-```r
-abs_rates <- get_inter_abs(d_multi, c("Tx", "Sex"), adj_var = NULL,
-  surv = list(DSS_rate = TRUE, Cause1_rate = FALSE), poi_time = 12 * 1000)
-rate_labels <- vapply(abs_rates, function(x) attr(x, "info")[["measure_label"]], character(1))
-stopifnot(all(rate_labels == "Rate"),
-  all(vapply(abs_rates, function(x) identical(attr(x, "info")[["scale"]], "rate"), logical(1))))
-bad_scale <- tryCatch(get_inter_abs(d_multi, c("Tx", "Sex"), surv = c(TRUE, FALSE),
-  sur_time = 24, poi_time = 12000), error = identity)
-bad_note <- tryCatch(save_tb_inter(abs_multi, font_size = list(9)), error = identity)
-stopifnot(inherits(bad_scale, "error"), inherits(bad_note, "error"))
-validation_values <- list(risks_sur = attr(abs_multi[["sur"]], "risks"),
-  risks_cif = attr(abs_multi[["cif"]], "risks"),
-  estimates_sur = attr(abs_multi[["sur"]], "estimates"),
-  estimates_cif = attr(abs_multi[["cif"]], "estimates"), rate_labels = rate_labels)
-```
-
-本例随访单位为月，`poi_time = 12*1000` 表示每千人年发生率；此分支采用 Poisson 人时率，并非 Cox HR 或 Fine–Gray sHR。示例中 `DSS` 恰等于 `event==1`，两个分支的事件计数相同。显式给 `poi_time` 才切到率；默认或单独给 `sur_time` 是固定时点风险，不能同时给两个非空值。多模型分派保留这一判断，不擅自把默认值变成显式参数。
-
-本节的无协变量示例用于验证接口，未改写已调整 CIF 的 mets 联合 delta / bootstrap 方法；[推断方法与限制](#cif-mets-update)继续适用。`plt_inter()` 仍接受单个合适的比值交互表，不能直接画多模型列表或绝对交互对象；`get_eff_inter()`、`get_int()` 的 `surv` 仍一次选择一个模型，需分别调用。
-
-<!-- /update-20261023: abs_models -->
-
-## 当前核对：自动选分层变量与差异提示 {#check-target-20261022}
-
-<!-- update-20261022: check_target -->
-
-2026-10-22 按已推送 RegR `d24e8a0` 在 Windows / WSL R 4.4.3 核验。自 `22e4a3c` 起，公共函数由 `check_inter_facet()` 改名为 `check_inter()`，第二个形参由 `facet` 改为 `target`，旧名不是兼容别名。当前写法为 `check_inter(inter, target, cat_var=NULL, modifier=NULL)`；本页早期图表保留历史执行记录，已改名的调用需要新版 RegR。
-
-### 一个交互结果含多个修饰变量时
-
-```r
-library(RegR)
-set.seed(20261024)
-d_target <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B")), id = 1:50)
-d_target[["Age"]] <- rnorm(400, 55, 10)
-d_target[["Marker"]] <- 0.8 * (d_target[["Tx"]] == "Yes") + rnorm(400)
-t1 <- rexp(400, exp(0.7 * (d_target[["Tx"]] == "Yes") +
-  0.3 * (d_target[["Sex"]] == "Male") + 0.04 * (d_target[["Age"]] - 55)) / 80)
-t2 <- rexp(400, 1 / 130); tc <- rexp(400, 1 / 160)
-d_target[["time"]] <- pmin(t1, t2, tc) + 0.2
-d_target[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
-d_target[["DSS"]] <- as.integer(d_target[["event"]] == 1L)
-d_target[["status"]] <- factor(d_target[["event"]], levels = 0:2)
-fit_sex_effect <- function(data, adjust = "Age", strategy = "interaction") {
-  get_eff(data, "Tx", sub_var = "Sex", adj_var = adjust, surv = TRUE,
-    subgroup_model = strategy, methods_haz = c("unadj", "direct"),
-    methods_sur = character(), all = NULL)
-}
-invisible(utils::capture.output(inter_many <- get_inter(d_target,
-  c("Tx", "Sex", "Site"), adj_var = "Age", surv = TRUE,
-  multicat_model = "separate")))
-eff_sex <- fit_sex_effect(d_target)
-invisible(utils::capture.output(facet_sex <- get_facet(d_target,
-  split_var = "Sex", cat_var = "Tx", adj_var = "Age", surv = TRUE,
-  method = "both", subgroup_model = "interaction")))
-eff_both <- get_eff(d_target, "Tx", sub_var = c("Sex", "Site"),
-  adj_var = "Age", surv = TRUE, subgroup_model = "interaction",
-  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
-
-from_eff <- check_inter(inter_many, target = eff_sex)
-from_facet <- check_inter(inter_many, target = facet_sex)
-explicit <- check_inter(inter_many, target = eff_sex,
-  cat_var = "Tx", modifier = "Sex")
-ambiguous <- tryCatch(check_inter(inter_many, eff_both), error = identity)
-stopifnot(isTRUE(from_eff[["consistent"]]), isTRUE(from_facet[["consistent"]]),
-  identical(from_eff[["modifier"]], "Sex"), identical(from_facet[["modifier"]], "Sex"),
-  identical(from_eff[["comparison"]], explicit[["comparison"]]),
-  inherits(ambiguous, "error"),
-  grepl("could not be inferred uniquely", conditionMessage(ambiguous), fixed = TRUE),
-  identical(names(formals(RegR::check_inter)), c("inter", "target", "cat_var", "modifier")))
-```
-
-上例显式用 `multicat_model="separate"` 生成 Tx×Sex、Tx×Site 逐对结果；当前默认的 `"interaction"` 只接受两个暴露。`target` 只按 Sex 分层时，函数自动选择 Sex。`get_facet()` 从分层列推断，`get_eff()` / `get_eff_cat()` 从 `sub_var` 推断。若两个候选修饰变量都出现在目标对象中，仍须明确写 `modifier="Sex"` 或 `"Site"`；它不会逐项猜选，也不会改成三重交互模型。
-
-### 差异提示来自单元模式，仍须回查分析设置
-
-```r
-invisible(utils::capture.output(inter_one <- get_inter(d_target,
-  c("Tx", "Sex"), adj_var = "Age", surv = TRUE)))
-d_reversed <- d_target
-d_reversed[["Tx"]] <- stats::relevel(d_reversed[["Tx"]], ref = "Yes")
-targets <- list(
-  reference = fit_sex_effect(d_reversed),
-  adjustment = fit_sex_effect(d_target, adjust = "Marker"),
-  cohort = fit_sex_effect(d_target[d_target[["Age"]] > 55, , drop = FALSE]),
-  separate = fit_sex_effect(d_target, strategy = "separate"))
-checks <- lapply(targets, function(x) check_inter(inter_one, target = x))
-printed <- lapply(checks, function(x) paste(trimws(utils::capture.output(print(x))),
-  collapse = " "))
-stopifnot(grepl("reference level", printed[["reference"]], fixed = TRUE),
-  grepl("different covariates", printed[["adjustment"]], fixed = TRUE),
-  grepl("different data", printed[["cohort"]], fixed = TRUE),
-  !grepl("hint:", printed[["separate"]], fixed = TRUE),
-  all(checks[["adjustment"]][["comparison"]][["status"]][
-    checks[["adjustment"]][["comparison"]][["method"]] == "unadj"] == "equal"))
-diagnostic_summary <- data.frame(
-  scenario = c("Reference reversed", "Adjustment changed", "Cohort changed", "Separate fits"),
-  equal = vapply(checks, function(x) sum(x[["comparison"]][["status"]] == "equal"), integer(1)),
-  different = vapply(checks, function(x) sum(x[["comparison"]][["status"]] == "different"), integer(1)),
-  same_model_expected = vapply(checks, function(x)
-    all(x[["comparison"]][["same_model_expected"]]), logical(1)),
-  hint = c("Reference level", "Covariates", "Data or models", "No cause inferred"),
-  row.names = NULL)
-gt::gtsave(gt::gt(diagnostic_summary),
-  file.path(tempdir(), "20261022-update-inter-diagnostics.html"))
-validation_values <- list(modifiers = c(from_eff[["modifier"]], from_facet[["modifier"]]),
-  inferred_cells = c(nrow(from_eff[["comparison"]]), nrow(from_facet[["comparison"]])),
-  ambiguity_rejected = inherits(ambiguous, "error"), diagnostics = diagnostic_summary)
-diagnostic_summary
-```
-
-![四个真实重拟合场景的核对摘要，提示随参考水平、调整项、队列及模型策略变化。](images/interaction-guide/20261022-update-inter-diagnostics.png){fig-alt="check_inter实际结果汇总：参考水平反转、调整集合改变、队列改变和分层重拟合四种场景，列出一致及不同单元数、same_model_expected和提示类别。"}
-
-[查看实际汇总 HTML](images/interaction-guide/20261022-update-inter-diagnostics.html)
-
-所有差异单元的效应与区间均近似倒数时，控制台提示参考水平可能相反；在 `same_model_expected=TRUE` 时，未调整一致、仅调整后不同提示调整集合可能不同，未调整也不同则提示数据或模型可能不同。上例分别重新拟合了这三种设置，没有手工改核对表。`same_model_expected=FALSE` 时不推测后两类原因，但仍可提示倒数模式。
-
-`hint:` 是控制台的辅助提示，不是错误原因的证明，也没有新增返回字段。`comparison` 仍保留 `inter_effect`、`facet_effect` 和 `missing_facet` 等名称；第二个形参改名不等于这些列也改名。`consistent` 只反映格式化显示单元，不能验证原始数据、浮点估计、交互 P、概率或人数。
-
-本例实际运行包含保护性暴露及 `NaNs produced` 的加性交互提示，另有旧绘图接口和曲线范围提示；这里读取的 HR 核对通过，不代表同一对象中的 RERI/AP/SI 也都有可用估计。
-
-| 目标结果 | 实际比较的内容 |
-|:--|:--|
-| `get_facet(split_var=...)` | 面板中暴露的简单效应；可带匹配的外层分层 |
-| `get_facet(cat_var_combine=...)` / `get_cat(cat_var_combine=...)` | 非参考联合组效应；get_cat 配对不比较星号 |
-| `get_eff(sub_var=...)` | 对应亚组水平行 |
-| `get_eff_cat(sub_var=..., sub_inter=...)` | 所选未调整及唯一调整模型行，见下方双模型示例 |
-
-`check_inter()` 无参数时按调用环境内的 `inter_*` / `facet_*` / `cat_*` 名称配对，不自动发现 `eff_*`；`get_eff()` / `get_eff_cat()` 应显式传入。多模型仍按 `sur`、`cif`、`log_<结局>` 配对，不合并不同模型的单元。逐项读取错误和 `unmatched`；不能把没有可比较单元当作一致。
-
-<!-- /update-20261022: check_target -->
-
-## 当前核对：get_eff_cat 的 sub_inter 模型行 {#eff-cat-check-20261022}
-
-<!-- sync-20261022: inter_eff_cat -->
-
-2026-10-22 按已推送 RegR `d24e8a0` 在 Windows / WSL R 4.4.3 重新执行以下新名称调用，20 个单元仍一致。`check_inter()` 可以把 `get_eff_cat()` 的逐层面板拆成模型后，与一个或多个 `get_inter()` 对照；不再把这种列表误当成不兼容的多模型结构。
-
-```r
-library(RegR)
-set.seed(924)
-d_check_cat <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B", "C")), id = 1:60)
-d_check_cat[["Age"]] <- rnorm(720, 55, 10)
-t1 <- rexp(720, exp(0.4 * (d_check_cat[["Tx"]] == "Yes") +
-  0.2 * (d_check_cat[["Sex"]] == "Male") + 0.02 * (d_check_cat[["Age"]] - 55)) / 80)
-t2 <- rexp(720, 1 / 130); tc <- rexp(720, 1 / 160)
-d_check_cat[["time"]] <- pmin(t1, t2, tc) + 0.2
-d_check_cat[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
-d_check_cat[["DSS"]] <- as.integer(d_check_cat[["event"]] == 1L)
-d_check_cat[["status"]] <- factor(d_check_cat[["event"]], levels = 0:2)
-models_cat <- list(`Cox model` = TRUE, `Fine-Gray model` = FALSE)
-cat_eff_checked <- get_eff_cat(d_check_cat, "Tx", sub_var = c("Sex", "Site"),
-  adj_var = list(Adjusted = "Age"), surv = models_cat, add_overall = TRUE,
-  sub_inter = c("Unadjusted", "Adjusted"))
-invisible(utils::capture.output(inter_sex_cat <- get_inter(d_check_cat, c("Tx", "Sex"),
-  adj_var = "Age", surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")))
-invisible(utils::capture.output(inter_site_cat <- get_inter(d_check_cat, c("Tx", "Site"),
-  adj_var = "Age", surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")))
-cat_checks <- check_inter(list(sex = inter_sex_cat, site = inter_site_cat), cat_eff_checked)
-stopifnot(identical(names(cat_checks), c("sex$sur", "sex$cif", "site$sur", "site$cif")),
-  all(vapply(cat_checks, function(x) isTRUE(x[["consistent"]]), logical(1))),
-  all(vapply(cat_checks, function(x) all(x[["comparison"]][["same_model_expected"]]), logical(1))),
-  length(attr(cat_checks, "unmatched")) == 0L)
-validation_values <- data.frame(pair = names(cat_checks),
-  compared = vapply(cat_checks, function(x) nrow(x[["comparison"]]), integer(1)),
-  equal = vapply(cat_checks, function(x) sum(x[["comparison"]][["status"]] == "equal"), integer(1)))
-stopifnot(identical(unname(validation_values[["compared"]]), c(4L, 4L, 6L, 6L)),
-          sum(validation_values[["equal"]]) == 20L)
-validation_values
-```
-
-| 结果 | 比较单元 | 一致单元 |
-|:--|--:|--:|
-| `sex$sur` / `sex$cif` | 各 4 | 各 4 |
-| `site$sur` / `site$cif` | 各 6 | 各 6 |
-
-两种模型都实际拟合，Sex 两层、Site 三层各比较未调整和年龄调整效应，共 20 个显示单元。`get_eff_cat()` 可以使用可读模型名，核对器按模型类型对应 `sur`、`cif`，Logistic 则对应 `log_<结局列名>`。对 `cat_eff_checked` 的每一列亚组单独提取简单效应，Overall 面板不进入比较。
-
-本例显式把 `Unadjusted` 和唯一的 `Adjusted` 都列入 `sub_inter`，协变量与 `get_inter(adj_var="Age")` 相同。核对仅选择进入 `sub_inter` 的模型行，不比较其他调整模型、PS 行或绝对效应。未启用 `sub_inter` 的结果会要求重新拟合；同时选择多个调整模型则会报错，应先明确要与哪个调整集合对照。
-
-这里仍核对格式化效应与区间及其星号，不比较原始浮点值、交互 P、MS/RERI、概率或人数。每个配对单独返回状态，失败项与 `unmatched` 必须一起检查；不能只看列表长度。此前的 [get_eff 亚组核对](#inter-controls-20261021) 和 [get_cat 联合效应核对](#joint-cat-20261020)继续保留各自的输入和统计范围。
-
-<!-- /sync-20261022: inter_eff_cat -->
-
-## 当前核对：get_eff 亚组与多个交互结果 {#inter-controls-20261021}
-
-<!-- controls-20261021: inter_controls -->
-
-以下按已推送 RegR `90ad6d8` 在 Windows / WSL R 4.4.3 执行。`check_inter()` 现在接受 `get_eff(sub_var = ...)` 作为第二个对象，也可以一次传入多个 `get_inter()` 结果；多个模型按名称配对，逐项返回核对表。
-
-### 同一交互模型的简单效应
-
-```r
-library(RegR)
-set.seed(833)
-d_eff_check <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B", "C")), id = 1:60)
-d_eff_check[["Age"]] <- rnorm(720, 55, 10)
-t1 <- rexp(720, exp(0.3 * (d_eff_check[["Tx"]] == "Yes") +
-  0.2 * (d_eff_check[["Sex"]] == "Male") + 0.02 * (d_eff_check[["Age"]] - 55)) / 80)
-t2 <- rexp(720, 1 / 130)
-tc <- rexp(720, 1 / 160)
-d_eff_check[["time"]] <- pmin(t1, t2, tc) + 0.2
-d_eff_check[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
-d_eff_check[["DSS"]] <- as.integer(d_eff_check[["event"]] == 1L)
-d_eff_check[["status"]] <- factor(d_eff_check[["event"]], levels = 0:2)
-eff_checked <- get_eff(d_eff_check, "Tx", sub_var = c("Sex", "Site"), adj_var = "Age",
-  surv = list(sur = TRUE, cif = FALSE), subgroup_model = "interaction",
-  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
-inter_sex <- get_inter(d_eff_check, c("Tx", "Sex"), adj_var = "Age",
-  surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")
-inter_site <- get_inter(d_eff_check, c("Tx", "Site"), adj_var = "Age",
-  surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")
-paired_eff <- check_inter(list(sex = inter_sex, site = inter_site), eff_checked)
-stopifnot(identical(names(paired_eff), c("sex$sur", "sex$cif", "site$sur", "site$cif")),
-  all(vapply(paired_eff, function(x) isTRUE(x[["consistent"]]), logical(1))),
-  all(vapply(paired_eff, function(x) all(x[["comparison"]][["same_model_expected"]]), logical(1))))
-validation_values <- data.frame(pair = names(paired_eff),
-  cells = vapply(paired_eff, function(x) nrow(x[["comparison"]]), integer(1)),
-  equal = vapply(paired_eff, function(x) sum(x[["comparison"]][["status"]] == "equal"), integer(1)))
-stopifnot(identical(unname(validation_values[["cells"]]), c(4L, 4L, 6L, 6L)),
-          sum(validation_values[["equal"]]) == 20L)
-validation_values
-```
-
-| 实际配对 | 比较单元 | 相同单元 |
-|:--|--:|--:|
-| `sex$sur`：Cox，Sex 两水平 | 4 | 4 |
-| `sex$cif`：Fine–Gray，Sex 两水平 | 4 | 4 |
-| `site$sur`：Cox，Site 三水平 | 6 | 6 |
-| `site$cif`：Fine–Gray，Site 三水平 | 6 | 6 |
-
-每个水平分别核对未调整与年龄调整 HR/sHR；Cox 与 Fine–Gray 在这里都实际拟合，未拿同一对象复制成两个模型。示例的 `event` 与 `status` 表示同一套 0/1/2 编码，分别供效应和交互入口读取。`sub_var = c("Sex","Site")` 表示分别拟合 Tx×Sex 与 Tx×Site 两个交互模型，不是 Tx×Sex×Site 三重交互；Site 使用完整多分类交互，而不是多次二分类子集比较。
-
-本例 `same_model_expected = TRUE` 表示两侧应来自同一模型策略；仍须核对队列、缺失处理、变量编码、调整项与区间水平。`consistent = TRUE` 只说明已有表中可比较的格式化效应单元一致，不证明原始浮点数逐位相等，也不比较交互 P、MS/RERI、曲线、绝对概率、人数或事件数。与 `get_eff()` 的配对仍比较星号；[get_cat 联合效应核对](#joint-cat-20261020)才会忽略星号。
-
-### 分层重拟合并不要求数值相等
-
-```r
-eff_separate <- get_eff(d_eff_check, "Tx", sub_var = "Sex", adj_var = "Age",
-  surv = TRUE, subgroup_model = "separate",
-  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
-checked_separate <- check_inter(inter_sex[["sur"]], eff_separate)
-stopifnot(!any(checked_separate[["comparison"]][["same_model_expected"]]))
-checked_separate[["comparison"]][c("modifier_level", "method", "same_model_expected", "status")]
-```
-
-默认的 `subgroup_model = "separate"` 在各层重新拟合，Cox 的层内基线风险和协变量系数可以不同；此时 `same_model_expected = FALSE`，出现 `different` 本身不能判为函数错误，偶然相等也不等于两种模型策略相同。不能为消除差异而混换分析人群或调整集合。
-
-`get_eff()` 这一路核对要求两侧没有外层 `split_var`，第二个对象也不能使用 `cat_var_combine`。若要核对联合组，使用已有的 `get_cat()` / `get_facet()` 联合效应入口。省略两个对象的环境发现仍只查 `inter_*` / `facet_*` / `cat_*`，不会自动找 `eff_*`，因此上例显式传第二个对象。多个配对中失败项会保留错误信息；应逐项读结果及 `attr(result,"unmatched")`，不能只看列表长度。
-
-<!-- /controls-20261021: inter_controls -->
-
-## 当前更新：联合组核对、常量协变量与导出 {#joint-cat-20261020}
-
-2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 运行。新增的 `get_cat()` 核对入口检查同一全队列的联合效应；原有 `get_facet()` 核对仍可用于分层结果。
-
-### 对照 get_cat 的三个非参考组合
-
-<!-- latest-20261020: inter_current -->
-```r
-library(RegR)
-set.seed(20261023)
-d_check <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B")), id = 1:60)
-d_check[["Age"]] <- rnorm(480, 55, 10)
-t1 <- rexp(480, exp(-3.8 + 0.5 * (d_check[["Tx"]] == "Yes") +
-  0.3 * (d_check[["Sex"]] == "Male") + 0.02 * (d_check[["Age"]] - 55)))
-t2 <- rexp(480, 0.008); tc <- rexp(480, 0.012)
-d_check[["time"]] <- pmin(t1, t2, tc)
-d_check[["event"]] <- ifelse(t1 <= pmin(t2, tc), 1L, ifelse(t2 <= tc, 2L, 0L))
-d_check[["status"]] <- factor(d_check[["event"]], levels = 0:2)
-d_check[["DSS"]] <- as.integer(d_check[["event"]] == 1L)
-inter_current <- get_inter(d_check, c("Tx", "Sex"), adj_var = "Age", surv = c(TRUE, FALSE))
-cat_current <- get_cat(d_check, cat_var_combine = c("Tx", "Sex"), adj_var = "Age",
-  surv = c(TRUE, FALSE), methods = c("unadj", "direct"),
-  methods_obj = "unadj", methods_sur = character(), timepoint = 24,
-  curve_args = list(ci = FALSE, max_times = 30L))
-checked <- check_inter(inter_current, cat_current)
-stopifnot(all(vapply(checked, function(x) isTRUE(x[["consistent"]]), logical(1))),
-  all(vapply(checked, function(x) nrow(x[["comparison"]]) == 6L, logical(1))))
-reversed_cat <- get_cat(d_check, cat_var_combine = c("Sex", "Tx"), adj_var = "Age",
-  surv = c(TRUE, FALSE), methods = c("unadj", "direct"),
-  methods_obj = "unadj", methods_sur = character(), timepoint = 24,
-  curve_args = list(ci = FALSE, max_times = 30L))
-stopifnot(all(vapply(check_inter(inter_current, reversed_cat),
-  function(x) isTRUE(x[["consistent"]]), logical(1))))
-```
-
-本例 Cox 与 Fine–Gray 各核对 3 个非参考组合 × 2 种调整方法，共 12 个单元，反转组合顺序也一致。对 `get_cat()` 只比较格式化效应与区间，忽略两侧星号；这不是原始数值逐位相等的证明，也不核对 P、MS/RERI、曲线、概率或人数。结果列在 `checked[["sur"]][["comparison"]]`。没有联合暴露的 `get_cat()` 或带 `split_var` 的 `get_inter()` 不能使用此配对。
-
-省略两个对象时，会先寻找 `inter_<后缀>` / `facet_<后缀>`；没有对应 facet 时再找 `cat_<后缀>`，裸名 `inter` / `cat` 同样支持。下例限定在局部环境，避免混入其他项目的对象：
-
-```r
-discovered <- local({
-  inter_whole <- inter_current
-  cat_whole <- cat_current
-  check_inter()
-})
-stopifnot(length(discovered) == 2L,
-  all(vapply(discovered, function(x) isTRUE(x[["consistent"]]), logical(1))))
-names(discovered)
-```
-
-### 层内常量调整项会提示后移除
-
-```r
-d_check[["Grade"]] <- factor(ifelse(d_check[["Site"]] == "B", "Unknown",
-  sample(c("I", "II", "Unknown"), 480, replace = TRUE)))
-stratified <- get_inter(d_check, c("Tx", "Sex"),
-  adj_var = c("Age", "Grade"), split_var = "Site", surv = TRUE)
-manual_B <- get_inter(d_check[d_check[["Site"]] == "B", , drop = FALSE],
-  c("Tx", "Sex"), adj_var = "Age", surv = TRUE)
-stopifnot(!is.null(stratified[[1]][[2]]),
-  identical(as.matrix(stratified[[1]][[2]][["Adjus"]]), as.matrix(manual_B[["Adjus"]])))
-```
-
-Site B 的 Grade 全部是 Unknown，没有可估计的层内系数，函数提示后只在该层去掉 Grade；上例结果与手动去掉 Grade 相同。其他层仍按各自可用的调整项拟合。仍不能估计的层会带层名警告并留空，不能把空单元解释为没有效应；应同时报告各层实际调整集合与失败原因。
-
-### Word 标题向量与 Fine–Gray 标签
-
-```r
-tables_current <- save_tb_inter(inter_current,
-  title = file.path(tempdir(), c("20261020-latest-inter-sur.docx", "20261020-latest-inter-cif.docx")),
-  note = c("Synthetic data; interface demonstration.", "Confidence level: 95%."))
-stopifnot(identical(names(tables_current), c("sur", "cif")),
-  all(vapply(tables_current, inherits, logical(1), "flextable")))
-for (model in names(tables_current)) {
-  flextable::save_as_html(tables_current[[model]],
-    path = file.path(tempdir(), paste0("20261020-latest-inter-", model, ".html")))
-}
-validation_values <- data.frame(model = names(checked),
-  compared_cells = vapply(checked, function(x) nrow(x[["comparison"]]), integer(1)),
-  consistent = vapply(checked, function(x) x[["consistent"]], logical(1)))
-validation_values
-```
-<!-- /latest-20261020: inter_current -->
-
-[下载 Cox Word 表](images/interaction-guide/20261020-latest-inter-sur.docx) · [下载 Fine–Gray Word 表](images/interaction-guide/20261020-latest-inter-cif.docx)
-
-::: {.panel-tabset}
-
-### Cox 汇总表 {.unnumbered}
-
-![当前 flextable 的网页预览，与下载 Word 来自同一表对象。](images/interaction-guide/20261020-latest-inter-sur.png){fig-alt="480行模拟数据的Cox交互汇总表，使用未调整与调整HR列，并保留MS与RERI行。"}
-
-### Fine–Gray 汇总表 {.unnumbered}
-
-![Fine–Gray 效应列明确标为 sHR。](images/interaction-guide/20261020-latest-inter-cif.png){fig-alt="同一数据的Fine-Gray交互汇总表，效应列为sHR 95% CI，表内模型与脚注使用Fine-Gray名称。"}
-
-:::
-
-无名 `title` 向量按模型顺序逐一匹配，长度必须一致；命名向量仍按名称匹配。无名 `note` 向量的每项是**同一份共享脚注的一行**，不是一模型一条。二分类 Fine–Gray 单表、逐对表与分层表的表头现为 sHR (95% CI)，脚注定义 sHR，模型名称写 Fine–Gray；已有结果交给当前格式化函数也会采用新标签。Word 需在当前工作目录可写的环境保存，本例只公开汇总表。
-
-实跑还出现一条预防性暴露提示；这类结果应先核对参考编码，再解读 RERI / SI，不应静默翻转分组来追求某种交互方向。常量协变量的提示也保留在运行输出中。
-
-### 区间与星号使用未舍入数值
-
-交互表在 95% 时也直接用未舍入 P 标星，避免把 0.001001 先舍成 0.001 后多加一个星号。非 95% 时按未舍入区间、固定 1.96 回推显示 P，非对称区间取朝向无效值的一侧，无效区间不标星；`pvalue_lis` 保留该显示口径。详见[数值对照与原 Wald P](forest-guide.qmd#models-ci-20261020)。
-
-`get_inter()` 多分类表、`get_inter_abs()` 风险/RD 列，以及 `get_int()` 的 MS/RERI 轴与详情列，当前模板都固定写 95% CI；`conf_level` / `conf.level` 仍决定实际区间。若使用其他水平，必须在可覆盖的标题与脚注中明确标出实际值，不能把模板文字当成分析参数。
-
-## 当前联合组核对：检查联合效应 {#joint-check-20261020}
-
-2026-10-20 按已推送 RegR `da6157be`（接口自 `578d444`、`835bd54`），在 Windows / WSL R 4.4.3 重新拟合下例。`cat_var_combine` 的四条曲线对应四个组合，检查对象是三个非参考组合相对于参考组合的 HR/sHR，不能按上节的层内简单效应读取。
-
-<!-- refresh-20261020: joint_check -->
-```r
-library(RegR)
-set.seed(20261020)
-d_refresh <- expand.grid(Tx = factor(c("No", "Yes")),
-  Group = factor(c("Low", "High"), levels = c("Low", "High")),
-  Site = factor(c("A", "B")), id = 1:60)
-d_refresh[["Age"]] <- rnorm(nrow(d_refresh), 55, 10)
-tx <- as.integer(d_refresh[["Tx"]] == "Yes")
-gr <- as.integer(d_refresh[["Group"]] == "High")
-event_time <- rexp(nrow(d_refresh), exp(-3.8 + 0.6 * tx + 0.4 * gr +
-  0.2 * tx * gr + 0.01 * (d_refresh[["Age"]] - 55)))
-censor_time <- rexp(nrow(d_refresh), 0.012)
-d_refresh[["time"]] <- pmin(event_time, censor_time)
-d_refresh[["DSS"]] <- as.integer(event_time <= censor_time)
-d_refresh[["Outcome"]] <- factor(ifelse(runif(nrow(d_refresh)) < plogis(
-  -1 + 0.7 * tx + 0.4 * gr + 0.02 * (d_refresh[["Age"]] - 55)), "Yes", "No"),
-  levels = c("No", "Yes"))
-inter_joint <- get_inter(d_refresh, exposure_names = c("Tx", "Group"),
-  split_var = "Site", adj_var = "Age", surv = TRUE)
-facet_joint <- get_facet(d_refresh, split_var = "Site",
-  cat_var_combine = c("Tx", "Group"), adj_var = "Age", surv = TRUE,
-  show_sur = FALSE, timepoint = 24, max_t = 60, parallel = 1,
-  table_params = list(insert_table = FALSE))
-joint_check <- check_inter(inter_joint, facet_joint)
-joint_cells <- joint_check[["comparison"]]
-stopifnot(isTRUE(joint_check[["consistent"]]), nrow(joint_cells) == 12L,
-          all(joint_cells[["same_model_expected"]]), all(joint_cells[["status"]] == "equal"))
-joint_cells[c("outer_stratum", "modifier_level", "method", "status")]
-# 改变组合顺序，仍按各组合的实际标签匹配。
-facet_reversed <- get_facet(d_refresh, split_var = "Site",
-  cat_var_combine = c("Group", "Tx"), adj_var = "Age", surv = TRUE,
-  show_sur = FALSE, timepoint = 24, max_t = 60, parallel = 1,
-  table_params = list(insert_table = FALSE))
-stopifnot(isTRUE(check_inter(inter_joint, facet_reversed)[["consistent"]]))
-```
-<!-- /refresh-20261020: joint_check -->
-
-实跑为 2 个 Site × 3 个非参考组合 × 2 种方法，共 12 个显示单元相等；反转组合顺序也通过。无分层时需 `get_inter()` 的 single 结构，有分层时需相同 `split_var` 的 grid、单个二元 × 二元对比。多分类等其他形状会报错，不能据此宣称已经验证。
-
-若仅在 facet 数据中把层标签改为 `"Site: A"`，没有精确同名项时会尝试冒号后文本；仍找不到的标签报告 missing。这里依然只比较已格式化比值文本，不比较 P 值、RERI、概率或人数，也不重新拟合。联合分面实例见[分面教程](facet-guide.qmd)。
-
-## 未调整生存绝对交互：Greenwood 更新 {#km-delta-current}
-
-本次在 WSL R 4.4.3 使用包含 `d54e60f` 的 RegR 本机开发源码，重新拟合120月和60月绝对交互，并更新对应表格及IC导出预览。未调整生存概率的 `ci_method="delta"` 现在使用 `S(t)` 的 Greenwood 标准误，影响IC、AP或其他差值派生量的区间与P值；四组风险点估计、乘性交互、调整后的direct、Logistic及CIF不因这个修复改变。
-
-旧分析对象需从原始数据重新调用 `get_inter_abs()`；格式化旧对象不会重新计算协方差。下方两种时点的原主示例已经重跑，其他表格与运行时间记录保留原执行快照。
-
-
-2026-10-13复核：这些接口更新已包含于已推送基线 `a3881fa`；包版本号0.1.3不足以区分源码状态。
 
 ## 示例数据与分析尺度 {#data}
 
@@ -976,6 +332,196 @@ attr(inter_multi[["Adjus"]], "estimates")
 
 `eff_inter = TRUE` 是另一种结果路径：第一个暴露传为 `cat_var`，其余传为 `sub_var`，采用完整交互模型的层内效应表，而非上述 RERI / AP / SI 指标表；可返回数据框或分层的 `eff_inter_split` 对象，并转发 `ref_idx` 合并多水平变量。这一路径与 [效应估计与森林图](forest-guide.qmd) 的工作流衔接。
 
+### 参考组、连续变量与亚组表（2026-10-24） {#reference-subgroup-20261024}
+
+<!-- update-20261024: inter_reference -->
+
+2026-10-24 按已推送 RegR `2c01bb0` 在 Windows / WSL R 4.4.3 执行。比值交互与绝对交互入口均以 `ref_idx` 为正式参数，支持当前水平名称或位置；`binary_ref` 仍警告兼容，不能与新名同给。`get_eff_inter()` 新增 `ref_idx`，`get_inter(eff_inter=TRUE)` 也会转发。下面用模拟 Cox 数据核对。
+
+#### 一个暴露自动逐对分析，连续变量先二分
+
+```r
+library(RegR)
+set.seed(102401)
+d_ref <- expand.grid(Tx = factor(c("No", "Yes")),
+  Grade = factor(c("Low", "Mid", "High"), levels = c("Low", "Mid", "High")),
+  Sex = factor(c("Female", "Male")), id = 1:40)
+d_ref[["Age"]] <- rnorm(nrow(d_ref), 55, 9)
+d_ref[["time"]] <- rexp(nrow(d_ref), exp(.5 * (d_ref[["Tx"]] == "Yes") +
+  .02 * (d_ref[["Age"]] - 55) + .4 * (d_ref[["Grade"]] == "High")) / 60) + .1
+d_ref[["DSS"]] <- rbinom(nrow(d_ref), 1, .65)
+d_ref[["event"]] <- d_ref[["DSS"]]
+quiet_ref <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
+cells_ref <- function(x) unname(as.matrix(x[, -1L, drop = FALSE]))
+one_ref <- quiet_ref(get_inter(d_ref, "Tx", adj_var = c("Grade", "Age"), surv = TRUE))
+pair_ref <- quiet_ref(get_inter(d_ref, c("Tx", "Grade"), adj_var = "Age",
+  surv = TRUE, multicat_model = "separate"))
+cut_ref <- median(d_ref[["Age"]])
+cut_levels <- paste0(c("≤", ">"), format(signif(cut_ref, 3L)))
+d_cut <- d_ref
+d_cut[["Age_cut"]] <- factor(cut_levels[1L + (d_ref[["Age"]] > cut_ref)], levels = cut_levels)
+age_ref <- quiet_ref(get_inter(d_cut, c("Tx", "Age_cut"), adj_var = "Grade", surv = TRUE))
+gt::gtsave(fmt_inter_gt(one_ref),
+  file.path(tempdir(), "20261024-update-inter-one.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(attr(one_ref, "inter_type"), "mul"), length(one_ref) == 3L,
+  identical(cells_ref(one_ref[[1]][["Adjus"]]), cells_ref(pair_ref[[1]][["Adjus"]])),
+  identical(cells_ref(one_ref[[2]][["Adjus"]]), cells_ref(pair_ref[[2]][["Adjus"]])),
+  identical(cells_ref(one_ref[[3]][["Adjus"]]), cells_ref(age_ref[["Adjus"]])))
+```
+:::
+
+![单暴露与 Grade、Age 逐对形成三份交互结果。](images/interaction-guide/20261024-update-inter-one.png){fig-alt="原生交互表，Tx与Grade的Low对Mid、Low对High两组对比，以及Tx与按中位数分组Age的对比，均含未调整和调整模型。"}
+
+[原生 HTML 表](images/interaction-guide/20261024-update-inter-one.html)
+
+`exposure_names="Tx"` 时，`adj_var` 同时提供候选修饰变量；每对模型仍调整其余变量。Grade 的两对分析保留连续 Age 调整；只有 Tx×Age 那一对把 Age 二分为 `≤中位数` 和 `>中位数`。有三个以上取值的数值暴露会这样二分，中位数取本次完整病例；并列中位数属于低组。不要把数字分类编码留作连续值。自动二分会改变研究问题，预设临床切点应先显式分箱。
+
+#### 合并参考组后，表题与事件分母一起核对
+
+```r
+d_miss <- d_ref
+d_miss[["DSS"]][c(5, 93, 255)] <- NA_integer_
+d_miss[["event"]] <- d_miss[["DSS"]]
+eff_ref <- quiet_ref(get_eff_inter(d_miss, "Tx", "Grade", adj_var = "Age",
+  surv = TRUE, ref_idx = "Low", subgroup_model = "interaction"))
+via_ref <- quiet_ref(get_inter(d_miss, c("Tx", "Grade"), adj_var = "Age",
+  surv = TRUE, ref_idx = 1L, eff_inter = TRUE))
+overall_ref <- which(eff_ref[["subgroup"]] == "All patients")
+want_events <- paste0(sum(d_miss[["DSS"]] == 1L, na.rm = TRUE), "/", sum(!is.na(d_miss[["DSS"]])))
+gt::gtsave(fmt_eff_inter_gt(eff_ref),
+  file.path(tempdir(), "20261024-update-eff-reference.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(isTRUE(all.equal(as.data.frame(eff_ref), as.data.frame(via_ref), check.attributes = FALSE)),
+  identical(eff_ref[["subgroup"]][eff_ref[["variable"]] %in% "Grade"], c("Grade", "Low", "Oth")))
+stopifnot(length(overall_ref) == 1L,
+  identical(gsub(" ", "", eff_ref[["event"]][overall_ref]), want_events),
+  grepl(as.character(nrow(d_miss)), eff_ref[["n"]][overall_ref], fixed = TRUE))
+validation_values <- list(cut = cut_ref, labels = attr(one_ref, "table_names"),
+  adjusted = lapply(one_ref, function(x) as.data.frame(x[["Adjus"]])),
+  effects = as.data.frame(eff_ref), total_rows = nrow(d_miss), observed_outcomes = sum(!is.na(d_miss[["DSS"]])))
+```
+:::
+
+![当前亚组表注明 Cox、Tx 的对比方向、调整项与各组事件分母。](images/interaction-guide/20261024-update-eff-reference.png){fig-alt="Tx的Cox亚组效应原生表，标题说明模型，副标题Yes对No，Grade合并为Low和Oth，底部注明Age调整。"}
+
+[原生 HTML 表](images/interaction-guide/20261024-update-eff-reference.html)
+
+多水平 `cat_var` / `sub_var` 在外层分层前合并，二分类变量保持原状；同一 `ref_idx` 会应用到所有需要合并的变量，名称必须在各变量中存在。表头 `Subgroups`、可读的变量分组名、模型与对比方向帮助区分层级；分组名加粗，`show_color=TRUE` 时带显著交互单元的分组名标红。红色仍需结合原检验、模型和多重比较解读。
+
+本例描述性 No.(%) 计全部 480 行；事件分母只计 477 个非缺失结局，缺失结局不再把整个亚组的事件格变为空白。拟合仍按相应模型完整病例进行，描述人数不等于模型样本数。示例出现预防性暴露提示，解读 RERI 前需核对参考编码和比值方向；HR 上的 RERI 不能直接当作绝对风险交互。固定 95% 的模板表头与非 95% 参数之间的限制仍见[此前说明](#joint-cat-20261020)。
+
+<!-- /update-20261024: inter_reference -->
+
+### 不合并开关与结果打印（2026-10-25） {#reference-print-20261025}
+
+<!-- update-20261025: inter_print -->
+
+2026-10-25 按已推送 RegR `a121af8`、UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。`get_inter()`、`get_inter_abs()`、`get_eff_inter()` 的**单个数值 `ref_idx=0` 与 `NULL` 等价**，不主动把多水平变量合并成参考组与 Oth。原来只接受二分类的路径仍有相同限制；零不表示选择第一个水平。
+
+#### 保留三个水平，不悄悄改成二分类
+
+```r
+library(RegR)
+set.seed(102501)
+d_print25 <- expand.grid(Tx = factor(c("No", "Yes")),
+  Grade = factor(c("Low", "Mid", "High"), levels = c("Low", "Mid", "High")),
+  Sex = factor(c("Female", "Male")), id = 1:30)
+d_print25[["Age"]] <- rnorm(nrow(d_print25), 55, 8)
+d_print25[["time"]] <- rexp(nrow(d_print25), exp(.5 * (d_print25[["Tx"]] == "Yes") +
+  .3 * (d_print25[["Grade"]] == "High")) / 60) + .1
+d_print25[["DSS"]] <- rbinom(nrow(d_print25), 1, .7)
+original_print25 <- d_print25
+quiet_print25 <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
+ratio_none25 <- quiet_print25(get_inter(d_print25, c("Tx", "Grade"), adj_var = "Age",
+  surv = TRUE, ref_idx = NULL, multicat_model = "separate"))
+ratio_zero25 <- quiet_print25(get_inter(d_print25, c("Tx", "Grade"), adj_var = "Age",
+  surv = TRUE, ref_idx = 0, multicat_model = "separate"))
+abs_none25 <- quiet_print25(get_inter_abs(d_print25, c("Tx", "Grade"), surv = TRUE,
+  sur_time = 24, ref_idx = NULL, multicat_model = "interaction"))
+abs_zero25 <- quiet_print25(get_inter_abs(d_print25, c("Tx", "Grade"), surv = TRUE,
+  sur_time = 24, ref_idx = 0, multicat_model = "interaction"))
+eff_zero25 <- lapply(list(NULL, 0), function(ref)
+  quiet_print25(get_eff_inter(d_print25, "Tx", "Grade", adj_var = "Age", ref_idx = ref)))
+eff_errors25 <- lapply(list(NULL, 0), function(ref) tryCatch(
+  quiet_print25(get_eff_inter(d_print25, "Grade", "Sex", adj_var = "Age", ref_idx = ref)), error = identity))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(isTRUE(all.equal(ratio_none25, ratio_zero25, check.attributes = FALSE)),
+  isTRUE(all.equal(abs_none25, abs_zero25, check.attributes = FALSE)),
+  identical(levels(d_print25[["Grade"]]), c("Low", "Mid", "High")),
+  identical(original_print25, d_print25))
+stopifnot(isTRUE(all.equal(eff_zero25[[1]], eff_zero25[[2]], check.attributes = FALSE)))
+stopifnot(all(vapply(eff_errors25, inherits, logical(1), "error")),
+  identical(conditionMessage(eff_errors25[[1]]), conditionMessage(eff_errors25[[2]])))
+```
+:::
+
+这里比值交互保留 Low 对 Mid、Low 对 High 的逐对结果；绝对风险使用多水平交互模型及其对比。`get_eff_inter()` 可保留三水平的 `sub_var="Grade"`，但其 `cat_var` 仍须二分类；把 Grade 作为 `cat_var` 时，`0` 与 `NULL` 同样拒绝。需要合并时明确指定 `ref_idx="Low"`。字符 `"0"` 是名称匹配，规则见[UtilsR 因子示例](../utilsr/factor-guide.qmd#zero-reference-20261025)。
+
+#### 类标签、参数块与核对结论分层显示
+
+`get_inter_abs()` 首行保留模型和时间，暴露名称、风险单元及区间方法放在键值块；下方再列各结果表。`check_inter()` 的结论、单元状态与不共享模型的提示也使用同一套构件。下面打印**实际拟合返回对象**，不是手工拼接的控制台样式。
+
+```r
+ratio_binary25 <- quiet_print25(get_inter(d_print25, c("Tx", "Sex"), adj_var = "Age", surv = TRUE))
+facet_binary25 <- quiet_print25(get_facet(d_print25, split_var = "Sex", cat_var = "Tx",
+  adj_var = "Age", surv = TRUE, method = "both", subgroup_model = "interaction"))
+check_print25 <- check_inter(ratio_binary25, target = facet_binary25)
+pairs_print25 <- local({ inter_demo <- ratio_binary25; facet_demo <- facet_binary25; check_inter() })
+abs_before_print25 <- abs_zero25
+console_inter25 <- withr::with_options(list(cli.num_colors = 1, cli.width = 100, width = 100),
+  capture.output({ print(abs_zero25); print(check_print25); print(pairs_print25) }))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(isTRUE(check_print25[["consistent"]]), length(pairs_print25) == 1L,
+  isTRUE(pairs_print25[[1]][["consistent"]]))
+stopifnot(identical(abs_before_print25, abs_zero25),
+  !withVisible(print(check_print25))[["visible"]],
+  any(grepl("Cox model", console_inter25, fixed = TRUE)),
+  any(grepl("t = 24", console_inter25, fixed = TRUE)))
+save_console25 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '</style><pre data-native-console>', body, '</pre>'),
+    file.path(tempdir(), paste0("20261025-update-", name, ".html")), useBytes = TRUE)
+}
+save_console25(console_inter25, "inter-console")
+validation_values <- list(ratio = lapply(ratio_zero25, function(x) lapply(x, as.data.frame)),
+  absolute = lapply(abs_zero25, as.data.frame),
+  checks = check_print25[["comparison"]], zero_keeps_levels = levels(d_print25[["Grade"]]),
+  unchanged = identical(original_print25, d_print25))
+```
+:::
+
+![绝对风险、单项核对与自动配对结果的原生无色输出。](images/interaction-guide/20261025-update-inter-console.png){fig-alt="实际R输出先显示get_inter_abs类名、Cox模型和24月，再列暴露与区间设置及结果；check_inter和check_inter_pairs分别显示一致单元和配对总计。"}
+
+[原生 HTML 输出](images/interaction-guide/20261025-update-inter-console.html)
+
+显示更新不改变统计尺度或返回对象。`consistent` 表示所比较单元在相应模型合同下一致，不是模型正确、无偏或存在交互的证明；自动配对的未匹配对象和 `not checked` 仍需逐项处理。不同模型重拟合预期会产生差异时，应结合 `same_model_expected` 与提示核对，详见[现有诊断例子](#check-target-20261022)。本例保留预防性暴露提示；get_facet 同时触发既有 ggplot 弃用和缺失置信带行提示，本节只核对返回的数值单元与打印，不把该绘图当作已通过的新预览。
+
+<!-- /update-20261025: inter_print -->
+
 ## get_inter_abs()：固定时点风险与人时发生率 {#get-inter-abs}
 
 ### 当前接口
@@ -1083,6 +629,123 @@ fmt_inter(inter_abs_or, output_format = "flextable")
 :::
 
 返回对象带 `get_inter_abs` 类与相应的 `inter_type`。二分类单结果仍分为 `Unadj` / `Adjus`，表为 **9×4**，比相对尺度多 IC 一行；多对比与分层结果可继续交给同一套格式化与 Word 导出函数。`plt_inter()` 的 8×4 比值表输入要求不适用于这些绝对结果。
+
+### 未调整生存绝对交互：Greenwood 更新 {#km-delta-current}
+
+本次在 WSL R 4.4.3 使用包含 `d54e60f` 的 RegR 本机开发源码，重新拟合120月和60月绝对交互，并更新对应表格及IC导出预览。未调整生存概率的 `ci_method="delta"` 现在使用 `S(t)` 的 Greenwood 标准误，影响IC、AP或其他差值派生量的区间与P值；四组风险点估计、乘性交互、调整后的direct、Logistic及CIF不因这个修复改变。
+
+旧分析对象需从原始数据重新调用 `get_inter_abs()`；格式化旧对象不会重新计算协方差。下方两种时点的原主示例已经重跑，其他表格与运行时间记录保留原执行快照。
+
+
+2026-10-13复核：这些接口更新已包含于已推送基线 `a3881fa`；包版本号0.1.3不足以区分源码状态。
+
+### 绝对交互：逐模型计算与导出（2026-10-23） {#abs-models-20261023}
+
+<!-- update-20261023: abs_models -->
+
+2026-10-23 按已推送 RegR `aaeda5f`（扩展 `fbad080`）在 Windows / WSL R 4.4.3 执行。`get_inter_abs()` 现在与 `get_inter()` 一样，按 `surv` 的每个模型分别返回完整结果；旧版多值输入可能只走一个分支。这里使用 360 条模拟记录，不调整协变量，比较 24 月的 `1-KM` 风险与 Aalen–Johansen CIF，不能将前者当成竞争风险累计发生率。
+
+```r
+library(RegR)
+set.seed(1023)
+d_multi <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), id = 1:90)
+d_multi[["Age"]] <- rnorm(360, 55, 10)
+t1 <- rexp(360, exp(.35 * (d_multi[["Tx"]] == "Yes") +
+  .25 * (d_multi[["Sex"]] == "Male") + .02 * (d_multi[["Age"]] - 55)) / 80)
+t2 <- rexp(360, 1 / 130); tc <- rexp(360, 1 / 160)
+d_multi[["time"]] <- pmin(t1, t2, tc) + .2
+d_multi[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_multi[["DSS"]] <- as.integer(d_multi[["event"]] == 1L)
+abs_multi <- get_inter_abs(d_multi, c("Tx", "Sex"), adj_var = NULL,
+  surv = c(TRUE, FALSE), sur_time = 24)
+abs_sur <- get_inter_abs(d_multi, c("Tx", "Sex"), adj_var = NULL,
+  surv = TRUE, sur_time = 24)
+abs_cif <- get_inter_abs(d_multi, c("Tx", "Sex"), adj_var = NULL,
+  surv = FALSE, sur_time = 24)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(inherits(abs_multi, "surv_models"), identical(names(abs_multi), c("sur", "cif")),
+  identical(attr(abs_multi[["sur"]], "risks"), attr(abs_sur, "risks")),
+  identical(attr(abs_multi[["cif"]], "estimates"), attr(abs_cif, "estimates")))
+```
+:::
+
+#### 无名结果列表仍可识别模型
+
+```r
+abs_plain <- unname(unclass(abs_multi))
+word_paths <- file.path(tempdir(), c("20261023-update-abs-sur", "20261023-update-abs-cif"))
+abs_tables <- save_tb_inter(abs_plain, title = word_paths,
+  layout = list("vertical", "horizontal"), landscape = list(FALSE, TRUE),
+  show_model = "unadjusted", font_size = list(9, 9),
+  note = c(cif = "Competing-risk CIF at month 24.", sur = "One minus KM at month 24."))
+flextable::save_as_html(abs_tables[["sur"]], path = paste0(word_paths[[1]], ".html"))
+flextable::save_as_html(abs_tables[["cif"]], path = paste0(word_paths[[2]], ".html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(names(abs_tables), c("sur", "cif")),
+  all(vapply(abs_tables, inherits, logical(1), "flextable")),
+  all(file.exists(paste0(word_paths, ".docx"))))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 生存风险表 {.unnumbered}
+
+![未调整的 24 月生存风险绝对交互表。](images/interaction-guide/20261023-update-abs-sur.png){fig-alt="原生flextable网页预览，展示Tx与Sex四个联合组的24月风险、风险差及绝对交互IC；脚注说明使用1减KM。"}
+
+[下载 Word](images/interaction-guide/20261023-update-abs-sur.docx) · [原生表格预览](images/interaction-guide/20261023-update-abs-sur.html)
+
+#### 竞争风险表 {.unnumbered}
+
+![相同队列的 24 月 CIF 绝对交互表。](images/interaction-guide/20261023-update-abs-cif.png){fig-alt="原生flextable网页预览，相同联合组的目标事件CIF及IC，脚注注明竞争风险CIF，Word文件为横向页面。"}
+
+[下载 Word](images/interaction-guide/20261023-update-abs-cif.docx) · [原生表格预览](images/interaction-guide/20261023-update-abs-cif.html)
+
+:::
+
+无名列表依各结果的 `attr(.,"surv")` 命名；较旧结果缺少该记录时，用 `list(sur=...,cif=...)`。`title` 向量逐模型分配路径，同时其 basename 是表题。其他逐模型设置可用命名 list 或同模型数的无名 list。**无名 `note` 字符向量仍是每个表共用的多行脚注**；要逐模型脚注，像上例按模型命名，或使用 list。错误长度会报错。
+
+#### 风险时点与人时单位不能混传
+
+```r
+abs_rates <- get_inter_abs(d_multi, c("Tx", "Sex"), adj_var = NULL,
+  surv = list(DSS_rate = TRUE, Cause1_rate = FALSE), poi_time = 12 * 1000)
+rate_labels <- vapply(abs_rates, function(x) attr(x, "info")[["measure_label"]], character(1))
+bad_scale <- tryCatch(get_inter_abs(d_multi, c("Tx", "Sex"), surv = c(TRUE, FALSE),
+  sur_time = 24, poi_time = 12000), error = identity)
+bad_note <- tryCatch(save_tb_inter(abs_multi, font_size = list(9)), error = identity)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(all(rate_labels == "Rate"),
+  all(vapply(abs_rates, function(x) identical(attr(x, "info")[["scale"]], "rate"), logical(1))))
+stopifnot(inherits(bad_scale, "error"), inherits(bad_note, "error"))
+validation_values <- list(risks_sur = attr(abs_multi[["sur"]], "risks"),
+  risks_cif = attr(abs_multi[["cif"]], "risks"),
+  estimates_sur = attr(abs_multi[["sur"]], "estimates"),
+  estimates_cif = attr(abs_multi[["cif"]], "estimates"), rate_labels = rate_labels)
+```
+:::
+
+本例随访单位为月，`poi_time = 12*1000` 表示每千人年发生率；此分支采用 Poisson 人时率，并非 Cox HR 或 Fine–Gray sHR。示例中 `DSS` 恰等于 `event==1`，两个分支的事件计数相同。显式给 `poi_time` 才切到率；默认或单独给 `sur_time` 是固定时点风险，不能同时给两个非空值。多模型分派保留这一判断，不擅自把默认值变成显式参数。
+
+本节的无协变量示例用于验证接口，未改写已调整 CIF 的 mets 联合 delta / bootstrap 方法；[推断方法与限制](#cif-mets-update)继续适用。`plt_inter()` 仍接受单个合适的比值交互表，不能直接画多模型列表或绝对交互对象；`get_eff_inter()`、`get_int()` 的 `surv` 仍一次选择一个模型，需分别调用。
+
+<!-- /update-20261023: abs_models -->
 
 ## 竞争风险更新：mets 联合 CIF 与加速实测 {#cif-mets-update}
 
@@ -1615,6 +1278,470 @@ fmt_eff_inter_gt(eff_inter_split, show_color = FALSE, event_by_group = FALSE)
 
 <!-- interaction-extension: end -->
 
+## 交互结果核对：check_inter() {#check-inter}
+
+`check_inter()`（原名 `check_inter_facet()`）把 `get_inter()` 的交互结果与 `get_facet()`、`get_eff()`、`get_eff_cat()`、`get_cat()` 的分层或联合结果配对，逐单元核对是否一致。以下各小节按日期收录。
+
+### 联合组核对、常量协变量与导出（2026-10-20） {#joint-cat-20261020}
+
+2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 运行。新增的 `get_cat()` 核对入口检查同一全队列的联合效应；原有 `get_facet()` 核对仍可用于分层结果。
+
+#### 对照 get_cat 的三个非参考组合
+
+<!-- latest-20261020: inter_current -->
+```r
+library(RegR)
+set.seed(20261023)
+d_check <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B")), id = 1:60)
+d_check[["Age"]] <- rnorm(480, 55, 10)
+t1 <- rexp(480, exp(-3.8 + 0.5 * (d_check[["Tx"]] == "Yes") +
+  0.3 * (d_check[["Sex"]] == "Male") + 0.02 * (d_check[["Age"]] - 55)))
+t2 <- rexp(480, 0.008); tc <- rexp(480, 0.012)
+d_check[["time"]] <- pmin(t1, t2, tc)
+d_check[["event"]] <- ifelse(t1 <= pmin(t2, tc), 1L, ifelse(t2 <= tc, 2L, 0L))
+d_check[["status"]] <- factor(d_check[["event"]], levels = 0:2)
+d_check[["DSS"]] <- as.integer(d_check[["event"]] == 1L)
+inter_current <- get_inter(d_check, c("Tx", "Sex"), adj_var = "Age", surv = c(TRUE, FALSE))
+cat_current <- get_cat(d_check, cat_var_combine = c("Tx", "Sex"), adj_var = "Age",
+  surv = c(TRUE, FALSE), methods = c("unadj", "direct"),
+  methods_obj = "unadj", methods_sur = character(), timepoint = 24,
+  curve_args = list(ci = FALSE, max_times = 30L))
+checked <- check_inter(inter_current, cat_current)
+reversed_cat <- get_cat(d_check, cat_var_combine = c("Sex", "Tx"), adj_var = "Age",
+  surv = c(TRUE, FALSE), methods = c("unadj", "direct"),
+  methods_obj = "unadj", methods_sur = character(), timepoint = 24,
+  curve_args = list(ci = FALSE, max_times = 30L))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(all(vapply(checked, function(x) isTRUE(x[["consistent"]]), logical(1))),
+  all(vapply(checked, function(x) nrow(x[["comparison"]]) == 6L, logical(1))))
+stopifnot(all(vapply(check_inter(inter_current, reversed_cat),
+  function(x) isTRUE(x[["consistent"]]), logical(1))))
+```
+:::
+
+本例 Cox 与 Fine–Gray 各核对 3 个非参考组合 × 2 种调整方法，共 12 个单元，反转组合顺序也一致。对 `get_cat()` 只比较格式化效应与区间，忽略两侧星号；这不是原始数值逐位相等的证明，也不核对 P、MS/RERI、曲线、概率或人数。结果列在 `checked[["sur"]][["comparison"]]`。没有联合暴露的 `get_cat()` 或带 `split_var` 的 `get_inter()` 不能使用此配对。
+
+省略两个对象时，会先寻找 `inter_<后缀>` / `facet_<后缀>`；没有对应 facet 时再找 `cat_<后缀>`，裸名 `inter` / `cat` 同样支持。下例限定在局部环境，避免混入其他项目的对象：
+
+```r
+discovered <- local({
+  inter_whole <- inter_current
+  cat_whole <- cat_current
+  check_inter()
+})
+names(discovered)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(length(discovered) == 2L,
+  all(vapply(discovered, function(x) isTRUE(x[["consistent"]]), logical(1))))
+```
+:::
+
+#### 层内常量调整项会提示后移除
+
+```r
+d_check[["Grade"]] <- factor(ifelse(d_check[["Site"]] == "B", "Unknown",
+  sample(c("I", "II", "Unknown"), 480, replace = TRUE)))
+stratified <- get_inter(d_check, c("Tx", "Sex"),
+  adj_var = c("Age", "Grade"), split_var = "Site", surv = TRUE)
+manual_B <- get_inter(d_check[d_check[["Site"]] == "B", , drop = FALSE],
+  c("Tx", "Sex"), adj_var = "Age", surv = TRUE)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(!is.null(stratified[[1]][[2]]),
+  identical(as.matrix(stratified[[1]][[2]][["Adjus"]]), as.matrix(manual_B[["Adjus"]])))
+```
+:::
+
+Site B 的 Grade 全部是 Unknown，没有可估计的层内系数，函数提示后只在该层去掉 Grade；上例结果与手动去掉 Grade 相同。其他层仍按各自可用的调整项拟合。仍不能估计的层会带层名警告并留空，不能把空单元解释为没有效应；应同时报告各层实际调整集合与失败原因。
+
+#### Word 标题向量与 Fine–Gray 标签
+
+```r
+tables_current <- save_tb_inter(inter_current,
+  title = file.path(tempdir(), c("20261020-latest-inter-sur.docx", "20261020-latest-inter-cif.docx")),
+  note = c("Synthetic data; interface demonstration.", "Confidence level: 95%."))
+for (model in names(tables_current)) {
+  flextable::save_as_html(tables_current[[model]],
+    path = file.path(tempdir(), paste0("20261020-latest-inter-", model, ".html")))
+}
+validation_values <- data.frame(model = names(checked),
+  compared_cells = vapply(checked, function(x) nrow(x[["comparison"]]), integer(1)),
+  consistent = vapply(checked, function(x) x[["consistent"]], logical(1)))
+validation_values
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(names(tables_current), c("sur", "cif")),
+  all(vapply(tables_current, inherits, logical(1), "flextable")))
+```
+:::
+
+<!-- /latest-20261020: inter_current -->
+
+[下载 Cox Word 表](images/interaction-guide/20261020-latest-inter-sur.docx) · [下载 Fine–Gray Word 表](images/interaction-guide/20261020-latest-inter-cif.docx)
+
+::: {.panel-tabset}
+
+#### Cox 汇总表 {.unnumbered}
+
+![当前 flextable 的网页预览，与下载 Word 来自同一表对象。](images/interaction-guide/20261020-latest-inter-sur.png){fig-alt="480行模拟数据的Cox交互汇总表，使用未调整与调整HR列，并保留MS与RERI行。"}
+
+#### Fine–Gray 汇总表 {.unnumbered}
+
+![Fine–Gray 效应列明确标为 sHR。](images/interaction-guide/20261020-latest-inter-cif.png){fig-alt="同一数据的Fine-Gray交互汇总表，效应列为sHR 95% CI，表内模型与脚注使用Fine-Gray名称。"}
+
+:::
+
+无名 `title` 向量按模型顺序逐一匹配，长度必须一致；命名向量仍按名称匹配。无名 `note` 向量的每项是**同一份共享脚注的一行**，不是一模型一条。二分类 Fine–Gray 单表、逐对表与分层表的表头现为 sHR (95% CI)，脚注定义 sHR，模型名称写 Fine–Gray；已有结果交给当前格式化函数也会采用新标签。Word 需在当前工作目录可写的环境保存，本例只公开汇总表。
+
+实跑还出现一条预防性暴露提示；这类结果应先核对参考编码，再解读 RERI / SI，不应静默翻转分组来追求某种交互方向。常量协变量的提示也保留在运行输出中。
+
+#### 区间与星号使用未舍入数值
+
+交互表在 95% 时也直接用未舍入 P 标星，避免把 0.001001 先舍成 0.001 后多加一个星号。非 95% 时按未舍入区间、固定 1.96 回推显示 P，非对称区间取朝向无效值的一侧，无效区间不标星；`pvalue_lis` 保留该显示口径。详见[数值对照与原 Wald P](forest-guide.qmd#models-ci-20261020)。
+
+`get_inter()` 多分类表、`get_inter_abs()` 风险/RD 列，以及 `get_int()` 的 MS/RERI 轴与详情列，当前模板都固定写 95% CI；`conf_level` / `conf.level` 仍决定实际区间。若使用其他水平，必须在可覆盖的标题与脚注中明确标出实际值，不能把模板文字当成分析参数。
+
+### 联合组核对：检查联合效应（2026-10-20） {#joint-check-20261020}
+
+2026-10-20 按已推送 RegR `da6157be`（接口自 `578d444`、`835bd54`），在 Windows / WSL R 4.4.3 重新拟合下例。`cat_var_combine` 的四条曲线对应四个组合，检查对象是三个非参考组合相对于参考组合的 HR/sHR，不能按上节的层内简单效应读取。
+
+<!-- refresh-20261020: joint_check -->
+```r
+library(RegR)
+set.seed(20261020)
+d_refresh <- expand.grid(Tx = factor(c("No", "Yes")),
+  Group = factor(c("Low", "High"), levels = c("Low", "High")),
+  Site = factor(c("A", "B")), id = 1:60)
+d_refresh[["Age"]] <- rnorm(nrow(d_refresh), 55, 10)
+tx <- as.integer(d_refresh[["Tx"]] == "Yes")
+gr <- as.integer(d_refresh[["Group"]] == "High")
+event_time <- rexp(nrow(d_refresh), exp(-3.8 + 0.6 * tx + 0.4 * gr +
+  0.2 * tx * gr + 0.01 * (d_refresh[["Age"]] - 55)))
+censor_time <- rexp(nrow(d_refresh), 0.012)
+d_refresh[["time"]] <- pmin(event_time, censor_time)
+d_refresh[["DSS"]] <- as.integer(event_time <= censor_time)
+d_refresh[["Outcome"]] <- factor(ifelse(runif(nrow(d_refresh)) < plogis(
+  -1 + 0.7 * tx + 0.4 * gr + 0.02 * (d_refresh[["Age"]] - 55)), "Yes", "No"),
+  levels = c("No", "Yes"))
+inter_joint <- get_inter(d_refresh, exposure_names = c("Tx", "Group"),
+  split_var = "Site", adj_var = "Age", surv = TRUE)
+facet_joint <- get_facet(d_refresh, split_var = "Site",
+  cat_var_combine = c("Tx", "Group"), adj_var = "Age", surv = TRUE,
+  show_sur = FALSE, timepoint = 24, max_t = 60, parallel = 1,
+  table_params = list(insert_table = FALSE))
+joint_check <- check_inter(inter_joint, facet_joint)
+joint_cells <- joint_check[["comparison"]]
+joint_cells[c("outer_stratum", "modifier_level", "method", "status")]
+# 改变组合顺序，仍按各组合的实际标签匹配。
+facet_reversed <- get_facet(d_refresh, split_var = "Site",
+  cat_var_combine = c("Group", "Tx"), adj_var = "Age", surv = TRUE,
+  show_sur = FALSE, timepoint = 24, max_t = 60, parallel = 1,
+  table_params = list(insert_table = FALSE))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(isTRUE(joint_check[["consistent"]]), nrow(joint_cells) == 12L,
+          all(joint_cells[["same_model_expected"]]), all(joint_cells[["status"]] == "equal"))
+stopifnot(isTRUE(check_inter(inter_joint, facet_reversed)[["consistent"]]))
+```
+:::
+
+<!-- /refresh-20261020: joint_check -->
+
+实跑为 2 个 Site × 3 个非参考组合 × 2 种方法，共 12 个显示单元相等；反转组合顺序也通过。无分层时需 `get_inter()` 的 single 结构，有分层时需相同 `split_var` 的 grid、单个二元 × 二元对比。多分类等其他形状会报错，不能据此宣称已经验证。
+
+若仅在 facet 数据中把层标签改为 `"Site: A"`，没有精确同名项时会尝试冒号后文本；仍找不到的标签报告 missing。这里依然只比较已格式化比值文本，不比较 P 值、RERI、概率或人数，也不重新拟合。联合分面实例见[分面教程](facet-guide.qmd)。
+
+### get_eff 亚组与多个交互结果（2026-10-21） {#inter-controls-20261021}
+
+<!-- controls-20261021: inter_controls -->
+
+以下按已推送 RegR `90ad6d8` 在 Windows / WSL R 4.4.3 执行。`check_inter()` 现在接受 `get_eff(sub_var = ...)` 作为第二个对象，也可以一次传入多个 `get_inter()` 结果；多个模型按名称配对，逐项返回核对表。
+
+#### 同一交互模型的简单效应
+
+```r
+library(RegR)
+set.seed(833)
+d_eff_check <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B", "C")), id = 1:60)
+d_eff_check[["Age"]] <- rnorm(720, 55, 10)
+t1 <- rexp(720, exp(0.3 * (d_eff_check[["Tx"]] == "Yes") +
+  0.2 * (d_eff_check[["Sex"]] == "Male") + 0.02 * (d_eff_check[["Age"]] - 55)) / 80)
+t2 <- rexp(720, 1 / 130)
+tc <- rexp(720, 1 / 160)
+d_eff_check[["time"]] <- pmin(t1, t2, tc) + 0.2
+d_eff_check[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_eff_check[["DSS"]] <- as.integer(d_eff_check[["event"]] == 1L)
+d_eff_check[["status"]] <- factor(d_eff_check[["event"]], levels = 0:2)
+eff_checked <- get_eff(d_eff_check, "Tx", sub_var = c("Sex", "Site"), adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), subgroup_model = "interaction",
+  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
+inter_sex <- get_inter(d_eff_check, c("Tx", "Sex"), adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")
+inter_site <- get_inter(d_eff_check, c("Tx", "Site"), adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")
+paired_eff <- check_inter(list(sex = inter_sex, site = inter_site), eff_checked)
+validation_values <- data.frame(pair = names(paired_eff),
+  cells = vapply(paired_eff, function(x) nrow(x[["comparison"]]), integer(1)),
+  equal = vapply(paired_eff, function(x) sum(x[["comparison"]][["status"]] == "equal"), integer(1)))
+validation_values
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(names(paired_eff), c("sex$sur", "sex$cif", "site$sur", "site$cif")),
+  all(vapply(paired_eff, function(x) isTRUE(x[["consistent"]]), logical(1))),
+  all(vapply(paired_eff, function(x) all(x[["comparison"]][["same_model_expected"]]), logical(1))))
+stopifnot(identical(unname(validation_values[["cells"]]), c(4L, 4L, 6L, 6L)),
+          sum(validation_values[["equal"]]) == 20L)
+```
+:::
+
+| 实际配对 | 比较单元 | 相同单元 |
+|:--|--:|--:|
+| `sex$sur`：Cox，Sex 两水平 | 4 | 4 |
+| `sex$cif`：Fine–Gray，Sex 两水平 | 4 | 4 |
+| `site$sur`：Cox，Site 三水平 | 6 | 6 |
+| `site$cif`：Fine–Gray，Site 三水平 | 6 | 6 |
+
+每个水平分别核对未调整与年龄调整 HR/sHR；Cox 与 Fine–Gray 在这里都实际拟合，未拿同一对象复制成两个模型。示例的 `event` 与 `status` 表示同一套 0/1/2 编码，分别供效应和交互入口读取。`sub_var = c("Sex","Site")` 表示分别拟合 Tx×Sex 与 Tx×Site 两个交互模型，不是 Tx×Sex×Site 三重交互；Site 使用完整多分类交互，而不是多次二分类子集比较。
+
+本例 `same_model_expected = TRUE` 表示两侧应来自同一模型策略；仍须核对队列、缺失处理、变量编码、调整项与区间水平。`consistent = TRUE` 只说明已有表中可比较的格式化效应单元一致，不证明原始浮点数逐位相等，也不比较交互 P、MS/RERI、曲线、绝对概率、人数或事件数。与 `get_eff()` 的配对仍比较星号；[get_cat 联合效应核对](#joint-cat-20261020)才会忽略星号。
+
+#### 分层重拟合并不要求数值相等
+
+```r
+eff_separate <- get_eff(d_eff_check, "Tx", sub_var = "Sex", adj_var = "Age",
+  surv = TRUE, subgroup_model = "separate",
+  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
+checked_separate <- check_inter(inter_sex[["sur"]], eff_separate)
+checked_separate[["comparison"]][c("modifier_level", "method", "same_model_expected", "status")]
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(!any(checked_separate[["comparison"]][["same_model_expected"]]))
+```
+:::
+
+默认的 `subgroup_model = "separate"` 在各层重新拟合，Cox 的层内基线风险和协变量系数可以不同；此时 `same_model_expected = FALSE`，出现 `different` 本身不能判为函数错误，偶然相等也不等于两种模型策略相同。不能为消除差异而混换分析人群或调整集合。
+
+`get_eff()` 这一路核对要求两侧没有外层 `split_var`，第二个对象也不能使用 `cat_var_combine`。若要核对联合组，使用已有的 `get_cat()` / `get_facet()` 联合效应入口。省略两个对象的环境发现仍只查 `inter_*` / `facet_*` / `cat_*`，不会自动找 `eff_*`，因此上例显式传第二个对象。多个配对中失败项会保留错误信息；应逐项读结果及 `attr(result,"unmatched")`，不能只看列表长度。
+
+<!-- /controls-20261021: inter_controls -->
+
+### 自动选分层变量与差异提示（2026-10-22） {#check-target-20261022}
+
+<!-- update-20261022: check_target -->
+
+2026-10-22 按已推送 RegR `d24e8a0` 在 Windows / WSL R 4.4.3 核验。自 `22e4a3c` 起，公共函数由 `check_inter_facet()` 改名为 `check_inter()`，第二个形参由 `facet` 改为 `target`，旧名不是兼容别名。当前写法为 `check_inter(inter, target, cat_var=NULL, modifier=NULL)`；本页早期图表保留历史执行记录，已改名的调用需要新版 RegR。
+
+#### 一个交互结果含多个修饰变量时
+
+```r
+library(RegR)
+set.seed(20261024)
+d_target <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B")), id = 1:50)
+d_target[["Age"]] <- rnorm(400, 55, 10)
+d_target[["Marker"]] <- 0.8 * (d_target[["Tx"]] == "Yes") + rnorm(400)
+t1 <- rexp(400, exp(0.7 * (d_target[["Tx"]] == "Yes") +
+  0.3 * (d_target[["Sex"]] == "Male") + 0.04 * (d_target[["Age"]] - 55)) / 80)
+t2 <- rexp(400, 1 / 130); tc <- rexp(400, 1 / 160)
+d_target[["time"]] <- pmin(t1, t2, tc) + 0.2
+d_target[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_target[["DSS"]] <- as.integer(d_target[["event"]] == 1L)
+d_target[["status"]] <- factor(d_target[["event"]], levels = 0:2)
+fit_sex_effect <- function(data, adjust = "Age", strategy = "interaction") {
+  get_eff(data, "Tx", sub_var = "Sex", adj_var = adjust, surv = TRUE,
+    subgroup_model = strategy, methods_haz = c("unadj", "direct"),
+    methods_sur = character(), all = NULL)
+}
+invisible(utils::capture.output(inter_many <- get_inter(d_target,
+  c("Tx", "Sex", "Site"), adj_var = "Age", surv = TRUE,
+  multicat_model = "separate")))
+eff_sex <- fit_sex_effect(d_target)
+invisible(utils::capture.output(facet_sex <- get_facet(d_target,
+  split_var = "Sex", cat_var = "Tx", adj_var = "Age", surv = TRUE,
+  method = "both", subgroup_model = "interaction")))
+eff_both <- get_eff(d_target, "Tx", sub_var = c("Sex", "Site"),
+  adj_var = "Age", surv = TRUE, subgroup_model = "interaction",
+  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
+
+from_eff <- check_inter(inter_many, target = eff_sex)
+from_facet <- check_inter(inter_many, target = facet_sex)
+explicit <- check_inter(inter_many, target = eff_sex,
+  cat_var = "Tx", modifier = "Sex")
+ambiguous <- tryCatch(check_inter(inter_many, eff_both), error = identity)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(isTRUE(from_eff[["consistent"]]), isTRUE(from_facet[["consistent"]]),
+  identical(from_eff[["modifier"]], "Sex"), identical(from_facet[["modifier"]], "Sex"),
+  identical(from_eff[["comparison"]], explicit[["comparison"]]),
+  inherits(ambiguous, "error"),
+  grepl("could not be inferred uniquely", conditionMessage(ambiguous), fixed = TRUE),
+  identical(names(formals(RegR::check_inter)), c("inter", "target", "cat_var", "modifier")))
+```
+:::
+
+上例显式用 `multicat_model="separate"` 生成 Tx×Sex、Tx×Site 逐对结果；当前默认的 `"interaction"` 只接受两个暴露。`target` 只按 Sex 分层时，函数自动选择 Sex。`get_facet()` 从分层列推断，`get_eff()` / `get_eff_cat()` 从 `sub_var` 推断。若两个候选修饰变量都出现在目标对象中，仍须明确写 `modifier="Sex"` 或 `"Site"`；它不会逐项猜选，也不会改成三重交互模型。
+
+#### 差异提示来自单元模式，仍须回查分析设置
+
+```r
+invisible(utils::capture.output(inter_one <- get_inter(d_target,
+  c("Tx", "Sex"), adj_var = "Age", surv = TRUE)))
+d_reversed <- d_target
+d_reversed[["Tx"]] <- stats::relevel(d_reversed[["Tx"]], ref = "Yes")
+targets <- list(
+  reference = fit_sex_effect(d_reversed),
+  adjustment = fit_sex_effect(d_target, adjust = "Marker"),
+  cohort = fit_sex_effect(d_target[d_target[["Age"]] > 55, , drop = FALSE]),
+  separate = fit_sex_effect(d_target, strategy = "separate"))
+checks <- lapply(targets, function(x) check_inter(inter_one, target = x))
+printed <- lapply(checks, function(x) paste(trimws(utils::capture.output(print(x))),
+  collapse = " "))
+diagnostic_summary <- data.frame(
+  scenario = c("Reference reversed", "Adjustment changed", "Cohort changed", "Separate fits"),
+  equal = vapply(checks, function(x) sum(x[["comparison"]][["status"]] == "equal"), integer(1)),
+  different = vapply(checks, function(x) sum(x[["comparison"]][["status"]] == "different"), integer(1)),
+  same_model_expected = vapply(checks, function(x)
+    all(x[["comparison"]][["same_model_expected"]]), logical(1)),
+  hint = c("Reference level", "Covariates", "Data or models", "No cause inferred"),
+  row.names = NULL)
+gt::gtsave(gt::gt(diagnostic_summary),
+  file.path(tempdir(), "20261022-update-inter-diagnostics.html"))
+diagnostic_summary
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(grepl("reference level", printed[["reference"]], fixed = TRUE),
+  grepl("different covariates", printed[["adjustment"]], fixed = TRUE),
+  grepl("different data", printed[["cohort"]], fixed = TRUE),
+  !grepl("hint:", printed[["separate"]], fixed = TRUE),
+  all(checks[["adjustment"]][["comparison"]][["status"]][
+    checks[["adjustment"]][["comparison"]][["method"]] == "unadj"] == "equal"))
+validation_values <- list(modifiers = c(from_eff[["modifier"]], from_facet[["modifier"]]),
+  inferred_cells = c(nrow(from_eff[["comparison"]]), nrow(from_facet[["comparison"]])),
+  ambiguity_rejected = inherits(ambiguous, "error"), diagnostics = diagnostic_summary)
+```
+:::
+
+![四个真实重拟合场景的核对摘要，提示随参考水平、调整项、队列及模型策略变化。](images/interaction-guide/20261022-update-inter-diagnostics.png){fig-alt="check_inter实际结果汇总：参考水平反转、调整集合改变、队列改变和分层重拟合四种场景，列出一致及不同单元数、same_model_expected和提示类别。"}
+
+[查看实际汇总 HTML](images/interaction-guide/20261022-update-inter-diagnostics.html)
+
+所有差异单元的效应与区间均近似倒数时，控制台提示参考水平可能相反；在 `same_model_expected=TRUE` 时，未调整一致、仅调整后不同提示调整集合可能不同，未调整也不同则提示数据或模型可能不同。上例分别重新拟合了这三种设置，没有手工改核对表。`same_model_expected=FALSE` 时不推测后两类原因，但仍可提示倒数模式。
+
+`hint:` 是控制台的辅助提示，不是错误原因的证明，也没有新增返回字段。`comparison` 仍保留 `inter_effect`、`facet_effect` 和 `missing_facet` 等名称；第二个形参改名不等于这些列也改名。`consistent` 只反映格式化显示单元，不能验证原始数据、浮点估计、交互 P、概率或人数。
+
+本例实际运行包含保护性暴露及 `NaNs produced` 的加性交互提示，另有旧绘图接口和曲线范围提示；这里读取的 HR 核对通过，不代表同一对象中的 RERI/AP/SI 也都有可用估计。
+
+| 目标结果 | 实际比较的内容 |
+|:--|:--|
+| `get_facet(split_var=...)` | 面板中暴露的简单效应；可带匹配的外层分层 |
+| `get_facet(cat_var_combine=...)` / `get_cat(cat_var_combine=...)` | 非参考联合组效应；get_cat 配对不比较星号 |
+| `get_eff(sub_var=...)` | 对应亚组水平行 |
+| `get_eff_cat(sub_var=..., sub_inter=...)` | 所选未调整及唯一调整模型行，见下方双模型示例 |
+
+`check_inter()` 无参数时按调用环境内的 `inter_*` / `facet_*` / `cat_*` 名称配对，不自动发现 `eff_*`；`get_eff()` / `get_eff_cat()` 应显式传入。多模型仍按 `sur`、`cif`、`log_<结局>` 配对，不合并不同模型的单元。逐项读取错误和 `unmatched`；不能把没有可比较单元当作一致。
+
+<!-- /update-20261022: check_target -->
+
+### get_eff_cat 的 sub_inter 模型行（2026-10-22） {#eff-cat-check-20261022}
+
+<!-- sync-20261022: inter_eff_cat -->
+
+2026-10-22 按已推送 RegR `d24e8a0` 在 Windows / WSL R 4.4.3 重新执行以下新名称调用，20 个单元仍一致。`check_inter()` 可以把 `get_eff_cat()` 的逐层面板拆成模型后，与一个或多个 `get_inter()` 对照；不再把这种列表误当成不兼容的多模型结构。
+
+```r
+library(RegR)
+set.seed(924)
+d_check_cat <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B", "C")), id = 1:60)
+d_check_cat[["Age"]] <- rnorm(720, 55, 10)
+t1 <- rexp(720, exp(0.4 * (d_check_cat[["Tx"]] == "Yes") +
+  0.2 * (d_check_cat[["Sex"]] == "Male") + 0.02 * (d_check_cat[["Age"]] - 55)) / 80)
+t2 <- rexp(720, 1 / 130); tc <- rexp(720, 1 / 160)
+d_check_cat[["time"]] <- pmin(t1, t2, tc) + 0.2
+d_check_cat[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_check_cat[["DSS"]] <- as.integer(d_check_cat[["event"]] == 1L)
+d_check_cat[["status"]] <- factor(d_check_cat[["event"]], levels = 0:2)
+models_cat <- list(`Cox model` = TRUE, `Fine-Gray model` = FALSE)
+cat_eff_checked <- get_eff_cat(d_check_cat, "Tx", sub_var = c("Sex", "Site"),
+  adj_var = list(Adjusted = "Age"), surv = models_cat, add_overall = TRUE,
+  sub_inter = c("Unadjusted", "Adjusted"))
+invisible(utils::capture.output(inter_sex_cat <- get_inter(d_check_cat, c("Tx", "Sex"),
+  adj_var = "Age", surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")))
+invisible(utils::capture.output(inter_site_cat <- get_inter(d_check_cat, c("Tx", "Site"),
+  adj_var = "Age", surv = list(sur = TRUE, cif = FALSE), multicat_model = "interaction")))
+cat_checks <- check_inter(list(sex = inter_sex_cat, site = inter_site_cat), cat_eff_checked)
+validation_values <- data.frame(pair = names(cat_checks),
+  compared = vapply(cat_checks, function(x) nrow(x[["comparison"]]), integer(1)),
+  equal = vapply(cat_checks, function(x) sum(x[["comparison"]][["status"]] == "equal"), integer(1)))
+validation_values
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(names(cat_checks), c("sex$sur", "sex$cif", "site$sur", "site$cif")),
+  all(vapply(cat_checks, function(x) isTRUE(x[["consistent"]]), logical(1))),
+  all(vapply(cat_checks, function(x) all(x[["comparison"]][["same_model_expected"]]), logical(1))),
+  length(attr(cat_checks, "unmatched")) == 0L)
+stopifnot(identical(unname(validation_values[["compared"]]), c(4L, 4L, 6L, 6L)),
+          sum(validation_values[["equal"]]) == 20L)
+```
+:::
+
+| 结果 | 比较单元 | 一致单元 |
+|:--|--:|--:|
+| `sex$sur` / `sex$cif` | 各 4 | 各 4 |
+| `site$sur` / `site$cif` | 各 6 | 各 6 |
+
+两种模型都实际拟合，Sex 两层、Site 三层各比较未调整和年龄调整效应，共 20 个显示单元。`get_eff_cat()` 可以使用可读模型名，核对器按模型类型对应 `sur`、`cif`，Logistic 则对应 `log_<结局列名>`。对 `cat_eff_checked` 的每一列亚组单独提取简单效应，Overall 面板不进入比较。
+
+本例显式把 `Unadjusted` 和唯一的 `Adjusted` 都列入 `sub_inter`，协变量与 `get_inter(adj_var="Age")` 相同。核对仅选择进入 `sub_inter` 的模型行，不比较其他调整模型、PS 行或绝对效应。未启用 `sub_inter` 的结果会要求重新拟合；同时选择多个调整模型则会报错，应先明确要与哪个调整集合对照。
+
+这里仍核对格式化效应与区间及其星号，不比较原始浮点值、交互 P、MS/RERI、概率或人数。每个配对单独返回状态，失败项与 `unmatched` 必须一起检查；不能只看列表长度。此前的 [get_eff 亚组核对](#inter-controls-20261021) 和 [get_cat 联合效应核对](#joint-cat-20261020)继续保留各自的输入和统计范围。
+
+<!-- /sync-20261022: inter_eff_cat -->
+
 ## 选择入口与复现 {#reproduce}
 
 ::: {.table-responsive}
@@ -1736,7 +1863,6 @@ gt_spaced
 
 :::
 
-
 ## 分层前检查与可保存结果页 {#int-view-current}
 
 2026-10-16按RegR a8a6eb8核对。至少两层的提前检查和结果环境整理已包含于远端1dc3b2f：split_var过滤缺失后若仅剩一层，会在任何拟合前报错。应先检查完整病例中的层数，不能等待运行完再将单层结果称为“分层分析”。结果不再因局部工作环境意外保存整份调用数据；results中的拟合、表和图仍有分析所需信息，不是匿名化对象。
@@ -1806,15 +1932,22 @@ inbag_settings[["inbag"]] <- replicate(30, rep(1L, nrow(di)), simplify = FALSE)
 inbag_now <- get_int(di, "Tx", vars = c("Marker", "Sex"), surv = "Outcome",
   seed = 721, detail = character(), ms_args = NULL, inter_args = NULL,
   shp_args = NULL, hte_args = NULL, tree_args = NULL, hst_args = inbag_settings)
-stopifnot(!is.null(inbag_now[["results"]][["hst"]]))
 bad_settings <- hst_settings
 bad_settings[["case.weights"]] <- original_weights[-1]
 length_error <- tryCatch(get_int(di, "Tx", vars = c("Marker", "Sex"), surv = "Outcome",
   ms_args = NULL, inter_args = NULL, shp_args = NULL, hte_args = NULL, tree_args = NULL,
   hst_args = bad_settings), error = identity)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(!is.null(inbag_now[["results"]][["hst"]]))
 stopifnot(inherits(length_error, "error"),
           grepl("per input row", conditionMessage(length_error), fixed = TRUE))
 ```
+:::
 
 `inbag` 列表仍须符合 ranger 的逐树设置；本例每棵树在保留行上均使用一次，只用于验证传递，不是推荐的重采样设计，也不用于 OOB 误差。权重和 inbag 的统计含义由调用者决定；这里只同步行位置，不把它们迁移到回归、SHAP 或 HTE 分支。
 
@@ -1840,10 +1973,17 @@ int_call <- function() get_int(d_seed, int_var = "Tx", vars = c("Sex", "Marker")
 seed_before <- .Random.seed
 int_seeded <- int_call()
 int_repeat <- int_call()
-stopifnot(identical(.Random.seed, seed_before),
-  isTRUE(all.equal(int_seeded[["table"]], int_repeat[["table"]], check.attributes = FALSE)))
 int_seeded[["combined"]]
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(.Random.seed, seed_before),
+  isTRUE(all.equal(int_seeded[["table"]], int_repeat[["table"]], check.attributes = FALSE)))
+```
+:::
 
 ![固定随机森林预算的交互筛查实图。](images/interaction-guide/20261018-int-seeded.png){fig-alt="180条模拟生存记录的整体交互P值与H统计量对照，Sex和Marker按相同伙伴行对齐。"}
 
@@ -1975,3 +2115,17 @@ ft_full <- save_tb_inter(inter_check[["sur"]],
 该检查不覆盖交互P值、RERI、曲线、概率差或人数，也不证明两条分析路径在未舍入数值上完全相同。若使用不同模型、参考组或逐对拆分策略，先核对 `same_model_expected` 与设置，不能为了得到 TRUE 而改写显示文本。
 
 `get_inter()` 现也接受 `cif_args`，放在 `conf_level` 后。`"CRR"` 让 Fine–Gray 比值与交互拟合回到 `tidycmprsk::crr()`；`"CSC"` 在这个不绘制 direct CIF 的入口中仍沿用默认 mets 比值拟合。`get_inter_abs()` 的固定时点 CIF 另有概率路径和区间要求，见[后端边界](get-eff-cif-benchmark.qmd#current-backend)。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-25：[不合并开关与结果打印](#reference-print-20261025)
+- 2026-10-24：[参考组、连续变量与亚组表](#reference-subgroup-20261024)
+- 2026-10-23：[绝对交互：逐模型计算与导出](#abs-models-20261023)
+- 2026-10-22：[自动选分层变量与差异提示](#check-target-20261022)
+- 2026-10-22：[get_eff_cat 的 sub_inter 模型行](#eff-cat-check-20261022)
+- 2026-10-21：[get_eff 亚组与多个交互结果](#inter-controls-20261021)
+- 2026-10-20：[联合组核对、常量协变量与导出](#joint-cat-20261020)
+- 2026-10-20：[联合组核对：检查联合效应](#joint-check-20261020)
+- [未调整生存绝对交互：Greenwood 更新](#km-delta-current)
+:::

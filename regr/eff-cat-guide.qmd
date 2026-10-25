@@ -14,294 +14,9 @@ directory:
 
 get_eff_cat() 把同一个分类暴露在不同模型下的估计排成行，便于检查调整集合、结局定义和分层怎样改变结果。它与逐个预测变量的 get_eff()/get_um() 表格组织方式不同。页面提供同一数据的模型表、森林图和绝对效应。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
-
-## 当前 sub_inter 模型行的交叉核对 {#sub-inter-check-20261022}
-
-2026-10-22 按已推送 RegR `d24e8a0` 核对：`check_inter(inter, target)` 能读取本页 `get_eff_cat(sub_var=..., sub_inter=...)` 的逐层面板，并按 Cox、Fine–Gray 或 Logistic 类型与 `get_inter()` 配对。[双平台 20 单元示例](interaction-guide.qmd#eff-cat-check-20261022)已用改名后的接口重新执行，实际拟合了两个模型和两列亚组。
-
-要核对的未调整行和一个调整模型需明确列入 `sub_inter`，调整集合与 `get_inter()` 相同；未启用 `sub_inter` 或同时选择多个调整模型的结果不能直接使用该核对。Overall、未选择的模型行、PS 行与绝对效应不在比较范围内；一致只表示格式化效应及区间单元匹配，不证明人数或交互 P 也一致。
-
-一个交互对象含多个修饰变量时，核对器先与目标 `sub_var` 取交集；只有一个候选才自动选择。目标同时包含多个候选时须显式给 `modifier`，或逐个传入单修饰变量的交互结果。差异提示及实际重拟合对照见[目标推断与差异原因](interaction-guide.qmd#check-target-20261022)，提示不能代替检查队列、编码和调整集合。
-
-## 当前多个亚组变量：逐列分层 {#sub-columns-20261021}
-
-<!-- controls-20261021: eff_cat_groups -->
-
-2026-10-21 按新推送 RegR `e217f1c`（分组改动 `c09cdcd`）在 Windows / WSL R 4.4.3 执行。`sub_var = c("Sex","Stage")` 现在先给出 Sex 的各层，再给出 Stage 的各层；顺序遵循输入列及其水平，标签写为 `Sex = Female` 等。它替代了旧版的 Sex×Stage 联合格子。真正需要联合分层时，先明确建立一个组合列，再把该单列传给 `sub_var`。
-
-### 同一人群，逐列保留其余调整变量
-
-```r
-library(RegR)
-set.seed(834)
-sub_data <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), Stage = factor(c("Early", "Late")), id = 1:75)
-sub_data[["Age"]] <- rnorm(600, 55, 10)
-t_event <- rexp(600, exp(0.35 * (sub_data[["Tx"]] == "Yes") +
-  0.2 * (sub_data[["Sex"]] == "Male") + 0.3 * (sub_data[["Stage"]] == "Late") +
-  0.02 * (sub_data[["Age"]] - 55)) / 80)
-t_censor <- rexp(600, 1 / 130)
-sub_data[["time"]] <- pmin(t_event, t_censor) + 0.2
-sub_data[["DSS"]] <- as.integer(t_event < t_censor)
-sub_data[["Sex"]][1] <- NA
-sub_data[["Stage"]][2] <- NA
-common_sub <- sub_data[complete.cases(sub_data[c("Sex", "Stage")]), , drop = FALSE]
-ps_demo <- list(IPTW = list(design = "weighting", method = "glm", estimand = "ATE"))
-panels <- get_eff_cat(sub_data, "Tx", sub_var = c("Sex", "Stage"),
-  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
-  ps_methods = ps_demo, surv = TRUE, add_overall = TRUE)
-labels_sub <- vapply(panels, attr, character(1), which = "sub_level")
-stopifnot(identical(unname(labels_sub),
-  c("Overall", "Sex = Female", "Sex = Male", "Stage = Early", "Stage = Late")),
-  nrow(common_sub) == 598L)
-validation_values <- data.frame(panel = unname(labels_sub), n = c(nrow(common_sub),
-  as.integer(table(common_sub[["Sex"]])), as.integer(table(common_sub[["Stage"]]))))
-validation_values
-```
-
-两个 `sub_var` 中任一列缺失的行都会先删除，所以本例共同人群为 598 人，Sex 两层为 298 / 300，Stage 两层也为 298 / 300；这不是每列各自保留其非缺失病例。每列分层时，仅从 `adj_var` 和 `ps_var` 移除当前这列：Sex 面板仍调整 Stage，Stage 面板仍调整 Sex，PS 也在各层重新估计。
-
-```r
-by_sex <- get_eff_cat(common_sub, "Tx", sub_var = "Sex",
-  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
-  ps_methods = ps_demo, surv = TRUE)
-by_stage <- get_eff_cat(common_sub, "Tx", sub_var = "Stage",
-  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
-  ps_methods = ps_demo, surv = TRUE)
-manual_panels <- c(by_sex, by_stage)
-for (i in seq_along(manual_panels)) {
-  stopifnot(isTRUE(all.equal(panels[[i + 1L]][["estimate"]], manual_panels[[i]][["estimate"]])),
-    isTRUE(all.equal(panels[[i + 1L]][["conf.low"]], manual_panels[[i]][["conf.low"]])),
-    identical(panels[[i + 1L]][["num1"]], manual_panels[[i]][["num1"]]))
-}
-plt_eff(panels, xlim = c(0.2, 5), base_size = 9,
-  core_size = c(3, 2), forest_nchar = 16,
-  save = list(filename = file.path(tempdir(), "20261021-controls-five-panels.pdf")))
-```
-
-![Overall 加两列亚组，依序组成五个森林面板。](images/eff-cat-guide/20261021-controls-five-panels.png){fig-alt="600条模拟记录删去两个亚组缺失后为598人，Overall、Sex两层、Stage两层共五个面板，各含未调整、调整与IPTW模型，第五面板表头没有fs5占位名。"}
-
-[下载原生 PDF](images/eff-cat-guide/20261021-controls-five-panels.pdf)
-
-本例逐面板与在共同人群上单独分层的结果核对，包含估计、区间下限和计数。当前 `plt_eff()` 也修复了第五及后续面板暴露 `fs5...` 占位表头的问题，并为正文文字保留右边距；宽图仍需按推荐尺寸保存、放大阅读。
-
-### sub_inter 也按每列建立自己的交互模型
-
-```r
-inter_panels <- get_eff_cat(sub_data, "Tx", sub_var = c("Sex", "Stage"),
-  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
-  ps_methods = ps_demo, surv = TRUE, sub_inter = TRUE)
-reference_sub <- get_eff(common_sub, "Tx", sub_var = c("Sex", "Stage"),
-  adj_var = c("Age", "Sex", "Stage"), surv = TRUE, subgroup_model = "interaction",
-  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
-for (i in seq_along(inter_panels)) {
-  panel <- inter_panels[[i]]
-  label <- attr(panel, "sub_level")
-  column <- sub(" = .*$", "", label); level <- sub("^.* = ", "", label)
-  for (model in c("Unadjusted", "Adjusted")) {
-    source <- reference_sub[[if (model == "Unadjusted") "haz_unadj" else "haz_direct"]]
-    row <- source[["row_type"]] == "level" & source[["variable"]] == column & source[["label"]] == level
-    stopifnot(isTRUE(all.equal(panel[["estimate"]][panel[["model_label"]] %in% model],
-                              source[["estimate"]][row])))
-  }
-  iptw <- panel[["model_label"]] %in% "IPTW"
-  original <- panels[[i + 1L]]
-  stopifnot(isTRUE(all.equal(panel[["estimate"]][iptw],
-    original[["estimate"]][original[["model_label"]] %in% "IPTW"])),
-    identical(attr(panel, "subgroup_model")[["IPTW"]], "separate"))
-}
-```
-
-相对效应分别来自 Tx×Sex 与 Tx×Stage 模型，不是三重交互。PS 行保持层内估计，`sub_inter` 不切换这些行；`abs_args` 的绝对效应与 `add_overall` 总体面板也不随它切换。仍要求二分类暴露，不能与 `split_var` 同用；只有一个可拟合层的列保留层内重拟合。下方单列历史示例仍有效，多列分析应从原始数据重新运行，不能只改旧图标题。
-
-<!-- /controls-20261021: eff_cat_groups -->
-
-## 当前亚组模型、完整案例与逐模型森林 {#sub-inter-20261020}
-
-2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 运行本节。`sub_inter` 是新的估计设置；多模型绘图返回值也已改变。下方早期并列多结局图片保留原执行记录，代码已显式指定其合并展示方式。
-
-### sub_inter：层内重拟合与交互模型
-
-默认 `sub_inter=NULL` 仍在每层分别拟合。`sub_inter="Model 1"` 只把该模型的亚组相对效应改为来自全队列的暴露×亚组模型，调整变量的系数在层间共享；未调整行继续层内拟合。`TRUE` 选择未调整与全部调整模型，PS 行仍在每层估计倾向评分。它要求二分类暴露和 `sub_var`，不能与 `split_var` 合用，也不能点名 PS 行；只有一个可拟合层时保留层内重拟合。多个 `sub_var` 在当前版本逐列处理，旧联合格子行为已由[上节合同](#sub-columns-20261021)替代。
-
-<!-- latest-20261020: eff_cat_current -->
-```r
-library(RegR)
-options(RegR.eff_cat.plot = FALSE)
-set.seed(20261020)
-d_new <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B")), id = 1:60)
-d_new[["Age"]] <- rnorm(nrow(d_new), 55, 10)
-tx <- as.integer(d_new[["Tx"]] == "Yes")
-male <- as.integer(d_new[["Sex"]] == "Male")
-t1 <- rexp(nrow(d_new), exp(-3.8 + 0.45 * tx + 0.3 * male +
-  0.35 * tx * male + 0.025 * (d_new[["Age"]] - 55)))
-t2 <- rexp(nrow(d_new), 0.008)
-tc <- rexp(nrow(d_new), 0.012)
-d_new[["time"]] <- pmin(t1, t2, tc)
-d_new[["event"]] <- ifelse(t1 <= pmin(t2, tc), 1L, ifelse(t2 <= tc, 2L, 0L))
-d_new[["DSS"]] <- as.integer(d_new[["event"]] == 1L)
-
-refit <- get_eff_cat(d_new, "Tx", sub_var = "Sex",
-  adj_var = list(`Model 1` = "Age"), add_overall = TRUE)
-joint <- get_eff_cat(d_new, "Tx", sub_var = "Sex",
-  adj_var = list(`Model 1` = "Age"), add_overall = TRUE, sub_inter = "Model 1")
-reference <- get_eff(d_new, "Tx", sub_var = "Sex", adj_var = "Age",
-  methods_haz = "direct", methods_sur = character(), all = NULL,
-  subgroup_model = "interaction")[["haz_direct"]]
-comparison <- do.call(rbind, lapply(c("Female", "Male"), function(sex) {
-  name <- paste0("haz_models_", sex)
-  a <- refit[[name]]; b <- joint[[name]]
-  row <- b[["model_label"]] %in% "Model 1"
-  expected <- reference[reference[["row_type"]] == "level" &
-    reference[["label"]] == sex, , drop = FALSE]
-  stopifnot(isTRUE(all.equal(b[["estimate"]][row], expected[["estimate"]])),
-    identical(a[["eve1"]], b[["eve1"]]),
-    identical(attr(b, "subgroup_model"), c(Unadjusted = "separate", `Model 1` = "interaction")))
-  data.frame(Sex = sex, refit_HR = a[["estimate"]][row], interaction_HR = b[["estimate"]][row])
-}))
-stopifnot(identical(refit[["haz_models_Overall"]], joint[["haz_models_Overall"]]))
-comparison
-plt_eff(refit, fixed_size = TRUE, base_size = 10,
-  title = "Separate subgroup fits", save = list(filename = file.path(tempdir(),
-    "20261020-latest-eff-cat-refit.pdf")))
-plt_eff(joint, fixed_size = TRUE, base_size = 10,
-  title = "Model 1 from a Tx x Sex model", save = list(filename = file.path(tempdir(),
-    "20261020-latest-eff-cat-interaction.pdf")))
-```
-
-::: {.panel-tabset}
-
-### 每层重拟合 {.unnumbered}
-
-![未调整与 Model 1 均在每个 Sex 层内重拟合。](images/eff-cat-guide/20261020-latest-eff-cat-refit.png){fig-alt="480行模拟数据的Overall、Female、Male三个面板，每个面板有未调整和年龄调整HR，均分别拟合。"}
-
-[下载 PDF](images/eff-cat-guide/20261020-latest-eff-cat-refit.pdf)
-
-### 选择交互模型 {.unnumbered}
-
-![只替换 Model 1 的亚组估计，总体与计数不变。](images/eff-cat-guide/20261020-latest-eff-cat-interaction.png){fig-alt="相同三个亚组面板，Female与Male的Model 1 HR改用同一个Tx乘Sex交互模型；未调整行、Overall与事件计数保持不变。"}
-
-[下载 PDF](images/eff-cat-guide/20261020-latest-eff-cat-interaction.pdf)
-
 :::
-
-本例年龄调整 HR：Female 层内重拟合为 1.786923、交互模型为 1.695827；Male 分别为 3.155215、3.168770。代码核对两层交互模型 HR 与 `get_eff(subgroup_model="interaction")` 一致，并保留原层计数与 Overall。来源记录在各表的 `attr(.,"subgroup_model")` 中。`abs_args` 的绝对效应不随 `sub_inter` 改变；不要把它理解为整张图的所有模型都已切换。亚组间的正式效应修饰仍需报告交互检验。
-
-### PS 先按各结局筛完整案例
-
-```r
-d_missing <- d_new
-d_missing[["DSS"]][c(3, 10, 25)] <- NA_integer_
-d_missing[["event"]][c(3, 10, 25)] <- NA_integer_
-d_missing[["time"]][40] <- NA_real_
-ps_specs <- list(
-  IPTW = list(design = "weighting", method = "glm", estimand = "ATE", stabilize = TRUE),
-  PSM = list(design = "matching", method = "nearest", estimand = "ATT"))
-cc_check <- do.call(rbind, lapply(list(Cox = TRUE, `Fine-Gray` = FALSE, Logistic = "DSS"), function(model) {
-  needed <- if (isTRUE(model)) c("time", "DSS") else if (isFALSE(model)) c("time", "event") else model
-  complete <- d_missing[complete.cases(d_missing[needed]), , drop = FALSE]
-  fit <- function(dat) get_eff_cat(dat, "Tx", ps_var = c("Age", "Sex"),
-    ps_methods = ps_specs, surv = model, ps_robust = TRUE)
-  automatic <- fit(d_missing)[[1]]
-  explicit <- fit(complete)[[1]]
-  stopifnot(isTRUE(all.equal(automatic[["estimate"]], explicit[["estimate"]])),
-    isTRUE(all.equal(automatic[["conf.low"]], explicit[["conf.low"]])),
-    isTRUE(all.equal(automatic[["conf.high"]], explicit[["conf.high"]])))
-  data.frame(n_input = nrow(d_missing), n_complete = nrow(complete), matches = TRUE)
-}))
-cc_check
-```
-
-Cox / Fine–Gray 的 PS 分别使用 `time+DSS` / `time+event`（没有 event 时取 status）的完整记录；Logistic 只需对应结局列。上例前两者各保留 476 行，Logistic 保留 477 行，IPTW 与匹配的效应及区间都与显式预筛一致。存在结局缺失时，这会改变以前在所有记录上拟合的倾向评分；它没有填补缺失，也不保证不同结局有相同分析人群。
-
-### 多模型返回列表与 Fine–Gray 方向
-
-```r
-models_new <- get_eff_cat(d_new, "Tx", adj_var = "Age",
-  surv = list(Cox = TRUE, `Fine-Gray` = FALSE),
-  abs_args = list(enabled = TRUE, time = 24, cif_boot = 100))
-plots_new <- plt_eff(models_new, fixed_size = TRUE, base_size = 10,
-  save = list(filename = file.path(tempdir(), c(
-    "20261020-latest-eff-cat-cox.pdf", "20261020-latest-eff-cat-cif.pdf"))))
-stopifnot(inherits(plots_new, "surv_models"),
-          identical(names(plots_new), c("Cox", "Fine-Gray")))
-validation_values <- list(subgroups = comparison, complete_cases = cc_check)
-```
-<!-- /latest-20261020: eff_cat_current -->
-
-::: {.panel-tabset}
-
-### Cox {.unnumbered}
-
-![同一结局的相对效应与 24 月绝对效应保留在一起。](images/eff-cat-guide/20261020-latest-eff-cat-cox.png){fig-alt="按模型返回的Cox森林，展示未调整和年龄调整HR及24月生存概率差。"}
-
-[下载 PDF](images/eff-cat-guide/20261020-latest-eff-cat-cox.pdf)
-
-### Fine–Gray {.unnumbered}
-
-![Fine–Gray 单独成图，sHR 和 CIF 差的高风险方向在右。](images/eff-cat-guide/20261020-latest-eff-cat-cif.png){fig-alt="按模型返回的Fine-Gray森林，sHR以1为参考，24月CIF差以0为参考，均左侧Low risk、右侧High risk。"}
-
-[下载 PDF](images/eff-cat-guide/20261020-latest-eff-cat-cif.pdf)
-
-:::
-
-`plt_eff()` 自动按 `outcome_label` 分模型，返回以模型命名的 `surv_models` 图列表，可用 `plots_new[["Fine-Gray"]]` 单独访问。普通设置共享，命名 list 或长度正确的无名 list 可逐模型设置；无名 `save$filename` 向量按模型顺序匹配。`xlim` / `ticks_at` 的无名 list 仍按面板解释，逐模型设置这两项须命名。
-
-本例 `get_eff_cat()` 的 CIF 差是比较组减参照组，正值表示更高目标事件风险；sHR>1 也在右侧。`get_eff()` 的 Fine–Gray 概率差则是参照减比较，风险方向相反。Cox 的绝对列按生存概率差读取，不能仅凭箭头把生存获益与事件风险当成同一量。本例 CIF bootstrap=100 只用于接口演示；正式分析应另行确定重复数并检查稳定性。
-
-## Fine–Gray 并列时间：保持调用者行序 {#fg-ties-20261021}
-
-<!-- refresh-20261021: fg_ties -->
-
-2026-10-21 按已推送 RegR `338a664`（行序修复 `f5e1f10`）在 Windows / WSL R 4.4.3 验证。`get_eff_cat(sub_inter=...)` 现在把完整病例按调用者原行序交给交互模型；此前先拼接各亚组，可能改变同一时间内的行序。mets 的 Fine–Gray 拟合对这种并列顺序可能敏感，因此相同数据、公式和引擎也曾与 `get_eff()` 出现差异。
-
-```r
-library(RegR)
-options(RegR.eff_cat.plot = FALSE)
-set.seed(20261021)
-fg_tied <- data.frame(Tx = factor(sample(c("No", "Yes"), 360, TRUE)),
-  Stratum = factor(sample(c("Low", "High"), 360, TRUE), levels = c("Low", "High")),
-  Age = rnorm(360, 55, 10), time = ceiling(rexp(360, 1 / 12)),
-  event = sample(0:2, 360, TRUE, prob = c(0.35, 0.45, 0.20)))
-fg_tied[["DSS"]] <- as.integer(fg_tied[["event"]] == 1L)
-fg_tied[["OS"]] <- as.integer(fg_tied[["event"]] > 0L)
-stopifnot(anyDuplicated(fg_tied[["time"]]) > 0L)
-joint_fg <- get_eff_cat(fg_tied, "Tx", sub_var = "Stratum", adj_var = "Age",
-  surv = FALSE, sub_inter = TRUE)
-reference_fg <- get_eff(fg_tied, "Tx", sub_var = "Stratum", adj_var = "Age",
-  surv = FALSE, methods_haz = c("unadj", "direct"), methods_sur = character(),
-  all = NULL, subgroup_model = "interaction")
-matched_fg <- do.call(rbind, lapply(c("Low", "High"), function(st) {
-  panel <- joint_fg[[paste0("haz_models_", st)]]
-  do.call(rbind, lapply(c(Unadjusted = "haz_unadj", Adjusted = "haz_direct"), function(key) {
-    model_name <- if (key == "haz_unadj") "Unadjusted" else "Adjusted"
-    got <- panel[panel[["model_label"]] %in% model_name, ]
-    ref <- reference_fg[[key]]
-    ref <- ref[ref[["row_type"]] %in% "level" & ref[["label"]] %in% st, ]
-    stopifnot(nrow(got) == 1L, nrow(ref) == 1L,
-      isTRUE(all.equal(as.numeric(got[1, c("estimate", "conf.low", "conf.high")]),
-                       as.numeric(ref[1, c("estimate", "conf.low", "conf.high")]), tolerance = 1e-10)))
-    data.frame(stratum = st, model = model_name, sHR = got[["estimate"]],
-               absolute_difference = abs(got[["estimate"]] - ref[["estimate"]]))
-  }))
-}))
-matched_fg
-```
-
-本例同时核对两个层、未调整与年龄调整模型的 sHR 及区间，两个入口在同一平台上一致。这里比较的是**相同的交互模型**；层内分别重拟合与共享调整系数的交互模型仍有不同的估计含义，不要求它们相等。
-
-| 亚组 | 未调整 sHR | 年龄调整 sHR | 两入口点估计差 |
-|:--|--:|--:|--:|
-| Low | 0.882859 | 0.887939 | 0 |
-| High | 1.136623 | 1.131291 | 0 |
-
-该合成输入的辅助加性交互计算会提示预防性暴露及 `NaNs produced`；这里的断言仅覆盖有限的 sHR 与区间，不据此验证或解释 RERI 等辅助指标。
-
-保留稳定的患者行序，不为“统一结果”临时按亚组或事件重排。若旧分析使用了并列月份，建议用原始行序重新计算，并记录数据筛选、行序、引擎和依赖版本；仅更新图形无法纠正已经缓存的旧系数。本页没有重跑真实队列，也不据此承诺结果对任意行序完全不变。
-
-<!-- /refresh-20261021: fg_ties -->
 
 ## 数据准备与复现
 
@@ -326,7 +41,6 @@ set.seed(20261001)
 d <- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])
 ```
 
-
 ## 共用计算与返回对象
 
 
@@ -347,7 +61,6 @@ by_rows <- run_quiet({get_eff_cat(d, cat_var = "Sex", split_var = "stage",
 combined <- run_quiet({get_eff_cat(d, cat_var_combine = c("Sex", "stage"),
   adj_var = c("Age", "Tum"))})
 ```
-
 
 ## 返回表：模型排成行
 
@@ -449,7 +162,6 @@ plt_eff(structure(multi, multi_outcome = NULL), display = "c", show_pinter = "no
 
 :::
 
-
 ## 相同结果的方向、列与坐标
 
 
@@ -501,7 +213,6 @@ plt_eff(structure(multi, multi_outcome = NULL), display = "v", show_pinter = "no
 
 
 :::
-
 
 ## 60 月绝对效应
 
@@ -608,7 +319,6 @@ as.data.frame(absolute[["sur_models"]])[, intersect(c("model_label", "level", "r
 
 :::
 
-
 ## 分面与按行分层
 
 
@@ -647,6 +357,325 @@ plt_eff(by_rows, show_pinter = "none",
 
 :::
 
+## 亚组变量与 sub_inter 模型 {#subgroups}
+
+`sub_var` 给出亚组变量；`sub_inter` 决定某个模型的亚组相对效应来自层内重拟合（默认 `NULL`），还是来自全队列的暴露×亚组交互模型。以下按日期收录相关更新与核对。
+
+### 亚组模型、完整案例与逐模型森林（2026-10-20） {#sub-inter-20261020}
+
+2026-10-20 按已推送 RegR `a2f2553` 在 Windows / WSL R 4.4.3 运行本节。`sub_inter` 是新的估计设置；多模型绘图返回值也已改变。下方早期并列多结局图片保留原执行记录，代码已显式指定其合并展示方式。
+
+#### sub_inter：层内重拟合与交互模型
+
+默认 `sub_inter=NULL` 仍在每层分别拟合。`sub_inter="Model 1"` 只把该模型的亚组相对效应改为来自全队列的暴露×亚组模型，调整变量的系数在层间共享；未调整行继续层内拟合。`TRUE` 选择未调整与全部调整模型，PS 行仍在每层估计倾向评分。它要求二分类暴露和 `sub_var`，不能与 `split_var` 合用，也不能点名 PS 行；只有一个可拟合层时保留层内重拟合。多个 `sub_var` 在当前版本逐列处理，旧联合格子行为已由[上节合同](#sub-columns-20261021)替代。
+
+<!-- latest-20261020: eff_cat_current -->
+```r
+library(RegR)
+options(RegR.eff_cat.plot = FALSE)
+set.seed(20261020)
+d_new <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Site = factor(c("A", "B")), id = 1:60)
+d_new[["Age"]] <- rnorm(nrow(d_new), 55, 10)
+tx <- as.integer(d_new[["Tx"]] == "Yes")
+male <- as.integer(d_new[["Sex"]] == "Male")
+t1 <- rexp(nrow(d_new), exp(-3.8 + 0.45 * tx + 0.3 * male +
+  0.35 * tx * male + 0.025 * (d_new[["Age"]] - 55)))
+t2 <- rexp(nrow(d_new), 0.008)
+tc <- rexp(nrow(d_new), 0.012)
+d_new[["time"]] <- pmin(t1, t2, tc)
+d_new[["event"]] <- ifelse(t1 <= pmin(t2, tc), 1L, ifelse(t2 <= tc, 2L, 0L))
+d_new[["DSS"]] <- as.integer(d_new[["event"]] == 1L)
+
+refit <- get_eff_cat(d_new, "Tx", sub_var = "Sex",
+  adj_var = list(`Model 1` = "Age"), add_overall = TRUE)
+joint <- get_eff_cat(d_new, "Tx", sub_var = "Sex",
+  adj_var = list(`Model 1` = "Age"), add_overall = TRUE, sub_inter = "Model 1")
+reference <- get_eff(d_new, "Tx", sub_var = "Sex", adj_var = "Age",
+  methods_haz = "direct", methods_sur = character(), all = NULL,
+  subgroup_model = "interaction")[["haz_direct"]]
+comparison <- do.call(rbind, lapply(c("Female", "Male"), function(sex) {
+  name <- paste0("haz_models_", sex)
+  a <- refit[[name]]; b <- joint[[name]]
+  row <- b[["model_label"]] %in% "Model 1"
+  expected <- reference[reference[["row_type"]] == "level" &
+    reference[["label"]] == sex, , drop = FALSE]
+  stopifnot(isTRUE(all.equal(b[["estimate"]][row], expected[["estimate"]])),
+    identical(a[["eve1"]], b[["eve1"]]),
+    identical(attr(b, "subgroup_model"), c(Unadjusted = "separate", `Model 1` = "interaction")))
+  data.frame(Sex = sex, refit_HR = a[["estimate"]][row], interaction_HR = b[["estimate"]][row])
+}))
+comparison
+plt_eff(refit, fixed_size = TRUE, base_size = 10,
+  title = "Separate subgroup fits", save = list(filename = file.path(tempdir(),
+    "20261020-latest-eff-cat-refit.pdf")))
+plt_eff(joint, fixed_size = TRUE, base_size = 10,
+  title = "Model 1 from a Tx x Sex model", save = list(filename = file.path(tempdir(),
+    "20261020-latest-eff-cat-interaction.pdf")))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(refit[["haz_models_Overall"]], joint[["haz_models_Overall"]]))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 每层重拟合 {.unnumbered}
+
+![未调整与 Model 1 均在每个 Sex 层内重拟合。](images/eff-cat-guide/20261020-latest-eff-cat-refit.png){fig-alt="480行模拟数据的Overall、Female、Male三个面板，每个面板有未调整和年龄调整HR，均分别拟合。"}
+
+[下载 PDF](images/eff-cat-guide/20261020-latest-eff-cat-refit.pdf)
+
+#### 选择交互模型 {.unnumbered}
+
+![只替换 Model 1 的亚组估计，总体与计数不变。](images/eff-cat-guide/20261020-latest-eff-cat-interaction.png){fig-alt="相同三个亚组面板，Female与Male的Model 1 HR改用同一个Tx乘Sex交互模型；未调整行、Overall与事件计数保持不变。"}
+
+[下载 PDF](images/eff-cat-guide/20261020-latest-eff-cat-interaction.pdf)
+
+:::
+
+本例年龄调整 HR：Female 层内重拟合为 1.786923、交互模型为 1.695827；Male 分别为 3.155215、3.168770。代码核对两层交互模型 HR 与 `get_eff(subgroup_model="interaction")` 一致，并保留原层计数与 Overall。来源记录在各表的 `attr(.,"subgroup_model")` 中。`abs_args` 的绝对效应不随 `sub_inter` 改变；不要把它理解为整张图的所有模型都已切换。亚组间的正式效应修饰仍需报告交互检验。
+
+#### PS 先按各结局筛完整案例
+
+```r
+d_missing <- d_new
+d_missing[["DSS"]][c(3, 10, 25)] <- NA_integer_
+d_missing[["event"]][c(3, 10, 25)] <- NA_integer_
+d_missing[["time"]][40] <- NA_real_
+ps_specs <- list(
+  IPTW = list(design = "weighting", method = "glm", estimand = "ATE", stabilize = TRUE),
+  PSM = list(design = "matching", method = "nearest", estimand = "ATT"))
+cc_check <- do.call(rbind, lapply(list(Cox = TRUE, `Fine-Gray` = FALSE, Logistic = "DSS"), function(model) {
+  needed <- if (isTRUE(model)) c("time", "DSS") else if (isFALSE(model)) c("time", "event") else model
+  complete <- d_missing[complete.cases(d_missing[needed]), , drop = FALSE]
+  fit <- function(dat) get_eff_cat(dat, "Tx", ps_var = c("Age", "Sex"),
+    ps_methods = ps_specs, surv = model, ps_robust = TRUE)
+  automatic <- fit(d_missing)[[1]]
+  explicit <- fit(complete)[[1]]
+  stopifnot(isTRUE(all.equal(automatic[["estimate"]], explicit[["estimate"]])),
+    isTRUE(all.equal(automatic[["conf.low"]], explicit[["conf.low"]])),
+    isTRUE(all.equal(automatic[["conf.high"]], explicit[["conf.high"]])))
+  data.frame(n_input = nrow(d_missing), n_complete = nrow(complete), matches = TRUE)
+}))
+cc_check
+```
+
+Cox / Fine–Gray 的 PS 分别使用 `time+DSS` / `time+event`（没有 event 时取 status）的完整记录；Logistic 只需对应结局列。上例前两者各保留 476 行，Logistic 保留 477 行，IPTW 与匹配的效应及区间都与显式预筛一致。存在结局缺失时，这会改变以前在所有记录上拟合的倾向评分；它没有填补缺失，也不保证不同结局有相同分析人群。
+
+#### 多模型返回列表与 Fine–Gray 方向
+
+```r
+models_new <- get_eff_cat(d_new, "Tx", adj_var = "Age",
+  surv = list(Cox = TRUE, `Fine-Gray` = FALSE),
+  abs_args = list(enabled = TRUE, time = 24, cif_boot = 100))
+plots_new <- plt_eff(models_new, fixed_size = TRUE, base_size = 10,
+  save = list(filename = file.path(tempdir(), c(
+    "20261020-latest-eff-cat-cox.pdf", "20261020-latest-eff-cat-cif.pdf"))))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(inherits(plots_new, "surv_models"),
+          identical(names(plots_new), c("Cox", "Fine-Gray")))
+validation_values <- list(subgroups = comparison, complete_cases = cc_check)
+```
+:::
+
+<!-- /latest-20261020: eff_cat_current -->
+
+::: {.panel-tabset}
+
+#### Cox {.unnumbered}
+
+![同一结局的相对效应与 24 月绝对效应保留在一起。](images/eff-cat-guide/20261020-latest-eff-cat-cox.png){fig-alt="按模型返回的Cox森林，展示未调整和年龄调整HR及24月生存概率差。"}
+
+[下载 PDF](images/eff-cat-guide/20261020-latest-eff-cat-cox.pdf)
+
+#### Fine–Gray {.unnumbered}
+
+![Fine–Gray 单独成图，sHR 和 CIF 差的高风险方向在右。](images/eff-cat-guide/20261020-latest-eff-cat-cif.png){fig-alt="按模型返回的Fine-Gray森林，sHR以1为参考，24月CIF差以0为参考，均左侧Low risk、右侧High risk。"}
+
+[下载 PDF](images/eff-cat-guide/20261020-latest-eff-cat-cif.pdf)
+
+:::
+
+`plt_eff()` 自动按 `outcome_label` 分模型，返回以模型命名的 `surv_models` 图列表，可用 `plots_new[["Fine-Gray"]]` 单独访问。普通设置共享，命名 list 或长度正确的无名 list 可逐模型设置；无名 `save$filename` 向量按模型顺序匹配。`xlim` / `ticks_at` 的无名 list 仍按面板解释，逐模型设置这两项须命名。
+
+本例 `get_eff_cat()` 的 CIF 差是比较组减参照组，正值表示更高目标事件风险；sHR>1 也在右侧。`get_eff()` 的 Fine–Gray 概率差则是参照减比较，风险方向相反。Cox 的绝对列按生存概率差读取，不能仅凭箭头把生存获益与事件风险当成同一量。本例 CIF bootstrap=100 只用于接口演示；正式分析应另行确定重复数并检查稳定性。
+
+### 多个亚组变量：逐列分层（2026-10-21） {#sub-columns-20261021}
+
+<!-- controls-20261021: eff_cat_groups -->
+
+2026-10-21 按新推送 RegR `e217f1c`（分组改动 `c09cdcd`）在 Windows / WSL R 4.4.3 执行。`sub_var = c("Sex","Stage")` 现在先给出 Sex 的各层，再给出 Stage 的各层；顺序遵循输入列及其水平，标签写为 `Sex = Female` 等。它替代了旧版的 Sex×Stage 联合格子。真正需要联合分层时，先明确建立一个组合列，再把该单列传给 `sub_var`。
+
+#### 同一人群，逐列保留其余调整变量
+
+```r
+library(RegR)
+set.seed(834)
+sub_data <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), Stage = factor(c("Early", "Late")), id = 1:75)
+sub_data[["Age"]] <- rnorm(600, 55, 10)
+t_event <- rexp(600, exp(0.35 * (sub_data[["Tx"]] == "Yes") +
+  0.2 * (sub_data[["Sex"]] == "Male") + 0.3 * (sub_data[["Stage"]] == "Late") +
+  0.02 * (sub_data[["Age"]] - 55)) / 80)
+t_censor <- rexp(600, 1 / 130)
+sub_data[["time"]] <- pmin(t_event, t_censor) + 0.2
+sub_data[["DSS"]] <- as.integer(t_event < t_censor)
+sub_data[["Sex"]][1] <- NA
+sub_data[["Stage"]][2] <- NA
+common_sub <- sub_data[complete.cases(sub_data[c("Sex", "Stage")]), , drop = FALSE]
+ps_demo <- list(IPTW = list(design = "weighting", method = "glm", estimand = "ATE"))
+panels <- get_eff_cat(sub_data, "Tx", sub_var = c("Sex", "Stage"),
+  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
+  ps_methods = ps_demo, surv = TRUE, add_overall = TRUE)
+labels_sub <- vapply(panels, attr, character(1), which = "sub_level")
+validation_values <- data.frame(panel = unname(labels_sub), n = c(nrow(common_sub),
+  as.integer(table(common_sub[["Sex"]])), as.integer(table(common_sub[["Stage"]]))))
+validation_values
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(unname(labels_sub),
+  c("Overall", "Sex = Female", "Sex = Male", "Stage = Early", "Stage = Late")),
+  nrow(common_sub) == 598L)
+```
+:::
+
+两个 `sub_var` 中任一列缺失的行都会先删除，所以本例共同人群为 598 人，Sex 两层为 298 / 300，Stage 两层也为 298 / 300；这不是每列各自保留其非缺失病例。每列分层时，仅从 `adj_var` 和 `ps_var` 移除当前这列：Sex 面板仍调整 Stage，Stage 面板仍调整 Sex，PS 也在各层重新估计。
+
+```r
+by_sex <- get_eff_cat(common_sub, "Tx", sub_var = "Sex",
+  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
+  ps_methods = ps_demo, surv = TRUE)
+by_stage <- get_eff_cat(common_sub, "Tx", sub_var = "Stage",
+  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
+  ps_methods = ps_demo, surv = TRUE)
+manual_panels <- c(by_sex, by_stage)
+for (i in seq_along(manual_panels)) {
+  stopifnot(isTRUE(all.equal(panels[[i + 1L]][["estimate"]], manual_panels[[i]][["estimate"]])),
+    isTRUE(all.equal(panels[[i + 1L]][["conf.low"]], manual_panels[[i]][["conf.low"]])),
+    identical(panels[[i + 1L]][["num1"]], manual_panels[[i]][["num1"]]))
+}
+plt_eff(panels, xlim = c(0.2, 5), base_size = 9,
+  core_size = c(3, 2), forest_nchar = 16,
+  save = list(filename = file.path(tempdir(), "20261021-controls-five-panels.pdf")))
+```
+
+![Overall 加两列亚组，依序组成五个森林面板。](images/eff-cat-guide/20261021-controls-five-panels.png){fig-alt="600条模拟记录删去两个亚组缺失后为598人，Overall、Sex两层、Stage两层共五个面板，各含未调整、调整与IPTW模型，第五面板表头没有fs5占位名。"}
+
+[下载原生 PDF](images/eff-cat-guide/20261021-controls-five-panels.pdf)
+
+本例逐面板与在共同人群上单独分层的结果核对，包含估计、区间下限和计数。当前 `plt_eff()` 也修复了第五及后续面板暴露 `fs5...` 占位表头的问题，并为正文文字保留右边距；宽图仍需按推荐尺寸保存、放大阅读。
+
+#### sub_inter 也按每列建立自己的交互模型
+
+```r
+inter_panels <- get_eff_cat(sub_data, "Tx", sub_var = c("Sex", "Stage"),
+  adj_var = c("Age", "Sex", "Stage"), ps_var = c("Age", "Sex", "Stage"),
+  ps_methods = ps_demo, surv = TRUE, sub_inter = TRUE)
+reference_sub <- get_eff(common_sub, "Tx", sub_var = c("Sex", "Stage"),
+  adj_var = c("Age", "Sex", "Stage"), surv = TRUE, subgroup_model = "interaction",
+  methods_haz = c("unadj", "direct"), methods_sur = character(), all = NULL)
+for (i in seq_along(inter_panels)) {
+  panel <- inter_panels[[i]]
+  label <- attr(panel, "sub_level")
+  column <- sub(" = .*$", "", label); level <- sub("^.* = ", "", label)
+  for (model in c("Unadjusted", "Adjusted")) {
+    source <- reference_sub[[if (model == "Unadjusted") "haz_unadj" else "haz_direct"]]
+    row <- source[["row_type"]] == "level" & source[["variable"]] == column & source[["label"]] == level
+    stopifnot(isTRUE(all.equal(panel[["estimate"]][panel[["model_label"]] %in% model],
+                              source[["estimate"]][row])))
+  }
+  iptw <- panel[["model_label"]] %in% "IPTW"
+  original <- panels[[i + 1L]]
+  stopifnot(isTRUE(all.equal(panel[["estimate"]][iptw],
+    original[["estimate"]][original[["model_label"]] %in% "IPTW"])),
+    identical(attr(panel, "subgroup_model")[["IPTW"]], "separate"))
+}
+```
+
+相对效应分别来自 Tx×Sex 与 Tx×Stage 模型，不是三重交互。PS 行保持层内估计，`sub_inter` 不切换这些行；`abs_args` 的绝对效应与 `add_overall` 总体面板也不随它切换。仍要求二分类暴露，不能与 `split_var` 同用；只有一个可拟合层的列保留层内重拟合。下方单列历史示例仍有效，多列分析应从原始数据重新运行，不能只改旧图标题。
+
+<!-- /controls-20261021: eff_cat_groups -->
+
+### Fine–Gray 并列时间：保持调用者行序（2026-10-21） {#fg-ties-20261021}
+
+<!-- refresh-20261021: fg_ties -->
+
+2026-10-21 按已推送 RegR `338a664`（行序修复 `f5e1f10`）在 Windows / WSL R 4.4.3 验证。`get_eff_cat(sub_inter=...)` 现在把完整病例按调用者原行序交给交互模型；此前先拼接各亚组，可能改变同一时间内的行序。mets 的 Fine–Gray 拟合对这种并列顺序可能敏感，因此相同数据、公式和引擎也曾与 `get_eff()` 出现差异。
+
+```r
+library(RegR)
+options(RegR.eff_cat.plot = FALSE)
+set.seed(20261021)
+fg_tied <- data.frame(Tx = factor(sample(c("No", "Yes"), 360, TRUE)),
+  Stratum = factor(sample(c("Low", "High"), 360, TRUE), levels = c("Low", "High")),
+  Age = rnorm(360, 55, 10), time = ceiling(rexp(360, 1 / 12)),
+  event = sample(0:2, 360, TRUE, prob = c(0.35, 0.45, 0.20)))
+fg_tied[["DSS"]] <- as.integer(fg_tied[["event"]] == 1L)
+fg_tied[["OS"]] <- as.integer(fg_tied[["event"]] > 0L)
+joint_fg <- get_eff_cat(fg_tied, "Tx", sub_var = "Stratum", adj_var = "Age",
+  surv = FALSE, sub_inter = TRUE)
+reference_fg <- get_eff(fg_tied, "Tx", sub_var = "Stratum", adj_var = "Age",
+  surv = FALSE, methods_haz = c("unadj", "direct"), methods_sur = character(),
+  all = NULL, subgroup_model = "interaction")
+matched_fg <- do.call(rbind, lapply(c("Low", "High"), function(st) {
+  panel <- joint_fg[[paste0("haz_models_", st)]]
+  do.call(rbind, lapply(c(Unadjusted = "haz_unadj", Adjusted = "haz_direct"), function(key) {
+    model_name <- if (key == "haz_unadj") "Unadjusted" else "Adjusted"
+    got <- panel[panel[["model_label"]] %in% model_name, ]
+    ref <- reference_fg[[key]]
+    ref <- ref[ref[["row_type"]] %in% "level" & ref[["label"]] %in% st, ]
+    stopifnot(nrow(got) == 1L, nrow(ref) == 1L,
+      isTRUE(all.equal(as.numeric(got[1, c("estimate", "conf.low", "conf.high")]),
+                       as.numeric(ref[1, c("estimate", "conf.low", "conf.high")]), tolerance = 1e-10)))
+    data.frame(stratum = st, model = model_name, sHR = got[["estimate"]],
+               absolute_difference = abs(got[["estimate"]] - ref[["estimate"]]))
+  }))
+}))
+matched_fg
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(anyDuplicated(fg_tied[["time"]]) > 0L)
+```
+:::
+
+本例同时核对两个层、未调整与年龄调整模型的 sHR 及区间，两个入口在同一平台上一致。这里比较的是**相同的交互模型**；层内分别重拟合与共享调整系数的交互模型仍有不同的估计含义，不要求它们相等。
+
+| 亚组 | 未调整 sHR | 年龄调整 sHR | 两入口点估计差 |
+|:--|--:|--:|--:|
+| Low | 0.882859 | 0.887939 | 0 |
+| High | 1.136623 | 1.131291 | 0 |
+
+该合成输入的辅助加性交互计算会提示预防性暴露及 `NaNs produced`；这里的断言仅覆盖有限的 sHR 与区间，不据此验证或解释 RERI 等辅助指标。
+
+保留稳定的患者行序，不为“统一结果”临时按亚组或事件重排。若旧分析使用了并列月份，建议用原始行序重新计算，并记录数据筛选、行序、引擎和依赖版本；仅更新图形无法纠正已经缓存的旧系数。本页没有重跑真实队列，也不据此承诺结果对任意行序完全不变。
+
+<!-- /refresh-20261021: fg_ties -->
+
+### sub_inter 模型行的交叉核对（2026-10-22） {#sub-inter-check-20261022}
+
+2026-10-22 按已推送 RegR `d24e8a0` 核对：`check_inter(inter, target)` 能读取本页 `get_eff_cat(sub_var=..., sub_inter=...)` 的逐层面板，并按 Cox、Fine–Gray 或 Logistic 类型与 `get_inter()` 配对。[双平台 20 单元示例](interaction-guide.qmd#eff-cat-check-20261022)已用改名后的接口重新执行，实际拟合了两个模型和两列亚组。
+
+要核对的未调整行和一个调整模型需明确列入 `sub_inter`，调整集合与 `get_inter()` 相同；未启用 `sub_inter` 或同时选择多个调整模型的结果不能直接使用该核对。Overall、未选择的模型行、PS 行与绝对效应不在比较范围内；一致只表示格式化效应及区间单元匹配，不证明人数或交互 P 也一致。
+
+一个交互对象含多个修饰变量时，核对器先与目标 `sub_var` 取交集；只有一个候选才自动选择。目标同时包含多个候选时须显式给 `modifier`，或逐个传入单修饰变量的交互结果。差异提示及实际重拟合对照见[目标推断与差异原因](interaction-guide.qmd#check-target-20261022)，提示不能代替检查队列、编码和调整集合。
 
 ## 独立分层与面板内分层 {#strata-20261019}
 
@@ -713,7 +742,6 @@ plt_eff(combined, show_pinter = "none",
 
 
 ![比较 Sex 与 stage 的联合水平，各对照块下列出调整模型。](images/eff-cat-guide/combined-exposure.png){fig-alt="交叉分类暴露；比较 Sex 与 stage 的联合水平，各对照块下列出调整模型。"}
-
 
 ## 倾向评分模型与区间口径 {#ps-precision}
 
@@ -853,20 +881,28 @@ collect_rows <- function(x) {
 selected_rows <- collect_rows(ps_selected)
 auto_rows <- collect_rows(ps_auto)
 off_rows <- collect_rows(ps_off)
-stopifnot(all(presets %in% selected_rows[["model_label"]]), nrow(auto_rows) == 6L,
-          identical(as.character(off_rows[["model_label"]]), "Unadjusted"))
 # 多分类只自动启用 ATE / ATO；场景列表仍不自动补 PS。
 d_refresh[["Exposure3"]] <- factor(rep(c("A", "B", "C"), length.out = nrow(d_refresh)))
 ps_multi <- get_eff_cat(d_refresh, cat_var = "Exposure3", ps_var = c("Age", "Group"), surv = "Outcome")
 ps_scenario <- get_eff_cat(d_refresh, cat_var = "Tx", ps_var = c("Age", "Group"), surv = "Outcome",
   dat_adj_ps = list(One_cohort = list(data = d_refresh)))
-stopifnot(setequal(unique(collect_rows(ps_multi)[["model_label"]]), c("Unadjusted", presets)),
-          identical(as.character(collect_rows(ps_scenario)[["model_label"]]), "Unadjusted"))
 p_ps <- plt_eff(ps_selected, fixed_size = TRUE, show_pinter = "none", base_size = 10,
   save = list(filename = file.path(tempdir(), "20261020-refresh-ps-presets.pdf")))
 options(RegR.eff_cat.plot = old_plot_option)
 selected_rows
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(all(presets %in% selected_rows[["model_label"]]), nrow(auto_rows) == 6L,
+          identical(as.character(off_rows[["model_label"]]), "Unadjusted"))
+stopifnot(setequal(unique(collect_rows(ps_multi)[["model_label"]]), c("Unadjusted", presets)),
+          identical(as.character(collect_rows(ps_scenario)[["model_label"]]), "Unadjusted"))
+```
+:::
+
 <!-- /refresh-20261020: ps_presets -->
 
 ![具名预设进入调整模型比较表。](images/eff-cat-guide/20261020-refresh-ps-presets.png){fig-alt="480行模拟二分类数据的OR森林图，包含未调整、Age调整、稳定化ATE权重和ATO重叠权重四行；不同目标人群明确保留在行名。"}
@@ -926,10 +962,17 @@ scenario_tables <- lapply(names(scenario_fit), function(panel) {
     "conf.low", "conf.high", "p_value", "status"), names(tab)), drop = FALSE]
 })
 scenario_view <- do.call(rbind, scenario_tables)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(nrow(scenario_view) == 6L,
   all(c("haz_models_Unadjusted", "haz_models_Adjusted") %in% names(scenario_fit)),
   sum(scenario_view[["status"]] == "not_estimable") == 1L)
 ```
+:::
 
 每个场景始终拟合未调整模型；省略 `adj_var` 就不拟合调整模型，省略 `ps_methods` 就不拟合倾向评分模型。返回表按模型分组，例如 `haz_models_Unadjusted`、`haz_models_Adjusted`；每张表中，场景名称进入 `label` 并成为行标签，`model_label` 保留模型名称。森林图以模型为面板、场景为行；下面的汇总移除了仅用于显示对照名称的 header 行。
 
@@ -1000,4 +1043,13 @@ p_step_vertical
 
 ![显式v保留分行展示。](images/eff-cat-guide/20261015-step-explicit-v.png){fig-alt="显式v保留分行展示的固定输入参数对照实图。"}
 
+:::
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-22：[sub_inter 模型行的交叉核对](#sub-inter-check-20261022)
+- 2026-10-21：[多个亚组变量：逐列分层](#sub-columns-20261021)
+- 2026-10-21：[Fine–Gray 并列时间：保持调用者行序](#fg-ties-20261021)
+- 2026-10-20：[亚组模型、完整案例与逐模型森林](#sub-inter-20261020)
 :::

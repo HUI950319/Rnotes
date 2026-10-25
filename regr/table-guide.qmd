@@ -14,74 +14,9 @@ directory:
 
 先明确表格描述什么、百分比分母是什么，再选择展示和导出形式。下面比较同一队列的中位数、均数、列/行百分比、分层基线和生存摘要；每个标签页展示实际生成的表格。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
-
-## 当前精度与自动选列 {#precision-columns-20261024}
-
-<!-- update-20261024: table_precision -->
-
-2026-10-24 按已推送 RegR `2c01bb0` 在 Windows / WSL R 4.4.3 执行。`get_tb_gtsummary()` 的连续摘要默认改为 **0 位小数**，支持按原始列名分别指定；下方历史表保留原输出，代码显式设 2 位以复现旧精度。`get_gt_cat()` 仍自行使用 2 位，不随此默认一起改变。
-
-### 默认值、变量名与显示标签
-
-```r
-library(RegR)
-d_digits <- data.frame(
-  group = factor(rep(c("a", "b"), each = 4)),
-  age = c(21.32, 24.18, 30.77, 33.29, 22.64, 25.43, 29.91, 35.12),
-  time = c(10, 12, 14, 16, 20, 22, 24, 26),
-  sex = factor(rep(c("f", "m"), 4)))
-make_digits <- function(...) get_tb_gtsummary(d_digits, group_var = "group",
-  com_var = c("age", "time", "sex"), colname_map = c(age = "Age at diagnosis"),
-  output_format = "none", ...)
-default_digits <- make_digits()
-custom_digits <- make_digits(digits_continuous = c(.default = 2, time = 0))
-one_digit <- make_digits(digits_continuous = c(age = 1))
-overall_digits <- function(x, v) {
-  b <- x[["table_body"]]; b[["stat_0"]][b[["variable"]] == v & b[["row_type"]] == "label"]
-}
-stopifnot(identical(overall_digits(default_digits, "age"), "28 (23, 32)"),
-  identical(overall_digits(custom_digits, "age"), "27.67 (23.41, 32.03)"),
-  identical(overall_digits(custom_digits, "time"), "18 (13, 23)"),
-  identical(overall_digits(one_digit, "time"), overall_digits(default_digits, "time")))
-reject_digits <- function(x) inherits(tryCatch(make_digits(digits_continuous = x), error = identity), "error")
-stopifnot(reject_digits(c(age = -1)), reject_digits(c(age = 1.5)),
-  reject_digits(c(age = 1, age = 2)), reject_digits(c(sex = 1)),
-  reject_digits(c("Age at diagnosis" = 1)))
-gt::gtsave(gtsummary::as_gt(custom_digits),
-  file.path(tempdir(), "20261024-update-table-digits.html"))
-```
-
-![age 保留两位、time 不保留小数，分类百分比仍沿用原规则。](images/table-guide/20261024-update-table-digits.png){fig-alt="原生基线表，Age at diagnosis的总体摘要为27.67（23.41，32.03），time为18（13，23），性别百分比保留一位。"}
-
-[原生 HTML 表](images/table-guide/20261024-update-table-digits.html)
-
-命名向量中的键是 `com_var` 的**原列名**，不是 `colname_map` 改出的显示名；`.default` 省略时为 0。无名标量如 `1` 统一用于所有连续变量。每项必须是非负整数，名称唯一，不能给分类列指定连续精度。精度只影响摘要显示，不改变原数值、P 值或分类百分比。
-
-### 没有选择列、也没有结局列时才比较其余列
-
-```r
-quiet_cat <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
-auto_cat <- quiet_cat(get_gt_cat(d_digits, cat_var = "group"))
-empty_cat <- quiet_cat(get_gt_cat(d_digits, cat_var = "group", com_var = character()))
-stopifnot(setequal(unique(auto_cat[["_data"]][["variable"]]), c("age", "time", "sex")),
-  identical(auto_cat[["_data"]], empty_cat[["_data"]]))
-d_endpoint <- d_digits
-d_endpoint[["DSS"]] <- rep(c(0L, 1L), 4)
-endpoint_cat <- quiet_cat(get_gt_cat(d_endpoint, cat_var = "group"))
-stopifnot(identical(unique(endpoint_cat[["_data"]][["variable"]]), "DSS"))
-gt::gtsave(auto_cat, file.path(tempdir(), "20261024-update-table-fallback.html"))
-validation_values <- list(default = default_digits[["table_body"]], custom = custom_digits[["table_body"]],
-  fallback = auto_cat[["_data"]], endpoints = endpoint_cat[["_data"]])
-```
-
-![无结局列的输入自动比较 age、time、sex。](images/table-guide/20261024-update-table-fallback.png){fig-alt="get_gt_cat的原生表，无显式比较列或结局列时，group以外的age、time、sex作为比较变量。"}
-
-[原生 HTML 表](images/table-guide/20261024-update-table-fallback.html)
-
-省略 `com_var` 与传空向量都可触发回退，但条件是自动加入的结局列也不存在。已有 DSS/OS/status/event 等列时，默认只比较这些结局；不会自动追加全部协变量。分层变量和 `cat_var` 从回退列中排除。明确的研究表格仍建议显式给 `com_var`，避免新增列后表格范围随输入改变。
-
-<!-- /update-20261024: table_precision -->
+:::
 
 ## 数据准备与复现
 
@@ -106,7 +41,6 @@ set.seed(20261001)
 d <- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])
 ```
 
-
 ## 共用计算与返回对象
 
 
@@ -118,7 +52,6 @@ td[["DSS"]] <- factor(td[["DSS"]], levels = c(0, 1))
 table_vars <- c("Age", "Tum", "stage", "DSS")
 gtsummary::reset_gtsummary_theme()
 ```
-
 
 ## 接口选择与返回对象
 
@@ -209,6 +142,86 @@ get_tb_gtsummary(td, group_var = "Sex", com_var = table_vars,
 
 :::
 
+### 精度与自动选列（2026-10-24） {#precision-columns-20261024}
+
+<!-- update-20261024: table_precision -->
+
+2026-10-24 按已推送 RegR `2c01bb0` 在 Windows / WSL R 4.4.3 执行。`get_tb_gtsummary()` 的连续摘要默认改为 **0 位小数**，支持按原始列名分别指定；下方历史表保留原输出，代码显式设 2 位以复现旧精度。`get_gt_cat()` 仍自行使用 2 位，不随此默认一起改变。
+
+#### 默认值、变量名与显示标签
+
+```r
+library(RegR)
+d_digits <- data.frame(
+  group = factor(rep(c("a", "b"), each = 4)),
+  age = c(21.32, 24.18, 30.77, 33.29, 22.64, 25.43, 29.91, 35.12),
+  time = c(10, 12, 14, 16, 20, 22, 24, 26),
+  sex = factor(rep(c("f", "m"), 4)))
+make_digits <- function(...) get_tb_gtsummary(d_digits, group_var = "group",
+  com_var = c("age", "time", "sex"), colname_map = c(age = "Age at diagnosis"),
+  output_format = "none", ...)
+default_digits <- make_digits()
+custom_digits <- make_digits(digits_continuous = c(.default = 2, time = 0))
+one_digit <- make_digits(digits_continuous = c(age = 1))
+overall_digits <- function(x, v) {
+  b <- x[["table_body"]]; b[["stat_0"]][b[["variable"]] == v & b[["row_type"]] == "label"]
+}
+reject_digits <- function(x) inherits(tryCatch(make_digits(digits_continuous = x), error = identity), "error")
+gt::gtsave(gtsummary::as_gt(custom_digits),
+  file.path(tempdir(), "20261024-update-table-digits.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(overall_digits(default_digits, "age"), "28 (23, 32)"),
+  identical(overall_digits(custom_digits, "age"), "27.67 (23.41, 32.03)"),
+  identical(overall_digits(custom_digits, "time"), "18 (13, 23)"),
+  identical(overall_digits(one_digit, "time"), overall_digits(default_digits, "time")))
+stopifnot(reject_digits(c(age = -1)), reject_digits(c(age = 1.5)),
+  reject_digits(c(age = 1, age = 2)), reject_digits(c(sex = 1)),
+  reject_digits(c("Age at diagnosis" = 1)))
+```
+:::
+
+![age 保留两位、time 不保留小数，分类百分比仍沿用原规则。](images/table-guide/20261024-update-table-digits.png){fig-alt="原生基线表，Age at diagnosis的总体摘要为27.67（23.41，32.03），time为18（13，23），性别百分比保留一位。"}
+
+[原生 HTML 表](images/table-guide/20261024-update-table-digits.html)
+
+命名向量中的键是 `com_var` 的**原列名**，不是 `colname_map` 改出的显示名；`.default` 省略时为 0。无名标量如 `1` 统一用于所有连续变量。每项必须是非负整数，名称唯一，不能给分类列指定连续精度。精度只影响摘要显示，不改变原数值、P 值或分类百分比。
+
+#### 没有选择列、也没有结局列时才比较其余列
+
+```r
+quiet_cat <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
+auto_cat <- quiet_cat(get_gt_cat(d_digits, cat_var = "group"))
+empty_cat <- quiet_cat(get_gt_cat(d_digits, cat_var = "group", com_var = character()))
+d_endpoint <- d_digits
+d_endpoint[["DSS"]] <- rep(c(0L, 1L), 4)
+endpoint_cat <- quiet_cat(get_gt_cat(d_endpoint, cat_var = "group"))
+gt::gtsave(auto_cat, file.path(tempdir(), "20261024-update-table-fallback.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(setequal(unique(auto_cat[["_data"]][["variable"]]), c("age", "time", "sex")),
+  identical(auto_cat[["_data"]], empty_cat[["_data"]]))
+stopifnot(identical(unique(endpoint_cat[["_data"]][["variable"]]), "DSS"))
+validation_values <- list(default = default_digits[["table_body"]], custom = custom_digits[["table_body"]],
+  fallback = auto_cat[["_data"]], endpoints = endpoint_cat[["_data"]])
+```
+:::
+
+![无结局列的输入自动比较 age、time、sex。](images/table-guide/20261024-update-table-fallback.png){fig-alt="get_gt_cat的原生表，无显式比较列或结局列时，group以外的age、time、sex作为比较变量。"}
+
+[原生 HTML 表](images/table-guide/20261024-update-table-fallback.html)
+
+省略 `com_var` 与传空向量都可触发回退，但条件是自动加入的结局列也不存在。已有 DSS/OS/status/event 等列时，默认只比较这些结局；不会自动追加全部协变量。分层变量和 `cat_var` 从回退列中排除。明确的研究表格仍建议显式给 `com_var`，避免新增列后表格范围随输入改变。
+
+<!-- /update-20261024: table_precision -->
 
 ## 分层与期刊风格
 
@@ -260,7 +273,6 @@ jama_table
 
 :::
 
-
 ## 事件构成与 autoReg 基线表
 
 
@@ -306,7 +318,6 @@ get_tb_autoreg(td, group_var = "Sex", com_var = table_vars)
 
 
 :::
-
 
 ## 生存摘要：HR 与时点生存概率
 
@@ -355,7 +366,6 @@ get_tb_survival(d, cat_var = c("Sex", "stage"),
 
 
 :::
-
 
 ## 保留对象继续加工与导出
 
@@ -424,3 +434,9 @@ ft <- save_tb(counts, path = tempdir(), title = "counts-and-probabilities",
 packageVersion("RegR")
 sessionInfo()
 ```
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-24：[精度与自动选列](#precision-columns-20261024)
+:::

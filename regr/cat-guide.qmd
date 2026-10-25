@@ -13,350 +13,8 @@ directory:
 
 先用 `get_cat()` 计算曲线和效应表，再用 `plt_cat1()`、`plt_cat2()` 或 `plt_cat3()` 选择布局。本页参照 [MLR 的 SHAP 页面](../mlr/shap-guide.qmd)：**每个参数选项配可复制代码与实绘图片，在标签页中切换比较，点击图片可放大。**
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
 **核对记录：** 本次用 WSL R 4.4.3 和 RegR 本机开发源码 `d54e60f`，从原始示例队列重新拟合 KM 主分析与 Race 分组，并刷新所有生存模式图片，新增 `sur_h` 布局。CIF 图保留前次 CSC 执行快照。包版本仍为 0.1.3；本页不提供患者级数据下载。
-
-## 当前逐模型轴标题与刻度标签 {#cat-dispatch-20261023}
-
-<!-- update-20261023: cat_dispatch -->
-
-2026-10-23 按已推送 RegR `aaeda5f` 在 Windows / WSL R 4.4.3 执行本节，原有图保留各自的执行记录。
-
-`plt_cat1()` 现在接受每模型一个字符串的 `xlab` / `ylab` 向量，以及按模型顺序排列的无名 list。名称映射和位置映射可同时使用；数值范围与颜色向量等本身有多元素含义的参数仍共享。
-
-```r
-library(RegR)
-set.seed(1023)
-d_multi <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), id = 1:90)
-d_multi[["Age"]] <- rnorm(360, 55, 10)
-t1 <- rexp(360, exp(.35 * (d_multi[["Tx"]] == "Yes") +
-  .25 * (d_multi[["Sex"]] == "Male") + .02 * (d_multi[["Age"]] - 55)) / 80)
-t2 <- rexp(360, 1 / 130); tc <- rexp(360, 1 / 160)
-d_multi[["time"]] <- pmin(t1, t2, tc) + .2
-d_multi[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
-d_multi[["DSS"]] <- as.integer(d_multi[["event"]] == 1L)
-cat_multi <- get_cat(d_multi, "Tx", adj_var = "Age",
-  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
-  timepoint = 24, time_dif = 24, curve_args = list(ci = FALSE, max_times = 40L))
-cat_pdf <- file.path(tempdir(), c("20261023-update-cat-sur.pdf", "20261023-update-cat-cif.pdf"))
-cat_plots <- plt_cat1(cat_multi, display = "v", max_t = 60,
-  xbreaks = seq(0, 60, 12), xlab = c("KM follow-up (months)", "CIF follow-up (months)"),
-  ylab = c(cif = "Cumulative incidence", sur = "Survival probability"),
-  sur_arg = list(ylim = list(sur = c(0, 1), cif = c(0, 1)),
-                 ybre = list(.2, .1)),
-  save = list(filename = cat_pdf))
-reject_cat <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
-stopifnot(is.list(cat_plots), identical(names(cat_plots), c("sur", "cif")),
-  all(file.exists(cat_pdf)), reject_cat(plt_cat1(cat_multi, xlab = c("a", "b", "c"))),
-  reject_cat(plt_cat2(cat_multi)))
-validation_values <- data.frame(model = names(cat_plots), file = basename(cat_pdf))
-```
-
-::: {.panel-tabset}
-
-### 生存图 {.unnumbered}
-
-![生存图接收第一个横轴标题和按 sur 命名的纵轴标题。](images/cat-guide/20261023-update-cat-sur.png){fig-alt="360条模拟记录，未调整与年龄调整生存曲线及内嵌HR和24月生存差森林。横轴为KM follow-up months，纵轴为Survival probability。"}
-
-[下载 PDF](images/cat-guide/20261023-update-cat-sur.pdf)
-
-### 累计发生图 {.unnumbered}
-
-![CIF 图使用第二个横轴标题，纵轴按 cif 名称匹配。](images/cat-guide/20261023-update-cat-cif.png){fig-alt="相同队列的未调整与年龄调整CIF，内嵌sHR及24月CIF差森林。纵轴为Cumulative incidence，刻度步长为0.1。"}
-
-[下载 PDF](images/cat-guide/20261023-update-cat-cif.pdf)
-
-:::
-
-这里 `ybre = list(.2,.1)` 按模型顺序分派；`ylim` 使用模型名，避免误解：**无名 `ylim` list 仍表示未调整、调整两个面板**。同理，无名 `xlim` / `ticks_at` list 表示两个内嵌森林，无名 `strip_label` list 表示各暴露；这些字段要逐模型设置时必须命名。
-
-本节也使用 `aaeda5f` 的自动刻度修复：未指定 `ticks_at` 且 `x_trans = "none"` 时，刻度按显示精度取整后去重，消除重复标签和负零。手动刻度与变换轴保留原规则。`plt_cat2()` / `plt_cat3()` 仍一次接收一个模型，需显式提取 `cat_multi[["cif"]]`；普通 cat_res 列表仍用于组合暴露图。
-
-<!-- /update-20261023: cat_dispatch -->
-
-## 当前逐模型保存：无名文件名向量 {#cat-files-20261022}
-
-<!-- sync-20261022: cat_filenames -->
-
-2026-10-22 按已推送 RegR `70c3667`（修复 `fc9a3e1`）在 Windows / WSL R 4.4.3 执行。`plt_cat1()` 现在也接受长度等于模型数的无名 `save$filename` 向量，按 `surv_models` 的模型顺序保存；之前需要给文件名逐项命名。
-
-```r
-library(RegR)
-set.seed(925)
-d_files <- data.frame(Tx = factor(rep(c("No", "Yes"), 150)), Age = rnorm(300, 55, 10))
-t1 <- rexp(300, exp(0.3 * (d_files[["Tx"]] == "Yes") + 0.02 * (d_files[["Age"]] - 55)) / 80)
-t2 <- rexp(300, 1 / 130); tc <- rexp(300, 1 / 160)
-d_files[["time"]] <- pmin(t1, t2, tc) + 0.2
-d_files[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
-d_files[["DSS"]] <- as.integer(d_files[["event"]] == 1L)
-models_files <- get_cat(d_files, "Tx", adj_var = "Age",
-  surv = list(Cox = TRUE, FineGray = FALSE), methods = c("unadj", "direct"),
-  timepoint = 24, time_dif = c(12, 24), curve_args = list(ci = FALSE, max_times = 30L))
-files_by_order <- file.path(tempdir(), c("20261022-sync-model-km.pdf", "20261022-sync-model-cif.pdf"))
-plots_files <- plt_cat1(models_files, display = "sur", max_t = 60,
-  xbreaks = seq(0, 60, 12), xlab = "Follow-up (months)",
-  save = list(filename = files_by_order, width = 11, height = 8.5))
-stopifnot(is.null(names(files_by_order)), identical(names(plots_files), c("Cox", "FineGray")),
-  all(file.exists(files_by_order)), all(file.info(files_by_order)[["size"]] > 100),
-  length(unique(unname(tools::md5sum(files_by_order)))) == 2L)
-validation_values <- data.frame(model = names(plots_files), file = basename(files_by_order))
-validation_values
-```
-
-::: {.panel-tabset}
-
-### 第一个文件：Cox {.unnumbered}
-
-![无名向量第一个文件保存 Cox 对应的生存曲线。](images/cat-guide/20261022-sync-model-km.png){fig-alt="300条模拟记录，未调整KM与年龄调整生存曲线纵向排列，时间单位为月，保存为模型顺序中的第一个PDF。"}
-
-[下载 PDF](images/cat-guide/20261022-sync-model-km.pdf)
-
-### 第二个文件：Fine–Gray {.unnumbered}
-
-![第二个文件保存 Fine–Gray 对应的 CIF。](images/cat-guide/20261022-sync-model-cif.png){fig-alt="相同模拟队列的未调整和年龄调整累计发生曲线，单独保存为无名文件向量的第二个PDF。"}
-
-[下载 PDF](images/cat-guide/20261022-sync-model-cif.pdf)
-
-:::
-
-这里的 `time` 为月，图形只演示文件分配。模型排序变了，按顺序提供的文件名也应同步；需要按模型名固定对应时继续用 `c(Cox="...", FineGray="...")`。这项扩展只涉及 `plt_cat1()` 的文件名选择，不改变曲线、效应、返回模型顺序或森林自动坐标合同，也不要把无名字符向量推广成所有参数的逐模型设置。
-
-<!-- /sync-20261022: cat_filenames -->
-
-## 当前自动位置、刻度步长与联合组标题 {#cat-controls-20261021}
-
-<!-- controls-20261021: cat_controls -->
-
-以下按已推送 RegR `90ad6d8` 在 Windows / WSL R 4.4.3 执行。`plt_cat1()` 现在默认 `fmt.fst.h = "auto"`，根据两种方法的曲线、置信带和内嵌森林的实际面积，共同选择上方或下方；森林列也加宽，默认画布随分组数和表格宽度增长。它减少遮挡，仍需检查长标签、宽区间与图的最终尺寸。
-
-### 四个联合组，两个模型共用森林坐标
-
-```r
-library(RegR)
-set.seed(832)
-cat_data <- expand.grid(Tx = factor(c("No", "Yes")),
-  Sex = factor(c("Female", "Male")), id = 1:150)
-cat_data[["Age"]] <- rnorm(600, 55, 10)
-t1 <- rexp(600, exp(0.3 * (cat_data[["Tx"]] == "Yes") +
-  0.2 * (cat_data[["Sex"]] == "Male") + 0.02 * (cat_data[["Age"]] - 55)) / 250)
-t2 <- rexp(600, 1 / 350)
-tc <- rexp(600, 1 / 400)
-cat_data[["time"]] <- pmin(t1, t2, tc) + 0.2
-cat_data[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
-cat_data[["DSS"]] <- as.integer(cat_data[["event"]] == 1L)
-cat_models <- get_cat(cat_data, cat_var_combine = c("Tx", "Sex"), adj_var = "Age",
-  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
-  timepoint = 36, time_dif = c(24, 36), curve_args = list(ci = TRUE, max_times = 50L))
-stopifnot(inherits(cat_models, "surv_models"),
-  all(vapply(cat_models, function(x) x[["cat"]][["par"]][["n_levels"]] == 4L, logical(1))))
-```
-
-```r
-inset_models <- plt_cat1(cat_models, display = "v",
-  sur_arg = list(ylim = list(sur = c(0.5, 1), cif = c(0, 0.5)),
-    ybre = 0.1, xlim = "auto", cat_label = c("Treatment", "Sex")),
-  max_t = 60, xbreaks = seq(0, 60, 12),
-  xlab = "Follow-up (months)",
-  save = list(filename = c(sur = file.path(tempdir(), "20261021-controls-cat-sur.pdf"),
-                           cif = file.path(tempdir(), "20261021-controls-cat-cif.pdf"))))
-stopifnot(identical(names(inset_models), c("sur", "cif")),
-  all(vapply(inset_models, function(p) all(attr(p, "plot_size") >= c(11, 8.5)), logical(1))))
-```
-
-::: {.panel-tabset}
-
-### KM {.unnumbered}
-
-![联合四组的 KM 与年龄调整生存曲线，森林使用默认自动位置。](images/cat-guide/20261021-controls-cat-sur.png){fig-alt="600条模拟记录的四个Treatment与Sex联合组，两个方法纵向排列，内嵌森林包含HR及36月生存差，曲线纵轴以0.1为步长。"}
-
-[下载 PDF](images/cat-guide/20261021-controls-cat-sur.pdf)
-
-### CIF {.unnumbered}
-
-![相同分组的 CIF 使用独立曲线范围，与 KM 共用对应森林坐标。](images/cat-guide/20261021-controls-cat-cif.png){fig-alt="相同模拟队列的未调整和年龄调整CIF，森林使用sHR及36月CIF差，条带显示真实联合变量名称，未显示内部.cat_combined名称。"}
-
-[下载 PDF](images/cat-guide/20261021-controls-cat-cif.pdf)
-
-:::
-
-共享的 `sur_arg$xlim = "auto"` 从所有模型、所有方法的效应表共同取范围：KM / CIF 的比值轴相同，差值轴也相同；两种尺度仍各用自己的轴，比值包含参考值 1，差值包含 0。逐模型的命名设置则各自计算。`max_t` 和 `xbreaks` 控制随访时间，`sur_arg$xlim` 控制森林效应轴，不能用它缩短随访。
-
-默认条带会把 `cat_var_combine = c("Tx","Sex")` 写为 `different Tx and Sex groups`；三个 `plt_cat*()` 都使用真实组件名。上例的 `sur_arg$cat_label` 只把变量标题改成 Treatment 与 Sex，不改变联合组水平、模型或参考组；此字段仅供 `plt_cat1()`，不要传给 `plt_cat2()` / `plt_cat3()`。显式的 `strip_arg$strip_label` 优先。
-
-### 一个 ybre 数字表示步长
-
-```r
-step_input <- get_cat(cat_data, "Tx", adj_var = "Age", surv = TRUE,
-  methods = c("unadj", "direct"), timepoint = 36, time_dif = c(24, 36),
-  curve_args = list(ci = TRUE, max_times = 50L))
-axis_step <- list(ylim = c(0.5, 1), ybre = 0.1)
-step_plots <- list(
-  plt_cat1(step_input, display = "sur", sur_arg = axis_step,
-    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL),
-  plt_cat2(step_input, sur_arg = axis_step,
-    dif_arg = list(ylim = c(-0.1, 0.1), ybre = 0.05),
-    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL),
-  plt_cat3(step_input, display = "sur", risk_table = FALSE, sur_arg = axis_step,
-    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL))
-y_breaks <- function(p) {
-  b <- ggplot2::ggplot_build(p)[["layout"]][["panel_params"]][[1]][["y"]][["breaks"]]
-  as.numeric(b[!is.na(b)])
-}
-for (p in step_plots) for (j in 1:2) {
-  stopifnot(isTRUE(all.equal(y_breaks(p[[j]]), seq(0.5, 1, 0.1))))
-}
-for (j in 3:4) {
-  stopifnot(isTRUE(all.equal(y_breaks(step_plots[[2]][[j]]), seq(-0.1, 0.1, 0.05))))
-}
-validation_values <- data.frame(composer = c("plt_cat1", "plt_cat2", "plt_cat3"),
-  first_curve_ticks = vapply(step_plots, function(p) paste(y_breaks(p[[1]]), collapse = ","), character(1)))
-validation_values
-```
-
-三个入口现在都把 `ybre = 0.1` 解释为范围内每隔 0.1 一个刻度，不是只画 0.1 这一个刻度；`plt_cat2()` 的 `dif_arg$ybre` 同理。多个数字仍是明确的刻度向量，例如 `c(0.5,0.75,1)`；单个步长须为正且有限。上例三个曲线轴均实际核对为 0.5、0.6、0.7、0.8、0.9、1.0，差值轴为 −0.10、−0.05、0、0.05、0.10；显示范围仅演示接口，不表示数据或区间均落在该范围内。
-
-自动位置默认值仅改了 `plt_cat1()`。显式 `forest.position` 优先；数值 `fmt.fst.h` 仍按 KM 的 `0.03 - fmt.fst.h`、CIF 的 `0.97 + fmt.fst.h` 偏移固定位置。`plt_cat3()` 保留数值偏移合同，不能跟着改成字符串 `"auto"`。保存时只给文件名可沿用推荐尺寸；若手动缩小画布，应重新检查森林、置信带和标签是否重叠。
-
-<!-- /controls-20261021: cat_controls -->
-
-## 当前参考行、区间标题与联合组核对 {#labels-ci-20261020}
-
-2026-10-20 按已推送 RegR `a2f2553` 核对。`get_cat()` 及三个 `plt_cat*()` 的生存/CIF 差值参考行统一显示 `Reference`，与比值列一致；这只是显示规范化，不改变参考组与差值方向。
-
-`plt_cat1()`、`plt_cat2()`、`plt_cat3()` 的效应列模板现在固定标为 95% CI，`conf_level` 仍控制实际区间。使用其他水平时须显式改可覆盖的表头并在图注注明；不要凭默认列名判断实际水平。非 95% 区间的显示 P 统一从未舍入区间、固定1.96回推，原检验另存 `p.value_0.95`，包括直接标准化与加权 CIF 差；它们不能互换，见[可运行数值对照](forest-guide.qmd#models-ci-20261020)。
-
-`check_inter()` 现可把 `get_cat(cat_var_combine=c(A,B))` 与同一队列的二分类×二分类 `get_inter()` 配对，也支持按模型配对 Cox / Fine–Gray。它核对三个非参考组合的格式化效应与区间、忽略星号，不能把分层交互表与无分层的 get_cat 硬配。[实际12单元核对与组合顺序对照](interaction-guide.qmd#joint-cat-20261020)提供完整代码。
-
-## 当前直接 CIF：常量调整项会被移除 {#fg-constant-20261021}
-
-<!-- refresh-20261021: cat_constant -->
-
-2026-10-21 按已推送 RegR `338a664` 在 Windows / WSL R 4.4.3 执行。共享 Fine–Gray 拟合器现在会移除完整病例中只剩一个值的独立主效应。下面显式传入常量 grade，保留变化的 age，并核对结果与仅调整 age 的模型相同。
-
-```r
-library(RegR)
-set.seed(317)
-dcif <- data.frame(group = factor(sample(c("A", "B"), 300, TRUE)), age = rnorm(300))
-a <- rexp(300, exp(0.35 * dcif[["age"]] + 0.18 * as.integer(dcif[["group"]])) / 80)
-b <- rexp(300, 1 / 130)
-censor <- rexp(300, 1 / 160)
-dcif[["time"]] <- pmin(a, b, censor) + 0.2
-dcif[["event"]] <- ifelse(a < b & a < censor, 1L, ifelse(b < censor, 2L, 0L))
-dcif[["DSS"]] <- as.integer(dcif[["event"]] == 1L)
-dcif[["grade"]] <- factor(rep("Unknown", 300), levels = c("G1", "G2", "Unknown"))
-constant_messages <- character()
-cif_constant <- withCallingHandlers(
-  get_cat(dcif, "group", adj_var = c("age", "grade"), surv = list(cif = FALSE),
-          methods = c("unadj", "direct"), timepoint = 24, time_dif = c(12, 24)),
-  RegR_empty_levels = function(m) {
-    constant_messages <<- c(constant_messages, cli::ansi_strip(conditionMessage(m)))
-    invokeRestart("muffleMessage")
-  })
-cif_age <- get_cat(dcif, "group", adj_var = "age", surv = list(cif = FALSE),
-  methods = c("unadj", "direct"), timepoint = 24, time_dif = c(12, 24))
-pc <- cif_constant[["cif"]][["cat"]][["UM"]][["sur_direct"]]
-pa <- cif_age[["cif"]][["cat"]][["UM"]][["sur_direct"]]
-stopifnot(any(grepl("single value", constant_messages, fixed = TRUE)),
-  is.data.frame(pc), nrow(pc) > 0L, any(is.finite(pc[["estimate"]])),
-  isTRUE(all.equal(pc[c("estimate", "conf.low", "conf.high")],
-                   pa[c("estimate", "conf.low", "conf.high")], check.attributes = FALSE)))
-plt_cat1(cif_constant[["cif"]], display = "sur_h",
-  xlab = "Follow-up (months)", ylab = "Cumulative incidence",
-  strip_arg = list(strip_label = c("Unadjusted", "Age adjusted")),
-  max_t = 60, xbreaks = seq(0, 60, 12),
-  save = list(filename = file.path(tempdir(), "20261021-refresh-cif-constant.pdf"),
-              width = 11, height = 5.5))
-```
-
-![实际未调整与直接标准化 CIF；调整模型的 grade 为常量后被移除，剩余模型调整 age。](images/cat-guide/20261021-refresh-cif-constant.png){fig-alt="300条模拟竞争风险记录中，A和B两组未调整及经年龄直接标准化的累积发生曲线与区间，调整模型中的常量grade已被移除。"}
-
-[下载本图 PDF](images/cat-guide/20261021-refresh-cif-constant.pdf)
-
-图形完成不代表所有请求的协变量都参与估计。报告本例应写“年龄调整”，同时保留常量项移除的消息；它也适用于完整病例筛选后才变成常量的协变量。暴露变量、任意交互项以及全部调整项都为常量的情况，不在这一自动修复承诺内。
-
-两个共线但各自仍变化的项不会被自动选择保留；错误诊断及亚组示例见[模型与森林图教程](forest-guide.qmd)。重新计算时记录实际公式、完整病例、目标事件数与引擎；旧图片保留原执行范围。
-
-<!-- /refresh-20261021: cat_constant -->
-
-## 自动坐标与内嵌森林图位置 {#auto-axes-20261019}
-
-2026-10-19 使用已推送 RegR `4034a97`，在 Windows / WSL R 4.4.3 重新执行本节。新增示例使用与[森林图页](forest-guide.qmd#data)相同的598人 PTC 队列，参考组为 No CND；本页其余 MTC 图片保留原记录。两种曲线方法为未调整与年龄调整，概率表均对应36月。
-
-<!-- rnotes-refresh: cat -->
-```r
-dat_now <- as.data.frame(ToyData::toy_ptc_m1_cnd)
-dat_now[["N_4"]] <- stats::relevel(dat_now[["N_4"]], ref = "No CND")
-cat_axes <- run_quiet(get_cat(dat_now, cat_var = "N_4", adj_var = "Age",
-  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
-  timepoint = 36, time_dif = c(36, 60)))
-
-auto_cat_sur <- plt_cat1(cat_axes[["sur"]], display = "v",
-  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = "auto",
-  max_t = 120, xbreaks = seq(0, 120, 24))
-auto_cat_cif <- plt_cat1(cat_axes[["cif"]], display = "v",
-  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = "auto",
-  max_t = 120, xbreaks = seq(0, 120, 24))
-auto_cat_risk <- plt_cat3(cat_axes[["sur"]], display = "s+f",
-  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = 0.2,
-  risk_table_args = list(size = 3.5, fontface = "plain", height = 0.3,
-    theme = ggplot2::theme(axis.text.y = ggplot2::element_text(size = 9))),
-  max_t = 120, xbreaks = seq(0, 120, 24))
-```
-
-::: {.panel-tabset}
-
-### KM 与自动森林坐标 {.unnumbered}
-
-![未调整与年龄调整生存曲线使用自动坐标。](images/cat-guide/20261019-refresh-cat-sur.png){fig-alt="598人PTC队列未调整与年龄调整的DSS生存曲线，内嵌HR与36月生存概率差的森林坐标根据置信区间自动生成。"}
-
-[下载 PDF](images/cat-guide/20261019-refresh-cat-sur.pdf)
-
-### CIF 与全称条带 {.unnumbered}
-
-![竞争风险图的条带明确写为 cumulative incidence。](images/cat-guide/20261019-refresh-cat-cif.png){fig-alt="同一队列的目标死亡CIF组合图，分别显示未调整与年龄标准化结果；条带写出累积发生全称，内嵌sHR及36月CIF差。"}
-
-[下载 PDF](images/cat-guide/20261019-refresh-cat-cif.pdf)
-
-### KM 与在险人数 {.unnumbered}
-
-![plt_cat3 保留在险人数表，将森林表独立放在右侧。](images/cat-guide/20261019-refresh-cat-risk.png){fig-alt="左侧为相同KM与年龄调整曲线及在险人数，右侧为独立森林表，避免宽表覆盖曲线或时间刻度。"}
-
-[下载 PDF](images/cat-guide/20261019-refresh-cat-risk.pdf)
-
-:::
-
-| 设置 | 作用与边界 |
-|:--|:--|
-| `sur_arg$ylim = "auto"` | 取打印结果推荐的曲线范围和刻度，依据概率点估计；置信带可能超出显示范围 |
-| `sur_arg$xlim = "auto"` | 内嵌森林图的效应坐标；HR/sHR纳入参考值1、差值纳入0，各自取范围 |
-| `ybre / ticks_at / ticks_digits` | 显式设置时保留；分别控制曲线刻度、森林刻度和小数位数 |
-| `plt_cat1(fmt.fst.h = "auto")` | 在曲线和置信带留出的上、下空间中选择森林图位置；仍需检查宽表与长标签 |
-| `forest.position` | 显式提供时优先；此时不触发自动位置选择 |
-
-这些设置只重绘缓存，不改变 `timepoint`、调整项或估计量。`sur_arg$xlim` 不表示随访时间窗，时间窗用 `max_t`。`plt_cat1()` 与 `plt_cat3()` 都支持上述自动坐标；不能把它照搬到 `plt_cat2()` 的其他参数结构。当前 `plt_cat3()` 的在险人数偏移路径对 `fmt.fst.h = "auto"` 会报数值运算错误，所以本例明确使用数值 `0.2`。图中DSS与CIF不是互补概率，在险人数表只用于生存模式。
-
-在险人数示例使用 `display = "s+f"` 将宽森林表放在右侧，并缩小人数文字。调整曲线下方的人数仍是原队列的观测在险人数，不是标准化后假想人群的人数；底层会提示这一解释边界，本页保留该提示。
-
-当前 `get_cat()` 内部明确请求概率表，不受 `get_eff(show_sur = FALSE)` 新默认值影响。默认 CIF direct 为 mets/FGR 解析路线；新 `cif_args = list(model = "CRR")` 会选择 crr 比值拟合和 FGR bootstrap 概率路线，详细边界见[当前 CIF 后端](get-eff-cif-benchmark.qmd#current-backend)。
-
-## 2026-10-09：当前推断与结果更新 {#current-inference}
-
-本节按 RegR 0.1.3 源码 `40515e1` 核对；下方 Cox 和 CSC 主示例的曲线、单时点表、多时点差值图已重新拟合与导出。
-
-`direct` 的 Cox / CSC 概率差采用 `riskRegression::ate()` 的联合推断，差值区间包含组间估计的协方差。不能用两个单独组别区间或独立标准误拼成差值区间；点估计不变也可能伴随区间和 P 值更新。`plt_cat2()` 应读取同一次拟合产生的多时点结果，不能另用历史表替换。
-
-竞争风险 `cif_args = list(model = "FGR")` 的默认标准化由 mets 的解析推断完成；只有失败时才回退。`"CSC"` 切换标准化概率模型，但 sHR 列仍来自 Fine–Gray 模型。当前与历史版本的区别见 [CIF 后端比较](get-eff-cif-benchmark.qmd#current-backend)。
-
-同一次调用中的倾向评分拟合和直接 Cox 曲线区间可以复用，避免重复计算；这些优化不改变权重的 ATE 目标、匹配的 ATT 目标或差值方向。跨调用、跨队列或不同协变量设置仍需重新分析。
-
-## 2026-10-12：KM 差值区间与横向纯曲线 {#km-greenwood}
-
-本机开发提交 `d54e60f` 修正了未调整和 PSM 生存路径的标准误：差值推断需要生存概率 `S(t)` 的 Greenwood 标准误，旧结果曾读取到 `-log S(t)` 的标准误，导致差值区间偏宽。组别生存概率、其区间和 HR 点估计不因此改变；未调整 / 匹配的生存概率差区间和 P 值可能改变。该修复不针对 direct、IPTW 或 CIF。
-
-本页 KM 图片已从原始数据重算。历史 `cat_res` 必须重新调用 `get_cat()`，换绘图参数无法修正对象中的历史标准误。下面显示新增的纯曲线横向布局；`sur` 保持纵向，`sur_h` 并列未调整与调整曲线。多个暴露的 `sur_h` 组合现在形成每暴露一行的共享网格；逐面板堆叠可用strip2_arg=list(strip=FALSE)，见文末新示例。
-
-::: {.callout-note}
-2026-10-13 复核：已推送基线 `a3881fa` 包含 `d54e60f` 和 `sur_h`。本页生存图片仍对应上述实际执行快照；旧安装需升级至包含这些提交的源码，版本号同为0.1.3不能区分更新前后。
 :::
 
 ## 示例准备与读图规则 {#data}
@@ -483,6 +141,34 @@ cat_fit                       # 打印效应范围和可复制的坐标参数
 :::
 
 `Mul` 不是“多变量调整表”的简称。`get_cat()` 不负责把所有布局画好；改变图形参数可复用 `cat_fit`，改变结局、方法、调整变量或时间点则需要重新分析。
+
+### 推断与结果更新（2026-10-09） {#current-inference}
+
+本节按 RegR 0.1.3 源码 `40515e1` 核对；下方 Cox 和 CSC 主示例的曲线、单时点表、多时点差值图已重新拟合与导出。
+
+`direct` 的 Cox / CSC 概率差采用 `riskRegression::ate()` 的联合推断，差值区间包含组间估计的协方差。不能用两个单独组别区间或独立标准误拼成差值区间；点估计不变也可能伴随区间和 P 值更新。`plt_cat2()` 应读取同一次拟合产生的多时点结果，不能另用历史表替换。
+
+竞争风险 `cif_args = list(model = "FGR")` 的默认标准化由 mets 的解析推断完成；只有失败时才回退。`"CSC"` 切换标准化概率模型，但 sHR 列仍来自 Fine–Gray 模型。当前与历史版本的区别见 [CIF 后端比较](get-eff-cif-benchmark.qmd#current-backend)。
+
+同一次调用中的倾向评分拟合和直接 Cox 曲线区间可以复用，避免重复计算；这些优化不改变权重的 ATE 目标、匹配的 ATT 目标或差值方向。跨调用、跨队列或不同协变量设置仍需重新分析。
+
+### KM 差值区间与横向纯曲线（2026-10-12） {#km-greenwood}
+
+本机开发提交 `d54e60f` 修正了未调整和 PSM 生存路径的标准误：差值推断需要生存概率 `S(t)` 的 Greenwood 标准误，旧结果曾读取到 `-log S(t)` 的标准误，导致差值区间偏宽。组别生存概率、其区间和 HR 点估计不因此改变；未调整 / 匹配的生存概率差区间和 P 值可能改变。该修复不针对 direct、IPTW 或 CIF。
+
+本页 KM 图片已从原始数据重算。历史 `cat_res` 必须重新调用 `get_cat()`，换绘图参数无法修正对象中的历史标准误。下面显示新增的纯曲线横向布局；`sur` 保持纵向，`sur_h` 并列未调整与调整曲线。多个暴露的 `sur_h` 组合现在形成每暴露一行的共享网格；逐面板堆叠可用strip2_arg=list(strip=FALSE)，见文末新示例。
+
+::: {.callout-note}
+2026-10-13 复核：已推送基线 `a3881fa` 包含 `d54e60f` 和 `sur_h`。本页生存图片仍对应上述实际执行快照；旧安装需升级至包含这些提交的源码，版本号同为0.1.3不能区分更新前后。
+:::
+
+### 参考行、区间标题与联合组核对（2026-10-20） {#labels-ci-20261020}
+
+2026-10-20 按已推送 RegR `a2f2553` 核对。`get_cat()` 及三个 `plt_cat*()` 的生存/CIF 差值参考行统一显示 `Reference`，与比值列一致；这只是显示规范化，不改变参考组与差值方向。
+
+`plt_cat1()`、`plt_cat2()`、`plt_cat3()` 的效应列模板现在固定标为 95% CI，`conf_level` 仍控制实际区间。使用其他水平时须显式改可覆盖的表头并在图注注明；不要凭默认列名判断实际水平。非 95% 区间的显示 P 统一从未舍入区间、固定1.96回推，原检验另存 `p.value_0.95`，包括直接标准化与加权 CIF 差；它们不能互换，见[可运行数值对照](forest-guide.qmd#models-ci-20261020)。
+
+`check_inter()` 现可把 `get_cat(cat_var_combine=c(A,B))` 与同一队列的二分类×二分类 `get_inter()` 配对，也支持按模型配对 Cox / Fine–Gray。它核对三个非参考组合的格式化效应与区间、忽略星号，不能把分层交互表与无分层的 get_cat 硬配。[实际12单元核对与组合顺序对照](interaction-guide.qmd#joint-cat-20261020)提供完整代码。
 
 ## get_cat()：多个独立暴露与曲线计算 {#get-cat-multiple}
 
@@ -654,6 +340,177 @@ plt_cat1(cat_multi, plot.margin = 12, display = "sur", max_t = 180,
 ![plt_cat1：三个 Race 水平的生存曲线。](images/cat-guide/cat1-multicategory.png){fig-alt="Race 三分类的未调整与调整 DSS 生存曲线。"}
 
 :::
+
+### 自动坐标与内嵌森林图位置（2026-10-19） {#auto-axes-20261019}
+
+2026-10-19 使用已推送 RegR `4034a97`，在 Windows / WSL R 4.4.3 重新执行本节。新增示例使用与[森林图页](forest-guide.qmd#data)相同的598人 PTC 队列，参考组为 No CND；本页其余 MTC 图片保留原记录。两种曲线方法为未调整与年龄调整，概率表均对应36月。
+
+<!-- rnotes-refresh: cat -->
+```r
+dat_now <- as.data.frame(ToyData::toy_ptc_m1_cnd)
+dat_now[["N_4"]] <- stats::relevel(dat_now[["N_4"]], ref = "No CND")
+cat_axes <- run_quiet(get_cat(dat_now, cat_var = "N_4", adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
+  timepoint = 36, time_dif = c(36, 60)))
+
+auto_cat_sur <- plt_cat1(cat_axes[["sur"]], display = "v",
+  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = "auto",
+  max_t = 120, xbreaks = seq(0, 120, 24))
+auto_cat_cif <- plt_cat1(cat_axes[["cif"]], display = "v",
+  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = "auto",
+  max_t = 120, xbreaks = seq(0, 120, 24))
+auto_cat_risk <- plt_cat3(cat_axes[["sur"]], display = "s+f",
+  sur_arg = list(ylim = "auto", xlim = "auto"), fmt.fst.h = 0.2,
+  risk_table_args = list(size = 3.5, fontface = "plain", height = 0.3,
+    theme = ggplot2::theme(axis.text.y = ggplot2::element_text(size = 9))),
+  max_t = 120, xbreaks = seq(0, 120, 24))
+```
+
+::: {.panel-tabset}
+
+#### KM 与自动森林坐标 {.unnumbered}
+
+![未调整与年龄调整生存曲线使用自动坐标。](images/cat-guide/20261019-refresh-cat-sur.png){fig-alt="598人PTC队列未调整与年龄调整的DSS生存曲线，内嵌HR与36月生存概率差的森林坐标根据置信区间自动生成。"}
+
+[下载 PDF](images/cat-guide/20261019-refresh-cat-sur.pdf)
+
+#### CIF 与全称条带 {.unnumbered}
+
+![竞争风险图的条带明确写为 cumulative incidence。](images/cat-guide/20261019-refresh-cat-cif.png){fig-alt="同一队列的目标死亡CIF组合图，分别显示未调整与年龄标准化结果；条带写出累积发生全称，内嵌sHR及36月CIF差。"}
+
+[下载 PDF](images/cat-guide/20261019-refresh-cat-cif.pdf)
+
+#### KM 与在险人数 {.unnumbered}
+
+![plt_cat3 保留在险人数表，将森林表独立放在右侧。](images/cat-guide/20261019-refresh-cat-risk.png){fig-alt="左侧为相同KM与年龄调整曲线及在险人数，右侧为独立森林表，避免宽表覆盖曲线或时间刻度。"}
+
+[下载 PDF](images/cat-guide/20261019-refresh-cat-risk.pdf)
+
+:::
+
+| 设置 | 作用与边界 |
+|:--|:--|
+| `sur_arg$ylim = "auto"` | 取打印结果推荐的曲线范围和刻度，依据概率点估计；置信带可能超出显示范围 |
+| `sur_arg$xlim = "auto"` | 内嵌森林图的效应坐标；HR/sHR纳入参考值1、差值纳入0，各自取范围 |
+| `ybre / ticks_at / ticks_digits` | 显式设置时保留；分别控制曲线刻度、森林刻度和小数位数 |
+| `plt_cat1(fmt.fst.h = "auto")` | 在曲线和置信带留出的上、下空间中选择森林图位置；仍需检查宽表与长标签 |
+| `forest.position` | 显式提供时优先；此时不触发自动位置选择 |
+
+这些设置只重绘缓存，不改变 `timepoint`、调整项或估计量。`sur_arg$xlim` 不表示随访时间窗，时间窗用 `max_t`。`plt_cat1()` 与 `plt_cat3()` 都支持上述自动坐标；不能把它照搬到 `plt_cat2()` 的其他参数结构。当前 `plt_cat3()` 的在险人数偏移路径对 `fmt.fst.h = "auto"` 会报数值运算错误，所以本例明确使用数值 `0.2`。图中DSS与CIF不是互补概率，在险人数表只用于生存模式。
+
+在险人数示例使用 `display = "s+f"` 将宽森林表放在右侧，并缩小人数文字。调整曲线下方的人数仍是原队列的观测在险人数，不是标准化后假想人群的人数；底层会提示这一解释边界，本页保留该提示。
+
+当前 `get_cat()` 内部明确请求概率表，不受 `get_eff(show_sur = FALSE)` 新默认值影响。默认 CIF direct 为 mets/FGR 解析路线；新 `cif_args = list(model = "CRR")` 会选择 crr 比值拟合和 FGR bootstrap 概率路线，详细边界见[当前 CIF 后端](get-eff-cif-benchmark.qmd#current-backend)。
+
+### 自动位置、刻度步长与联合组标题（2026-10-21） {#cat-controls-20261021}
+
+<!-- controls-20261021: cat_controls -->
+
+以下按已推送 RegR `90ad6d8` 在 Windows / WSL R 4.4.3 执行。`plt_cat1()` 现在默认 `fmt.fst.h = "auto"`，根据两种方法的曲线、置信带和内嵌森林的实际面积，共同选择上方或下方；森林列也加宽，默认画布随分组数和表格宽度增长。它减少遮挡，仍需检查长标签、宽区间与图的最终尺寸。
+
+#### 四个联合组，两个模型共用森林坐标
+
+```r
+library(RegR)
+set.seed(832)
+cat_data <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), id = 1:150)
+cat_data[["Age"]] <- rnorm(600, 55, 10)
+t1 <- rexp(600, exp(0.3 * (cat_data[["Tx"]] == "Yes") +
+  0.2 * (cat_data[["Sex"]] == "Male") + 0.02 * (cat_data[["Age"]] - 55)) / 250)
+t2 <- rexp(600, 1 / 350)
+tc <- rexp(600, 1 / 400)
+cat_data[["time"]] <- pmin(t1, t2, tc) + 0.2
+cat_data[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+cat_data[["DSS"]] <- as.integer(cat_data[["event"]] == 1L)
+cat_models <- get_cat(cat_data, cat_var_combine = c("Tx", "Sex"), adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
+  timepoint = 36, time_dif = c(24, 36), curve_args = list(ci = TRUE, max_times = 50L))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(inherits(cat_models, "surv_models"),
+  all(vapply(cat_models, function(x) x[["cat"]][["par"]][["n_levels"]] == 4L, logical(1))))
+```
+:::
+
+```r
+inset_models <- plt_cat1(cat_models, display = "v",
+  sur_arg = list(ylim = list(sur = c(0.5, 1), cif = c(0, 0.5)),
+    ybre = 0.1, xlim = "auto", cat_label = c("Treatment", "Sex")),
+  max_t = 60, xbreaks = seq(0, 60, 12),
+  xlab = "Follow-up (months)",
+  save = list(filename = c(sur = file.path(tempdir(), "20261021-controls-cat-sur.pdf"),
+                           cif = file.path(tempdir(), "20261021-controls-cat-cif.pdf"))))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(names(inset_models), c("sur", "cif")),
+  all(vapply(inset_models, function(p) all(attr(p, "plot_size") >= c(11, 8.5)), logical(1))))
+```
+:::
+
+::: {.panel-tabset}
+
+#### KM {.unnumbered}
+
+![联合四组的 KM 与年龄调整生存曲线，森林使用默认自动位置。](images/cat-guide/20261021-controls-cat-sur.png){fig-alt="600条模拟记录的四个Treatment与Sex联合组，两个方法纵向排列，内嵌森林包含HR及36月生存差，曲线纵轴以0.1为步长。"}
+
+[下载 PDF](images/cat-guide/20261021-controls-cat-sur.pdf)
+
+#### CIF {.unnumbered}
+
+![相同分组的 CIF 使用独立曲线范围，与 KM 共用对应森林坐标。](images/cat-guide/20261021-controls-cat-cif.png){fig-alt="相同模拟队列的未调整和年龄调整CIF，森林使用sHR及36月CIF差，条带显示真实联合变量名称，未显示内部.cat_combined名称。"}
+
+[下载 PDF](images/cat-guide/20261021-controls-cat-cif.pdf)
+
+:::
+
+共享的 `sur_arg$xlim = "auto"` 从所有模型、所有方法的效应表共同取范围：KM / CIF 的比值轴相同，差值轴也相同；两种尺度仍各用自己的轴，比值包含参考值 1，差值包含 0。逐模型的命名设置则各自计算。`max_t` 和 `xbreaks` 控制随访时间，`sur_arg$xlim` 控制森林效应轴，不能用它缩短随访。
+
+默认条带会把 `cat_var_combine = c("Tx","Sex")` 写为 `different Tx and Sex groups`；三个 `plt_cat*()` 都使用真实组件名。上例的 `sur_arg$cat_label` 只把变量标题改成 Treatment 与 Sex，不改变联合组水平、模型或参考组；此字段仅供 `plt_cat1()`，不要传给 `plt_cat2()` / `plt_cat3()`。显式的 `strip_arg$strip_label` 优先。
+
+#### 一个 ybre 数字表示步长
+
+```r
+step_input <- get_cat(cat_data, "Tx", adj_var = "Age", surv = TRUE,
+  methods = c("unadj", "direct"), timepoint = 36, time_dif = c(24, 36),
+  curve_args = list(ci = TRUE, max_times = 50L))
+axis_step <- list(ylim = c(0.5, 1), ybre = 0.1)
+step_plots <- list(
+  plt_cat1(step_input, display = "sur", sur_arg = axis_step,
+    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL),
+  plt_cat2(step_input, sur_arg = axis_step,
+    dif_arg = list(ylim = c(-0.1, 0.1), ybre = 0.05),
+    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL),
+  plt_cat3(step_input, display = "sur", risk_table = FALSE, sur_arg = axis_step,
+    strip_arg = list(strip = FALSE), tag_position = NULL, plot.margin = NULL))
+y_breaks <- function(p) {
+  b <- ggplot2::ggplot_build(p)[["layout"]][["panel_params"]][[1]][["y"]][["breaks"]]
+  as.numeric(b[!is.na(b)])
+}
+for (p in step_plots) for (j in 1:2) {
+  stopifnot(isTRUE(all.equal(y_breaks(p[[j]]), seq(0.5, 1, 0.1))))
+}
+for (j in 3:4) {
+  stopifnot(isTRUE(all.equal(y_breaks(step_plots[[2]][[j]]), seq(-0.1, 0.1, 0.05))))
+}
+validation_values <- data.frame(composer = c("plt_cat1", "plt_cat2", "plt_cat3"),
+  first_curve_ticks = vapply(step_plots, function(p) paste(y_breaks(p[[1]]), collapse = ","), character(1)))
+validation_values
+```
+
+三个入口现在都把 `ybre = 0.1` 解释为范围内每隔 0.1 一个刻度，不是只画 0.1 这一个刻度；`plt_cat2()` 的 `dif_arg$ybre` 同理。多个数字仍是明确的刻度向量，例如 `c(0.5,0.75,1)`；单个步长须为正且有限。上例三个曲线轴均实际核对为 0.5、0.6、0.7、0.8、0.9、1.0，差值轴为 −0.10、−0.05、0、0.05、0.10；显示范围仅演示接口，不表示数据或区间均落在该范围内。
+
+自动位置默认值仅改了 `plt_cat1()`。显式 `forest.position` 优先；数值 `fmt.fst.h` 仍按 KM 的 `0.03 - fmt.fst.h`、CIF 的 `0.97 + fmt.fst.h` 偏移固定位置。`plt_cat3()` 保留数值偏移合同，不能跟着改成字符串 `"auto"`。保存时只给文件名可沿用推荐尺寸；若手动缩小画布，应重新检查森林、置信带和标签是否重叠。
+
+<!-- /controls-20261021: cat_controls -->
 
 ## plt_cat1()：多个 cat_res 合并成图 {#plt-cat1-multiple}
 
@@ -904,6 +761,64 @@ plt_cat2(cif_fit, max_t = 180, xbreaks = seq(0, 180, 36),
 
 `plt_cat3()` 遇到 CIF 输入会关闭人数表并提示使用 `plt_cat1()`，或显式设置 `risk_table = FALSE`。本页采用前者，不把不存在的 CIF 人数表当作已支持功能。
 
+### 直接 CIF：常量调整项会被移除（2026-10-21） {#fg-constant-20261021}
+
+<!-- refresh-20261021: cat_constant -->
+
+2026-10-21 按已推送 RegR `338a664` 在 Windows / WSL R 4.4.3 执行。共享 Fine–Gray 拟合器现在会移除完整病例中只剩一个值的独立主效应。下面显式传入常量 grade，保留变化的 age，并核对结果与仅调整 age 的模型相同。
+
+```r
+library(RegR)
+set.seed(317)
+dcif <- data.frame(group = factor(sample(c("A", "B"), 300, TRUE)), age = rnorm(300))
+a <- rexp(300, exp(0.35 * dcif[["age"]] + 0.18 * as.integer(dcif[["group"]])) / 80)
+b <- rexp(300, 1 / 130)
+censor <- rexp(300, 1 / 160)
+dcif[["time"]] <- pmin(a, b, censor) + 0.2
+dcif[["event"]] <- ifelse(a < b & a < censor, 1L, ifelse(b < censor, 2L, 0L))
+dcif[["DSS"]] <- as.integer(dcif[["event"]] == 1L)
+dcif[["grade"]] <- factor(rep("Unknown", 300), levels = c("G1", "G2", "Unknown"))
+constant_messages <- character()
+cif_constant <- withCallingHandlers(
+  get_cat(dcif, "group", adj_var = c("age", "grade"), surv = list(cif = FALSE),
+          methods = c("unadj", "direct"), timepoint = 24, time_dif = c(12, 24)),
+  RegR_empty_levels = function(m) {
+    constant_messages <<- c(constant_messages, cli::ansi_strip(conditionMessage(m)))
+    invokeRestart("muffleMessage")
+  })
+cif_age <- get_cat(dcif, "group", adj_var = "age", surv = list(cif = FALSE),
+  methods = c("unadj", "direct"), timepoint = 24, time_dif = c(12, 24))
+pc <- cif_constant[["cif"]][["cat"]][["UM"]][["sur_direct"]]
+pa <- cif_age[["cif"]][["cat"]][["UM"]][["sur_direct"]]
+plt_cat1(cif_constant[["cif"]], display = "sur_h",
+  xlab = "Follow-up (months)", ylab = "Cumulative incidence",
+  strip_arg = list(strip_label = c("Unadjusted", "Age adjusted")),
+  max_t = 60, xbreaks = seq(0, 60, 12),
+  save = list(filename = file.path(tempdir(), "20261021-refresh-cif-constant.pdf"),
+              width = 11, height = 5.5))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(any(grepl("single value", constant_messages, fixed = TRUE)),
+  is.data.frame(pc), nrow(pc) > 0L, any(is.finite(pc[["estimate"]])),
+  isTRUE(all.equal(pc[c("estimate", "conf.low", "conf.high")],
+                   pa[c("estimate", "conf.low", "conf.high")], check.attributes = FALSE)))
+```
+:::
+
+![实际未调整与直接标准化 CIF；调整模型的 grade 为常量后被移除，剩余模型调整 age。](images/cat-guide/20261021-refresh-cif-constant.png){fig-alt="300条模拟竞争风险记录中，A和B两组未调整及经年龄直接标准化的累积发生曲线与区间，调整模型中的常量grade已被移除。"}
+
+[下载本图 PDF](images/cat-guide/20261021-refresh-cif-constant.pdf)
+
+图形完成不代表所有请求的协变量都参与估计。报告本例应写“年龄调整”，同时保留常量项移除的消息；它也适用于完整病例筛选后才变成常量的协变量。暴露变量、任意交互项以及全部调整项都为常量的情况，不在这一自动修复承诺内。
+
+两个共线但各自仍变化的项不会被自动选择保留；错误诊断及亚组示例见[模型与森林图教程](forest-guide.qmd)。重新计算时记录实际公式、完整病例、目标事件数与引擎；旧图片保留原执行范围。
+
+<!-- /refresh-20261021: cat_constant -->
+
 ## 参数调整与保存 {#parameters}
 
 ::: {.table-responsive}
@@ -1072,3 +987,138 @@ names(cat_plots)  # "sur" "cif"
 `get_cat()` 的多模型返回值带 `surv_models` 类，`plt_cat1()` 返回同名图形 list，并生成两个 PDF。`sur_arg` 中按模型命名的 list 逐模型分发，普通设置共享；文件名可用同名字符向量。
 
 这与多个暴露的普通 `cat_res` list 不同：普通 list 会拼成一张图，多模型 list 每模型一张图。保留原对象的类，不要用 `unclass()` 改变分发方式。每个模型分别筛选完整案例；若两种模型需要的变量缺失情况不同，人数也可能不同。参数混合类型与统计尺度见[多模型约定](forest-guide.qmd#models-20261019)。
+
+### 逐模型保存：无名文件名向量（2026-10-22） {#cat-files-20261022}
+
+<!-- sync-20261022: cat_filenames -->
+
+2026-10-22 按已推送 RegR `70c3667`（修复 `fc9a3e1`）在 Windows / WSL R 4.4.3 执行。`plt_cat1()` 现在也接受长度等于模型数的无名 `save$filename` 向量，按 `surv_models` 的模型顺序保存；之前需要给文件名逐项命名。
+
+```r
+library(RegR)
+set.seed(925)
+d_files <- data.frame(Tx = factor(rep(c("No", "Yes"), 150)), Age = rnorm(300, 55, 10))
+t1 <- rexp(300, exp(0.3 * (d_files[["Tx"]] == "Yes") + 0.02 * (d_files[["Age"]] - 55)) / 80)
+t2 <- rexp(300, 1 / 130); tc <- rexp(300, 1 / 160)
+d_files[["time"]] <- pmin(t1, t2, tc) + 0.2
+d_files[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_files[["DSS"]] <- as.integer(d_files[["event"]] == 1L)
+models_files <- get_cat(d_files, "Tx", adj_var = "Age",
+  surv = list(Cox = TRUE, FineGray = FALSE), methods = c("unadj", "direct"),
+  timepoint = 24, time_dif = c(12, 24), curve_args = list(ci = FALSE, max_times = 30L))
+files_by_order <- file.path(tempdir(), c("20261022-sync-model-km.pdf", "20261022-sync-model-cif.pdf"))
+plots_files <- plt_cat1(models_files, display = "sur", max_t = 60,
+  xbreaks = seq(0, 60, 12), xlab = "Follow-up (months)",
+  save = list(filename = files_by_order, width = 11, height = 8.5))
+validation_values <- data.frame(model = names(plots_files), file = basename(files_by_order))
+validation_values
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(is.null(names(files_by_order)), identical(names(plots_files), c("Cox", "FineGray")),
+  all(file.exists(files_by_order)), all(file.info(files_by_order)[["size"]] > 100),
+  length(unique(unname(tools::md5sum(files_by_order)))) == 2L)
+```
+:::
+
+::: {.panel-tabset}
+
+#### 第一个文件：Cox {.unnumbered}
+
+![无名向量第一个文件保存 Cox 对应的生存曲线。](images/cat-guide/20261022-sync-model-km.png){fig-alt="300条模拟记录，未调整KM与年龄调整生存曲线纵向排列，时间单位为月，保存为模型顺序中的第一个PDF。"}
+
+[下载 PDF](images/cat-guide/20261022-sync-model-km.pdf)
+
+#### 第二个文件：Fine–Gray {.unnumbered}
+
+![第二个文件保存 Fine–Gray 对应的 CIF。](images/cat-guide/20261022-sync-model-cif.png){fig-alt="相同模拟队列的未调整和年龄调整累计发生曲线，单独保存为无名文件向量的第二个PDF。"}
+
+[下载 PDF](images/cat-guide/20261022-sync-model-cif.pdf)
+
+:::
+
+这里的 `time` 为月，图形只演示文件分配。模型排序变了，按顺序提供的文件名也应同步；需要按模型名固定对应时继续用 `c(Cox="...", FineGray="...")`。这项扩展只涉及 `plt_cat1()` 的文件名选择，不改变曲线、效应、返回模型顺序或森林自动坐标合同，也不要把无名字符向量推广成所有参数的逐模型设置。
+
+<!-- /sync-20261022: cat_filenames -->
+
+### 逐模型轴标题与刻度标签（2026-10-23） {#cat-dispatch-20261023}
+
+<!-- update-20261023: cat_dispatch -->
+
+2026-10-23 按已推送 RegR `aaeda5f` 在 Windows / WSL R 4.4.3 执行本节，原有图保留各自的执行记录。
+
+`plt_cat1()` 现在接受每模型一个字符串的 `xlab` / `ylab` 向量，以及按模型顺序排列的无名 list。名称映射和位置映射可同时使用；数值范围与颜色向量等本身有多元素含义的参数仍共享。
+
+```r
+library(RegR)
+set.seed(1023)
+d_multi <- expand.grid(Tx = factor(c("No", "Yes")),
+  Sex = factor(c("Female", "Male")), id = 1:90)
+d_multi[["Age"]] <- rnorm(360, 55, 10)
+t1 <- rexp(360, exp(.35 * (d_multi[["Tx"]] == "Yes") +
+  .25 * (d_multi[["Sex"]] == "Male") + .02 * (d_multi[["Age"]] - 55)) / 80)
+t2 <- rexp(360, 1 / 130); tc <- rexp(360, 1 / 160)
+d_multi[["time"]] <- pmin(t1, t2, tc) + .2
+d_multi[["event"]] <- ifelse(t1 < t2 & t1 < tc, 1L, ifelse(t2 < tc, 2L, 0L))
+d_multi[["DSS"]] <- as.integer(d_multi[["event"]] == 1L)
+cat_multi <- get_cat(d_multi, "Tx", adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE), methods = c("unadj", "direct"),
+  timepoint = 24, time_dif = 24, curve_args = list(ci = FALSE, max_times = 40L))
+cat_pdf <- file.path(tempdir(), c("20261023-update-cat-sur.pdf", "20261023-update-cat-cif.pdf"))
+cat_plots <- plt_cat1(cat_multi, display = "v", max_t = 60,
+  xbreaks = seq(0, 60, 12), xlab = c("KM follow-up (months)", "CIF follow-up (months)"),
+  ylab = c(cif = "Cumulative incidence", sur = "Survival probability"),
+  sur_arg = list(ylim = list(sur = c(0, 1), cif = c(0, 1)),
+                 ybre = list(.2, .1)),
+  save = list(filename = cat_pdf))
+reject_cat <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(is.list(cat_plots), identical(names(cat_plots), c("sur", "cif")),
+  all(file.exists(cat_pdf)), reject_cat(plt_cat1(cat_multi, xlab = c("a", "b", "c"))),
+  reject_cat(plt_cat2(cat_multi)))
+validation_values <- data.frame(model = names(cat_plots), file = basename(cat_pdf))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 生存图 {.unnumbered}
+
+![生存图接收第一个横轴标题和按 sur 命名的纵轴标题。](images/cat-guide/20261023-update-cat-sur.png){fig-alt="360条模拟记录，未调整与年龄调整生存曲线及内嵌HR和24月生存差森林。横轴为KM follow-up months，纵轴为Survival probability。"}
+
+[下载 PDF](images/cat-guide/20261023-update-cat-sur.pdf)
+
+#### 累计发生图 {.unnumbered}
+
+![CIF 图使用第二个横轴标题，纵轴按 cif 名称匹配。](images/cat-guide/20261023-update-cat-cif.png){fig-alt="相同队列的未调整与年龄调整CIF，内嵌sHR及24月CIF差森林。纵轴为Cumulative incidence，刻度步长为0.1。"}
+
+[下载 PDF](images/cat-guide/20261023-update-cat-cif.pdf)
+
+:::
+
+这里 `ybre = list(.2,.1)` 按模型顺序分派；`ylim` 使用模型名，避免误解：**无名 `ylim` list 仍表示未调整、调整两个面板**。同理，无名 `xlim` / `ticks_at` list 表示两个内嵌森林，无名 `strip_label` list 表示各暴露；这些字段要逐模型设置时必须命名。
+
+本节也使用 `aaeda5f` 的自动刻度修复：未指定 `ticks_at` 且 `x_trans = "none"` 时，刻度按显示精度取整后去重，消除重复标签和负零。手动刻度与变换轴保留原规则。`plt_cat2()` / `plt_cat3()` 仍一次接收一个模型，需显式提取 `cat_multi[["cif"]]`；普通 cat_res 列表仍用于组合暴露图。
+
+<!-- /update-20261023: cat_dispatch -->
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-23：[逐模型轴标题与刻度标签](#cat-dispatch-20261023)
+- 2026-10-22：[逐模型保存：无名文件名向量](#cat-files-20261022)
+- 2026-10-21：[自动位置、刻度步长与联合组标题](#cat-controls-20261021)
+- 2026-10-21：[直接 CIF：常量调整项会被移除](#fg-constant-20261021)
+- 2026-10-20：[参考行、区间标题与联合组核对](#labels-ci-20261020)
+- 2026-10-19：[自动坐标与内嵌森林图位置](#auto-axes-20261019)
+- 2026-10-12：[KM 差值区间与横向纯曲线](#km-greenwood)
+- 2026-10-09：[推断与结果更新](#current-inference)
+:::

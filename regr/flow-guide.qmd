@@ -13,114 +13,11 @@ directory:
 
 `get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图，`plt_flo2()` 用阶段说明和队列人数绘制彩色研究流程。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
 
-**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际执行筛选、绘制 **12 张 `plt_flo` 图和 8 张 `plt_flo2` 图**并验证 PDF 保存。网页展示保存的汇总结果；先运行下面的共用准备代码，再运行所选标签页代码即可复现。
-
 **本次更新：** 保留上述历史流程图与筛选结果；按已推送提交 `857677a` 新增 `save_plt()` 的 Cairo 设备说明，并实际导出、读回含 ≥、± 和希腊字母的 PDF。包版本仍为 0.1.3，设备默认值以安装源码为准。
 
-## 当前 get_all：先筛选，再重编码 {#all-preprocess-20261024}
-
-<!-- update-20261025: cohort_lists -->
-
-2026-10-25 按已推送 RegR `a121af8`、UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。`dis.args` 已改用 `label_args`、`flow_args`、`stratum_args`、`facet_args`、`legend_args`，原顶层 `label/gap/curve_type` 不再适用；下例已迁移并重绘。公共入口现在可在 `com.args` 内直接写 `get_flt` 条件与 `fct_cat` 重编码；正式筛选字段为 `get_flt`，短暂使用过的 `flt` 不作为兼容入口。返回对象的 `attr(result,"flt")` 仍叫 `flt`，不要把**参数字段**与**历史属性**混淆。
-
-### 继续已有筛选链，保留逐步人数
-
-```r
-library(RegR)
-library(UtilsR)
-d_all24 <- data.frame(Arm = factor(rep(c("No", "Yes"), each = 24)),
-  site = factor(rep(c("Head", "Body", "Tail", "Other"), 12), levels = c("Head", "Body", "Tail", "Other")),
-  Age = rep(c(16, 25, 40, 65, 80, 55), 8), size = rep(c(10, 20, 30, 40, 50, 60), 8),
-  time = 1:48, DSS = rep(c(0L, 1L, 0L, 1L, 1L, 0L), 8))
-d_all24[["DSS"]][c(3, 14, 34)] <- NA_integer_
-original_all24 <- d_all24
-quiet_all24 <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
-base_all24 <- quiet_all24(get_flt(d_all24, Age >= 18))
-log_all24 <- capture.output(all24 <- get_all(
-  com.args = list(data = base_all24,
-    get_flt = site != "Other",
-    get_flt = list(Age <= 75),
-    fct_cat = list(c(site, Head_Body = c("Head", "Body")),
-      c(Size_3 = size, breaks = c(20, 40), labels = c("S", "M", "L")),
-      c(Arm, reverse = TRUE)),
-    adj_var = c("Age", "size", "Size_3", "site"), surv = TRUE, time = 24),
-  tbl.args = list(cat_var = "Arm"),
-  dis.args = list(dis_var = c("Size_3", "site"), type = "bar",
-    label_args = list(style = "count_percent_wrap", pct_accuracy = 1),
-    legend_args = list(position = "bottom", ncol = 2))))
-# 显式的同一处理顺序作为对照；只在局部副本上操作。
-manual_all24 <- quiet_all24(get_flt(base_all24, site != "Other", Age <= 75))
-manual_all24[["site"]] <- fct_cat(manual_all24[["site"]], Head_Body = c("Head", "Body"))
-manual_all24[["Size_3"]] <- fct_num(manual_all24[["size"]], breaks = c(20, 40), labels = c("S", "M", "L"))
-manual_all24[["Arm"]] <- fct_cat(manual_all24[["Arm"]], reverse = TRUE)
-manual_all24 <- manual_all24[complete.cases(manual_all24[c("time", "DSS")]), , drop = FALSE]
-manual_table24 <- quiet_all24(get_gt_cat(manual_all24, cat_var = "Arm", com_var = c("Age", "size", "Size_3", "site")))
-history_all24 <- attr(all24, "flt")
-stopifnot(is.null(attr(all24, "failures")), identical(d_all24, original_all24),
-  isTRUE(all.equal(all24[["cat_gt"]][["_data"]], manual_table24[["_data"]], check.attributes = FALSE)),
-  identical(history_all24[["order"]], 1:4),
-  identical(history_all24[["filter"]], c("Age >= 18", 'site != "Other"', "Age <= 75", "!is.na(time) & !is.na(DSS)")),
-  tail(history_all24[["res_pat"]], 1) == nrow(manual_all24),
-  is.numeric(manual_all24[["size"]]), is.factor(manual_all24[["Size_3"]]),
-  sum(all24[["dis"]][["data"]][["n"]]) == nrow(manual_all24))
-gt::gtsave(gt::gt(as.data.frame(history_all24[c("order", "filter", "all_pat", "res_pat", "del_pat")])),
-  file.path(tempdir(), "20261025-update-all-history.html"))
-gt::gtsave(all24[["cat_gt"]], file.path(tempdir(), "20261025-update-all-table.html"))
-ggplot2::ggsave(file.path(tempdir(), "20261025-update-all-distribution.pdf"), all24[["dis"]], width = 6.5, height = 4)
-```
-
-::: {.panel-tabset}
-
-### 逐步人数 {.unnumbered}
-
-![已有历史、两次公共筛选和缺失结局处理形成连续四步。](images/flow-guide/20261025-update-all-history.png){fig-alt="原生筛选历史表，顺序为年龄至少18、排除Other部位、年龄不超过75、去除缺失time或DSS；每步显示筛选前后人数。"}
-
-[原生 HTML](images/flow-guide/20261025-update-all-history.html)
-
-### 同一处理后队列的表格 {.unnumbered}
-
-![新分箱列与原数值列一起进入描述表。](images/flow-guide/20261025-update-all-table.png){fig-alt="原生基线表同时保留size与Size_3分箱，以及重编码site；Arm水平由Yes开始，人数与筛选历史末步一致。"}
-
-[原生 HTML](images/flow-guide/20261025-update-all-table.html)
-
-### 同一处理后队列的分布 {.unnumbered}
-
-![分布图使用同一份筛选、重编码和完整结局队列。](images/flow-guide/20261025-update-all-distribution.png){fig-alt="Size_3的S、M、L分箱中Head_Body与Tail的构成，计数与同一分析队列一致。"}
-
-[下载 PDF](images/flow-guide/20261025-update-all-distribution.pdf)
-
+::: {.callout-note collapse="true" title="版本与复现记录"}
+**版本与执行范围：** 接口按本机 RegR **0.1.3**（源码快照 `0add2bb`）核对，使用 WSL R **4.4.3** 实际执行筛选、绘制 **12 张 `plt_flo` 图和 8 张 `plt_flo2` 图**并验证 PDF 保存。网页展示保存的汇总结果；先运行下面的共用准备代码，再运行所选标签页代码即可复现。
 :::
-
-顺序是：先执行全部 `get_flt` → 按书写顺序重编码 → 删除本模型所需的缺失结局 → 执行分析。重复的 `get_flt` 字段会逐步保留历史，已有 `get_flt()` 历史继续接上；即使把 `fct_cat` 写在筛选字段前面，筛选仍先执行。位置索引按**筛选后**剩余因子水平计数，稳定对比建议用水平名称。
-
-`fct_cat=list(c(...),c(...))` 将多项重编码集中写；列名不命名会覆盖该列，`c(Size_3=size,...)` 则写入新列，原 size 保持数值。带 `breaks` / `nbins` 时转给 `fct_num()`；其余参数转给 `fct_cat()`，嵌套的水平向量不会被展开。合法切点、标签数和参考组规则沿用 [UtilsR 因子教程](../utilsr/factor-guide.qmd)。控制台 Recoded 摘要显示列与新水平，筛选步骤另按人数对齐。
-
-### 预先构造参数列表时使用表达式或字符串
-
-```r
-common_all24 <- list(data = base_all24,
-  get_flt = rlang::exprs(site != "Other", Age <= 75),
-  fct_cat = list(list("site", Head_Body = c("Head", "Body")),
-    list(Size_3 = "size", breaks = c(20, 40), labels = c("S", "M", "L")),
-    list("Arm", reverse = TRUE)),
-  adj_var = c("Age", "size", "Size_3", "site"), surv = TRUE, time = 24)
-prebuilt_all24 <- quiet_all24(get_all(com.args = common_all24, tbl.args = list(cat_var = "Arm")))
-stopifnot(identical(attr(prebuilt_all24, "flt"), history_all24),
-  isTRUE(all.equal(prebuilt_all24[["cat_gt"]][["_data"]], all24[["cat_gt"]][["_data"]], check.attributes = FALSE)))
-bad_field24 <- tryCatch(get_all(com.args = list(data = d_all24, flt = TRUE)), error = identity)
-stopifnot(inherits(bad_field24, "error"))
-validation_values <- list(history = as.data.frame(history_all24), table = all24[["cat_gt"]][["_data"]],
-  distribution = as.data.frame(all24[["dis"]][["data"]]), rows = nrow(manual_all24),
-  levels = lapply(manual_all24[c("Arm", "site", "Size_3")], levels))
-```
-
-也可把 `get_flt` 写成 `c('site != "Other"','Age <= 75')`。不能在预先构造的普通 `list()` 中让裸列条件提前求值；重编码的首个列名同样需用字符串 `list("site",...)`。调用环境中的阈值可在条件中引用，数据列优先由数据掩码解析。
-
-`dis_var` 仍由 get_all 适配为 `plt_dist()` 的 `dis_vars`；其余 list 原样转发，细节见[分布图迁移表](../utilsr/flow-guide.qmd#distribution-lists-20261025)。已给公共 `split_var` 时，它用于分面；`facet_args` 只管面板排法，不改变分层变量。当前 RegR 已把 UtilsR (>=0.6.10) 作为硬依赖，不能只更新 RegR 而沿用旧 UtilsR。
-
-本例只启用 `tbl.args` 与 `dis.args`，没有拟合回归或自动启动其余分析。模拟年龄与大小含并列值，表格检验提示不能计算精确 P 值/区间，按当前检验使用近似结果；本节用于核对队列与接口。字段名错误会在分析前报错；某个已启用分析内部失败则检查 `attr(result,"failures")`，不能仅凭有返回值认定所有步骤成功。原始逐步筛选与[流程图绘制](#get-flt)继续可独立使用。
-
-<!-- /update-20261025: cohort_lists -->
 
 ## 示例数据与共用准备 {#data}
 
@@ -492,15 +389,22 @@ ggsave(file.path(tempdir(), "cohort-flow.png"), p,
 <!-- flow-run: return-data -->
 ```r
 same_data <- do.call(plt_flo, modifyList(flow_args, list(return_data = TRUE)))
-stopifnot(identical(same_data, cohort))
 
 h <- attr(cohort, "flt")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(same_data, cohort))
 stopifnot(
   all(h[["all_pat"]] - h[["res_pat"]] == h[["del_pat"]]),
   all(cumsum(h[["del_pat"]]) == h[["del_pat_sum"]]),
   sum(h[["del_pat"]]) == nrow(start) - nrow(cohort)
 )
 ```
+:::
 
 复现时先确认安装版本支持页面使用的命名 list 字段。常见核对点包括：
 
@@ -509,6 +413,125 @@ stopifnot(
 - **人数是否可追溯：** 手动分组人数要从相应数据计算；更改显示参数不会重新筛选或验证分析队列。
 - **内容与阶段是否有对应结构：** 研究内容依附于分组；阶段标签应对应实际存在的结构。
 - **图是否被裁剪：** 使用推荐尺寸保存，或在小绘图区采用 `fixed_size = FALSE`；不要仅靠改变文字大小修正设备尺寸。
+
+## get_all：先筛选，再重编码（2026-10-24） {#all-preprocess-20261024}
+
+<!-- update-20261025: cohort_lists -->
+
+2026-10-25 按已推送 RegR `a121af8`、UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。`dis.args` 已改用 `label_args`、`flow_args`、`stratum_args`、`facet_args`、`legend_args`，原顶层 `label/gap/curve_type` 不再适用；下例已迁移并重绘。公共入口现在可在 `com.args` 内直接写 `get_flt` 条件与 `fct_cat` 重编码；正式筛选字段为 `get_flt`，短暂使用过的 `flt` 不作为兼容入口。返回对象的 `attr(result,"flt")` 仍叫 `flt`，不要把**参数字段**与**历史属性**混淆。
+
+### 继续已有筛选链，保留逐步人数
+
+```r
+library(RegR)
+library(UtilsR)
+d_all24 <- data.frame(Arm = factor(rep(c("No", "Yes"), each = 24)),
+  site = factor(rep(c("Head", "Body", "Tail", "Other"), 12), levels = c("Head", "Body", "Tail", "Other")),
+  Age = rep(c(16, 25, 40, 65, 80, 55), 8), size = rep(c(10, 20, 30, 40, 50, 60), 8),
+  time = 1:48, DSS = rep(c(0L, 1L, 0L, 1L, 1L, 0L), 8))
+d_all24[["DSS"]][c(3, 14, 34)] <- NA_integer_
+original_all24 <- d_all24
+quiet_all24 <- function(expr) { invisible(capture.output(ans <- force(expr))); ans }
+base_all24 <- quiet_all24(get_flt(d_all24, Age >= 18))
+log_all24 <- capture.output(all24 <- get_all(
+  com.args = list(data = base_all24,
+    get_flt = site != "Other",
+    get_flt = list(Age <= 75),
+    fct_cat = list(c(site, Head_Body = c("Head", "Body")),
+      c(Size_3 = size, breaks = c(20, 40), labels = c("S", "M", "L")),
+      c(Arm, reverse = TRUE)),
+    adj_var = c("Age", "size", "Size_3", "site"), surv = TRUE, time = 24),
+  tbl.args = list(cat_var = "Arm"),
+  dis.args = list(dis_var = c("Size_3", "site"), type = "bar",
+    label_args = list(style = "count_percent_wrap", pct_accuracy = 1),
+    legend_args = list(position = "bottom", ncol = 2))))
+# 显式的同一处理顺序作为对照；只在局部副本上操作。
+manual_all24 <- quiet_all24(get_flt(base_all24, site != "Other", Age <= 75))
+manual_all24[["site"]] <- fct_cat(manual_all24[["site"]], Head_Body = c("Head", "Body"))
+manual_all24[["Size_3"]] <- fct_num(manual_all24[["size"]], breaks = c(20, 40), labels = c("S", "M", "L"))
+manual_all24[["Arm"]] <- fct_cat(manual_all24[["Arm"]], reverse = TRUE)
+manual_all24 <- manual_all24[complete.cases(manual_all24[c("time", "DSS")]), , drop = FALSE]
+manual_table24 <- quiet_all24(get_gt_cat(manual_all24, cat_var = "Arm", com_var = c("Age", "size", "Size_3", "site")))
+history_all24 <- attr(all24, "flt")
+gt::gtsave(gt::gt(as.data.frame(history_all24[c("order", "filter", "all_pat", "res_pat", "del_pat")])),
+  file.path(tempdir(), "20261025-update-all-history.html"))
+gt::gtsave(all24[["cat_gt"]], file.path(tempdir(), "20261025-update-all-table.html"))
+ggplot2::ggsave(file.path(tempdir(), "20261025-update-all-distribution.pdf"), all24[["dis"]], width = 6.5, height = 4)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(is.null(attr(all24, "failures")), identical(d_all24, original_all24),
+  isTRUE(all.equal(all24[["cat_gt"]][["_data"]], manual_table24[["_data"]], check.attributes = FALSE)),
+  identical(history_all24[["order"]], 1:4),
+  identical(history_all24[["filter"]], c("Age >= 18", 'site != "Other"', "Age <= 75", "!is.na(time) & !is.na(DSS)")),
+  tail(history_all24[["res_pat"]], 1) == nrow(manual_all24),
+  is.numeric(manual_all24[["size"]]), is.factor(manual_all24[["Size_3"]]),
+  sum(all24[["dis"]][["data"]][["n"]]) == nrow(manual_all24))
+```
+:::
+
+::: {.panel-tabset}
+
+### 逐步人数 {.unnumbered}
+
+![已有历史、两次公共筛选和缺失结局处理形成连续四步。](images/flow-guide/20261025-update-all-history.png){fig-alt="原生筛选历史表，顺序为年龄至少18、排除Other部位、年龄不超过75、去除缺失time或DSS；每步显示筛选前后人数。"}
+
+[原生 HTML](images/flow-guide/20261025-update-all-history.html)
+
+### 同一处理后队列的表格 {.unnumbered}
+
+![新分箱列与原数值列一起进入描述表。](images/flow-guide/20261025-update-all-table.png){fig-alt="原生基线表同时保留size与Size_3分箱，以及重编码site；Arm水平由Yes开始，人数与筛选历史末步一致。"}
+
+[原生 HTML](images/flow-guide/20261025-update-all-table.html)
+
+### 同一处理后队列的分布 {.unnumbered}
+
+![分布图使用同一份筛选、重编码和完整结局队列。](images/flow-guide/20261025-update-all-distribution.png){fig-alt="Size_3的S、M、L分箱中Head_Body与Tail的构成，计数与同一分析队列一致。"}
+
+[下载 PDF](images/flow-guide/20261025-update-all-distribution.pdf)
+
+:::
+
+顺序是：先执行全部 `get_flt` → 按书写顺序重编码 → 删除本模型所需的缺失结局 → 执行分析。重复的 `get_flt` 字段会逐步保留历史，已有 `get_flt()` 历史继续接上；即使把 `fct_cat` 写在筛选字段前面，筛选仍先执行。位置索引按**筛选后**剩余因子水平计数，稳定对比建议用水平名称。
+
+`fct_cat=list(c(...),c(...))` 将多项重编码集中写；列名不命名会覆盖该列，`c(Size_3=size,...)` 则写入新列，原 size 保持数值。带 `breaks` / `nbins` 时转给 `fct_num()`；其余参数转给 `fct_cat()`，嵌套的水平向量不会被展开。合法切点、标签数和参考组规则沿用 [UtilsR 因子教程](../utilsr/factor-guide.qmd)。控制台 Recoded 摘要显示列与新水平，筛选步骤另按人数对齐。
+
+### 预先构造参数列表时使用表达式或字符串
+
+```r
+common_all24 <- list(data = base_all24,
+  get_flt = rlang::exprs(site != "Other", Age <= 75),
+  fct_cat = list(list("site", Head_Body = c("Head", "Body")),
+    list(Size_3 = "size", breaks = c(20, 40), labels = c("S", "M", "L")),
+    list("Arm", reverse = TRUE)),
+  adj_var = c("Age", "size", "Size_3", "site"), surv = TRUE, time = 24)
+prebuilt_all24 <- quiet_all24(get_all(com.args = common_all24, tbl.args = list(cat_var = "Arm")))
+bad_field24 <- tryCatch(get_all(com.args = list(data = d_all24, flt = TRUE)), error = identity)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(attr(prebuilt_all24, "flt"), history_all24),
+  isTRUE(all.equal(prebuilt_all24[["cat_gt"]][["_data"]], all24[["cat_gt"]][["_data"]], check.attributes = FALSE)))
+stopifnot(inherits(bad_field24, "error"))
+validation_values <- list(history = as.data.frame(history_all24), table = all24[["cat_gt"]][["_data"]],
+  distribution = as.data.frame(all24[["dis"]][["data"]]), rows = nrow(manual_all24),
+  levels = lapply(manual_all24[c("Arm", "site", "Size_3")], levels))
+```
+:::
+
+也可把 `get_flt` 写成 `c('site != "Other"','Age <= 75')`。不能在预先构造的普通 `list()` 中让裸列条件提前求值；重编码的首个列名同样需用字符串 `list("site",...)`。调用环境中的阈值可在条件中引用，数据列优先由数据掩码解析。
+
+`dis_var` 仍由 get_all 适配为 `plt_dist()` 的 `dis_vars`；其余 list 原样转发，细节见[分布图迁移表](../utilsr/flow-guide.qmd#distribution-lists-20261025)。已给公共 `split_var` 时，它用于分面；`facet_args` 只管面板排法，不改变分层变量。当前 RegR 已把 UtilsR (>=0.6.10) 作为硬依赖，不能只更新 RegR 而沿用旧 UtilsR。
+
+本例只启用 `tbl.args` 与 `dis.args`，没有拟合回归或自动启动其余分析。模拟年龄与大小含并列值，表格检验提示不能计算精确 P 值/区间，按当前检验使用近似结果；本节用于核对队列与接口。字段名错误会在分析前报错；某个已启用分析内部失败则检查 `attr(result,"failures")`，不能仅凭有返回值认定所有步骤成功。原始逐步筛选与[流程图绘制](#get-flt)继续可独立使用。
+
+<!-- /update-20261025: cohort_lists -->
 
 ## plt_flo2()：彩色研究流程 {#plt-flo2}
 
@@ -558,7 +581,6 @@ cohort_spec <- list(
   exclude = excluded,
   final_label = "Patients eligible for analysis"
 )
-stopifnot(cohort_spec[["N"]] - sum(excluded) == nrow(cohort))
 
 # 标签页用这份参数组合添加单队列与两个阶段标签。
 workflow_args <- list(
@@ -567,6 +589,14 @@ workflow_args <- list(
   phase_labels = c("Patient selection", "Study workflow")
 )
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(cohort_spec[["N"]] - sum(excluded) == nrow(cohort))
+```
+:::
 
 本例起始 **4,387 人**，三项移除人数分别为 **138、301、342**，最终 **3,606 人**。`cohorts$exclude` 会从 `N` 中减去各项人数，必须使用连续筛选的新增移除人数，避免把同一患者在多个条件下重复计数。
 
@@ -889,7 +919,20 @@ get_flt先检查每个因子前10,000行是否包含全部水平；没出现齐�
 late <- data.frame(flag = factor(c(rep("common", 20000), "late"),
   levels = c("common", "late", "unused")))
 kept <- get_flt(late, flag != "unused")
-stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "late")))
 ```
 
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "late")))
+```
+:::
+
 这是水平清理的计算路径调整，不是只分析前10,000行，也不会恢复已被条件排除的记录。本轮未进行新计时。[`get_flt()` 帮助页](https://hui950319.github.io/RegR/reference/get_flt.html) · [`plt_flo()` 帮助页](https://hui950319.github.io/RegR/reference/plt_flo.html)
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-24：[get_all：先筛选，再重编码](#all-preprocess-20261024)
+:::
