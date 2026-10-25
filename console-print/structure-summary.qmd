@@ -18,9 +18,12 @@ directory:
 library(UtilsR)
 
 res <- structure(
-  list(Overall = list(table = data.frame(term = c("Age", "Sex", "Stage"),
-                                         HR = c(1.85, 1.25, 0.97)),
+  list(Overall = list(table = structure(
+                        data.frame(term = c("Age", "Sex", "Stage"),
+                                   HR = c(1.85, 1.25, 0.97)),
+                        model_info = "Cox, adjusted"),
                       method = "cox",
+                      p = c(0.004, 0.21, NA),
                       fit = list(coef = c(0.62, 0.22, -0.03), iter = 4L)),
        Subgroup = list(Male = data.frame(term = "Age", HR = 1.7),
                        Female = data.frame(term = "Age", HR = 2.0)),
@@ -48,29 +51,31 @@ pr_spark(df)
 
 ### 彩色终端 {.unnumbered}
 
-![结构树、摘要框和迷你分布的彩色输出。](images/structure-color.png){fig-alt="上部是以蓝底 demo_res 为根的结构树，列出 Overall、Subgroup、model 和青色 attr analysis，fit 后有省略号；中部是青色圆角框，顶边写 Cox model、底边写 simulated，框内四行键值；下部是六列的青色迷你分布条，右侧为均值与标准差、水平数与最多水平或日期范围，最右为缺失比例。"}
+![结构树、摘要框和迷你分布的彩色输出。](images/structure-color.png){fig-alt="上部是以蓝底 demo_res 为根的结构树：同层名字对齐，Overall、Subgroup 和 fit 加粗；table 后列出列名 term、HR，行尾为青色 attr: model_info；p 的缺失值 NA 为红色；fit 预览为 coef, iter = 4；末行青色 attr analysis 预览 n = 2314 与 outcome。中部是青色圆角框，顶边写 Cox model、底边写 simulated，框内四行键值；下部是六列的青色迷你分布条，右侧为均值与标准差、水平数与最多水平或日期范围，最右为缺失比例。"}
 
 [原生 HTML](images/structure-color.html)
 
 ### 无色日志 {.unnumbered}
 
-![无色输出：根节点写成尖括号类名。](images/structure-plain.png){fig-alt="同一示例的无色输出，根节点为 尖括号包住的 demo_res 与 list 3，树线、圆角框和分布条的字符不变。"}
+![无色输出：根节点写成尖括号类名。](images/structure-plain.png){fig-alt="同一示例的无色输出，根节点为尖括号包住的 demo_res 与 list 3；名字的对齐、树线、圆角框和分布条的字符不变。"}
 
 [原生 HTML](images/structure-plain.html)
 
 :::
 
-示例的内容都不长，40 列时的输出与 80 列相同。`pr_box()` 的内容超出宽度时会折行；`pr_tree()` 和 `pr_spark()` 不折行。
+40 列时，`pr_tree()` 按剩余宽度截短预览，放不下的行以省略号结尾；`pr_box()` 的内容超出宽度时会折行；`pr_spark()` 不折行，输出与 80 列相同。
 
 ## pr_tree()：结构树 {#pr-tree}
 
-`pr_tree(x, max_depth = 3, max_items = 20, max_lines = 200, attrs = TRUE)` 把列表形式的结果画成树，每个元素后面跟一句灰色描述，比 `str()` 更容易看清嵌套结果的组成。
+`pr_tree(x, max_depth = 3, max_items = 20, max_lines = 200, attrs = TRUE)` 把列表形式的结果画成树，每个元素后面跟一句描述，比 `str()` 更容易看清嵌套结果的组成。以下按 UtilsR 0.6.12（`0b59c82`）的输出，除截断提速外都是 0.6.12 新改的写法。
 
-- 会展开普通列表，以及同时继承 `"list"` 的类对象（如 `c("eff_res", "list")`）。数据框、模型、图形等其他对象作为叶子，只写类型和大小，例如 `<data.frame 3 x 2>`、`<lm>`。
-- 原子向量写出类型、长度和前几个值，如 `<chr> "cox"`、`<chr 3> "Age", "Sex", "Stage"`：最多取前 10 个值，预览截到 40 个字符。
-- `max_depth` 控制展开的层数；停在这一层、还没展开的列表后面加省略号，示例里的 `fit` 就是这样。
-- 每个节点最多列 `max_items` 个元素，其余写成 `… n more`；整棵树最多 `max_lines` 行，超出的行数写在末尾。到了 `max_lines` 后只计数、不再描述，层层嵌套的大列表也能马上打出前几行（0.6.12 起；20 × 20 × 20 的列表打印 200 行从 2.5 s 降到 0.07 s）。
-- `attrs = TRUE` 时，除名称、类、维度、行名和 srcref 以外的属性也列出来，标为青色 `attr`，示例里的 `analysis` 就是属性。
+- 传入的对象本身总是展开：`pr_tree(fit)` 列出模型的各个组件，数据框列出各列，S4 对象列出各个槽（写成 `@name`）。再往下只展开普通列表，以及同时继承 `"list"` 的类对象（如 `c("eff_res", "list")`）；数据框、模型、图形等其他对象作为叶子，例如示例里的 `<lm>`。
+- 原子向量写出类型、长度和值，如 `<chr> "cox"`、`<dbl 3> 0.004, 0.21, NA`：整数照原样，小数取 3 位有效数字但保留整数部分（`1234.5678` 写成 `1235`）。有名字的向量写成 `train = 800, test = 200`，带值标签的写成 `1 [Male]`，因子注明水平数，如 `<fct 4, 3 levels>`。值显示到行尾为止，取不完时以省略号结尾。
+- 类型缩写与 vctrs 一致，如 `<drtn 2>`（时间差）、`<dbl+lbl 3>`（带值标签的向量）、`<int matrix 2 x 3>`；公式、调用写出原文，函数写出前 4 个参数，如 `<fn(data, formula, ...)>`。
+- 不展开的节点也预览内容：数据框列出列名（示例的 `table`）；列表列出元素名，单个原子值写出取值（示例的 `fit` 写成 `coef, iter = 4`），没有名字的列表才只加省略号。
+- 同一层的名字补齐到同一宽度（最多 18 个字符），描述从同一列开始。类型和大小是灰色，值用正常文字色，`NA` 标红，有子节点的名字加粗。
+- `max_depth` 控制展开的层数。每个节点最多列 `max_items` 个元素，其余写成 `… n more: e6, e7, …`，列出被略过的名字；整棵树最多 `max_lines` 行，末尾写明剩下的行数和截断它的参数，如 `# … 340 more lines (max_lines = 200)`。到了 `max_lines` 后只计数、不再描述，层层嵌套的大列表也能马上打出前几行（20 × 20 × 20 的列表打印 200 行从 2.5 s 降到 0.07 s）。
+- `attrs = TRUE` 时，除名称、类、维度、行名、srcref 和类型自带的属性（因子水平、时区、值标签等）以外，其余属性都会标出：展开的节点下另起一行，标为青色 `attr`，同样预览名字和单值（示例的 `analysis`）；不展开的节点在行尾写 `[attr: 名字]`（示例的 `model_info`），如图形上的 `[attr: plot_size]`。
 
 ## pr_box()：摘要框 {#pr-box}
 
@@ -108,4 +113,5 @@ pr_spark(df)
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
 - 2026-10-25：按 UtilsR 0.6.12 补充 [pr_tree()](#pr-tree) 截断提速、[pr_box()](#pr-box) 空输入与 [pr_spark()](#pr-spark) 标识列。
+- 2026-10-25：按 UtilsR 0.6.12（`0b59c82`）重写 [pr_tree()](#pr-tree) 的说明；示例加入属性与缺失值，重做截图。
 :::
