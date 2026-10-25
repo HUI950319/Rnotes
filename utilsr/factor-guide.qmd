@@ -13,121 +13,9 @@ directory:
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
 **版本与执行范围：** 原有 33 个参数示例按 UtilsR **0.6.8** 执行，3 张预览保留原次导出。2026-10-20 按已推送 `cea978f4` 补充下方数据边界，并在 Windows / WSL R 4.4.3 执行新旧示例；本轮未重新导出原有图片。使用固定随机种子的模拟数据。
-
-## 当前 ref_idx=0：保持多水平 {#zero-reference-20261025}
-
-<!-- update-20261025: factor_zero -->
-
-2026-10-25 按已推送 UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。**单个数值 `ref_idx=0` 与 `NULL` 相同**，不合并参考组，也不占用互斥模式；因此可与 `reverse=TRUE` 或命名重编码一起使用。普通正整数仍是 1-based 水平位置。
-
-```r
-library(UtilsR)
-stage_zero25 <- factor(c("I", "II", "III", NA), levels = c("I", "II", "III"))
-keep_zero25 <- fct_cat(stage_zero25, ref_idx = 0)
-reverse_zero25 <- fct_cat(stage_zero25, ref_idx = 0, reverse = TRUE)
-renamed_zero25 <- fct_cat(stage_zero25, Early = c("I", "II"), ref_idx = 0)
-stopifnot(identical(keep_zero25, stage_zero25),
-  identical(reverse_zero25, fct_cat(stage_zero25, reverse = TRUE)),
-  identical(renamed_zero25, fct_cat(stage_zero25, Early = c("I", "II"))))
-bad_zero25 <- tryCatch(fct_cat(stage_zero25, ref_idx = c(0, 1)), error = identity)
-names_zero25 <- factor(c("0", "1", "2"), levels = c("0", "1", "2"))
-named_zero25 <- fct_cat(names_zero25, ref_idx = "0")
-stopifnot(inherits(bad_zero25, "error"), identical(levels(named_zero25), c("0", "Oth")))
-zero_preview25 <- data.frame(setting = c("Original", "ref_idx = 0", "0 + reverse", "0 + recode"),
-  levels = vapply(list(stage_zero25, keep_zero25, reverse_zero25, renamed_zero25),
-    function(x) paste(levels(x), collapse = " / "), character(1)), missing = 1L)
-gt::gtsave(gt::gt(zero_preview25), file.path(tempdir(), "20261025-update-reference-zero.html"))
-validation_values <- list(preview = zero_preview25, named_zero = as.character(named_zero25),
-  missing = is.na(keep_zero25))
-```
-
-![单个数值零保留原水平，也可与反转或重编码同时使用。](images/factor-guide/20261025-update-reference-zero.png){fig-alt="原生因子核对表：原始与ref_idx为0均保留I、II、III；加reverse改变水平顺序；加命名重编码合并Early。缺失均保持一项。"}
-
-[原生 HTML 表](images/factor-guide/20261025-update-reference-zero.html)
-
-`c(0,1)` 不是“关闭再选第一项”，仍属非法位置向量。字符 `"0"` 则按**水平名称**匹配，可以把名为 0 的水平作为参考；它不等同于数值 0。缺失不因关闭合并而变成一个类别。此前的[名称与位置对照](#ref-ci-20261024)继续适用；RegR 交互入口也接受数值 0 表示不合并。
-
-<!-- /update-20261025: factor_zero -->
-
-## 当前参考组与区间文本合同 {#ref-ci-20261024}
-
-<!-- update-20261024: factor_ci -->
-
-2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。本页 `fct_cat()` 主示例统一使用新参数 `ref_idx`；旧名 `binary_ref` 仍可用，但会警告，不能与新名同时给。
-
-```r
-library(UtilsR)
-st <- factor(c("I", "III", "II", "IV", NA), levels = c("I", "II", "III", "IV"))
-by_name <- fct_cat(st, ref_idx = c("I", "II"))
-by_index <- fct_cat(st, ref_idx = 1:2)
-stopifnot(identical(by_name, by_index), identical(levels(by_name), c("I_II", "Oth")),
-          identical(is.na(by_name), is.na(st)))
-compat_notes <- character()
-compat <- withCallingHandlers(fct_cat(st, binary_ref = 1:2), warning = function(w) {
-  compat_notes <<- c(compat_notes, conditionMessage(w)); invokeRestart("muffleWarning")
-})
-reject_ref <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
-stopifnot(identical(compat, by_name), length(compat_notes) == 1L,
-  reject_ref(fct_cat(st, ref_idx = "missing")),
-  reject_ref(fct_cat(st, ref_idx = 1, binary_ref = 1)))
-data.frame(original = st, combined = by_name)
-```
-
-名称按当前 `levels()` 精确匹配；位置按当前水平顺序计数。重排后按名称选择更容易保持同一研究对比。合并参考水平仍会改变分类定义，不只是改显示；其他水平归为 `Oth`，真正缺失保持缺失。
-
-### 缺失组件、名字与负零
-
-```r
-est_ci <- c(complete = 1.25, no_est = NA_real_, no_low = 2, no_high = 3, zero = -.0001)
-lo_ci <- c(.5, .2, NA_real_, 2, -.0002)
-hi_ci <- c(2, .8, 3, NaN, .0001)
-shown_ci <- stat_ci(est_ci, lo_ci, hi_ci, digits = 2, sep = " to ")
-stopifnot(identical(names(shown_ci), names(est_ci)),
-  identical(unname(is.na(shown_ci)), c(FALSE, TRUE, TRUE, TRUE, FALSE)),
-  identical(unname(shown_ci[["zero"]]), "0.00 (0.00 to 0.00)"),
-  identical(stat_ci(numeric(), numeric()), character()),
-  identical(stat_ci(c(NA, NA), c(NA, NA)), c(NA_character_, NA_character_)))
-ci_preview <- data.frame(row = names(shown_ci), estimate = unname(est_ci),
-  lower = lo_ci, upper = hi_ci, displayed = unname(shown_ci))
-gt::gtsave(gt::tab_header(gt::gt(ci_preview), title = "Missing components remain missing"),
-  file.path(tempdir(), "20261024-update-ci-missing.html"))
-```
-
-![区间任一组件缺失时整项保持缺失，舍入后的负零改为零。](images/factor-guide/20261024-update-ci-missing.png){fig-alt="五行原生表。完整区间正常显示；估计、下界或上界缺失的三行结果均为NA；微小负数舍入为0.00而非负零。"}
-
-[原生 HTML 表](images/factor-guide/20261024-update-ci-missing.html)
-
-SPSS 用户缺失也沿用输入的 `is.na()` 方法。这里只整理已有数值；不计算置信区间，也不改变 `sprintf()` 的其他舍入规则。日期、时间跨度、integer64 与矩阵/数组不能当作普通数值直接格式化。
-
-### 字符区间的注释不会悄悄保留
-
-```r
-ci_text <- c(missing = NA_character_, blank = " ", stars = "1.25 (0.50, 2.00)***",
-             annotated = "1.25 (0.50, 2.00), p=0.03")
-ci_notes <- character()
-reformatted <- withCallingHandlers(stat_ci(ci_text, digits = 2, bracket = "[", sep = " to "),
-  warning = function(w) { ci_notes <<- c(ci_notes, conditionMessage(w)); invokeRestart("muffleWarning") })
-stopifnot(identical(names(reformatted), names(ci_text)), is.na(reformatted[["missing"]]),
-  identical(reformatted[["blank"]], " "),
-  identical(unname(reformatted[c("stars", "annotated")]), rep("1.25 [0.50 to 2.00]", 2)),
-  length(ci_notes) == 1L, grepl("trailing text", ci_notes[[1]], fixed = TRUE),
-  reject_ref(stat_ci(1, 2, digits = 1.5)), reject_ref(stat_ci(1, 2, digits = 8191)),
-  reject_ref(stat_ci(as.Date("2026-01-01"), 1)))
-text_preview <- data.frame(input = unname(ci_text), displayed = unname(reformatted))
-gt::gtsave(gt::tab_header(gt::gt(text_preview), title = "Formatting drops annotations"),
-  file.path(tempdir(), "20261024-update-ci-text.html"))
-validation_values <- list(reference = as.character(by_name), numeric = ci_preview,
-  text = text_preview, compatibility_warnings = length(compat_notes), annotation_warnings = length(ci_notes))
-```
-
-![字符区间重排会去掉星号，其他尾注被丢弃时会警告。](images/factor-guide/20261024-update-ci-text.png){fig-alt="缺失与空白字符串原样保留。带三颗星的区间、带p等于0.03尾注的区间均显示为不带注释的新格式，后者产生一条警告。"}
-
-[原生 HTML 表](images/factor-guide/20261024-update-ci-text.html)
-
-星号与末尾句点是已知尾缀，会忽略；P 值等其他尾注被丢弃时会警告。不能把格式化后的字符串当成仍含原检验信息的结果。`digits` 为 0–8190 的单个整数，并受每个格式化数字 8192 字节的上限限制。
-
-<!-- /update-20261024: factor_ci -->
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -310,6 +198,148 @@ fct_show(fct_cat(stage, new_labels = c("Stage I", "Stage II", "Stage III", "Stag
 
 :::
 
+### 参考组与区间文本合同（2026-10-24） {#ref-ci-20261024}
+
+<!-- update-20261024: factor_ci -->
+
+2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。本页 `fct_cat()` 主示例统一使用新参数 `ref_idx`；旧名 `binary_ref` 仍可用，但会警告，不能与新名同时给。
+
+```r
+library(UtilsR)
+st <- factor(c("I", "III", "II", "IV", NA), levels = c("I", "II", "III", "IV"))
+by_name <- fct_cat(st, ref_idx = c("I", "II"))
+by_index <- fct_cat(st, ref_idx = 1:2)
+compat_notes <- character()
+compat <- withCallingHandlers(fct_cat(st, binary_ref = 1:2), warning = function(w) {
+  compat_notes <<- c(compat_notes, conditionMessage(w)); invokeRestart("muffleWarning")
+})
+reject_ref <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+data.frame(original = st, combined = by_name)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(by_name, by_index), identical(levels(by_name), c("I_II", "Oth")),
+          identical(is.na(by_name), is.na(st)))
+stopifnot(identical(compat, by_name), length(compat_notes) == 1L,
+  reject_ref(fct_cat(st, ref_idx = "missing")),
+  reject_ref(fct_cat(st, ref_idx = 1, binary_ref = 1)))
+```
+:::
+
+名称按当前 `levels()` 精确匹配；位置按当前水平顺序计数。重排后按名称选择更容易保持同一研究对比。合并参考水平仍会改变分类定义，不只是改显示；其他水平归为 `Oth`，真正缺失保持缺失。
+
+#### 缺失组件、名字与负零
+
+```r
+est_ci <- c(complete = 1.25, no_est = NA_real_, no_low = 2, no_high = 3, zero = -.0001)
+lo_ci <- c(.5, .2, NA_real_, 2, -.0002)
+hi_ci <- c(2, .8, 3, NaN, .0001)
+shown_ci <- stat_ci(est_ci, lo_ci, hi_ci, digits = 2, sep = " to ")
+ci_preview <- data.frame(row = names(shown_ci), estimate = unname(est_ci),
+  lower = lo_ci, upper = hi_ci, displayed = unname(shown_ci))
+gt::gtsave(gt::tab_header(gt::gt(ci_preview), title = "Missing components remain missing"),
+  file.path(tempdir(), "20261024-update-ci-missing.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(names(shown_ci), names(est_ci)),
+  identical(unname(is.na(shown_ci)), c(FALSE, TRUE, TRUE, TRUE, FALSE)),
+  identical(unname(shown_ci[["zero"]]), "0.00 (0.00 to 0.00)"),
+  identical(stat_ci(numeric(), numeric()), character()),
+  identical(stat_ci(c(NA, NA), c(NA, NA)), c(NA_character_, NA_character_)))
+```
+:::
+
+![区间任一组件缺失时整项保持缺失，舍入后的负零改为零。](images/factor-guide/20261024-update-ci-missing.png){fig-alt="五行原生表。完整区间正常显示；估计、下界或上界缺失的三行结果均为NA；微小负数舍入为0.00而非负零。"}
+
+[原生 HTML 表](images/factor-guide/20261024-update-ci-missing.html)
+
+SPSS 用户缺失也沿用输入的 `is.na()` 方法。这里只整理已有数值；不计算置信区间，也不改变 `sprintf()` 的其他舍入规则。日期、时间跨度、integer64 与矩阵/数组不能当作普通数值直接格式化。
+
+#### 字符区间的注释不会悄悄保留
+
+```r
+ci_text <- c(missing = NA_character_, blank = " ", stars = "1.25 (0.50, 2.00)***",
+             annotated = "1.25 (0.50, 2.00), p=0.03")
+ci_notes <- character()
+reformatted <- withCallingHandlers(stat_ci(ci_text, digits = 2, bracket = "[", sep = " to "),
+  warning = function(w) { ci_notes <<- c(ci_notes, conditionMessage(w)); invokeRestart("muffleWarning") })
+text_preview <- data.frame(input = unname(ci_text), displayed = unname(reformatted))
+gt::gtsave(gt::tab_header(gt::gt(text_preview), title = "Formatting drops annotations"),
+  file.path(tempdir(), "20261024-update-ci-text.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(names(reformatted), names(ci_text)), is.na(reformatted[["missing"]]),
+  identical(reformatted[["blank"]], " "),
+  identical(unname(reformatted[c("stars", "annotated")]), rep("1.25 [0.50 to 2.00]", 2)),
+  length(ci_notes) == 1L, grepl("trailing text", ci_notes[[1]], fixed = TRUE),
+  reject_ref(stat_ci(1, 2, digits = 1.5)), reject_ref(stat_ci(1, 2, digits = 8191)),
+  reject_ref(stat_ci(as.Date("2026-01-01"), 1)))
+validation_values <- list(reference = as.character(by_name), numeric = ci_preview,
+  text = text_preview, compatibility_warnings = length(compat_notes), annotation_warnings = length(ci_notes))
+```
+:::
+
+![字符区间重排会去掉星号，其他尾注被丢弃时会警告。](images/factor-guide/20261024-update-ci-text.png){fig-alt="缺失与空白字符串原样保留。带三颗星的区间、带p等于0.03尾注的区间均显示为不带注释的新格式，后者产生一条警告。"}
+
+[原生 HTML 表](images/factor-guide/20261024-update-ci-text.html)
+
+星号与末尾句点是已知尾缀，会忽略；P 值等其他尾注被丢弃时会警告。不能把格式化后的字符串当成仍含原检验信息的结果。`digits` 为 0–8190 的单个整数，并受每个格式化数字 8192 字节的上限限制。
+
+<!-- /update-20261024: factor_ci -->
+
+### ref_idx=0：保持多水平（2026-10-25） {#zero-reference-20261025}
+
+<!-- update-20261025: factor_zero -->
+
+2026-10-25 按已推送 UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。**单个数值 `ref_idx=0` 与 `NULL` 相同**，不合并参考组，也不占用互斥模式；因此可与 `reverse=TRUE` 或命名重编码一起使用。普通正整数仍是 1-based 水平位置。
+
+```r
+library(UtilsR)
+stage_zero25 <- factor(c("I", "II", "III", NA), levels = c("I", "II", "III"))
+keep_zero25 <- fct_cat(stage_zero25, ref_idx = 0)
+reverse_zero25 <- fct_cat(stage_zero25, ref_idx = 0, reverse = TRUE)
+renamed_zero25 <- fct_cat(stage_zero25, Early = c("I", "II"), ref_idx = 0)
+bad_zero25 <- tryCatch(fct_cat(stage_zero25, ref_idx = c(0, 1)), error = identity)
+names_zero25 <- factor(c("0", "1", "2"), levels = c("0", "1", "2"))
+named_zero25 <- fct_cat(names_zero25, ref_idx = "0")
+zero_preview25 <- data.frame(setting = c("Original", "ref_idx = 0", "0 + reverse", "0 + recode"),
+  levels = vapply(list(stage_zero25, keep_zero25, reverse_zero25, renamed_zero25),
+    function(x) paste(levels(x), collapse = " / "), character(1)), missing = 1L)
+gt::gtsave(gt::gt(zero_preview25), file.path(tempdir(), "20261025-update-reference-zero.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(keep_zero25, stage_zero25),
+  identical(reverse_zero25, fct_cat(stage_zero25, reverse = TRUE)),
+  identical(renamed_zero25, fct_cat(stage_zero25, Early = c("I", "II"))))
+stopifnot(inherits(bad_zero25, "error"), identical(levels(named_zero25), c("0", "Oth")))
+validation_values <- list(preview = zero_preview25, named_zero = as.character(named_zero25),
+  missing = is.na(keep_zero25))
+```
+:::
+
+![单个数值零保留原水平，也可与反转或重编码同时使用。](images/factor-guide/20261025-update-reference-zero.png){fig-alt="原生因子核对表：原始与ref_idx为0均保留I、II、III；加reverse改变水平顺序；加命名重编码合并Early。缺失均保持一项。"}
+
+[原生 HTML 表](images/factor-guide/20261025-update-reference-zero.html)
+
+`c(0,1)` 不是“关闭再选第一项”，仍属非法位置向量。字符 `"0"` 则按**水平名称**匹配，可以把名为 0 的水平作为参考；它不等同于数值 0。缺失不因关闭合并而变成一个类别。此前的[名称与位置对照](#ref-ci-20261024)继续适用；RegR 交互入口也接受数值 0 表示不合并。
+
+<!-- /update-20261025: factor_zero -->
+
 ## 换名与再分组
 
 ::: {.panel-tabset}
@@ -478,11 +508,18 @@ fct_show(fct_num(tied, nbins = 4))
 ```r
 x <- factor(c("I", "II", "III", "II", NA), levels = c("I", "II", "III", "IV"))
 y <- fct_cat(x, II = "I")
+data.frame(level = levels(y), n = as.integer(table(y)))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(identical(levels(y), c("II", "III")),
           identical(as.integer(table(y)), c(3L, 1L)), sum(is.na(y)) == 1L,
           identical(levels(x), c("I", "II", "III", "IV")))
-data.frame(level = levels(y), n = as.integer(table(y)))
 ```
+:::
 
 | level | n |
 |:--|--:|
@@ -500,11 +537,18 @@ is.na(x_na) <- c(FALSE, FALSE, FALSE, TRUE)
 names(x_na) <- paste0("r", 1:4)
 attr(x_na, "label") <- "Clinical grade"
 y_na <- fct_cat(x_na, reverse = TRUE)
+data.frame(value = as.character(y_na), code = as.integer(y_na), missing = is.na(y_na))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(identical(is.na(y_na), is.na(x_na)),
           identical(names(y_na), names(x_na)), is.ordered(y_na),
           identical(attr(y_na, "label"), "Clinical grade"))
-data.frame(value = as.character(y_na), code = as.integer(y_na), missing = is.na(y_na))
 ```
+:::
 
 | 行 | value | code | missing |
 |:--|:--|--:|:--|
@@ -521,12 +565,19 @@ data.frame(value = as.character(y_na), code = as.integer(y_na), missing = is.na(
 x_ctr <- factor(rep(c("I", "II", "III"), 2))
 contrasts(x_ctr) <- contr.sum(3)
 y_ctr <- fct_cat(x_ctr, Early = 1:2)
-stopifnot(is.null(attr(y_ctr, "contrasts")),
-          ncol(model.matrix(~ y_ctr)) == 2L,
-          identical(attr(fct_cat(x_ctr, "I"), "contrasts"), attr(x_ctr, "contrasts")))
 data.frame(original_levels = nlevels(x_ctr), grouped_levels = nlevels(y_ctr),
            design_columns = ncol(model.matrix(~ y_ctr)))
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(is.null(attr(y_ctr, "contrasts")),
+          ncol(model.matrix(~ y_ctr)) == 2L,
+          identical(attr(fct_cat(x_ctr, "I"), "contrasts"), attr(x_ctr, "contrasts")))
+```
+:::
 
 旧 contrasts 矩阵不再适合改变后的水平，函数会清除它；以函数名保存的 contrasts 仍保留。`stats::reorder()` 附带的 `scores` 在水平或映射改变后也会清除，无变化的调用保留原属性。用于回归前应按新分组重新指定所需 contrasts。
 
@@ -536,10 +587,17 @@ data.frame(original_levels = nlevels(x_ctr), grouped_levels = nlevels(y_ctr),
 cuts <- c(1, 1 + 1e-14)
 values <- c(0.9, cuts, 1.1)
 binned <- fct_num(values, breaks = cuts)
-stopifnot(nlevels(binned) == 3L, !anyDuplicated(levels(binned)),
-          identical(as.integer(binned), c(1L, 1L, 2L, 3L)))
 data.frame(value = sprintf("%.17g", values), bin = as.character(binned))
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(nlevels(binned) == 3L, !anyDuplicated(levels(binned)),
+          identical(as.integer(binned), c(1L, 1L, 2L, 3L)))
+```
+:::
 
 两个切点的常规打印都可能显示为 1；当前自动标签会增加有效位数，仍保留三个不同区间。标签中的 `below` 包含切点；需要发表时，仍建议显式写 `<=`、`(a,b]` 等右闭区间。
 
@@ -563,9 +621,17 @@ invalid <- c(
   constant_quantiles = rejected(fct_num(rep(5, 6), nbins = 3)),
   constant_equal = rejected(fct_num(rep(5, 6), nbins = 3, type = "equal"))
 )
-stopifnot(all(invalid))
 data.frame(case = names(invalid), rejected = unname(invalid))
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(all(invalid))
+```
+:::
+
 <!-- /refresh-20261020: factor -->
 
 本例 12 项均为 TRUE。除单个数值 `ref_idx=0` 作为关闭开关外，索引还必须有限、非缺失、为整数且在当前水平范围内；空分组不新增水平。`ref_idx` 的新名称不能在仍有其他水平时与 `Oth` 冲突。`fct_num()` 的 `x` 和 `breaks` 不支持 `bit64::integer64` 存储；这与因子工具接受经校验并转为原生整数的索引是两种合同，不应混用。
@@ -588,9 +654,16 @@ library(UtilsR)
 spss <- haven::labelled_spss(c(10, 20, 99, NA_real_), na_values = 99)
 normalized <- haven::zap_missing(spss)
 grouped <- fct_num(normalized, breaks = 15, labels = c("<=15", ">15"))
-stopifnot(identical(as.integer(grouped), c(1L, 2L, NA_integer_, NA_integer_)))
 data.frame(value = as.numeric(normalized), group = as.character(grouped))
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(as.integer(grouped), c(1L, 2L, NA_integer_, NA_integer_)))
+```
+:::
 
 | 原值 | 规范化后的值 | 分组 |
 |--:|--:|:--|
@@ -607,9 +680,16 @@ data.frame(value = as.numeric(normalized), group = as.character(grouped))
 elapsed <- lubridate::ddays(c(1, 7, 14, NA))
 days <- as.numeric(elapsed, units = "days")
 day_group <- fct_num(days, breaks = 7, labels = c("<=7 days", ">7 days"))
-stopifnot(identical(as.integer(day_group), c(1L, 1L, 2L, NA_integer_)))
 data.frame(days = days, group = as.character(day_group))
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(as.integer(day_group), c(1L, 1L, 2L, NA_integer_)))
+```
+:::
 
 `Duration`、`Period`、`Interval` 不能直接用作数据或切点，`nbins` 也不能是时间量。上例把固定时长明确换成天，切点也用天。日历月份、年份或有起止日期的区间应先决定实际换算规则，不能把内部秒数当成年龄或随访月份。
 
@@ -653,9 +733,16 @@ guards <- c(
   repeated_equal_cuts = rejects(fct_num(c(1, 1 + .Machine$double.eps),
                                       nbins = 4, type = "equal"))
 )
-stopifnot(all(guards))
 data.frame(case = names(guards), rejected = unname(guards))
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(all(guards))
+```
+:::
 
 9 项均应为 TRUE。等宽分组遇到数值精度无法区分的切点会报错，不会擅自合并区间或移动边界；应减少组数或明确指定可表示的切点。`labels=FALSE` 不作为返回整数编码的开关，函数保持返回 factor；需要编码时对有效结果调用 `as.integer()`。
 
@@ -677,10 +764,17 @@ library(UtilsR)
 s <- factor(c("F", "M", NA, "NA"), levels = c("F", "M", "NA"))
 t <- factor(c("I", NA, "II", "I"), levels = c("I", "II"))
 g <- fct_to_combine(s, t)
-stopifnot(identical(is.na(g), c(FALSE, TRUE, TRUE, FALSE)),
-          identical(levels(g), c("F & I", "NA & I")))
 data.frame(sex = s, stage = t, combined = g, is_na = is.na(g))
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(is.na(g), c(FALSE, TRUE, TRUE, FALSE)),
+          identical(levels(g), c("F & I", "NA & I")))
+```
+:::
 
 | sex | stage | combined | is_na |
 |:--|:--|:--|:--|
@@ -702,13 +796,20 @@ within <- dplyr::mutate(grouped, joint = fct_to_combine(sex, stage))
 whole <- fct_to_combine(grouped, c("sex", "stage"), var_name = "joint")
 orders <- data.frame(order = 1:4,
   whole_data = levels(whole[["joint"]]), within_group = levels(within[["joint"]]))
-stopifnot(identical(dplyr::group_vars(whole), "center"),
-  identical(levels(whole[["joint"]]), c("F & I", "F & II", "M & I", "M & II")),
-  identical(levels(within[["joint"]]), c("M & I", "M & II", "F & I", "F & II")))
 gt::gtsave(gt::tab_header(gt::gt(orders), title = "Factor level order"),
   file.path(tempdir(), "20261023-update-factor-order.html"))
 orders
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(dplyr::group_vars(whole), "center"),
+  identical(levels(whole[["joint"]]), c("F & I", "F & II", "M & I", "M & II")),
+  identical(levels(within[["joint"]]), c("M & I", "M & II", "F & I", "F & II")))
+```
+:::
 
 ![相同观测值在整队列组合与组内 mutate 后的水平顺序。](images/factor-guide/20261023-update-factor-order.png){fig-alt="四行水平顺序对照。整队列先F后M，组内计算再合并则先M后F，首水平由F和I变成M和I。"}
 
@@ -722,19 +823,26 @@ orders
 masked <- dplyr::mutate(d_combo, joint = fct_to_combine(c("sex", "stage")))
 named_args <- fct_to_combine(sep = " / ", vars = c("sex", "stage"),
                             x = d_combo, var_name = "joint")
-stopifnot(identical(masked[["joint"]], whole[["joint"]]),
-  identical(as.character(named_args[["joint"]]),
-            as.character(fct_to_combine(d_combo[["sex"]], d_combo[["stage"]], sep = " / "))))
 rejected <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
-stopifnot(rejected(fct_to_combine(d_combo, c("sex", "sex"))),
-  rejected(fct_to_combine(c("A & B", "A"), c("C", "B & C"))),
-  rejected(fct_to_combine(as.raw(1:2), 1:2)))
 dt <- data.table::as.data.table(d_combo)
 data.table::setkeyv(dt, "sex")
 before <- data.table::copy(dt)
 dt_out <- fct_to_combine(dt, c("sex", "stage"), var_name = "joint")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(masked[["joint"]], whole[["joint"]]),
+  identical(as.character(named_args[["joint"]]),
+            as.character(fct_to_combine(d_combo[["sex"]], d_combo[["stage"]], sep = " / "))))
+stopifnot(rejected(fct_to_combine(d_combo, c("sex", "sex"))),
+  rejected(fct_to_combine(c("A & B", "A"), c("C", "B & C"))),
+  rejected(fct_to_combine(as.raw(1:2), 1:2)))
 stopifnot(identical(dt, before), !"joint" %in% names(dt), "joint" %in% names(dt_out))
 ```
+:::
 
 单个长度至少为 2 的字符向量始终表示列名；在数据掩码外组合一列字符值时，先用 `factor(x)`。分组列不能由 `pick()` 选取，可直接传向量或改用数据框方法。`vars` 必须唯一、非空且不含 NA；重复列名造成的歧义、不同组合拼成同一个标签都会报错。列名 `sep` 与控制参数同名时，用数据框方法。data.table 会先复制再写入，覆盖键或索引列时相关元数据会被清理。
 
@@ -895,13 +1003,20 @@ library(UtilsR)
 pv <- c(bound = "  <0.001  ", exact = "1e-2", equal = "0.05",
         above = "0.050000000001", missing = NA_character_)
 shown <- stat_pval(pv, map_signif = c("***" = .001, "**" = .01, "*" = .05))
-stopifnot(identical(shown, c(bound = "<0.001", exact = "0.010**", equal = "0.050*",
-  above = "0.050", missing = NA_character_)))
 p_table <- data.frame(input = unname(pv), shown = unname(shown))
 gt::gtsave(gt::tab_header(gt::gt(p_table), title = "Bounds are not exact P-values"),
   file.path(tempdir(), "20261023-update-pvalue-bounds.html"))
 p_table
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(shown, c(bound = "<0.001", exact = "0.010**", equal = "0.050*",
+  above = "0.050", missing = NA_character_)))
+```
+:::
 
 ![界限文本不推断星号，阈值比较使用舍入前 P 值。](images/factor-guide/20261023-update-pvalue-bounds.png){fig-alt="小于0.001保留原界限，0.01显示两星，0.05显示一星，略大于0.05虽同样显示0.050却无星，缺失保持NA。"}
 
@@ -910,12 +1025,18 @@ p_table
 ```r
 annotated <- stat_pval(c(a = NA_character_, b = "HR", c = "OR"),
                       add_star_p = c(.001, NA, .05))
+reject_p <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(identical(annotated, c(a = NA_character_, b = "HR", c = "OR*")),
   identical(stat_pval(c(NA, NA)), c(NA_character_, NA_character_)),
   identical(stat_pval(numeric()), character()),
   identical(stat_pval(.01, map_signif = c(first = .05, second = .05)), "0.010first"),
   identical(stat_pval(.01, map_signif = numeric()), "0.010"))
-reject_p <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
 stopifnot(reject_p(stat_pval(-.01)), reject_p(stat_pval(Inf)),
   reject_p(stat_pval("<0")), reject_p(stat_pval(">1")),
   reject_p(stat_pval("0 .05")), reject_p(stat_pval(as.Date("2026-01-01"))),
@@ -924,6 +1045,7 @@ stopifnot(reject_p(stat_pval(-.01)), reject_p(stat_pval(Inf)),
 validation_values <- list(order = orders, p = p_table,
   missing = is.na(g), annotated = annotated, source_unchanged = identical(dt, before))
 ```
+:::
 
 普通 P 值和界限端点必须有限且在 `[0,1]`；严格 `<0`、`>1` 无法表示合法 P 值，会报错。`plain` 可格式化此范围以外的普通数值。`add_star_p` 缺失时不追加星号，原文本缺失仍为 NA；名字和空字符向量合同保留。使用星号时，`map_signif` 的阈值须为有限的 0–1 数值，重复阈值取第一个符号，空数值映射禁用星号；`stat_ci_parse(output = "ci_star")` 使用相同校验，但区间逆推 P 值仍是其原有近似方法，不等于原模型检验。
 
@@ -972,10 +1094,17 @@ q <- withCallingHandlers(
     invokeRestart("muffleWarning")
   }
 )
-stopifnot(nlevels(q) == 2L, identical(as.integer(table(q)), c(3L, 1L)),
-          any(grepl("4 bins to 2", warnings_seen)))
 table(q)
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(nlevels(q) == 2L, identical(as.integer(table(q)), c(3L, 1L)),
+          any(grepl("4 bins to 2", warnings_seen)))
+```
+:::
 
 实际输出为 `Lower = 3`、`Higher = 1`，并收到从 4 个区间减至 2 个的警告；若仍给 4 个标签会报长度不符。**重复标签会合并区间**，并非只改变显示名称：
 
@@ -983,19 +1112,33 @@ table(q)
 merged <- fct_num(c(1, 5, 9), breaks = c(3, 7),
                   labels = c("Lower", "Lower", "Higher"))
 fixed <- fct_num(c(-Inf, 50, Inf, NA_real_), breaks = 50)
+data.frame(value = c(-Inf, 50, Inf, NA_real_), group = fixed)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(identical(levels(merged), c("Lower", "Higher")),
           identical(as.integer(table(merged)), c(2L, 1L)),
           identical(as.character(fixed), c("below_50", "below_50", "above_50", NA_character_)))
-data.frame(value = c(-Inf, 50, Inf, NA_real_), group = fixed)
 ```
+:::
 
 固定切点会把 `-Inf` / `Inf` 纳入首尾区间，50 仍归右闭区间的下组。自动等宽分箱需要有限的最小值和最大值；自动分位数会直接把无限值交给 `stats::quantile()`，可能减少区间或报错，不会先替你剔除这些观测。应先判断无限值的来源，再明确决定保留、排除或修正。
 
 ```r
 equal_error <- tryCatch(fct_num(c(1, 2, Inf), nbins = 2, type = "equal"),
                         error = identity)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(inherits(equal_error, "error"))
 ```
+:::
 
 <!-- /refresh-20261021: factor_bins -->
 
@@ -1126,3 +1269,10 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-25：[ref_idx=0：保持多水平](#zero-reference-20261025)
+- 2026-10-24：[参考组与区间文本合同](#ref-ci-20261024)
+:::

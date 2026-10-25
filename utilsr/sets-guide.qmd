@@ -13,63 +13,9 @@ directory:
 
 plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；22 个示例已在 WSL R 4.4.3 中实际执行，其中 17 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
-
-## 当前 Jaccard：缺失成员与多组条带 {#jaccard-20261024}
-
-<!-- update-20261024: jaccard -->
-
-2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。缺失组名不建立一个“NA 组”，缺失特征也不作为各组共有成员；重复成员仍按集合去重。返回矩阵和画图用的隐藏对角线需分开读取。
-
-```r
-library(UtilsR)
-library(ggplot2)
-d_jac <- data.frame(group = factor(c("A", "A", "A", "A", "B", "B", NA),
-  levels = c("B", "A", "empty")), feature = c("g1", "g2", "g1", NA, "g2", NA, "orphan"))
-jac <- PlotHeatmapJaccard(d_jac, group_col = "group", name_col = "feature",
-  show_diag = TRUE, return_type = "both", title = "Missing names do not create shared features")
-expected_jac <- rbind(c(1, .5, 0), c(.5, 1, 0), c(0, 0, 0))
-dimnames(expected_jac) <- list(c("B", "A", "empty"), c("B", "A", "empty"))
-stopifnot(identical(jac[["matrix"]], expected_jac), identical(jac[["matrix"]], t(jac[["matrix"]])))
-jac_hidden <- PlotHeatmapJaccard(d_jac, "group", "feature", return_type = "both")
-stopifnot(identical(jac_hidden[["matrix"]], jac[["matrix"]]),
-  all(is.na(jac_hidden[["plot"]][["data"]][["Jaccard"]][
-    jac_hidden[["plot"]][["data"]][["Group1"]] == jac_hidden[["plot"]][["data"]][["Group2"]]])))
-ggsave(file.path(tempdir(), "20261024-update-jaccard-missing.pdf"), jac[["plot"]], width = 6.5, height = 5)
-```
-
-![A 与 B 的交集比例为 0.5，空集合整行整列为零。](images/sets-guide/20261024-update-jaccard-missing.png){fig-alt="三组Jaccard矩阵，顺序B、A、empty；A与B为0.5，两个非空组对角线为1，空集合对角线与其他单元为0。"}
-
-[下载 PDF](images/sets-guide/20261024-update-jaccard-missing.pdf)
-
-A 的有效集合为 `{g1,g2}`，B 为 `{g2}`，所以 Jaccard 为 1/2，不能把两组都有的 NA 计成交集。显式因子水平 `empty` 保留为空集合；本函数约定并集为空时相似度为 **0**，不是 1。`show_diag=FALSE` 只把图中对角线设为 NA / 灰色，返回矩阵仍保留计算值。
-
-### 超过 16 组时颜色循环，组名仍是身份依据
-
-```r
-d_jac17 <- do.call(rbind, lapply(sprintf("G%02d", 1:17), function(g)
-  data.frame(group = g, feature = c("shared", paste0("gene_", g)))))
-jac17 <- PlotHeatmapJaccard(d_jac17, "group", "feature", show_strip = TRUE,
-  text_size = 0, return_type = "both", title = "Seventeen groups: read group labels")
-strip_layers <- ggplot_build(jac17[["plot"]])[["data"]]
-strip_fill <- strip_layers[[2]][["fill"]]
-stopifnot(length(strip_fill) == 17L, !anyNA(strip_fill),
-  identical(strip_fill[[17]], strip_fill[[1]]), identical(strip_layers[[3]][["fill"]], strip_fill),
-  isTRUE(all.equal(unname(jac17[["matrix"]][upper.tri(jac17[["matrix"]])]), rep(1/3, 136))))
-bad_jac <- tryCatch(PlotHeatmapJaccard(data.frame(group = NA_character_, feature = "x"),
-  "group", "feature"), error = identity)
-stopifnot(inherits(bad_jac, "error"))
-ggsave(file.path(tempdir(), "20261024-update-jaccard-strip17.pdf"), jac17[["plot"]], width = 8, height = 7)
-validation_values <- list(matrix = unclass(jac[["matrix"]]), matrix17 = unclass(jac17[["matrix"]]), strip_colors = strip_fill)
-```
-
-![17 组条带没有缺失颜色，第 17 色循环使用第 1 色。](images/sets-guide/20261024-update-jaccard-strip17.png){fig-alt="17乘17的Jaccard热图，所有不同组共享一个特征，相似度均为三分之一；两侧条带颜色循环，G17与G01同色但组名不同。"}
-
-[下载 PDF](images/sets-guide/20261024-update-jaccard-strip17.pdf)
-
-默认条带有 16 色，更多组循环使用；较短的自定义 `strip_colors` 也循环。颜色可能重复，不适合单独作为组标识，需保留轴标签。矩阵现在利用对称性逐对计算，仍输出完整方阵；这里不据此宣称固定速度倍数。
-
-<!-- /update-20261024: jaccard -->
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -367,6 +313,76 @@ PlotHeatmapJaccard(long, "set", "feature", show_strip = TRUE,
 
 :::
 
+### Jaccard：缺失成员与多组条带（2026-10-24） {#jaccard-20261024}
+
+<!-- update-20261024: jaccard -->
+
+2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。缺失组名不建立一个“NA 组”，缺失特征也不作为各组共有成员；重复成员仍按集合去重。返回矩阵和画图用的隐藏对角线需分开读取。
+
+```r
+library(UtilsR)
+library(ggplot2)
+d_jac <- data.frame(group = factor(c("A", "A", "A", "A", "B", "B", NA),
+  levels = c("B", "A", "empty")), feature = c("g1", "g2", "g1", NA, "g2", NA, "orphan"))
+jac <- PlotHeatmapJaccard(d_jac, group_col = "group", name_col = "feature",
+  show_diag = TRUE, return_type = "both", title = "Missing names do not create shared features")
+expected_jac <- rbind(c(1, .5, 0), c(.5, 1, 0), c(0, 0, 0))
+dimnames(expected_jac) <- list(c("B", "A", "empty"), c("B", "A", "empty"))
+jac_hidden <- PlotHeatmapJaccard(d_jac, "group", "feature", return_type = "both")
+ggsave(file.path(tempdir(), "20261024-update-jaccard-missing.pdf"), jac[["plot"]], width = 6.5, height = 5)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(jac[["matrix"]], expected_jac), identical(jac[["matrix"]], t(jac[["matrix"]])))
+stopifnot(identical(jac_hidden[["matrix"]], jac[["matrix"]]),
+  all(is.na(jac_hidden[["plot"]][["data"]][["Jaccard"]][
+    jac_hidden[["plot"]][["data"]][["Group1"]] == jac_hidden[["plot"]][["data"]][["Group2"]]])))
+```
+:::
+
+![A 与 B 的交集比例为 0.5，空集合整行整列为零。](images/sets-guide/20261024-update-jaccard-missing.png){fig-alt="三组Jaccard矩阵，顺序B、A、empty；A与B为0.5，两个非空组对角线为1，空集合对角线与其他单元为0。"}
+
+[下载 PDF](images/sets-guide/20261024-update-jaccard-missing.pdf)
+
+A 的有效集合为 `{g1,g2}`，B 为 `{g2}`，所以 Jaccard 为 1/2，不能把两组都有的 NA 计成交集。显式因子水平 `empty` 保留为空集合；本函数约定并集为空时相似度为 **0**，不是 1。`show_diag=FALSE` 只把图中对角线设为 NA / 灰色，返回矩阵仍保留计算值。
+
+#### 超过 16 组时颜色循环，组名仍是身份依据
+
+```r
+d_jac17 <- do.call(rbind, lapply(sprintf("G%02d", 1:17), function(g)
+  data.frame(group = g, feature = c("shared", paste0("gene_", g)))))
+jac17 <- PlotHeatmapJaccard(d_jac17, "group", "feature", show_strip = TRUE,
+  text_size = 0, return_type = "both", title = "Seventeen groups: read group labels")
+strip_layers <- ggplot_build(jac17[["plot"]])[["data"]]
+strip_fill <- strip_layers[[2]][["fill"]]
+bad_jac <- tryCatch(PlotHeatmapJaccard(data.frame(group = NA_character_, feature = "x"),
+  "group", "feature"), error = identity)
+ggsave(file.path(tempdir(), "20261024-update-jaccard-strip17.pdf"), jac17[["plot"]], width = 8, height = 7)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(length(strip_fill) == 17L, !anyNA(strip_fill),
+  identical(strip_fill[[17]], strip_fill[[1]]), identical(strip_layers[[3]][["fill"]], strip_fill),
+  isTRUE(all.equal(unname(jac17[["matrix"]][upper.tri(jac17[["matrix"]])]), rep(1/3, 136))))
+stopifnot(inherits(bad_jac, "error"))
+validation_values <- list(matrix = unclass(jac[["matrix"]]), matrix17 = unclass(jac17[["matrix"]]), strip_colors = strip_fill)
+```
+:::
+
+![17 组条带没有缺失颜色，第 17 色循环使用第 1 色。](images/sets-guide/20261024-update-jaccard-strip17.png){fig-alt="17乘17的Jaccard热图，所有不同组共享一个特征，相似度均为三分之一；两侧条带颜色循环，G17与G01同色但组名不同。"}
+
+[下载 PDF](images/sets-guide/20261024-update-jaccard-strip17.pdf)
+
+默认条带有 16 色，更多组循环使用；较短的自定义 `strip_colors` 也循环。颜色可能重复，不适合单独作为组标识，需保留轴标签。矩阵现在利用对称性逐对计算，仍输出完整方阵；这里不据此宣称固定速度倍数。
+
+<!-- /update-20261024: jaccard -->
+
 ## 矩阵返回与数值核对
 
 ::: {.panel-tabset}
@@ -436,9 +452,17 @@ d_sets <- data.frame(A = c("Yes", "Yes", "No", "No", "Yes", "No"),
 p_saved <- plt_upset(d_sets, vars = c("A", "B", "C"), output = "venn",
   save = list(filename = file.path(tempdir(), "20261020-refresh-sets.pdf")))
 size <- attr(p_saved, "plot_size")
-stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
 size
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
+```
+:::
+
 <!-- /refresh-20261020: sets_save -->
 
 ![当前保存接口导出的 PDF 预览。](images/sets-guide/20261020-refresh-sets.png){fig-alt="sets教程的固定输入保存示例，预览由实际导出的PDF转换，展示按内容估算的画布。"}
@@ -535,3 +559,9 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-24：[Jaccard：缺失成员与多组条带](#jaccard-20261024)
+:::

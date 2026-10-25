@@ -13,230 +13,9 @@ directory:
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 9 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。数据质量报告的四张表与 [当前检视](#inspection-20261021) 一节于 2026-10-22 按已推送 UtilsR `cdfdfec` 在 Windows / WSL R 4.4.3 重新执行，两边结果一致。
-
-## 当前环境诊断：包副本与实时可用内存 {#environment-20261025}
-
-<!-- update-20261025: environment_checks -->
-
-2026-10-25 按已推送 UtilsR **0.6.10** `0e4cffe` 在 Windows / WSL R 4.4.3 执行。旧入口 `count_packages_in_libpaths()` 已移除，正式名称是 **`check_packages(refresh=FALSE)`**；不是保留旧名的别名迁移。
-
-### 安装库计数：返回完整路径，Total 不是去重包名数
-
-默认打印报告并**不可见返回 data.frame**，包含 `Library_Path`、数值 `Package_Count` 和末尾 `Total` 行。跨库的同名包按每个安装副本分别计数；普通文件夹和安装锁不计为包。`refresh=TRUE` 绕过 installed.packages 缓存，不执行更新或安装。下面只在临时目录复制随 R 提供的 compiler 作夹具，不动用户安装库。
-
-```r
-library(UtilsR)
-lib_demo25 <- file.path(tempdir(), "package-count-demo")
-one_lib25 <- file.path(lib_demo25, "one-copy")
-empty_lib25 <- file.path(lib_demo25, "empty")
-dir.create(one_lib25, recursive = TRUE, showWarnings = FALSE)
-dir.create(empty_lib25, recursive = TRUE, showWarnings = FALSE)
-stopifnot(file.copy(system.file(package = "compiler"), one_lib25, recursive = TRUE))
-dir.create(file.path(one_lib25, "notes"), showWarnings = FALSE)
-dir.create(file.path(one_lib25, "00LOCK-unfinished"), showWarnings = FALSE)
-packages25 <- local({
-  old <- .libPaths(); on.exit(.libPaths(old))
-  .libPaths(c(one_lib25, empty_lib25, old))
-  capture.output(first <- withVisible(check_packages()))
-  capture.output(fresh <- withVisible(check_packages(refresh = TRUE)))
-  stopifnot(!first[["visible"]], !fresh[["visible"]],
-    identical(names(first[["value"]]), c("Library_Path", "Package_Count")),
-    identical(first[["value"]][["Package_Count"]][1:2], c(1L, 0L)),
-    identical(fresh[["value"]][["Package_Count"]][1:2], c(1L, 0L)),
-    identical(first[["value"]][["Library_Path"]][1:2], .libPaths()[1:2]))
-  result <- fresh[["value"]]
-  stopifnot(tail(result[["Package_Count"]], 1) == sum(head(result[["Package_Count"]], -1)))
-  result
-})
-package_preview25 <- data.frame(Library = c("Temporary compiler copy", "Temporary empty library"),
-  Installed_copies = packages25[["Package_Count"]][1:2])
-gt::gtsave(gt::gt(package_preview25), file.path(tempdir(), "20261025-update-package-counts.html"))
-```
-
-![两个临时库分别统计一份 compiler 和零个安装包。](images/missing-guide/20261025-update-package-counts.png){fig-alt="原生gt表中临时compiler副本库为1，空库为0；无关目录与安装锁不增加计数。"}
-
-[原生 HTML](images/missing-guide/20261025-update-package-counts.html)
-
-任一库无法读取时会逐库警告，该行和 **Total 均为 NA**；仍返回其他库的已知计数，不能把它们的部分和写成完整总计。终端中长路径可截短、计数可带千分位，返回对象始终保留完整路径和数值，供后续程序使用。本例未通过改变权限模拟不可读库；该分支按当前源码和帮助核对。
-
-### 系统与 R 堆：先辨认单位和计量范围
-
-`check_system(return_result=TRUE)` 可见返回列表；默认仍打印并不可见返回列表。Windows/macOS 优先通过 ps 读取**实时内存**，Windows 仅缓存静态系统元数据，必要时回退到 CIM/WMIC；Linux 使用可用的 /proc 数据。不可得值保留 NA，不填零。两平台的内存和 CPU 数量不要求相同，也不固定一次调用与下一次的实时数值。
-
-```r
-capture.output(sys25 <- check_system(return_result = TRUE))
-mem25 <- sys25[["system_memory"]]
-heap25 <- sys25[["r_memory"]]
-known_mem25 <- all(is.finite(unlist(mem25)))
-stopifnot(all(c("system_info", "r_environment", "r_memory", "system_memory", "cpu", "warnings", "timestamp") %in% names(sys25)),
-  isTRUE(all.equal(heap25[["used_gb"]], heap25[["used_bytes"]] / 1024^3)))
-if (known_mem25) stopifnot(mem25[["total_gb"]] > 0,
-  mem25[["free_gb"]] >= 0, mem25[["free_gb"]] <= mem25[["total_gb"]],
-  isTRUE(all.equal(mem25[["used_gb"]], mem25[["total_gb"]] - mem25[["free_gb"]])),
-  isTRUE(all.equal(mem25[["usage_percent"]], 100 * mem25[["used_gb"]] / mem25[["total_gb"]])))
-cpu25 <- sys25[["cpu"]]
-stopifnot(all(c("logical_cores", "physical_cores") %in% names(cpu25)))
-if (is.finite(cpu25[["physical_cores"]]) && is.finite(cpu25[["logical_cores"]]))
-  stopifnot(cpu25[["physical_cores"]] <= cpu25[["logical_cores"]])
-schema25 <- data.frame(Field = c("r_memory.used_bytes / used_gb", "system_memory.*_gb",
-  "system_memory.free_gb", "system_memory.used_gb", "cpu logical / physical"),
-  Meaning = c("R heap bytes / 1024^3", "GiB (1024^3 bytes)", "Available memory",
-    "Total minus available", "Separate reported core counts"),
-  Checked = c(TRUE, TRUE, known_mem25, known_mem25, TRUE))
-platform25 <- if (.Platform[["OS.type"]] == "windows") "windows" else "wsl"
-gt::gtsave(gt::gt(schema25), file.path(tempdir(), paste0("20261025-update-system-", platform25, ".html")))
-validation_values <- list(package_preview = package_preview25,
-  package_return_invisible = TRUE, heap_conversion = TRUE, memory_formula = known_mem25,
-  cpu_schema = all(c("logical_cores", "physical_cores") %in% names(cpu25)))
-```
-
-::: {.panel-tabset}
-
-### Windows {.unnumbered}
-
-![Windows 实际返回对象的单位与公式检查。](images/missing-guide/20261025-update-system-windows.png){fig-alt="Windows原生字段核对表，确认R堆bytes转GiB、系统可用内存及总量减可用量公式，CPU逻辑与物理核心分开。"}
-
-[原生 HTML](images/missing-guide/20261025-update-system-windows.html)
-
-### WSL {.unnumbered}
-
-![WSL 实际返回对象的单位与公式检查。](images/missing-guide/20261025-update-system-wsl.png){fig-alt="WSL原生字段核对表，独立核对R堆转换、系统内存公式和CPU字段；没有要求其数值等于Windows。"}
-
-[原生 HTML](images/missing-guide/20261025-update-system-wsl.html)
-
 :::
-
-字段名虽以 `_gb` 结尾，单位实际是 **GiB**；`free_gb` 表示**可用内存**，并非只计完全空闲页。`r_memory.used_bytes` 优先采用 lobstr，回退时按当前架构的 Ncell 字节数与 Vcell×8 估算 R 堆；它不等于整个 R 进程的 RSS。物理核心无法识别时显示未知，不把逻辑核心冒充物理核心。本节公开字段核对表，未发布本机用户名、安装库路径或 CPU 型号。
-
-<!-- /update-20261025: environment_checks -->
-
-## 当前 lv：原生报告与分组边界 {#lv-report-20261024}
-
-<!-- update-20261024: lv_reports -->
-
-2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。默认报告的变量摘要与频数表各输出一次；Quarto / R Markdown 使用原生表格，代码块需 `results: asis`。`lv()` 仍不可见返回**原输入对象**，不会返回表格或清洗数据。
-
-### 实际编织报告，而非把 HTML 当控制台文本
-
-```r
-library(UtilsR)
-d_lv <- data.frame(g = factor(c("A", "A", "B", NA, NA, NA), levels = c("B", "A")),
-  x = c(1, 2, 3, 4, 5, NA),
-  note = c("Blanket", "Unknownness", "n/a", "Missing", "Not stated", "ok"))
-# 本页导出 helper：实际编织调用，保留其原生 gt HTML；不改包或 lv 返回值。
-knit_lv <- function(input, call) {
-  local({
-    old_to <- knitr::opts_knit$get("rmarkdown.pandoc.to")
-    on.exit(knitr::opts_knit$set(rmarkdown.pandoc.to = old_to))
-    knitr::opts_knit$set(rmarkdown.pandoc.to = "html")
-    e <- new.env(parent = environment()); e[["dat_lv"]] <- input
-    fence_lv <- strrep("`", 3)
-    body_lv <- knitr::knit(text = c(
-      paste0(fence_lv, "{r, results='asis', echo=FALSE, message=FALSE, error=FALSE}"),
-      paste0("ans_lv <- withVisible(", call, ")"),
-      "stopifnot(identical(ans_lv[['value']], dat_lv), !ans_lv[['visible']])",
-      fence_lv), envir = e, quiet = TRUE)
-    stopifnot(!grepl("## <div", body_lv, fixed = TRUE), !grepl("# A tibble", body_lv, fixed = TRUE))
-    xml2::read_html(paste0("<html><head><meta charset='utf-8'></head><body>", body_lv, "</body></html>"))
-  })
-}
-lv_tables <- function(x) xml2::xml_find_all(x, "//table[contains(@class,'gt_table')]")
-save_lv <- function(doc, i, name) {
-  # gt 的父 div 连同样式一起保存，统计内容和格式均来自原生输出。
-  fragment <- as.character(xml2::xml_parent(lv_tables(doc)[[i]]))
-  writeLines(paste0("<!doctype html><html><head><meta charset='utf-8'></head><body>",
-    fragment, "</body></html>"), file.path(tempdir(), name), useBytes = TRUE)
-}
-lv_default <- knit_lv(d_lv, "lv(dat_lv)")
-stopifnot(length(lv_tables(lv_default)) == 2L)
-summary_lv <- xml2::xml_text(lv_tables(lv_default)[[1]])
-stopifnot(grepl("#FDF0E6", as.character(lv_default), fixed = TRUE),
-  grepl("#E9F2FB", as.character(lv_default), fixed = TRUE),
-  grepl("#EAF5E4", as.character(lv_default), fixed = TRUE))
-save_lv(lv_default, 1, "20261024-update-lv-summary.html")
-save_lv(lv_default, 2, "20261024-update-lv-frequency.html")
-```
-
-::: {.panel-tabset}
-
-### 变量摘要 {.unnumbered}
-
-![按类型着色的变量摘要，缺失与特殊值分开计数。](images/missing-guide/20261024-update-lv-summary.png){fig-alt="lv原生变量摘要，因子行浅绿、数值行浅蓝、字符行浅橙；note含三个特殊值，x与g各含真实缺失。"}
-
-[原生 HTML](images/missing-guide/20261024-update-lv-summary.html)
-
-### 频数与特殊值 {.unnumbered}
-
-![特殊值高亮与摘要计数一致。](images/missing-guide/20261024-update-lv-frequency.png){fig-alt="lv原生频数表，n/a、Missing和Not stated高亮；Blanket与Unknownness没有被错误识别为特殊值。"}
-
-[原生 HTML](images/missing-guide/20261024-update-lv-frequency.html)
-
-:::
-
-颜色帮助分辨字符、数值和因子；特殊值仍按整词规则计数，不会自动改成 NA。推荐 Quarto 写法为代码块内 `#| results: asis` 后调用 `lv(dat)`，不要再 `print(lv(dat))`，否则会把返回数据也打印出来。下面原生表来自上面实际编织，而非截图拼出的摘要。
-
-### 缺失分组单列保留，空类别不吞并
-
-```r
-lv_group <- knit_lv(d_lv, "lv(dat_lv, x, group = g)")
-head_lv <- xml2::xml_text(xml2::xml_find_all(lv_tables(lv_group)[[1]], ".//thead"))
-stopifnot(length(lv_tables(lv_group)) == 1L,
-  grepl("Overall", head_lv, fixed = TRUE), grepl("N = 6", head_lv, fixed = TRUE),
-  grepl("缺失", head_lv, fixed = TRUE), grepl("N = 3", head_lv, fixed = TRUE))
-save_lv(lv_group, 1, "20261024-update-lv-group.html")
-d_count <- data.frame(n = c("A", "A", "B", "B"), pct = c("", "", "(blank)", "Total"))
-lv_count <- knit_lv(d_count, "lv(dat_lv, count = c(n, pct))")
-stopifnot(length(lv_tables(lv_count)) == 3L)
-wide_heads <- xml2::xml_text(xml2::xml_find_all(lv_tables(lv_count)[[2]], ".//thead"))
-stopifnot(grepl("(blank)_1", wide_heads, fixed = TRUE), grepl("Total_1", wide_heads, fixed = TRUE),
-  grepl("n_1", xml2::xml_text(lv_tables(lv_count)[[1]]), fixed = TRUE))
-save_lv(lv_count, 2, "20261024-update-lv-count.html")
-```
-
-::: {.panel-tabset}
-
-### 缺失分组 {.unnumbered}
-
-![缺失组的三行包含在总体六行内。](images/missing-guide/20261024-update-lv-group.png){fig-alt="总体N为6，因子原顺序B、A保留，最后为N等于3的缺失组。"}
-
-[原生 HTML](images/missing-guide/20261024-update-lv-group.html)
-
-### 空类别与同名列 {.unnumbered}
-
-![真实空串、文字 blank 与 Total 类别保留为不同列。](images/missing-guide/20261024-update-lv-count.png){fig-alt="四行交叉表，空串显示blank，原有blank标签加后缀保持独立，真实Total类别与新增Total_1总计不冲突。"}
-
-[原生 HTML](images/missing-guide/20261024-update-lv-count.html)
-
-:::
-
-`group` 裸列名优先匹配数据列，也可给字符串或存有列名的变量；缺失值形成最后一组，总体包含这些行。`count` 优先于 `...`、`pattern` 和 `group`，同时给时会警告；输入已有的 dplyr 分组不影响频数分母。频数、百分比和总计列遇到同名列/类别时加数字后缀，不覆盖原数据。
-
-### 高基数、空选择与非数据框输入
-
-```r
-d_many <- data.frame(id = sprintf("P%03d", 1:150), g = rep(c("A", "B"), 75), x = rep(1:3, 50))
-many_lv <- knit_lv(d_many, "lv(dat_lv, id, x)")
-count_lv <- knit_lv(d_many, "lv(dat_lv, count = c(g, id))")
-empty_lv <- knit_lv(d_many, "lv(dat_lv, tidyselect::any_of('absent'))")
-vec_lv <- knit_lv(1:3, "lv(dat_lv)")
-stopifnot(length(lv_tables(many_lv)) == 2L, length(lv_tables(count_lv)) == 1L,
-  length(lv_tables(empty_lv)) == 0L, length(lv_tables(vec_lv)) >= 1L)
-bad_group_lv <- tryCatch(suppressMessages(lv(d_many, x, group = id)), error = identity)
-stopifnot(inherits(bad_group_lv, "error"), grepl("150 distinct values", conditionMessage(bad_group_lv), fixed = TRUE))
-validation_values <- list(default_tables = length(lv_tables(lv_default)),
-  grouped_tables = length(lv_tables(lv_group)), group_header = gsub("[[:space:]]+", " ", head_lv),
-  count_tables = length(lv_tables(lv_count)), high_count_tables = length(lv_tables(count_lv)),
-  empty_tables = length(lv_tables(empty_lv)), source_group_missing = sum(is.na(d_lv[["g"]])))
-```
-
-字符/因子超过 100 类时仍列在变量摘要中，但跳过频数和分组摘要；`group` 超过 100 个值（因子按水平数）直接报错。两变量交叉表任一变量超过 100 类时只保留长表，跳过宽表与行百分比表。明确空选择、零行或零列不会扩大成全表报告；日期、POSIXlt 与时间跨度按自身类型摘要，普通 list 列不生成频数表。Seurat 方法可用 `add_cell_stats=FALSE` 跳过细胞统计，`add_reductions=TRUE` 才加入降维列。
-
-### 环境诊断的计数口径
-
-此前的 Windows 静态硬件查询走 CIM / WMIC 回退，当前实时内存已优先使用 ps。包计数正式入口现为 `check_packages()`，Total 仍是跨库安装副本数；旧名已经移除。完整返回、缺失与单位规则见[当前环境诊断](#environment-20261025)。这两项依赖实际主机环境，不把两平台包数量强行比较为相同。
-
-<!-- /update-20261024: lv_reports -->
 
 ## 数据准备与输入约定 {#data}
 
@@ -282,6 +61,7 @@ filled5 <- impute_na_knn(impute_input, k = 5, verbose = FALSE)
 | `check_system()` | `return_result=FALSE`、`show_warnings=FALSE` | 返回系统与 R 环境 list；WSL 结果描述 WSL 进程所在环境 |
 
 :::
+
 ## 变量选择和分组检视
 
 ::: {.panel-tabset}
@@ -327,6 +107,154 @@ lv(dat, count = c("group", "stage"))
 {{< include _html/missing-guide/04.md >}}
 
 :::
+
+### lv：原生报告与分组边界（2026-10-24） {#lv-report-20261024}
+
+<!-- update-20261024: lv_reports -->
+
+2026-10-24 按已推送 UtilsR `875c710` 在 Windows / WSL R 4.4.3 执行。默认报告的变量摘要与频数表各输出一次；Quarto / R Markdown 使用原生表格，代码块需 `results: asis`。`lv()` 仍不可见返回**原输入对象**，不会返回表格或清洗数据。
+
+#### 实际编织报告，而非把 HTML 当控制台文本
+
+```r
+library(UtilsR)
+d_lv <- data.frame(g = factor(c("A", "A", "B", NA, NA, NA), levels = c("B", "A")),
+  x = c(1, 2, 3, 4, 5, NA),
+  note = c("Blanket", "Unknownness", "n/a", "Missing", "Not stated", "ok"))
+# 本页导出 helper：实际编织调用，保留其原生 gt HTML；不改包或 lv 返回值。
+knit_lv <- function(input, call) {
+  local({
+    old_to <- knitr::opts_knit$get("rmarkdown.pandoc.to")
+    on.exit(knitr::opts_knit$set(rmarkdown.pandoc.to = old_to))
+    knitr::opts_knit$set(rmarkdown.pandoc.to = "html")
+    e <- new.env(parent = environment()); e[["dat_lv"]] <- input
+    fence_lv <- strrep("`", 3)
+    body_lv <- knitr::knit(text = c(
+      paste0(fence_lv, "{r, results='asis', echo=FALSE, message=FALSE, error=FALSE}"),
+      paste0("ans_lv <- withVisible(", call, ")"),
+      "stopifnot(identical(ans_lv[['value']], dat_lv), !ans_lv[['visible']])",
+      fence_lv), envir = e, quiet = TRUE)
+    stopifnot(!grepl("## <div", body_lv, fixed = TRUE), !grepl("# A tibble", body_lv, fixed = TRUE))
+    xml2::read_html(paste0("<html><head><meta charset='utf-8'></head><body>", body_lv, "</body></html>"))
+  })
+}
+lv_tables <- function(x) xml2::xml_find_all(x, "//table[contains(@class,'gt_table')]")
+save_lv <- function(doc, i, name) {
+  # gt 的父 div 连同样式一起保存，统计内容和格式均来自原生输出。
+  fragment <- as.character(xml2::xml_parent(lv_tables(doc)[[i]]))
+  writeLines(paste0("<!doctype html><html><head><meta charset='utf-8'></head><body>",
+    fragment, "</body></html>"), file.path(tempdir(), name), useBytes = TRUE)
+}
+lv_default <- knit_lv(d_lv, "lv(dat_lv)")
+summary_lv <- xml2::xml_text(lv_tables(lv_default)[[1]])
+save_lv(lv_default, 1, "20261024-update-lv-summary.html")
+save_lv(lv_default, 2, "20261024-update-lv-frequency.html")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(length(lv_tables(lv_default)) == 2L)
+stopifnot(grepl("#FDF0E6", as.character(lv_default), fixed = TRUE),
+  grepl("#E9F2FB", as.character(lv_default), fixed = TRUE),
+  grepl("#EAF5E4", as.character(lv_default), fixed = TRUE))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 变量摘要 {.unnumbered}
+
+![按类型着色的变量摘要，缺失与特殊值分开计数。](images/missing-guide/20261024-update-lv-summary.png){fig-alt="lv原生变量摘要，因子行浅绿、数值行浅蓝、字符行浅橙；note含三个特殊值，x与g各含真实缺失。"}
+
+[原生 HTML](images/missing-guide/20261024-update-lv-summary.html)
+
+#### 频数与特殊值 {.unnumbered}
+
+![特殊值高亮与摘要计数一致。](images/missing-guide/20261024-update-lv-frequency.png){fig-alt="lv原生频数表，n/a、Missing和Not stated高亮；Blanket与Unknownness没有被错误识别为特殊值。"}
+
+[原生 HTML](images/missing-guide/20261024-update-lv-frequency.html)
+
+:::
+
+颜色帮助分辨字符、数值和因子；特殊值仍按整词规则计数，不会自动改成 NA。推荐 Quarto 写法为代码块内 `#| results: asis` 后调用 `lv(dat)`，不要再 `print(lv(dat))`，否则会把返回数据也打印出来。下面原生表来自上面实际编织，而非截图拼出的摘要。
+
+#### 缺失分组单列保留，空类别不吞并
+
+```r
+lv_group <- knit_lv(d_lv, "lv(dat_lv, x, group = g)")
+head_lv <- xml2::xml_text(xml2::xml_find_all(lv_tables(lv_group)[[1]], ".//thead"))
+save_lv(lv_group, 1, "20261024-update-lv-group.html")
+d_count <- data.frame(n = c("A", "A", "B", "B"), pct = c("", "", "(blank)", "Total"))
+lv_count <- knit_lv(d_count, "lv(dat_lv, count = c(n, pct))")
+wide_heads <- xml2::xml_text(xml2::xml_find_all(lv_tables(lv_count)[[2]], ".//thead"))
+save_lv(lv_count, 2, "20261024-update-lv-count.html")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(length(lv_tables(lv_group)) == 1L,
+  grepl("Overall", head_lv, fixed = TRUE), grepl("N = 6", head_lv, fixed = TRUE),
+  grepl("缺失", head_lv, fixed = TRUE), grepl("N = 3", head_lv, fixed = TRUE))
+stopifnot(length(lv_tables(lv_count)) == 3L)
+stopifnot(grepl("(blank)_1", wide_heads, fixed = TRUE), grepl("Total_1", wide_heads, fixed = TRUE),
+  grepl("n_1", xml2::xml_text(lv_tables(lv_count)[[1]]), fixed = TRUE))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 缺失分组 {.unnumbered}
+
+![缺失组的三行包含在总体六行内。](images/missing-guide/20261024-update-lv-group.png){fig-alt="总体N为6，因子原顺序B、A保留，最后为N等于3的缺失组。"}
+
+[原生 HTML](images/missing-guide/20261024-update-lv-group.html)
+
+#### 空类别与同名列 {.unnumbered}
+
+![真实空串、文字 blank 与 Total 类别保留为不同列。](images/missing-guide/20261024-update-lv-count.png){fig-alt="四行交叉表，空串显示blank，原有blank标签加后缀保持独立，真实Total类别与新增Total_1总计不冲突。"}
+
+[原生 HTML](images/missing-guide/20261024-update-lv-count.html)
+
+:::
+
+`group` 裸列名优先匹配数据列，也可给字符串或存有列名的变量；缺失值形成最后一组，总体包含这些行。`count` 优先于 `...`、`pattern` 和 `group`，同时给时会警告；输入已有的 dplyr 分组不影响频数分母。频数、百分比和总计列遇到同名列/类别时加数字后缀，不覆盖原数据。
+
+#### 高基数、空选择与非数据框输入
+
+```r
+d_many <- data.frame(id = sprintf("P%03d", 1:150), g = rep(c("A", "B"), 75), x = rep(1:3, 50))
+many_lv <- knit_lv(d_many, "lv(dat_lv, id, x)")
+count_lv <- knit_lv(d_many, "lv(dat_lv, count = c(g, id))")
+empty_lv <- knit_lv(d_many, "lv(dat_lv, tidyselect::any_of('absent'))")
+vec_lv <- knit_lv(1:3, "lv(dat_lv)")
+bad_group_lv <- tryCatch(suppressMessages(lv(d_many, x, group = id)), error = identity)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(length(lv_tables(many_lv)) == 2L, length(lv_tables(count_lv)) == 1L,
+  length(lv_tables(empty_lv)) == 0L, length(lv_tables(vec_lv)) >= 1L)
+stopifnot(inherits(bad_group_lv, "error"), grepl("150 distinct values", conditionMessage(bad_group_lv), fixed = TRUE))
+validation_values <- list(default_tables = length(lv_tables(lv_default)),
+  grouped_tables = length(lv_tables(lv_group)), group_header = gsub("[[:space:]]+", " ", head_lv),
+  count_tables = length(lv_tables(lv_count)), high_count_tables = length(lv_tables(count_lv)),
+  empty_tables = length(lv_tables(empty_lv)), source_group_missing = sum(is.na(d_lv[["g"]])))
+```
+:::
+
+字符/因子超过 100 类时仍列在变量摘要中，但跳过频数和分组摘要；`group` 超过 100 个值（因子按水平数）直接报错。两变量交叉表任一变量超过 100 类时只保留长表，跳过宽表与行百分比表。明确空选择、零行或零列不会扩大成全表报告；日期、POSIXlt 与时间跨度按自身类型摘要，普通 list 列不生成频数表。Seurat 方法可用 `add_cell_stats=FALSE` 跳过细胞统计，`add_reductions=TRUE` 才加入降维列。
+
+#### 环境诊断的计数口径
+
+此前的 Windows 静态硬件查询走 CIM / WMIC 回退，当前实时内存已优先使用 ps。包计数正式入口现为 `check_packages()`，Total 仍是跨库安装副本数；旧名已经移除。完整返回、缺失与单位规则见[当前环境诊断](#environment-20261025)。这两项依赖实际主机环境，不把两平台包数量强行比较为相同。
+
+<!-- /update-20261024: lv_reports -->
 
 ## 数据质量报告
 
@@ -627,6 +555,116 @@ data.frame(field = c("OS", "R version", "R platform"),
 :::
 :::
 
+### 环境诊断：包副本与实时可用内存（2026-10-25） {#environment-20261025}
+
+<!-- update-20261025: environment_checks -->
+
+2026-10-25 按已推送 UtilsR **0.6.10** `0e4cffe` 在 Windows / WSL R 4.4.3 执行。旧入口 `count_packages_in_libpaths()` 已移除，正式名称是 **`check_packages(refresh=FALSE)`**；不是保留旧名的别名迁移。
+
+#### 安装库计数：返回完整路径，Total 不是去重包名数
+
+默认打印报告并**不可见返回 data.frame**，包含 `Library_Path`、数值 `Package_Count` 和末尾 `Total` 行。跨库的同名包按每个安装副本分别计数；普通文件夹和安装锁不计为包。`refresh=TRUE` 绕过 installed.packages 缓存，不执行更新或安装。下面只在临时目录复制随 R 提供的 compiler 作夹具，不动用户安装库。
+
+```r
+library(UtilsR)
+lib_demo25 <- file.path(tempdir(), "package-count-demo")
+one_lib25 <- file.path(lib_demo25, "one-copy")
+empty_lib25 <- file.path(lib_demo25, "empty")
+dir.create(one_lib25, recursive = TRUE, showWarnings = FALSE)
+dir.create(empty_lib25, recursive = TRUE, showWarnings = FALSE)
+dir.create(file.path(one_lib25, "notes"), showWarnings = FALSE)
+dir.create(file.path(one_lib25, "00LOCK-unfinished"), showWarnings = FALSE)
+packages25 <- local({
+  old <- .libPaths(); on.exit(.libPaths(old))
+  .libPaths(c(one_lib25, empty_lib25, old))
+  capture.output(first <- withVisible(check_packages()))
+  capture.output(fresh <- withVisible(check_packages(refresh = TRUE)))
+  stopifnot(!first[["visible"]], !fresh[["visible"]],
+    identical(names(first[["value"]]), c("Library_Path", "Package_Count")),
+    identical(first[["value"]][["Package_Count"]][1:2], c(1L, 0L)),
+    identical(fresh[["value"]][["Package_Count"]][1:2], c(1L, 0L)),
+    identical(first[["value"]][["Library_Path"]][1:2], .libPaths()[1:2]))
+  result <- fresh[["value"]]
+  stopifnot(tail(result[["Package_Count"]], 1) == sum(head(result[["Package_Count"]], -1)))
+  result
+})
+package_preview25 <- data.frame(Library = c("Temporary compiler copy", "Temporary empty library"),
+  Installed_copies = packages25[["Package_Count"]][1:2])
+gt::gtsave(gt::gt(package_preview25), file.path(tempdir(), "20261025-update-package-counts.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(file.copy(system.file(package = "compiler"), one_lib25, recursive = TRUE))
+```
+:::
+
+![两个临时库分别统计一份 compiler 和零个安装包。](images/missing-guide/20261025-update-package-counts.png){fig-alt="原生gt表中临时compiler副本库为1，空库为0；无关目录与安装锁不增加计数。"}
+
+[原生 HTML](images/missing-guide/20261025-update-package-counts.html)
+
+任一库无法读取时会逐库警告，该行和 **Total 均为 NA**；仍返回其他库的已知计数，不能把它们的部分和写成完整总计。终端中长路径可截短、计数可带千分位，返回对象始终保留完整路径和数值，供后续程序使用。本例未通过改变权限模拟不可读库；该分支按当前源码和帮助核对。
+
+#### 系统与 R 堆：先辨认单位和计量范围
+
+`check_system(return_result=TRUE)` 可见返回列表；默认仍打印并不可见返回列表。Windows/macOS 优先通过 ps 读取**实时内存**，Windows 仅缓存静态系统元数据，必要时回退到 CIM/WMIC；Linux 使用可用的 /proc 数据。不可得值保留 NA，不填零。两平台的内存和 CPU 数量不要求相同，也不固定一次调用与下一次的实时数值。
+
+```r
+capture.output(sys25 <- check_system(return_result = TRUE))
+mem25 <- sys25[["system_memory"]]
+heap25 <- sys25[["r_memory"]]
+known_mem25 <- all(is.finite(unlist(mem25)))
+if (known_mem25) stopifnot(mem25[["total_gb"]] > 0,
+  mem25[["free_gb"]] >= 0, mem25[["free_gb"]] <= mem25[["total_gb"]],
+  isTRUE(all.equal(mem25[["used_gb"]], mem25[["total_gb"]] - mem25[["free_gb"]])),
+  isTRUE(all.equal(mem25[["usage_percent"]], 100 * mem25[["used_gb"]] / mem25[["total_gb"]])))
+cpu25 <- sys25[["cpu"]]
+if (is.finite(cpu25[["physical_cores"]]) && is.finite(cpu25[["logical_cores"]]))
+  stopifnot(cpu25[["physical_cores"]] <= cpu25[["logical_cores"]])
+schema25 <- data.frame(Field = c("r_memory.used_bytes / used_gb", "system_memory.*_gb",
+  "system_memory.free_gb", "system_memory.used_gb", "cpu logical / physical"),
+  Meaning = c("R heap bytes / 1024^3", "GiB (1024^3 bytes)", "Available memory",
+    "Total minus available", "Separate reported core counts"),
+  Checked = c(TRUE, TRUE, known_mem25, known_mem25, TRUE))
+platform25 <- if (.Platform[["OS.type"]] == "windows") "windows" else "wsl"
+gt::gtsave(gt::gt(schema25), file.path(tempdir(), paste0("20261025-update-system-", platform25, ".html")))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(all(c("system_info", "r_environment", "r_memory", "system_memory", "cpu", "warnings", "timestamp") %in% names(sys25)),
+  isTRUE(all.equal(heap25[["used_gb"]], heap25[["used_bytes"]] / 1024^3)))
+stopifnot(all(c("logical_cores", "physical_cores") %in% names(cpu25)))
+validation_values <- list(package_preview = package_preview25,
+  package_return_invisible = TRUE, heap_conversion = TRUE, memory_formula = known_mem25,
+  cpu_schema = all(c("logical_cores", "physical_cores") %in% names(cpu25)))
+```
+:::
+
+::: {.panel-tabset}
+
+#### Windows {.unnumbered}
+
+![Windows 实际返回对象的单位与公式检查。](images/missing-guide/20261025-update-system-windows.png){fig-alt="Windows原生字段核对表，确认R堆bytes转GiB、系统可用内存及总量减可用量公式，CPU逻辑与物理核心分开。"}
+
+[原生 HTML](images/missing-guide/20261025-update-system-windows.html)
+
+#### WSL {.unnumbered}
+
+![WSL 实际返回对象的单位与公式检查。](images/missing-guide/20261025-update-system-wsl.png){fig-alt="WSL原生字段核对表，独立核对R堆转换、系统内存公式和CPU字段；没有要求其数值等于Windows。"}
+
+[原生 HTML](images/missing-guide/20261025-update-system-wsl.html)
+
+:::
+
+字段名虽以 `_gb` 结尾，单位实际是 **GiB**；`free_gb` 表示**可用内存**，并非只计完全空闲页。`r_memory.used_bytes` 优先采用 lobstr，回退时按当前架构的 Ncell 字节数与 Vcell×8 估算 R 堆；它不等于整个 R 进程的 RSS。物理核心无法识别时显示未知，不把逻辑核心冒充物理核心。本节公开字段核对表，未发布本机用户名、安装库路径或 CPU 型号。
+
+<!-- /update-20261025: environment_checks -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 `lv()` 打印报告并不可见返回原输入对象（包括向量、矩阵）；报告不是返回值。`check_na()` 自 UtilsR `e81b5ab`（2026-10-22）起可见返回 gt 报告表：控制台自动打印，Quarto / R Markdown 中直接渲染成表格，也可以继续用 gt 修改或 `gt::gtsave()` 保存；没有表可出（无匹配列、零行或零列，或 `show_all = FALSE` 时没有问题）时不可见返回 `NULL`。旧写法 `dat %>% check_na() %>% ...` 不再得到数据，需要把检视和后续处理分成两步。`plt_na()` 有缺失时返回 ggplot/patchwork，无缺失时返回 NULL。`impute_na_knn()` 返回插补后的 data.frame/tibble，并保留原始观察值。本页 `lv()` 的表格捕获实际打印的 gt/gtsummary 结果，`check_na()` 的表格就是函数返回的 gt 对象。
@@ -661,9 +699,17 @@ d_missing[["marker"]][seq(2, nrow(d_missing), 6)] <- NA
 p_saved <- plt_na(d_missing, output = "matrix",
   save = list(filename = file.path(tempdir(), "20261020-refresh-missing.pdf")))
 size <- attr(p_saved, "plot_size")
-stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
 size
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
+```
+:::
+
 <!-- /refresh-20261020: na_save -->
 
 ![当前保存接口导出的 PDF 预览。](images/missing-guide/20261020-refresh-missing.png){fig-alt="missing教程的固定输入保存示例，预览由实际导出的PDF转换，展示按内容估算的画布。"}
@@ -695,9 +741,16 @@ d_quality <- dplyr::group_by(tibble::tibble(
   score64 = bit64::as.integer64(c("1", NA, "3", "4", "5", "6", "7", "8"))
 ), group)
 report <- check_na(d_quality, Text = note, stage, code, score64, show_all = TRUE)
-stopifnot(inherits(report, "gt_tbl"), nrow(report[["_data"]]) == 4L)
 gt::gtsave(report, file.path(tempdir(), "20261021-refresh-report-01.html"))
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(inherits(report, "gt_tbl"), nrow(report[["_data"]]) == 4L)
+```
+:::
 
 ![返回的质量报告：Text 有 1 个缺失和 4 个特殊值，code 有 3 个缺失，未观察的 Unknown 因子水平不计数。](images/missing-guide/20261021-refresh-report-01.png){fig-alt="8行4个选中变量的原生质量报告，Text缺失1个、特殊值4个；code缺失3个，score64缺失1个，stage无问题。"}
 
@@ -710,8 +763,15 @@ gt::gtsave(report, file.path(tempdir(), "20261021-refresh-report-01.html"))
 ```r
 tiny <- data.frame(x = c(NA_real_, rep(1, 100000)), ok = rep(1, 100001))
 tiny_report <- check_na(tiny, show_all = TRUE)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(inherits(tiny_report, "gt_tbl"))
 ```
+:::
 
 ![一个缺失值不会因四舍五入而显示为零。](images/missing-guide/20261021-refresh-report-02.png){fig-alt="100001行2列中仅一个缺失：单元格显示小于0.1%，总体显示小于0.01%，确实为零的列仍显示0.0%。"}
 
@@ -720,8 +780,15 @@ stopifnot(inherits(tiny_report, "gt_tbl"))
 ```r
 none <- check_na(d_quality, pattern = "^no_such_column$")
 clean <- check_na(d_quality, stage)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(is.null(none), is.null(clean), is.null(check_na(d_quality[0, ])))
 ```
+:::
 
 无匹配列、零行、零列只提示，并不可见返回 `NULL`；`show_all=FALSE` 时没有问题也不出表，同样返回 `NULL`。`pattern=""` 匹配所有列；非空 pattern 仍优先于 `...`，两者同时给出时警告 `` `pattern` takes precedence; the selection in `...` is ignored. ``；无效正则（如 `"("`）直接报错。列名必须非空且唯一；选中列必须是一维，`show_all` 必须是单个非缺失逻辑值。`lv()` 复用同一套缺失和特殊值计数，默认摘要中的唯一值数按实际观察水平计算。
 
@@ -735,9 +802,16 @@ d_marker <- data.frame(value = c("Blanks", "Unknowns", "Not applicable", "not  s
 check_na(d_marker, show_all = TRUE)
 custom <- check_na(d_marker, special = c("^none$", "^unknowns?$"), show_all = TRUE)
 off <- check_na(d_marker, special = character(0), show_all = TRUE)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(custom[["_data"]][["special_combined"]] == "2 (20.0%)",
           off[["_data"]][["special_combined"]] == "0 (0.0%)")
 ```
+:::
 
 {{< include _html/missing-guide/09.md >}}
 
@@ -762,9 +836,16 @@ size_table <- (function() {
   result
 })()
 gt::gtsave(size_table, file.path(tempdir(), "20261021-refresh-object-size.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(!grepl("<div", gt::as_latex(size_table), fixed = TRUE),
           !grepl("<svg", gt::as_raw_html(size_table), fixed = TRUE))
 ```
+:::
 
 ![两个演示对象的实际大小表，最大单个对象占满条形，总计也封顶为满宽。](images/missing-guide/20261021-refresh-object-size.png){fig-alt="check_size原生表：底层大小保持MB数值，显示自动选择B或KB单位；总计在首行，条形按最大单个对象缩放。"}
 
@@ -851,14 +932,10 @@ library(UtilsR)
 size_env <- list2env(list(big = raw(4096), zeta = raw(32),
   alpha = raw(32), .hidden = NULL), parent = baseenv())
 local_sizes <- check_size(envir = size_env)
-stopifnot(identical(local_sizes[["_data"]][["Object"]],
-  c("**TOTAL**", "big", "alpha", "zeta", ".hidden")))
 selected_names <- c("zeta", "alpha", "zeta")
 by_name <- check_size(selected_names, envir = size_env)
 by_index <- check_size(match(selected_names,
   ls(size_env, all.names = TRUE)), envir = size_env)
-stopifnot(identical(by_name[["_data"]], by_index[["_data"]]),
-  identical(by_name[["_data"]][["Object"]], c("**TOTAL**", "alpha", "zeta")))
 
 selection_warnings <- character()
 pattern_size <- withCallingHandlers(
@@ -872,12 +949,23 @@ not_inherited <- withCallingHandlers(check_size("mean", envir = size_env),
     selection_warnings <<- c(selection_warnings, conditionMessage(w))
     invokeRestart("muffleWarning")
   })
+gt::gtsave(local_sizes, file.path(tempdir(), "20261022-update-size-environment.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(local_sizes[["_data"]][["Object"]],
+  c("**TOTAL**", "big", "alpha", "zeta", ".hidden")))
+stopifnot(identical(by_name[["_data"]], by_index[["_data"]]),
+  identical(by_name[["_data"]][["Object"]], c("**TOTAL**", "alpha", "zeta")))
 stopifnot(length(selection_warnings) == 2L,
   grepl("takes precedence", selection_warnings[[1]], fixed = TRUE),
   nrow(not_inherited[["_data"]]) == 0L,
   identical(pattern_size[["_data"]][["Object"]], c("**TOTAL**", "big")))
-gt::gtsave(local_sizes, file.path(tempdir(), "20261022-update-size-environment.html"))
 ```
+:::
 
 ![只检查局部环境的四个对象，同大小的 alpha 与 zeta 按名称排序。](images/missing-guide/20261022-update-size-environment.png){fig-alt="check_size局部环境原生表：big在前，同大小的alpha排在zeta之前，隐藏名称.hidden也被枚举；TOTAL为加粗汇总标签，底部说明估算方法。"}
 
@@ -894,17 +982,23 @@ index_result <- withCallingHandlers(
     index_warning <<- c(index_warning, conditionMessage(w))
     invokeRestart("muffleWarning")
   })
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(length(index_warning) == 1L,
   grepl("used as object indices", index_warning, fixed = TRUE),
   identical(index_result[["_data"]][["Object"]], c("**TOTAL**", "alpha")))
 ```
+:::
 
 从被检查环境内传入裸数字变量时，函数会提醒它被用作下标；它不会因此改成检查该变量本身。要检查变量 `idx` 的大小，写 `check_size("idx", envir=numeric_env)`。从其他环境传入数字选择器未必触发这条提醒，建议一直显式引用对象名。
 
 ### 共享存储：总计可以小于各行之和
 
 ```r
-stopifnot(requireNamespace("lobstr", quietly = TRUE))
 set.seed(20261022)
 shared <- rnorm(10000)
 shared_env <- list2env(list(x = shared, y = list(shared, shared)),
@@ -914,13 +1008,21 @@ deduplicated <- check_size(envir = shared_env, method = "lobstr")
 size_data <- deduplicated[["_data"]]
 expected_total <- as.numeric(lobstr::obj_size(
   shared_env[["x"]], shared_env[["y"]], env = shared_env)) / 1024^2
+gt::gtsave(ordinary, file.path(tempdir(), "20261022-update-size-object.html"))
+gt::gtsave(deduplicated, file.path(tempdir(), "20261022-update-size-lobstr.html"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(requireNamespace("lobstr", quietly = TRUE))
 stopifnot(isTRUE(all.equal(size_data[["Size"]][[1]], expected_total)),
   size_data[["Size"]][[1]] < sum(size_data[["Size"]][-1]),
   isTRUE(all.equal(ordinary[["_data"]][["Size"]][[1]],
     sum(ordinary[["_data"]][["Size"]][-1]))))
-gt::gtsave(ordinary, file.path(tempdir(), "20261022-update-size-object.html"))
-gt::gtsave(deduplicated, file.path(tempdir(), "20261022-update-size-lobstr.html"))
 ```
+:::
 
 ::: {.panel-tabset}
 
@@ -954,15 +1056,21 @@ size_colors <- function(tbl) {
 colors <- size_colors(spread_sizes)
 equal_sizes <- check_size(envir = list2env(list(b = raw(32), a = raw(32))))
 zero_sizes <- check_size(envir = list2env(list(a = NULL, b = NULL)))
-stopifnot(identical(colors[c(1, 4)], c("#FF0000", "#FFFFFF")),
-  all(diff(strtoi(substr(colors, 4, 5), 16L)) > 0),
-  identical(size_colors(equal_sizes), rep("#FF0000", 2)),
-  identical(size_colors(zero_sizes), rep("#FFFFFF", 2)))
 gt::gtsave(spread_sizes, file.path(tempdir(), "20261022-update-size-log.html"))
 
 overhead <- as.numeric(utils::object.size(raw()))
 unit_sizes <- check_size(envir = list2env(list(
   kb = raw(1024 - overhead), mb = raw(1024^2 - overhead))))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(colors[c(1, 4)], c("#FF0000", "#FFFFFF")),
+  all(diff(strtoi(substr(colors, 4, 5), 16L)) > 0),
+  identical(size_colors(equal_sizes), rep("#FF0000", 2)),
+  identical(size_colors(zero_sizes), rep("#FFFFFF", 2)))
 stopifnot(identical(unit_sizes[["_data"]][["Size_fmt"]][-1],
   c("1.00 MB", "1.00 KB")))
 validation_values <- list(selected = by_name[["_data"]][["Object"]][-1],
@@ -972,6 +1080,7 @@ validation_values <- list(selected = by_name[["_data"]][["Object"]][-1],
   lobstr_rows_mb = sum(size_data[["Size"]][-1]), colors = colors,
   unit_labels = unit_sizes[["_data"]][["Size_fmt"]][-1])
 ```
+:::
 
 ![跨三个数量级的四个对象用渐进背景显示，条形仍保留实际大小比例。](images/missing-guide/20261022-update-size-log.png){fig-alt="原生对象大小表：大小背景按log10字节加1映射，9.54MB至9.81KB逐渐变浅；绿色条形仍按最大单个对象的原始大小线性缩放。"}
 
@@ -1091,3 +1200,10 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-25：[环境诊断：包副本与实时可用内存](#environment-20261025)
+- 2026-10-24：[lv：原生报告与分组边界](#lv-report-20261024)
+:::

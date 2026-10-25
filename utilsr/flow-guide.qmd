@@ -13,191 +13,9 @@ directory:
 
 plt_dist 的分派，plt_alluvial 的比例、间隔和命名 list，plt_sankey 的节点次序与标签。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
 **核对记录：** 2026-10-12 按已推送 UtilsR `fc078ec` 执行的 26 张历史图保留；下方当前示例已于 2026-10-25 按 UtilsR 0.6.10 `0e4cffe` 重绘。全页调用迁到 list 参数；历史图片仍按各自标明的执行日期阅读。
-
-## 当前 list 参数与值标签 {#distribution-lists-20261025}
-
-<!-- update-20261025: distribution_lists -->
-
-2026-10-25 按 UtilsR 0.6.10 已推送 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。`plt_dist()` 已移除顶层 `label`、`gap`、`curve_type`，本页可复制代码统一迁到以下 list；不再使用旧参数名。下面以及后面的四张当前图都由该提交重绘，历史 Sankey / Alluvial 参数图保留原执行记录。
-
-::: {.table-responsive tabindex="0" role="region" aria-label="分布图参数迁移"}
-
-| 原调用或任务 | 当前写法 |
-|:--|:--|
-| `label="percent"` | `label_args=list(style="percent")` |
-| `gap=.02` | `stratum_args=list(gap=.02)` |
-| `curve_type="sigmoid"` | `flow_args=list(curve_type="sigmoid")` |
-| 标签换行、阈值与百分比精度 | `label_args=list(style="count_percent_wrap", min_pct=.2, pct_accuracy=1)` |
-| 分面与图例 | `facet_args=list(ncol=2)`、`legend_args=list(position="bottom", ncol=2)` |
-
 :::
-
-各 list 支持部分覆盖，未给字段保留默认；未知和重复字段报错。`alpha` 仍是顶层填色/流带透明度，标签底色透明度另由 `label_args$alpha` 控制。`pct_accuracy=1` 表示百分比按 1 个百分点显示，并非保留一位小数。
-
-### labelled 输入显示值标签
-
-```r
-library(UtilsR)
-library(ggplot2)
-d_labels25 <- expand.grid(visit = c(1, 2, 10), response = c(1, 2), cohort = c(1, 2), id = 1:2)
-d_labels25[["visit"]] <- haven::labelled(d_labels25[["visit"]], c(Baseline = 1, "Month 6" = 2, "Month 12" = 10))
-d_labels25[["response"]] <- haven::labelled(d_labels25[["response"]], c(CR = 1, PR = 2))
-d_labels25[["cohort"]] <- haven::labelled(d_labels25[["cohort"]], c(Training = 1, Validation = 2))
-copy_labels25 <- d_labels25
-colors_labels25 <- c(CR = "#0072B2", PR = "#D55E00")
-p_labels25 <- plt_dist(d_labels25, c("visit", "response"), type = "bar", facet = "cohort",
-  color = colors_labels25, alpha = 1,
-  label_args = list(style = "count_percent_wrap", min_pct = .2, pct_accuracy = 1, box = FALSE, size = 3),
-  facet_args = list(ncol = 2), legend_args = list(position = "bottom", ncol = 2))
-build_labels25 <- ggplot_build(p_labels25)
-stopifnot(identical(d_labels25, copy_labels25),
-  identical(build_labels25[["layout"]][["panel_params"]][[1]][["x"]][["get_labels"]](), c("Baseline", "Month 6", "Month 12")),
-  setequal(as.character(build_labels25[["layout"]][["layout"]][["cohort"]]), c("Training", "Validation")))
-segments_labels25 <- build_labels25[["data"]][[1]]
-stopifnot(all(segments_labels25[["ymax"]][segments_labels25[["fill"]] == colors_labels25[["CR"]]] == 1),
-  all(grepl("\n", p_labels25[["data"]][[".lab"]], fixed = TRUE)))
-ggsave(file.path(tempdir(), "20261025-update-dist-labelled.pdf"), p_labels25, width = 8, height = 4.5)
-```
-
-![分类轴、图例和分面显示 labelled 的值标签，堆积顺序与图例一致。](images/flow-guide/20261025-update-dist-labelled.png){fig-alt="Training与Validation两个分面，横轴Baseline、Month 6、Month 12；CR蓝色在堆积上部且位于图例首项，PR橙色在下部，标签显示计数和换行百分比。"}
-
-[下载 PDF](images/flow-guide/20261025-update-dist-labelled.pdf)
-
-`haven_labelled` 的分类列和分面列通过 `labelled::to_factor()` 显示值标签；普通无标签数值仍按数值升序作为类别。命名颜色应写 CR / PR 这些**显示后的类别名**。堆积柱现在把第一 fill 水平放在顶端，与图例和 Alluvial 一致，纵轴显示百分比；这改变呈现顺序，不改变计数和分母。
-
-### Alluvial 共用换行与布局设置
-
-```r
-p_wrap25 <- plt_dist(d_labels25, c("visit", "response"), facet = "cohort", color = colors_labels25,
-  label_args = list(style = "count_percent_wrap", pct_accuracy = 1, size = 3),
-  flow_args = list(curve_type = "sigmoid"), stratum_args = list(gap = .025),
-  facet_args = list(ncol = 2), legend_args = list(position = "bottom", ncol = 2))
-real_wrap25 <- p_wrap25[["data"]][!p_wrap25[["data"]][[".is_gap"]], ]
-stopifnot(sum(real_wrap25[["count"]]) == 24, all(grepl("\n", real_wrap25[[".label"]], fixed = TRUE)))
-ggsave(file.path(tempdir(), "20261025-update-dist-wrap.pdf"), p_wrap25, width = 8, height = 4.5)
-label_validation25 <- list(bar = as.data.frame(p_labels25[["data"]]), alluvial = as.data.frame(real_wrap25),
-  first_fill_ymax = segments_labels25[["ymax"]][segments_labels25[["fill"]] == colors_labels25[["CR"]]])
-```
-
-![相同值标签输入的换行 Alluvial 预览。](images/flow-guide/20261025-update-dist-wrap.png){fig-alt="两分面Alluvial采用sigmoid流带、较宽节点间隔及两行计数百分比标签；CR和PR与柱形图保持相同命名配色。"}
-
-[下载 PDF](images/flow-guide/20261025-update-dist-wrap.pdf)
-
-`min_pct` 按每个 facet×x 内的原始比例筛选标签；样本和流带不因隐藏标签而删除。三列矩阵仍用第三列类别名作格内文字，`style="none"` 时显示图例；流带和节点设置只作用 Alluvial。
-
-## 当前分布：样本、颜色与标签位置 {#distribution-20261024}
-
-
-
-2026-10-25 按已推送 UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。两列 bar / alluvial 与三列类别矩阵统一按**所需列**的完整行统计；输入已有 dplyr 分组不会改变分母。下面比较同一批 36 行，并用原生 PDF 检查标签与布局。
-
-### 缺失筛选与命名颜色
-
-```r
-library(UtilsR)
-library(ggplot2)
-d_dist <- expand.grid(n = c(10, 2, 1), group = factor(c("F", "M"), levels = c("F", "M", "Unused")),
-  panel = c("P1", "P2"), id = 1:3)
-names(d_dist)[names(d_dist) == "panel"] <- "cohort label"
-d_dist[["unrelated"]] <- NA_real_
-bad_dist <- d_dist[1:3, ]; bad_dist[["n"]][1] <- NA
-bad_dist[["group"]][2] <- NA; bad_dist[["cohort label"]][3] <- NA
-d_dist <- rbind(d_dist, bad_dist); original_dist <- d_dist
-colors_dist <- c(M = "#D55E00", Extra = "#009E73", F = "#0072B2")
-bar_dist <- plt_dist(dplyr::group_by(d_dist, id), c("n", "group"), type = "bar",
-  facet = "cohort label", color = colors_dist, label_args = list(style = "percent"))
-alluv_dist <- plt_dist(d_dist, c("n", "group"), facet = "cohort label",
-  color = colors_dist, label_args = list(style = "count_percent"))
-count_name_dist <- setdiff(names(bar_dist[["data"]]), c("n", "group", "cohort label", "prop", ".lab"))
-real_dist <- alluv_dist[["data"]][!alluv_dist[["data"]][[".is_gap"]], ]
-stopifnot(length(count_name_dist) == 1L, sum(bar_dist[["data"]][[count_name_dist]]) == 36,
-  sum(real_dist[["count"]]) == 36, identical(d_dist, original_dist))
-for (p_dist in list(bar_dist, alluv_dist)) {
-  build_dist <- ggplot_build(p_dist)
-  stopifnot(identical(build_dist[["layout"]][["panel_params"]][[1]][["x"]][["get_labels"]](), c("1", "2", "10")))
-  fill_dist <- build_dist[["plot"]][["scales"]][["get_scales"]]("fill")
-  stopifnot(identical(unname(grDevices::col2rgb(fill_dist[["map"]](c("F", "M")))),
-    unname(grDevices::col2rgb(colors_dist[c("F", "M")]))))
-}
-ggsave(file.path(tempdir(), "20261025-update-dist-bar.pdf"), bar_dist, width = 7, height = 6)
-ggsave(file.path(tempdir(), "20261025-update-dist-alluvial.pdf"), alluv_dist, width = 8, height = 4.5)
-```
-
-::: {.panel-tabset}
-
-### 堆积柱 {.unnumbered}
-
-![按所需列完整病例计数，数值类别依 1、2、10 排序。](images/flow-guide/20261025-update-dist-bar.png){fig-alt="两个分面内的堆积柱，x为1、2、10，F蓝色、M橙色，各类别内构成为50%对50%。"}
-
-[下载 PDF](images/flow-guide/20261025-update-dist-bar.pdf)
-
-### 同样样本的 Alluvial {.unnumbered}
-
-![命名颜色与堆积柱保持同一类别对应。](images/flow-guide/20261025-update-dist-alluvial.png){fig-alt="两分面Alluvial分布，F蓝色、M橙色，各类别有3个F和3个M；不是个体迁移路径。"}
-
-[下载 PDF](images/flow-guide/20261025-update-dist-alluvial.pdf)
-
-:::
-
-39 行输入中，三行分别缺少 x、fill 或 facet，两个模式均剔除这三行；未参与统计的全缺失列不影响纳入。普通数值列按数值升序作为**类别**，不自动分箱；因子保留水平顺序。命名 `color` 按类别匹配，必须覆盖所有观察类别，允许多给未观察类别；无名颜色依水平顺序，删组后容易错位。
-
-### 类别矩阵：每格唯一，隐藏标签仍保留图例
-
-```r
-heat_dist <- expand.grid(x = c(1, 2, 10), y = c(1, 2))
-heat_dist[["category"]] <- rep(c("F", "M", "F"), 2)
-heat_plot <- plt_dist(heat_dist, c("x", "y", "category"), label_args = list(style = "none"),
-  color = colors_dist, facet = "ignored")
-ambiguous_dist <- rbind(heat_dist, transform(heat_dist[1, ], category = "M"))
-bad_heat <- tryCatch(plt_dist(ambiguous_dist, c("x", "y", "category")), error = identity)
-stopifnot(inherits(bad_heat, "error"), heat_plot[["theme"]][["legend.position"]] != "none")
-ggsave(file.path(tempdir(), "20261025-update-dist-heatmap.pdf"), heat_plot, width = 6, height = 3.5)
-```
-
-![隐藏类别文字后仍可由图例辨认颜色。](images/flow-guide/20261025-update-dist-heatmap.png){fig-alt="数值坐标1、2、10的六格类别矩阵，没有格内文字，右侧F与M图例仍可见。"}
-
-[下载 PDF](images/flow-guide/20261025-update-dist-heatmap.pdf)
-
-三列模式忽略 `type` 和 `facet`；同一 (x,y) 只能有一个 fill 类别，多类别现在明确报错。`label_args=list(style="none")` 隐藏格内名称但显示类别图例，其他 label 设置显示第三列的类别名，不是频数或百分比。
-
-### 间隔名称与最终标签中心
-
-```r
-d_gap <- data.frame(category = rep(c("A", "B"), each = 4),
-  group = c(rep(".gap_1", 3), ".gap_clinical", ".gap_1", rep(".gap_clinical", 3)))
-gap_plot <- plt_alluvial(d_gap, "category", "group",
-  color = c(".gap_1" = "#0072B2", ".gap_clinical" = "#D55E00"),
-  stratum_args = list(gap = .04)) + scale_x_discrete(limits = rev)
-gap_real <- gap_plot[["data"]][!gap_plot[["data"]][[".is_gap"]], ]
-gap_build <- ggplot_build(gap_plot)
-gap_labels <- gap_build[["data"]][[3]]; gap_labels <- gap_labels[!is.na(gap_labels[["label"]]), ]
-gap_source <- gap_real[match(gap_labels[["label"]], gap_real[[".label"]]), ]
-gap_x <- match(as.character(gap_source[[".cat_var"]]), c("B", "A"))
-gap_strata <- gap_build[["data"]][[2]]
-gap_idx <- match(paste(gap_x, gap_source[[".group"]]), paste(gap_strata[["x"]], gap_strata[["stratum"]]))
-stopifnot(setequal(as.character(gap_real[[".group"]]), unique(d_gap[["group"]])),
-  isTRUE(all.equal(as.numeric(gap_labels[["x"]]), as.numeric(gap_x))),
-  isTRUE(all.equal(gap_labels[["y"]], (gap_strata[["ymin"]][gap_idx] + gap_strata[["ymax"]][gap_idx]) / 2)))
-ggsave(file.path(tempdir(), "20261025-update-dist-gap-labels.pdf"), gap_plot, width = 7, height = 4)
-validation_values <- list(bar = as.data.frame(bar_dist[["data"]]), alluvial = as.data.frame(real_dist),
-  heat = as.data.frame(heat_plot[["data"]]), label_x = as.numeric(gap_labels[["x"]]), label_y = gap_labels[["y"]])
-```
-
-![反转横轴后，真实 gap 名称仍显示，标签位于最终节点中心。](images/flow-guide/20261025-update-dist-gap-labels.png){fig-alt="横轴B后A，两类真实名称gap_1与gap_clinical都有流带和标签，节点间隔不与真实类别混淆。"}
-
-[下载 PDF](images/flow-guide/20261025-update-dist-gap-labels.pdf)
-
-带 `.gap_` 前缀的真实类别不会被当成人工间隔。标签跟随最终轴位置与节点中心；分面 `free_x` 时也只标本面板出现的类别。小比例仍由 `min_pct` 按原始构成筛选，不能把间隔占的空白算进人数或比例。参数不合法（如分面行列数非正整数、总间隔挤满面板）会报错。
-
-
-
-
-```r
-validation_values <- c(validation_values, list(labelled = label_validation25))
-```
-
-<!-- /update-20261025: distribution_lists -->
 
 ## 数据准备与输入约定 {#data}
 
@@ -238,6 +56,91 @@ tile_dat[["label"]] <- factor(c("Low", "Medium", "High", "Medium", "Low", "High"
 | Sankey 外观 | `node_args` 控制宽度和间隔；`flow_args` 控制颜色与透明度 | palette 只控制节点填色；各 list 支持部分覆盖，未知或重复字段报错 |
 
 ::::
+
+### list 参数与值标签（2026-10-25） {#distribution-lists-20261025}
+
+<!-- update-20261025: distribution_lists -->
+
+2026-10-25 按 UtilsR 0.6.10 已推送 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。`plt_dist()` 已移除顶层 `label`、`gap`、`curve_type`，本页可复制代码统一迁到以下 list；不再使用旧参数名。下面以及后面的四张当前图都由该提交重绘，历史 Sankey / Alluvial 参数图保留原执行记录。
+
+::: {.table-responsive tabindex="0" role="region" aria-label="分布图参数迁移"}
+
+| 原调用或任务 | 当前写法 |
+|:--|:--|
+| `label="percent"` | `label_args=list(style="percent")` |
+| `gap=.02` | `stratum_args=list(gap=.02)` |
+| `curve_type="sigmoid"` | `flow_args=list(curve_type="sigmoid")` |
+| 标签换行、阈值与百分比精度 | `label_args=list(style="count_percent_wrap", min_pct=.2, pct_accuracy=1)` |
+| 分面与图例 | `facet_args=list(ncol=2)`、`legend_args=list(position="bottom", ncol=2)` |
+
+:::
+
+各 list 支持部分覆盖，未给字段保留默认；未知和重复字段报错。`alpha` 仍是顶层填色/流带透明度，标签底色透明度另由 `label_args$alpha` 控制。`pct_accuracy=1` 表示百分比按 1 个百分点显示，并非保留一位小数。
+
+#### labelled 输入显示值标签
+
+```r
+library(UtilsR)
+library(ggplot2)
+d_labels25 <- expand.grid(visit = c(1, 2, 10), response = c(1, 2), cohort = c(1, 2), id = 1:2)
+d_labels25[["visit"]] <- haven::labelled(d_labels25[["visit"]], c(Baseline = 1, "Month 6" = 2, "Month 12" = 10))
+d_labels25[["response"]] <- haven::labelled(d_labels25[["response"]], c(CR = 1, PR = 2))
+d_labels25[["cohort"]] <- haven::labelled(d_labels25[["cohort"]], c(Training = 1, Validation = 2))
+copy_labels25 <- d_labels25
+colors_labels25 <- c(CR = "#0072B2", PR = "#D55E00")
+p_labels25 <- plt_dist(d_labels25, c("visit", "response"), type = "bar", facet = "cohort",
+  color = colors_labels25, alpha = 1,
+  label_args = list(style = "count_percent_wrap", min_pct = .2, pct_accuracy = 1, box = FALSE, size = 3),
+  facet_args = list(ncol = 2), legend_args = list(position = "bottom", ncol = 2))
+build_labels25 <- ggplot_build(p_labels25)
+segments_labels25 <- build_labels25[["data"]][[1]]
+ggsave(file.path(tempdir(), "20261025-update-dist-labelled.pdf"), p_labels25, width = 8, height = 4.5)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(identical(d_labels25, copy_labels25),
+  identical(build_labels25[["layout"]][["panel_params"]][[1]][["x"]][["get_labels"]](), c("Baseline", "Month 6", "Month 12")),
+  setequal(as.character(build_labels25[["layout"]][["layout"]][["cohort"]]), c("Training", "Validation")))
+stopifnot(all(segments_labels25[["ymax"]][segments_labels25[["fill"]] == colors_labels25[["CR"]]] == 1),
+  all(grepl("\n", p_labels25[["data"]][[".lab"]], fixed = TRUE)))
+```
+:::
+
+![分类轴、图例和分面显示 labelled 的值标签，堆积顺序与图例一致。](images/flow-guide/20261025-update-dist-labelled.png){fig-alt="Training与Validation两个分面，横轴Baseline、Month 6、Month 12；CR蓝色在堆积上部且位于图例首项，PR橙色在下部，标签显示计数和换行百分比。"}
+
+[下载 PDF](images/flow-guide/20261025-update-dist-labelled.pdf)
+
+`haven_labelled` 的分类列和分面列通过 `labelled::to_factor()` 显示值标签；普通无标签数值仍按数值升序作为类别。命名颜色应写 CR / PR 这些**显示后的类别名**。堆积柱现在把第一 fill 水平放在顶端，与图例和 Alluvial 一致，纵轴显示百分比；这改变呈现顺序，不改变计数和分母。
+
+#### Alluvial 共用换行与布局设置
+
+```r
+p_wrap25 <- plt_dist(d_labels25, c("visit", "response"), facet = "cohort", color = colors_labels25,
+  label_args = list(style = "count_percent_wrap", pct_accuracy = 1, size = 3),
+  flow_args = list(curve_type = "sigmoid"), stratum_args = list(gap = .025),
+  facet_args = list(ncol = 2), legend_args = list(position = "bottom", ncol = 2))
+real_wrap25 <- p_wrap25[["data"]][!p_wrap25[["data"]][[".is_gap"]], ]
+ggsave(file.path(tempdir(), "20261025-update-dist-wrap.pdf"), p_wrap25, width = 8, height = 4.5)
+label_validation25 <- list(bar = as.data.frame(p_labels25[["data"]]), alluvial = as.data.frame(real_wrap25),
+  first_fill_ymax = segments_labels25[["ymax"]][segments_labels25[["fill"]] == colors_labels25[["CR"]]])
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(sum(real_wrap25[["count"]]) == 24, all(grepl("\n", real_wrap25[[".label"]], fixed = TRUE)))
+```
+:::
+
+![相同值标签输入的换行 Alluvial 预览。](images/flow-guide/20261025-update-dist-wrap.png){fig-alt="两分面Alluvial采用sigmoid流带、较宽节点间隔及两行计数百分比标签；CR和PR与柱形图保持相同命名配色。"}
+
+[下载 PDF](images/flow-guide/20261025-update-dist-wrap.pdf)
+
+`min_pct` 按每个 facet×x 内的原始比例筛选标签；样本和流带不因隐藏标签而删除。三列矩阵仍用第三列类别名作格内文字，`style="none"` 时显示图例；流带和节点设置只作用 Alluvial。
 
 ## 选择分布入口
 
@@ -285,6 +188,144 @@ plt_dist(tile_dat, c("stage", "response", "label"), type = "bar", color = cols)
 ![前两列给网格位置，第三列给颜色和名称；这里确保每格只有一个第三列类别，避免多个类别的矩形互相覆盖。](images/flow-guide/dist-grid.png){fig-alt="分类分布与流向：堆积柱、Alluvial 和 Sankey；三列类别矩阵；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 分布：样本、颜色与标签位置（2026-10-24） {#distribution-20261024}
+
+
+
+2026-10-25 按已推送 UtilsR 0.6.10 `0e4cffe` 在 Windows / WSL R 4.4.3 执行。两列 bar / alluvial 与三列类别矩阵统一按**所需列**的完整行统计；输入已有 dplyr 分组不会改变分母。下面比较同一批 36 行，并用原生 PDF 检查标签与布局。
+
+#### 缺失筛选与命名颜色
+
+```r
+library(UtilsR)
+library(ggplot2)
+d_dist <- expand.grid(n = c(10, 2, 1), group = factor(c("F", "M"), levels = c("F", "M", "Unused")),
+  panel = c("P1", "P2"), id = 1:3)
+names(d_dist)[names(d_dist) == "panel"] <- "cohort label"
+d_dist[["unrelated"]] <- NA_real_
+bad_dist <- d_dist[1:3, ]; bad_dist[["n"]][1] <- NA
+bad_dist[["group"]][2] <- NA; bad_dist[["cohort label"]][3] <- NA
+d_dist <- rbind(d_dist, bad_dist); original_dist <- d_dist
+colors_dist <- c(M = "#D55E00", Extra = "#009E73", F = "#0072B2")
+bar_dist <- plt_dist(dplyr::group_by(d_dist, id), c("n", "group"), type = "bar",
+  facet = "cohort label", color = colors_dist, label_args = list(style = "percent"))
+alluv_dist <- plt_dist(d_dist, c("n", "group"), facet = "cohort label",
+  color = colors_dist, label_args = list(style = "count_percent"))
+count_name_dist <- setdiff(names(bar_dist[["data"]]), c("n", "group", "cohort label", "prop", ".lab"))
+real_dist <- alluv_dist[["data"]][!alluv_dist[["data"]][[".is_gap"]], ]
+for (p_dist in list(bar_dist, alluv_dist)) {
+  build_dist <- ggplot_build(p_dist)
+  stopifnot(identical(build_dist[["layout"]][["panel_params"]][[1]][["x"]][["get_labels"]](), c("1", "2", "10")))
+  fill_dist <- build_dist[["plot"]][["scales"]][["get_scales"]]("fill")
+  stopifnot(identical(unname(grDevices::col2rgb(fill_dist[["map"]](c("F", "M")))),
+    unname(grDevices::col2rgb(colors_dist[c("F", "M")]))))
+}
+ggsave(file.path(tempdir(), "20261025-update-dist-bar.pdf"), bar_dist, width = 7, height = 6)
+ggsave(file.path(tempdir(), "20261025-update-dist-alluvial.pdf"), alluv_dist, width = 8, height = 4.5)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(length(count_name_dist) == 1L, sum(bar_dist[["data"]][[count_name_dist]]) == 36,
+  sum(real_dist[["count"]]) == 36, identical(d_dist, original_dist))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 堆积柱 {.unnumbered}
+
+![按所需列完整病例计数，数值类别依 1、2、10 排序。](images/flow-guide/20261025-update-dist-bar.png){fig-alt="两个分面内的堆积柱，x为1、2、10，F蓝色、M橙色，各类别内构成为50%对50%。"}
+
+[下载 PDF](images/flow-guide/20261025-update-dist-bar.pdf)
+
+#### 同样样本的 Alluvial {.unnumbered}
+
+![命名颜色与堆积柱保持同一类别对应。](images/flow-guide/20261025-update-dist-alluvial.png){fig-alt="两分面Alluvial分布，F蓝色、M橙色，各类别有3个F和3个M；不是个体迁移路径。"}
+
+[下载 PDF](images/flow-guide/20261025-update-dist-alluvial.pdf)
+
+:::
+
+39 行输入中，三行分别缺少 x、fill 或 facet，两个模式均剔除这三行；未参与统计的全缺失列不影响纳入。普通数值列按数值升序作为**类别**，不自动分箱；因子保留水平顺序。命名 `color` 按类别匹配，必须覆盖所有观察类别，允许多给未观察类别；无名颜色依水平顺序，删组后容易错位。
+
+#### 类别矩阵：每格唯一，隐藏标签仍保留图例
+
+```r
+heat_dist <- expand.grid(x = c(1, 2, 10), y = c(1, 2))
+heat_dist[["category"]] <- rep(c("F", "M", "F"), 2)
+heat_plot <- plt_dist(heat_dist, c("x", "y", "category"), label_args = list(style = "none"),
+  color = colors_dist, facet = "ignored")
+ambiguous_dist <- rbind(heat_dist, transform(heat_dist[1, ], category = "M"))
+bad_heat <- tryCatch(plt_dist(ambiguous_dist, c("x", "y", "category")), error = identity)
+ggsave(file.path(tempdir(), "20261025-update-dist-heatmap.pdf"), heat_plot, width = 6, height = 3.5)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(inherits(bad_heat, "error"), heat_plot[["theme"]][["legend.position"]] != "none")
+```
+:::
+
+![隐藏类别文字后仍可由图例辨认颜色。](images/flow-guide/20261025-update-dist-heatmap.png){fig-alt="数值坐标1、2、10的六格类别矩阵，没有格内文字，右侧F与M图例仍可见。"}
+
+[下载 PDF](images/flow-guide/20261025-update-dist-heatmap.pdf)
+
+三列模式忽略 `type` 和 `facet`；同一 (x,y) 只能有一个 fill 类别，多类别现在明确报错。`label_args=list(style="none")` 隐藏格内名称但显示类别图例，其他 label 设置显示第三列的类别名，不是频数或百分比。
+
+#### 间隔名称与最终标签中心
+
+```r
+d_gap <- data.frame(category = rep(c("A", "B"), each = 4),
+  group = c(rep(".gap_1", 3), ".gap_clinical", ".gap_1", rep(".gap_clinical", 3)))
+gap_plot <- plt_alluvial(d_gap, "category", "group",
+  color = c(".gap_1" = "#0072B2", ".gap_clinical" = "#D55E00"),
+  stratum_args = list(gap = .04)) + scale_x_discrete(limits = rev)
+gap_real <- gap_plot[["data"]][!gap_plot[["data"]][[".is_gap"]], ]
+gap_build <- ggplot_build(gap_plot)
+gap_labels <- gap_build[["data"]][[3]]; gap_labels <- gap_labels[!is.na(gap_labels[["label"]]), ]
+gap_source <- gap_real[match(gap_labels[["label"]], gap_real[[".label"]]), ]
+gap_x <- match(as.character(gap_source[[".cat_var"]]), c("B", "A"))
+gap_strata <- gap_build[["data"]][[2]]
+gap_idx <- match(paste(gap_x, gap_source[[".group"]]), paste(gap_strata[["x"]], gap_strata[["stratum"]]))
+ggsave(file.path(tempdir(), "20261025-update-dist-gap-labels.pdf"), gap_plot, width = 7, height = 4)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(setequal(as.character(gap_real[[".group"]]), unique(d_gap[["group"]])),
+  isTRUE(all.equal(as.numeric(gap_labels[["x"]]), as.numeric(gap_x))),
+  isTRUE(all.equal(gap_labels[["y"]], (gap_strata[["ymin"]][gap_idx] + gap_strata[["ymax"]][gap_idx]) / 2)))
+validation_values <- list(bar = as.data.frame(bar_dist[["data"]]), alluvial = as.data.frame(real_dist),
+  heat = as.data.frame(heat_plot[["data"]]), label_x = as.numeric(gap_labels[["x"]]), label_y = gap_labels[["y"]])
+```
+:::
+
+![反转横轴后，真实 gap 名称仍显示，标签位于最终节点中心。](images/flow-guide/20261025-update-dist-gap-labels.png){fig-alt="横轴B后A，两类真实名称gap_1与gap_clinical都有流带和标签，节点间隔不与真实类别混淆。"}
+
+[下载 PDF](images/flow-guide/20261025-update-dist-gap-labels.pdf)
+
+带 `.gap_` 前缀的真实类别不会被当成人工间隔。标签跟随最终轴位置与节点中心；分面 `free_x` 时也只标本面板出现的类别。小比例仍由 `min_pct` 按原始构成筛选，不能把间隔占的空白算进人数或比例。参数不合法（如分面行列数非正整数、总间隔挤满面板）会报错。
+
+
+
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+validation_values <- c(validation_values, list(labelled = label_validation25))
+```
+:::
+
+<!-- /update-20261025: distribution_lists -->
 
 ## 比例、计数与分面
 
@@ -494,9 +535,16 @@ plt_sankey(dat, c("stage", "regimen", "response"),
 pdf_path <- file.path(tempdir(), "utilsr-alluvial-demo.pdf")
 p <- plt_alluvial(dat, "stage", "response", color = cols,
                   save = list(filename = pdf_path, width = 8, height = 5))
-stopifnot(file.exists(pdf_path), file.info(pdf_path)[["size"]] > 1000)
 p
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(file.exists(pdf_path), file.info(pdf_path)[["size"]] > 1000)
+```
+:::
 
 ![本例实际调用非空 save，核对临时 PDF 已生成；工作目录不产生输出文件。](images/flow-guide/save-pdf.png){fig-alt="分类分布与流向：堆积柱、Alluvial 和 Sankey；保存到临时目录；固定模拟数据的实际参数对照结果。"}
 
@@ -561,9 +609,16 @@ p_flow
 pdf_sankey <- file.path(tempdir(), "sankey-no-labels.pdf")
 p_none <- plt_sankey(dat, c("stage", "regimen", "response"), show_text = "none",
   save = list(filename = pdf_sankey, width = 9, height = 6))
-stopifnot(file.exists(pdf_sankey))
 p_none
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(file.exists(pdf_sankey))
+```
+:::
 
 ![不画节点标签，仍显示完整节点与流量；本例已实际写出PDF。](images/flow-guide/sankey-no-labels.png){fig-alt="三列Sankey隐藏节点标签，所有节点和流带仍可见，对应PDF已验证。"}
 
@@ -601,9 +656,17 @@ p_dist <- plt_dist(d_save, dis_vars = c("sex", "stage"), type = "bar",
   save = list(filename = file.path(tempdir(), "20261020-refresh-dist.pdf")))
 sizes <- lapply(list(Sankey = p_sankey, Alluvial = p_alluvial, Distribution = p_dist),
   function(p) attr(p, "plot_size"))
-stopifnot(all(vapply(sizes, function(z) length(z) == 2L && all(is.finite(z)) && all(z > 0), logical(1))))
 sizes
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(all(vapply(sizes, function(z) length(z) == 2L && all(is.finite(z)) && all(z > 0), logical(1))))
+```
+:::
+
 <!-- /refresh-20261020: flow_save -->
 
 ::: {.panel-tabset}
@@ -733,3 +796,10 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-25：[list 参数与值标签](#distribution-lists-20261025)
+- 2026-10-24：[分布：样本、颜色与标签位置](#distribution-20261024)
+:::
