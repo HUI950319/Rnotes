@@ -51,6 +51,13 @@ Rscript scripts/check_examples.R
 python scripts/check_browser.py
 ```
 
+不想在系统 Python 里安装 Playwright 时，可用 [uv](https://docs.astral.sh/uv/) 在临时环境中运行浏览器检查
+（Chromium 仍需按上面第二行安装一次）：
+
+```bash
+uv run --no-project --with playwright==1.63.0 --with beautifulsoup4==4.14.3 --with PyYAML==6.0.3 python scripts/check_browser.py
+```
+
 检查页底与 HTML 头部的上一页／下一页是否遵循 `_quarto.yml`，以及侧栏层级、短标题、当前页展开状态、面包屑、
 站内链接与锚点、页面摘要、图片替代文本与懒加载、全站图号唯一性、MLR 总览图数、搜索索引和 sitemap。
 R 检查解析教程代码，并实际验证 SHAP 分箱边界、分层示例数据构造与 RPA 时间换算。
