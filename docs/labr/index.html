@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="LabR 的 CCK-8、Western blot 与 qPCR 作图功能概览，列出主要绘图入口和参考文档。">
+<meta name="description" content="LabR 的 WB / qPCR 柱图：按实际非缺失重复数计算标准误与 Welch 比较，核对多靶点分母及显式 n。">
 
 <title>LabR 概览 – R 包开发笔记</title>
 <style>
@@ -20,6 +20,41 @@ ul.task-list li input[type="checkbox"] {
   width: 0.8em;
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
   vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
 }
 </style>
 
@@ -48,6 +83,9 @@ ul.task-list li input[type="checkbox"] {
 <link href="../site_libs/bootstrap/bootstrap-49cd541467695df53af29df194cd9b04.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
 <link href="../site_libs/bootstrap/bootstrap-dark-813fd77ea255b52178c1bc1719ec8594.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
 <link href="../site_libs/bootstrap/bootstrap-49cd541467695df53af29df194cd9b04.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="../site_libs/quarto-contrib/glightbox/glightbox.min.js"></script>
+<link href="../site_libs/quarto-contrib/glightbox/glightbox.min.css" rel="stylesheet">
+<link href="../site_libs/quarto-contrib/glightbox/lightbox.css" rel="stylesheet">
 <script id="quarto-search-options" type="application/json">{
   "location": "sidebar",
   "copy-button": false,
@@ -1090,8 +1128,20 @@ ul.task-list li input[type="checkbox"] {
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
 <!-- margin-sidebar -->
-    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar zindex-bottom">
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
 
+  <ul>
+  <li><a href="#observed-counts" id="toc-observed-counts" class="nav-link active" data-scroll-target="#observed-counts">先确定每个误差线的重复数</a>
+  <ul class="collapse">
+  <li><a href="#不平衡重复与缺失值2026-10-26" id="toc-不平衡重复与缺失值2026-10-26" class="nav-link" data-scroll-target="#不平衡重复与缺失值2026-10-26">不平衡重复与缺失值（2026-10-26）</a></li>
+  <li><a href="#显式-n-的优先级2026-10-26" id="toc-显式-n-的优先级2026-10-26" class="nav-link" data-scroll-target="#显式-n-的优先级2026-10-26">显式 n 的优先级（2026-10-26）</a></li>
+  </ul></li>
+  <li><a href="#multiple-targets" id="toc-multiple-targets" class="nav-link" data-scroll-target="#multiple-targets">多靶点分别计算，不借用另一靶点的 n</a></li>
+  <li><a href="#page-updates" id="toc-page-updates" class="nav-link" data-scroll-target="#page-updates">更新记录</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/labr/index.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
     </div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
@@ -1108,6 +1158,12 @@ ul.task-list li input[type="checkbox"] {
 
 
 
+    <div>
+    <div class="quarto-title-meta-heading">修改于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date-modified">2026年10月26日</p>
+    </div>
+  </div>
 
   </div>
 
@@ -1119,21 +1175,199 @@ ul.task-list li input[type="checkbox"] {
 <p>LabR 为基础实验数据出版级作图：CCK-8 增殖曲线、Western blot 灰度、qPCR 相对表达等。</p>
 <p><strong>主要函数：</strong> <code>plt_bar()</code>、<code>plt_cck8()</code></p>
 <p>参考文档：<a href="https://hui950319.github.io/LabR/" class="uri">https://hui950319.github.io/LabR/</a></p>
-<div class="callout callout-style-default callout-note callout-titled">
-<div class="callout-header d-flex align-content-center">
+<div class="callout callout-style-default callout-note callout-titled" title="版本与复现记录">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-注记
+<span class="screen-reader-only">注记</span>版本与复现记录
 </div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
+<div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>这个分区的笔记还在整理中。</p>
+<p>2026-10-26 按已推送 LabR 0.1.0 <code>b8ea9e5</code>，在 Windows / WSL R 4.4.3 运行本页 4–16 行合成数据。图中每行只代表一个示例测量，不对应真实受试者；没有用技术重复代替生物学重复。模块图保留<a href="../labr/function-modules.html">原快照</a>。</p>
+</div>
+</div>
+</div>
+<section id="observed-counts" class="level2">
+<h2 class="anchored" data-anchor-id="observed-counts">先确定每个误差线的重复数</h2>
+<!-- update-20261026: labr_counts -->
+<p><code>plt_bar()</code> 可从 <code>raw_data</code> 计算均值与 SD；<code>error_type="se"</code> 再按 <strong>每个 group×target 的非缺失 value 数</strong>计算 <code>SD/sqrt(n)</code>。默认误差类型仍是 SD，<code>show_se</code> 这个名称不等于已选择 SE。传入真实散点时先确定独立重复单位，同一对象的多次技术测量应先按研究设计汇总。</p>
+<section id="不平衡重复与缺失值2026-10-26" class="level3">
+<h3 class="anchored" data-anchor-id="不平衡重复与缺失值2026-10-26">不平衡重复与缺失值（2026-10-26）</h3>
+<p>A 有 3 行但只有 2 个观察值，B 有 6 个观察值；不能拿第一组的行数给所有误差线使用。下例也用各组自己的 n 做两独立组 Welch t 检验，图上显示格式化 P 值。绘图时剔除缺失散点的提示对应这里的 NA，不会把缺失值计入 n。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(LabR)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>raw_bar26 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">group =</span> <span class="fu">c</span>(<span class="fu">rep</span>(<span class="st">"A"</span>, <span class="dv">3</span>), <span class="fu">rep</span>(<span class="st">"B"</span>, <span class="dv">6</span>)),</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">value =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">3</span>, <span class="cn">NA</span>, <span class="dv">2</span>, <span class="dv">4</span>, <span class="dv">6</span>, <span class="dv">8</span>, <span class="dv">10</span>, <span class="dv">12</span>))</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>p_observed26 <span class="ot">&lt;-</span> <span class="fu">plt_bar</span>(<span class="at">raw_data =</span> raw_bar26, <span class="at">error_type =</span> <span class="st">"se"</span>,</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">com_method =</span> <span class="st">"ref"</span>, <span class="at">sig_label =</span> <span class="st">"p.format"</span>, <span class="at">bar_type =</span> <span class="st">"default"</span>,</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">point_type =</span> <span class="st">"point"</span>, <span class="at">ggtheme =</span> ggplot2<span class="sc">::</span><span class="fu">theme_bw</span>(),</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">ylab =</span> <span class="st">"Synthetic measurement (mean + SE)"</span>)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-labr-observed.pdf"</span>),</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  p_observed26, <span class="at">width =</span> <span class="fl">6.5</span>, <span class="at">height =</span> <span class="fl">4.5</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>observed_n26 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="dv">2</span>L, <span class="at">B =</span> <span class="dv">6</span>L)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>expected_se26 <span class="ot">&lt;-</span> <span class="fu">c</span>(stats<span class="sc">::</span><span class="fu">sd</span>(<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">3</span>)) <span class="sc">/</span> <span class="fu">sqrt</span>(<span class="dv">2</span>), stats<span class="sc">::</span><span class="fu">sd</span>(<span class="fu">seq</span>(<span class="dv">2</span>, <span class="dv">12</span>, <span class="dv">2</span>)) <span class="sc">/</span> <span class="fu">sqrt</span>(<span class="dv">6</span>))</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>reference_p26 <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">t.test</span>(value <span class="sc">~</span> group, <span class="at">data =</span> raw_bar26)[[<span class="st">"p.value"</span>]]</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>annotation26 <span class="ot">&lt;-</span> p_observed26[[<span class="st">"layers"</span>]][[<span class="fu">length</span>(p_observed26[[<span class="st">"layers"</span>]])]][[<span class="st">"stat_params"</span>]][[<span class="st">"annotations"</span>]]</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(p_observed26[[<span class="st">"data"</span>]][[<span class="st">"error"</span>]], expected_se26)),</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(annotation26, <span class="fu">formatC</span>(reference_p26, <span class="at">format =</span> <span class="st">"g"</span>, <span class="at">digits =</span> <span class="dv">2</span>)))</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>error_layer26 <span class="ot">&lt;-</span> ggplot2<span class="sc">::</span><span class="fu">ggplot_build</span>(p_observed26)[[<span class="st">"data"</span>]][[<span class="dv">2</span>]]</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(error_layer26[[<span class="st">"ymax"</span>]] <span class="sc">-</span> error_layer26[[<span class="st">"ymin"</span>]], <span class="dv">2</span> <span class="sc">*</span> expected_se26)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/index/20261026-update-labr-observed.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="A 和 B 分别按 2 个与 6 个观察值计算标准误。"><img src="images/index/20261026-update-labr-observed.png" class="img-fluid figure-img" alt="原生柱图显示A和B的真实示例散点、均值及标准误，A的缺失测量不计入n，组间标注使用各自样本数的Welch检验。" loading="lazy" decoding="async" width="943" height="653" srcset="../assets/figure-previews/e488e9a5ee452c23ff1f4397673f5ba6.webp"></a></p>
+<figcaption>A 和 B 分别按 2 个与 6 个观察值计算标准误。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-labr-observed.pdf">下载 PDF</a></p>
+</section>
+<section id="显式-n-的优先级2026-10-26" class="level3">
+<h3 class="anchored" data-anchor-id="显式-n-的优先级2026-10-26">显式 n 的优先级（2026-10-26）</h3>
+<p>显式给 <code>n</code> 会覆盖自动推断，不是“帮助函数检查 n”。下面固定同一均值与 SD，只把误差分母指定为每组 7，因此与上图不同；这是说明参数优先级的反例，不能把不真实的 n 用于报告。向量 n 按汇总表的行顺序使用，重排汇总行时也要同步重排 n。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>p_override26 <span class="ot">&lt;-</span> <span class="fu">plt_bar</span>(<span class="at">raw_data =</span> raw_bar26, <span class="at">n =</span> <span class="dv">7</span>, <span class="at">error_type =</span> <span class="st">"se"</span>,</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">com_method =</span> <span class="cn">NULL</span>, <span class="at">bar_type =</span> <span class="st">"default"</span>, <span class="at">point_type =</span> <span class="st">"point"</span>,</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">ggtheme =</span> ggplot2<span class="sc">::</span><span class="fu">theme_bw</span>(), <span class="at">ylab =</span> <span class="st">"Same means/SD; explicitly supplied n = 7"</span>)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-labr-explicit-n.pdf"</span>),</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  p_override26, <span class="at">width =</span> <span class="fl">6.5</span>, <span class="at">height =</span> <span class="fl">4.5</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(p_override26[[<span class="st">"data"</span>]][[<span class="st">"error"</span>]],</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  p_override26[[<span class="st">"data"</span>]][[<span class="st">"sd"</span>]] <span class="sc">/</span> <span class="fu">sqrt</span>(<span class="dv">7</span>))))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/index/20261026-update-labr-explicit-n.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="显式 n 覆盖自动观察数，均值与 SD 不变。"><img src="images/index/20261026-update-labr-explicit-n.png" class="img-fluid figure-img" alt="同一组合成值显式指定每组n为7后，标准误按SD除以根号7计算；这张反例图用于说明参数优先级。" loading="lazy" decoding="async" width="943" height="653" srcset="../assets/figure-previews/edc116cd58a9ee5e817d194bb31dfa81.webp"></a></p>
+<figcaption>显式 n 覆盖自动观察数，均值与 SD 不变。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-labr-explicit-n.pdf">下载 PDF</a></p>
+</section>
+</section>
+<section id="multiple-targets" class="level2">
+<h2 class="anchored" data-anchor-id="multiple-targets">多靶点分别计算，不借用另一靶点的 n</h2>
+<p>四个 group×target 单元的观察数分别计算。已提供汇总 <code>data</code> 时，同时给 <code>raw_data</code> 可按组名和靶点匹配 n；此时均值与 SD 仍取汇总表，不会被 raw_data 重新估计，需由调用者保证两者来自相同实验与尺度。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>raw_multi26 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">group =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"B"</span>, <span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"A"</span>), <span class="fu">c</span>(<span class="dv">4</span>, <span class="dv">3</span>, <span class="dv">5</span>, <span class="dv">4</span>)),</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">target =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Y"</span>, <span class="st">"Y"</span>, <span class="st">"X"</span>, <span class="st">"X"</span>), <span class="fu">c</span>(<span class="dv">4</span>, <span class="dv">3</span>, <span class="dv">5</span>, <span class="dv">4</span>)),</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">value =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">4</span>, <span class="dv">6</span>, <span class="dv">8</span>, <span class="dv">1</span>, <span class="dv">3</span>, <span class="cn">NA</span>, <span class="dv">2</span>, <span class="dv">5</span>, <span class="dv">7</span>, <span class="dv">8</span>, <span class="dv">11</span>, <span class="dv">1</span>, <span class="dv">2</span>, <span class="dv">4</span>, <span class="cn">NA</span>))</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>p_multi26 <span class="ot">&lt;-</span> <span class="fu">plt_bar</span>(<span class="at">raw_data =</span> raw_multi26, <span class="at">error_type =</span> <span class="st">"se"</span>,</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">com_method =</span> <span class="st">"ref"</span>, <span class="at">sig_label =</span> <span class="st">"p.format"</span>, <span class="at">bar_type =</span> <span class="st">"default"</span>,</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">point_type =</span> <span class="st">"point"</span>, <span class="at">ggtheme =</span> ggplot2<span class="sc">::</span><span class="fu">theme_bw</span>(),</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">ylab =</span> <span class="st">"Synthetic measurement (mean + SE)"</span>)</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-labr-targets.pdf"</span>),</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  p_multi26, <span class="at">width =</span> <span class="fl">7.5</span>, <span class="at">height =</span> <span class="fl">4.5</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-4" class="callout-4-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>summary_multi26 <span class="ot">&lt;-</span> p_multi26[[<span class="st">"data"</span>]]</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>count_multi26 <span class="ot">&lt;-</span> <span class="fu">vapply</span>(<span class="fu">seq_len</span>(<span class="fu">nrow</span>(summary_multi26)), <span class="cf">function</span>(i) {</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(raw_multi26[[<span class="st">"group"</span>]] <span class="sc">==</span> <span class="fu">as.character</span>(summary_multi26[[<span class="st">"group"</span>]][i]) <span class="sc">&amp;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>    raw_multi26[[<span class="st">"target"</span>]] <span class="sc">==</span> <span class="fu">as.character</span>(summary_multi26[[<span class="st">"target"</span>]][i]) <span class="sc">&amp;</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    <span class="sc">!</span><span class="fu">is.na</span>(raw_multi26[[<span class="st">"value"</span>]]))</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>}, <span class="fu">integer</span>(<span class="dv">1</span>))</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(summary_multi26[[<span class="st">"error"</span>]], summary_multi26[[<span class="st">"sd"</span>]] <span class="sc">/</span> <span class="fu">sqrt</span>(count_multi26))))</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>p_by_target26 <span class="ot">&lt;-</span> <span class="fu">vapply</span>(<span class="fu">levels</span>(summary_multi26[[<span class="st">"target"</span>]]), <span class="cf">function</span>(g)</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  stats<span class="sc">::</span><span class="fu">t.test</span>(value <span class="sc">~</span> group, <span class="at">data =</span> raw_multi26[raw_multi26[[<span class="st">"target"</span>]] <span class="sc">==</span> g, ])[[<span class="st">"p.value"</span>]], <span class="fu">numeric</span>(<span class="dv">1</span>))</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>labels_multi26 <span class="ot">&lt;-</span> p_multi26[[<span class="st">"layers"</span>]][[<span class="fu">length</span>(p_multi26[[<span class="st">"layers"</span>]])]][[<span class="st">"stat_params"</span>]][[<span class="st">"annotations"</span>]]</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(labels_multi26, <span class="fu">unname</span>(<span class="fu">formatC</span>(p_by_target26, <span class="at">format =</span> <span class="st">"g"</span>, <span class="at">digits =</span> <span class="dv">2</span>))))</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>preview_multi26 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">group =</span> summary_multi26[[<span class="st">"group"</span>]], <span class="at">target =</span> summary_multi26[[<span class="st">"target"</span>]],</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">observed_n =</span> count_multi26, <span class="at">mean =</span> summary_multi26[[<span class="st">"mean"</span>]], <span class="at">SE =</span> summary_multi26[[<span class="st">"error"</span>]])</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(preview_multi26), <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-labr-counts.html"</span>))</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>small_bar26 <span class="ot">&lt;-</span> <span class="fu">plt_bar</span>(<span class="at">raw_data =</span> <span class="fu">data.frame</span>(<span class="at">group =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"B"</span>), <span class="at">value =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="cn">NA</span>, <span class="dv">2</span>, <span class="dv">4</span>)),</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">error_type =</span> <span class="st">"se"</span>, <span class="at">com_method =</span> <span class="st">"ref"</span>, <span class="at">sig_label =</span> <span class="st">"p.format"</span>, <span class="at">point_type =</span> <span class="st">"point"</span>, <span class="at">ggtheme =</span> ggplot2<span class="sc">::</span><span class="fu">theme_bw</span>())</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(small_bar26[[<span class="st">"layers"</span>]][[<span class="fu">length</span>(small_bar26[[<span class="st">"layers"</span>]])]][[<span class="st">"stat_params"</span>]][[<span class="st">"annotations"</span>]], <span class="st">"NA"</span>))</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">group_n =</span> observed_n26, <span class="at">SE =</span> expected_se26, <span class="at">p =</span> reference_p26,</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">targets =</span> preview_multi26, <span class="at">target_p =</span> p_by_target26, <span class="at">insufficient_label =</span> <span class="st">"NA"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">图形</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">观察数</a></li></ul>
+<div class="tab-content">
+<div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/index/20261026-update-labr-targets.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="每个靶点独立计算各组的标准误和 Welch 比较。"><img src="images/index/20261026-update-labr-targets.png" class="img-fluid figure-img" alt="两靶点分组柱图使用相同16行合成数据，各靶点内部按各组非缺失测量数计算误差线和独立组Welch检验。" loading="lazy" decoding="async" width="1088" height="653" srcset="../assets/figure-previews/eecace76267da41e58a44d2011a54edb.webp"></a></p>
+<figcaption>每个靶点独立计算各组的标准误和 Welch 比较。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-labr-targets.pdf">下载 PDF</a></p>
+</div>
+<div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/index/20261026-update-labr-counts.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="原生汇总表列出每组每靶点的实际观察数。"><img src="images/index/20261026-update-labr-counts.png" class="img-fluid figure-img" alt="原生表列出group、target、observed_n、均值和标准误，便于逐一核对每根误差线的分母。" loading="lazy" decoding="async" width="570" height="276" srcset="../assets/figure-previews/381d386af091e83ed88e97bffdd156b6.webp"></a></p>
+<figcaption>原生汇总表列出每组每靶点的实际观察数。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-labr-counts.html">原生 HTML 表</a></p>
+</div>
+</div>
+</div>
+<p>某个比较组少于 2 个非缺失观察值，或 SD 不可计算时，比较显示 NA。它不是 P=1，也不是“无差异”。同一受试者配对、重复测量或批次相关不能用这个独立组 Welch 标注替代相应模型；多个比较的自动标注也不能当作已完成多重检验校正。</p>
+<!-- /update-20261026: labr_counts -->
+</section>
+<section id="page-updates" class="level2">
+<h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
+<div class="callout callout-style-default callout-note callout-titled" title="更新记录">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>更新记录
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-5" class="callout-5-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<ul>
+<li>2026-10-26：补充<a href="#observed-counts">实际观察数与显式 n</a>、<a href="#multiple-targets">多靶点分母</a>的原生图表与 Welch 核对。</li>
+</ul>
+</div>
 </div>
 </div>
 
 
+</section>
 
 </main> <!-- /main -->
 <script id="quarto-html-after-body" type="application/javascript">
@@ -1562,7 +1796,39 @@ ul.task-list li input[type="checkbox"] {
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/labr/index.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script src="../assets/sidebar-navigation.js"></script>
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/labr/index.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script src="../assets/sidebar-navigation.js"></script>
+<script>var lightboxQuarto = GLightbox({"closeEffect":"zoom","descPosition":"bottom","loop":false,"openEffect":"zoom","selector":".lightbox"});
+(function() {
+  let previousOnload = window.onload;
+  window.onload = () => {
+    if (previousOnload) {
+      previousOnload();
+    }
+    lightboxQuarto.on('slide_before_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      const href = trigger.getAttribute('href');
+      if (href !== null) {
+        const imgEl = window.document.querySelector(`a[href="${href}"] img`);
+        if (imgEl !== null) {
+          const srcAttr = imgEl.getAttribute("src");
+          if (srcAttr && srcAttr.startsWith("data:")) {
+            slideConfig.href = srcAttr;
+          }
+        }
+      }
+    });
+
+    lightboxQuarto.on('slide_after_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      if (window.Quarto?.typesetMath) {
+        window.Quarto.typesetMath(slideNode);
+      }
+    });
+
+  };
+
+})();
+          </script>
 
 
 
