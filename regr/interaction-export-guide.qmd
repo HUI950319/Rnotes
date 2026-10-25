@@ -1,0 +1,426 @@
+---
+title: "交互分析：表格、Word 导出与绘图"
+description: "fmt_inter、fmt_inter_ft、fmt_inter_gt 的表格后端与细节控制，save_tb_inter 的 Word 导出与默认值，plt_inter 的组合图、分解与热图，以及多模型结果的逐模型导出。"
+date: 2026-10-25
+date-modified: 2026-10-25
+lightbox: true
+toc-depth: 2
+directory:
+  title: "交互分析：表格后端、Word 导出与交互图"
+  topic: 回归与生存分析
+  updated: 2026-10-25
+---
+
+本页接[交互分析](interaction-guide.qmd)，把交互结果整理成表格、Word 文档和图。代码沿用该页[示例数据与分析尺度](interaction-guide.qmd#data)准备的 `inter_data`，以及[get_inter()](interaction-guide.qmd#get-inter) 一节拟合的 `inter_single`、`inter_multi`、`inter_pairs`、`inter_grid` 和 `inter_or`，请先运行这两节。
+
+## fmt_inter()：自动选择表格后端 {#fmt-inter}
+
+```r
+# 接口签名（不执行）
+fmt_inter(
+  df_inter, table_map = NULL,
+  output_format = c("flextable", "gt"),
+  layout = c("auto", "horizontal", "vertical"),
+  table_names = NULL, gt_args = list(), ft_args = list()
+)
+```
+
+这个入口识别比值 / 绝对尺度以及 single / mul / grid / multicat 等形状。更改 `output_format` 只选择渲染后端，不重新拟合模型。后端特有选项放在命名 list 中：`gt_args` 支持 `show_combine`、`spanner_colors`，`ft_args` 支持 `show_subeffect`、`show_measure`；未知、重复或未命名字段会被拒绝。
+
+::: {.panel-tabset}
+
+### flextable {.unnumbered}
+
+默认后端适合 Word 排版。下面与 `fmt_inter_ft(inter_single)` 使用同一份 Cox 结果。
+
+```r
+fmt_inter(inter_single, output_format = "flextable")
+```
+
+![fmt_inter：flextable 后端的二分类 Cox 交互表。](images/interaction-guide/inter-ft.png){fig-alt="fmt_inter 的默认 flextable 输出，展示未调整与种族调整后的二分类交互结果。"}
+
+### gt {.unnumbered}
+
+网页表格后端；单个结果默认将未调整和调整模型合并在一个 `gt_tbl` 中。
+
+```r
+fmt_inter(inter_single, output_format = "gt")
+```
+
+![fmt_inter：相同 Cox 结果的 gt 表。](images/interaction-guide/inter-binary.png){fig-alt="与 flextable 标签页使用相同的原始结果，fmt_inter 的 gt 后端合并两个模型。"}
+
+:::
+
+## fmt_inter_ft()：Word 表格的细节控制 {#fmt-inter-ft}
+
+```r
+# 接口签名（不执行）
+fmt_inter_ft(
+  df_inter, table_map = NULL,
+  layout = c("auto", "horizontal", "vertical"),
+  table_names = NULL,
+  show_subeffect = c("both", "column", "row", "none"),
+  show_measure = c("above_header", "below_header", "none")
+)
+```
+
+`show_subeffect` 控制两个层内效应摘要：`"column"` 保留效应列，`"row"` 保留主暴露效应行，`"both"` 两者都保留，`"none"` 两者都隐藏。隐藏摘要不会改写模型。
+
+`show_measure` 控制 HR / Risk 等度量行的位置：`"above_header"` 在表头，`"below_header"` 在表体首行，`"none"` 不显示。`layout` 组织多对比 / 分层表；完整多水平结果使用固定的模型并排布局。
+
+::: {.panel-tabset}
+
+### 默认摘要 {.unnumbered}
+
+保留两类层内效应，度量行位于表头。
+
+```r
+fmt_inter_ft(inter_single)
+```
+
+![fmt_inter_ft：保留层内效应的默认布局。](images/interaction-guide/inter-ft.png){fig-alt="flextable 默认布局，包含联合效应、两个层内效应摘要及交互指标。"}
+
+### 精简表格 {.unnumbered}
+
+隐藏两类层内摘要，将度量行放在表体。联合效应和交互指标仍来自同一份分析。
+
+```r
+fmt_inter_ft(
+  inter_single, show_subeffect = "none", show_measure = "below_header"
+)
+```
+
+![fmt_inter_ft：隐藏层内摘要并移动度量行。](images/interaction-guide/inter-ft-compact.png){fig-alt="设置 show_subeffect 为 none 和 show_measure 为 below_header 的精简交互表。"}
+
+:::
+
+## fmt_inter_gt()：网页表格与分组表头 {#fmt-inter-gt}
+
+```r
+# 接口签名（不执行）
+fmt_inter_gt(
+  df_inter, table_map = NULL,
+  layout = c("auto", "horizontal", "vertical"),
+  show_combine = TRUE, table_names = NULL,
+  spanner_colors = c("#2C3E50", "#5D6D7E", "#7B4B3A", "#4A6155")
+)
+```
+
+`show_combine = TRUE` 将单个交互结果的 Unadjusted / Adjusted 合成一个 `gt_tbl`；`FALSE` 返回 `gt_group`。`table_names` 用于多对比标签，`spanner_colors` 循环应用于 `mul` 的分组表头。`layout = "auto"` 对带 `table_names` 的多修饰变量结果采用纵向，其余通常横向；`single` / `grid` 的 gt 渲染不使用这个布局开关。
+
+::: {.panel-tabset}
+
+### 完整多水平表 {.unnumbered}
+
+直接识别 `multicat`，并排显示未调整与调整模型，不需要先拆成逐对表。
+
+```r
+fmt_inter_gt(inter_multi)
+```
+
+![fmt_inter_gt：完整多水平结果的网页表格。](images/interaction-guide/inter-multicat.png){fig-alt="fmt_inter_gt 自动识别完整多水平结果，使用各种族水平作为列。"}
+
+### 逐对表与颜色 {.unnumbered}
+
+对 `mul` 结果选择纵向布局，用两种紫色区分对比表头。颜色与布局只改变显示。
+
+```r
+fmt_inter_gt(
+  inter_pairs, layout = "vertical",
+  spanner_colors = c("#5B3F8C", "#7857A4")
+)
+```
+
+![fmt_inter_gt：纵向逐对表与自定义表头颜色。](images/interaction-guide/inter-gt-colors.png){fig-alt="两份种族逐对交互结果采用纵向布局与自定义紫色分组表头。"}
+
+:::
+
+## save_tb_inter()：Word 导出与发表用表 {#save-tb-inter}
+
+### 当前接口
+
+```r
+# 接口签名（不执行）
+save_tb_inter(
+  inter_result, title = NULL,
+  layout = c("vertical", "horizontal"),
+  table_map = NULL, note = NULL, note_covar = NULL,
+  landscape = FALSE, note_below = TRUE, show_ap_si = FALSE,
+  show_subeffect = c("row", "both", "column", "none"),
+  show_measure = c("above_header", "below_header", "none"),
+  show_model = c("both", "unadjusted", "adjusted"),
+  covar_map = name_map_seer,
+  font_name = "Times New Roman", font_size = 8
+)
+```
+
+函数接受原始交互结果，也接受已经排好的 `flextable`。返回值始终是 `flextable`，因此可以先预览，再保存；**`title = NULL` 不写文件**。非空 `title` 为输出路径，可带或不带 `.docx`，目录决定保存位置，去掉扩展名后的文件名用于表题。下面的文件示例写入 R 的临时目录；实际使用时换成自己的输出路径。
+
+::: {.table-responsive}
+
+| 参数 | 用途与适用范围 |
+|:--|:--|
+| `layout` | 默认 `"vertical"`，对比 / 层向下堆叠；`"horizontal"` 横向排列。完整多水平表保留固定布局 |
+| `landscape` | Word 页面横向；独立于表格的横 / 纵布局 |
+| `show_model` | 两个模型都保留，或只保留 `"unadjusted"` / `"adjusted"` |
+| `show_ap_si = FALSE` | 当前默认；比值结果保留乘性交互与主要加性指标 RERI，绝对结果保留乘性交互与 IC；TRUE保留其他加性指标 |
+| `show_subeffect, show_measure` | 保存入口默认 `show_subeffect = "row"`；`fmt_inter_ft()` 仍默认 `"both"`，两者选项含义相同 |
+| `table_map` | 变量 / 水平文字映射；是正则子串替换，不改变编码、参考组或估计值 |
+| `covar_map, note_covar` | 调整项注释的名称映射与手动覆盖；`note_covar` 覆盖显示文字，不能改变已拟合的调整模型 |
+| `note` | 在标准注释之后追加说明 |
+| `note_below` | 默认在 Word 表格下写可编辑段落；返回的 flextable 仍以 footer 行预览注释。缺少相关注释元数据的单表会回退到 footer |
+| `font_name, font_size` | 默认 Times New Roman、8 pt；本页预览使用 10 pt |
+
+:::
+
+传入已经格式化的 `flextable` 时，函数保留其布局；`layout`、`table_map`、`show_subeffect`、`show_measure` 不重新应用。不显式传 `show_ap_si` 时保留既有行；显式传 FALSE 会警告并忽略，因为它不能再筛选原始指标。需要精简时应直接传原始分析结果。`show_model` 可用于已有表，但应确认模型标识仍完整。
+
+### 五种导出与预览设置
+
+::: {.panel-tabset}
+
+### 纵向 Word 表 {.unnumbered}
+
+下面五幅历史预览显式保留原行列设置；当前默认效果见[新默认值对照](#defaults-check-20261019)。这里按种族对比向下排，两个模型并排，写入 `Table 1. Sex by race.docx` 并返回表格。
+
+```r
+table <- save_tb_inter(
+  inter_pairs, title = file.path(tempdir(), "Table 1. Sex by race"),
+  show_ap_si = TRUE, show_subeffect = "both",
+  layout = "vertical", font_size = 10
+)
+table
+```
+
+![save_tb_inter：纵向逐对交互表。](images/interaction-guide/save-inter-vertical.png){fig-alt="用于 Word 导出的纵向种族逐对交互表，保留未调整与年龄调整模型及注释。"}
+
+### 横向表与横向页面 {.unnumbered}
+
+`layout` 改表内排列，`landscape` 改 Word 纸张方向。宽表应同时考虑这两个设置。
+
+```r
+table <- save_tb_inter(
+  inter_pairs, title = file.path(tempdir(), "Table 2. Horizontal interaction"),
+  show_ap_si = TRUE, show_subeffect = "both",
+  layout = "horizontal", landscape = TRUE, font_size = 10
+)
+table
+```
+
+![save_tb_inter：横向排列的逐对交互表。](images/interaction-guide/save-inter-horizontal.png){fig-alt="种族对比横向排列，并使用横向 Word 页面保存；页面方向不改变估计值。"}
+
+### 只显示调整模型 {.unnumbered}
+
+保留 Adjusted 的模型标识与调整项注释。`title = NULL` 只预览，不产生 Word 文件。
+
+```r
+table <- save_tb_inter(
+  inter_pairs, title = NULL, show_model = "adjusted", font_size = 10,
+  show_ap_si = TRUE, show_subeffect = "both"
+)
+table
+```
+
+![save_tb_inter：仅显示调整模型。](images/interaction-guide/save-inter-adjusted.png){fig-alt="show_model 为 adjusted，仅保留年龄调整后的种族逐对交互及协变量注释。"}
+
+### 绝对结果保留 IC {.unnumbered}
+
+传入 120 月的风险结果，关闭次要加性指标；此时保留的是 IC，不能按相对尺度的 RERI 解释。
+
+```r
+table <- save_tb_inter(
+  inter_abs120, title = NULL, show_ap_si = FALSE, font_size = 10,
+  show_subeffect = "both"
+)
+table
+```
+
+![save_tb_inter：绝对风险表保留主要加性指标 IC。](images/interaction-guide/save-inter-ic.png){fig-alt="120 月风险表设置 show_ap_si 为 FALSE，保留乘性交互与 IC，并同步指标注释。"}
+
+### 分层结果导出 {.unnumbered}
+
+按种族分层的结果纵向排版，保存为横向 Word 页面；保留层标签、模型标签和注释。
+
+```r
+table <- save_tb_inter(
+  inter_grid, title = file.path(tempdir(), "Table 3. Stratified interaction"),
+  show_ap_si = TRUE, show_subeffect = "both",
+  layout = "vertical", landscape = TRUE, font_size = 10
+)
+table
+```
+
+![save_tb_inter：按种族分层的交互表导出。](images/interaction-guide/save-inter-grid.png){fig-alt="按种族分层的性别与年龄组交互表纵向排版，并导出到横向 Word 页面。"}
+
+:::
+
+图片展示的是返回表格的内容。实际 Word 导出另外核验了文档内的表格与横向页面设置；`note_below` 的段落编码只影响 Word 文件，图片无法单独证明这一文件结构。
+
+## plt_inter()：组合图、分解与热图 {#plt-inter}
+
+```r
+# 接口签名（不执行）
+plt_inter(table_result, theme_use = UtilsR::theme_my, base_size = 14)
+```
+
+输入必须是**一个二分类×二分类的 8×4 比值交互表**，例如 `inter_or[["Adjus"]]`；不能直接传整个分析列表、完整多水平结果、分层 grid 或 `get_inter_abs()` 的 9×4 表。
+
+当前图形坐标标题固定为 **OR**，所以本节使用前面的 **Logistic** 结果，避免把 Cox HR 图按 OR 标注。图从显示表中的已四舍五入数值构造，适合展示交互形态；精确统计报告仍应读取原始模型与未舍入估计。
+
+```r
+plots <- plt_inter(inter_or[["Adjus"]])
+```
+
+::: {.panel-tabset}
+
+### 组合图 {.unnumbered}
+
+左侧为加性分解，右侧为乘性交互折线。两张图描述同一份 Logistic 比值结果的不同组合方式。
+
+```r
+plots[["combined"]]
+```
+
+![plt_inter：加性分解与乘性交互组合图。](images/interaction-guide/plt-inter.png){fig-alt="调整种族后的 Logistic OR 交互图，左侧四组加性分解、右侧性别与年龄组交互折线。"}
+
+### 联合效应热图 {.unnumbered}
+
+四个暴露组合相对于共同参考组的 OR。颜色展示数值大小，不单独检验交互。
+
+```r
+plots[["add"]]
+```
+
+![plt_inter：联合 OR 的 2×2 热图。](images/interaction-guide/plt-inter-add.png){fig-alt="Female 与小于 55 岁为共同参考组，展示性别与年龄组四个联合状态的 Logistic OR。"}
+
+### 加性分解 {.unnumbered}
+
+按 Reference、OnlyB、OnlyA、RERI 分解联合比值。这里的 RERI 基于 OR；柱高不能读成死亡概率或人数。
+
+```r
+plots[["stack"]]
+```
+
+![plt_inter：四个组合的 OR 加性分解。](images/interaction-guide/plt-inter-stack.png){fig-alt="Logistic OR 的参考项、两个单独效应项与 RERI 堆叠分解，数值不是绝对死亡风险。"}
+
+### 乘性交互折线 {.unnumbered}
+
+用线条比较年龄组内的性别联合 OR。图形受坐标尺度影响，是否存在交互应结合模型检验与区间阅读。
+
+```r
+plots[["line"]]
+```
+
+![plt_inter：乘性交互折线图。](images/interaction-guide/plt-inter-line.png){fig-alt="以性别为横轴，按年龄组连接 Logistic 联合 OR，展示乘性交互形态。"}
+
+:::
+
+`stack`、`line`、`add` 返回 ggplot，`combined` 为 patchwork，可以继续调整主题或保存。`theme_use` 接受主题对象、主题函数或函数名字符串，`base_size` 设置基础字号。这些参数不重新拟合模型。
+
+<!-- interaction-extension: start -->
+
+## 多模型交互分析与逐模型 Word 导出 {#models-20261019}
+
+2026-10-19 按已推送 RegR `f26e137` 在 Windows / WSL R 4.4.3 执行。沿用本页 `inter_data`、Sex 与 Age_group 的参考组；比较 Cox HR 与 Fine–Gray sHR 的模型比值尺度交互。
+
+<!-- rnotes-20261019: inter-models -->
+```r
+inter_models <- run_quiet(get_inter(inter_data,
+  exposure_names = c("Sex", "Age_group"), adj_var = "Age",
+  surv = list(sur = TRUE, cif = FALSE)))
+inter_tables <- save_tb_inter(inter_models,
+  title = c(sur = file.path(tempdir(), "interaction-sur.docx"),
+            cif = file.path(tempdir(), "interaction-cif.docx")),
+  note = c(sur = "Cox HR; other-cause deaths are censored.",
+           cif = "Fine-Gray sHR; other-cause deaths compete."),
+  show_ap_si = TRUE, show_subeffect = "both")
+names(inter_tables)  # "sur" "cif"
+```
+
+::: {.panel-tabset}
+
+### Cox {.unnumbered}
+
+![Cox 交互表的实际导出预览。](images/interaction-guide/20261019-model-sur.png){fig-alt="Cox模型的Sex与Age_group交互表，保留RERI、AP、SI及行列内效应；结果来自本节实际拟合。"}
+
+[查看 HTML](images/interaction-guide/20261019-model-sur.html){target="_blank"} · [下载 Word](images/interaction-guide/20261019-model-sur.docx)
+
+### Fine–Gray {.unnumbered}
+
+![Fine–Gray 交互表的实际导出预览。](images/interaction-guide/20261019-model-cif.png){fig-alt="同一多模型调用的Fine–Gray交互表，使用sHR并保留RERI、AP、SI，脚注说明竞争事件处理。"}
+
+[查看 HTML](images/interaction-guide/20261019-model-cif.html){target="_blank"} · [下载 Word](images/interaction-guide/20261019-model-cif.docx)
+
+:::
+
+`get_inter()` 返回带 `surv_models` 类的命名 list；`save_tb_inter()` 识别该结果，分别返回 flextable 并输出 Word。`title`、`note` 可用按模型命名的字符向量或 list，其他参数按模型分别设置时使用同名 list。单个已有 flextable 的保存行为不变。
+
+本节显式设置 AP/SI 和行列摘要，复现时不依赖默认显示选项。模型各自使用其所需变量的完整案例；HR 与 sHR 的加法派生指标不等于绝对风险交互。需要后者时继续使用本页 `get_inter_abs()` 的原始数据工作流，本节不把它作为多模型接口示例。
+
+## 当前 Word 默认值与多模型核对 {#defaults-check-20261019}
+
+2026-10-19 按已推送 RegR `4034a97` 在 Windows / WSL R 4.4.3 实际运行。`save_tb_inter()` 当前默认 `show_ap_si = FALSE, show_subeffect = "row"`，只保留主要加性指标和主暴露的层内效应行。要恢复历史完整显示，显式使用 TRUE / `"both"`；这不改变模型拟合。`fmt_inter_ft()` 的默认仍是 `"both"`。
+
+本节另取598人 PTC 队列，以 No CND、Female 为参考，分析 CND × Sex，调整 Age；与前面的 MTC 表不是同一分析。Cox HR 与 Fine–Gray sHR 的 RERI 均为比值尺度派生指标，不能读作绝对风险差。保护性暴露的提示仍需结合参考组解释。
+
+<!-- rnotes-refresh: inter -->
+```r
+dat_now <- as.data.frame(ToyData::toy_ptc_m1_cnd)
+dat_now[["N_4"]] <- stats::relevel(dat_now[["N_4"]], ref = "No CND")
+dat_now[["Sex"]] <- stats::relevel(dat_now[["Sex"]], ref = "Female")
+inter_check <- run_quiet(get_inter(dat_now,
+  exposure_names = c("N_4", "Sex"), adj_var = "Age", surv = c(TRUE, FALSE)))
+facet_check <- run_quiet(get_facet(dat_now,
+  split_var = "Sex", cat_var = "N_4", adj_var = "Age",
+  surv = c(TRUE, FALSE), method = c("unadj", "direct"),
+  show_sur = FALSE, max_t = 120, parallel = 1,
+  plot_params = list(conf_int = FALSE),
+  table_params = list(insert_table = FALSE, add_p_value = "none")))
+audit_models <- check_inter(inter_check, facet_check,
+  cat_var = "N_4", modifier = "Sex")
+lapply(audit_models, function(x) x[["consistent"]])
+
+default_file <- file.path(tempdir(), "20261019-refresh-inter-default.docx")
+full_file <- file.path(tempdir(), "20261019-refresh-inter-full.docx")
+ft_default <- save_tb_inter(inter_check[["sur"]],
+  title = default_file, font_size = 10)
+ft_full <- save_tb_inter(inter_check[["sur"]],
+  title = full_file, font_size = 10,
+  show_ap_si = TRUE, show_subeffect = "both")
+```
+
+::: {.panel-tabset}
+
+### 当前默认 {.unnumbered}
+
+![默认保留乘性交互、RERI和主暴露层内效应行。](images/interaction-guide/20261019-refresh-inter-default.png){fig-alt="同一Cox交互分析的精简Word表，保留主要加性指标RERI和CND的层内效应行，省略AP、SI及另一方向的效应摘要。"}
+
+[查看 HTML](images/interaction-guide/20261019-refresh-inter-default.html){target="_blank"} · [下载 Word](images/interaction-guide/20261019-refresh-inter-default.docx)
+
+### 完整显示 {.unnumbered}
+
+![显式恢复 AP、SI 及两个方向的层内摘要。](images/interaction-guide/20261019-refresh-inter-full.png){fig-alt="相同Cox结果使用show_ap_si TRUE和show_subeffect both，显示AP、SI及行列两个方向的效应摘要；估计来源不变。"}
+
+[查看 HTML](images/interaction-guide/20261019-refresh-inter-full.html){target="_blank"} · [下载 Word](images/interaction-guide/20261019-refresh-inter-full.docx)
+
+:::
+
+### check_inter() 的核对范围
+
+本例完整表的未调整 SI 为 `NaN`，调整后的 SI 区间也很宽，反映该编码下指标不可估计或不稳定，不能填成0或解释为没有交互。精简显示不会修复这一统计问题。
+
+当前入口支持一对 `surv_models`，按名称分别检查 Cox 与 Fine–Gray；本例两模型均通过。`audit_models[["cif"]][["comparison"]]` 可查看逐单元结果。它比较的是已格式化的分层 HR/sHR 显示文本，只规范首尾及重复空白，不重新拟合。
+
+[下载本例逐单元核对结果](images/interaction-guide/20261019-refresh-inter-check.csv)。
+
+| 检查项目 | 当前行为 |
+|:--|:--|
+| 同名模型 | 逐一比较，返回 `check_inter_pairs` |
+| 只有一边存在的模型 | 记录在 `attr(audit_models, "unmatched")`，不算已通过 |
+| 一边多模型、一边单结果 | 报错；两边都先选择同一模型再比较 |
+| 不显式传两个对象 | 在调用环境按 `inter_*` / `facet_*` 后缀配对；正式核验宜明确传对象 |
+| `status` | `equal / different / missing_inter / missing_facet / not_estimable`，须查看具体单元 |
+
+该检查不覆盖交互P值、RERI、曲线、概率差或人数，也不证明两条分析路径在未舍入数值上完全相同。若使用不同模型、参考组或逐对拆分策略，先核对 `same_model_expected` 与设置，不能为了得到 TRUE 而改写显示文本。
+
+`get_inter()` 现也接受 `cif_args`，放在 `conf_level` 后。`"CRR"` 让 Fine–Gray 比值与交互拟合回到 `tidycmprsk::crr()`；`"CSC"` 在这个不绘制 direct CIF 的入口中仍沿用默认 mets 比值拟合。`get_inter_abs()` 的固定时点 CIF 另有概率路径和区间要求，见[后端边界](get-eff-cif-benchmark.qmd#current-backend)。

@@ -18,6 +18,8 @@ PAGES = [
     "console-print/table-pvalue.html", "console-print/structure-summary.html",
     "console-print/runtime-messages.html", "console-print/package-print-methods.html",
     "console-print/write-print-method.html", "console-print/display-issues.html",
+    "regr/interaction-abs-guide.html", "regr/interaction-export-guide.html",
+    "regr/forest-plot-guide.html",
     "regr/rcs-guide.html", "regr/cut-guide.html", "regr/flow-guide.html",
     "regr/variable-selection-guide.html",
     "regr/nomogram-guide.html",
