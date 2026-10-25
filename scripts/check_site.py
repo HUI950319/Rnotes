@@ -10,6 +10,27 @@ from xml.etree import ElementTree as ET
 import yaml
 from bs4 import BeautifulSoup
 
+# The homepage keeps this many recent updates; older ones live in updates.qmd.
+RECENT_UPDATES = 10
+# Headings of dated update notes, which belong under the section they concern
+UPDATE_HEADING = re.compile(r"^(当前|\d{4}-\d{2}-\d{2})|\{#[^}]*updates?-?20\d{6}")
+# Pages that may still open with such a note: the first four causalR pages and the
+# get_eff benchmark run code when rendered, and the two MLR benchmark pages open with
+# a warning that their timings predate later releases.
+OPENING_NOTE_OK = {"causalr/ale-guide.qmd", "causalr/index.qmd", "causalr/pdp-guide.qmd",
+                   "causalr/shap-guide.qmd", "regr/get-eff-cif-benchmark.qmd",
+                   "regr/mlr-imp-speedup-20261006.qmd", "regr/mlr-shp-speedup-20261006.qmd"}
+
+
+def first_h2(text):
+    fence = False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            fence = not fence
+        elif not fence and line.startswith("## "):
+            return line[3:].strip()
+    return ""
+
 
 def chapters(items):
     for item in items:
@@ -209,11 +230,24 @@ def check(root):
         if indexed != set(expected):
             errors.append(f"{name}: missing={sorted(set(expected) - indexed)}, extra={sorted(indexed - set(expected))}")
 
+    # update conventions in the sources (rnotes-site.md section 1)
+    home = (root / "index.qmd").read_text(encoding="utf-8")
+    recent = home.split("## 近期更新", 1)[1].split("\n## ", 1)[0]
+    n_recent = len(re.findall(r"^- \*\*20", recent, re.M))
+    if n_recent > RECENT_UPDATES:
+        errors.append(f"index.qmd: {n_recent} recent updates; keep {RECENT_UPDATES} and move the rest to updates.qmd")
+    for name in expected:
+        source = Path(name).with_suffix(".qmd").as_posix()
+        heading = first_h2((root / source).read_text(encoding="utf-8"))
+        if source not in OPENING_NOTE_OK and UPDATE_HEADING.search(heading):
+            errors.append(f"{source}: opens with the update note '{heading}'; move it under the section it concerns")
+
     if errors:
         print("\n".join(errors))
         print(f"FAIL: {len(errors)} issues")
         return 1
-    print(f"PASS: {len(expected)} chapters; navigation, sidebar, descriptions, figure alt/lazy loading, local links, anchors, search and sitemap")
+    print(f"PASS: {len(expected)} chapters; navigation, sidebar, descriptions, figure alt/lazy loading, local links, anchors, "
+          "search, sitemap and update placement")
     return 0
 
 
