@@ -15,7 +15,6 @@ directory:
 
 **版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出本页 **12 张参数对照图**。实际训练 ranger / randomForestSRC，并生成 12 张图；使用小规模网格和单线程设置。交互统计量用于预测结构探索，本文没有进行模型交互项的显著性检验。
 
-
 ## 示例准备与读图规则 {#data}
 
 生存示例使用 `ToyData::toy_ptc_m1_cnd` 的 598 人 M1 PTC 队列，175 个疾病特异死亡事件，time 单位为月，与 [ToyData 介绍](../toydata/index.qmd)一致。模型使用 Age、Sex、Tum_3；Unknown 是原有因子水平。二分类示例为固定种子的 300 行模拟数据，正类明确为 Yes，避免把删失生存记录直接当成完整二分类结局。
@@ -355,9 +354,16 @@ advice_values <- do.call(rbind, lapply(list("y", 60, 1), function(mode) {
   stopifnot(n_advice == expected, all(is.finite(diag(out))))
   data.frame(prediction = as.character(mode), advice_count = n_advice)
 }))
-validation_values <- list(focal = focus_values, advice = advice_values)
 advice_values
 ```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+validation_values <- list(focal = focus_values, advice = advice_values)
+```
+:::
 
 分类与 60 月固定时间预测各报告一次 ranger 的原始建议；时间 1 早于首个森林时间、直接返回生存概率 1，没有调用该预测时则不出现。它仅合并同一条 `impurity_corrected` 建议的重复出现，森林、重要性设置和其他警告的报告方式不变。ranger 仍建议另拟合不带该重要性设置的森林用于预测；只出现一次不表示这项限制已消失，上面捕获警告只用于验证次数。
 
@@ -388,14 +394,21 @@ rng_before <- .Random.seed
 full_now <- h_now()
 focal_now <- h_now(int_var = "x")
 screened_now <- h_now(pairwise_m = 1L)
+attr(focal_now, "interaction_total")[c("var", "n_pairs", "coverage")]
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(identical(rng_before, .Random.seed),
   isTRUE(all.equal(attr(full_now, "interaction_raw")["x", hv[-1]],
                    attr(focal_now, "interaction_raw")["x", hv[-1]], tolerance = 1e-10)),
   all(is.na(attr(focal_now, "interaction_raw")[hv[-1], hv[-1]])),
   all(attr(screened_now, "interaction_total")[["n_pairs"]] == 0L),
   all(is.na(attr(screened_now, "interaction_total")[["yhat_raw"]])))
-attr(focal_now, "interaction_total")[c("var", "n_pairs", "coverage")]
 ```
+:::
 
 | 计算范围 | x 的已计算配对 / 覆盖率 | z、group 各自的已计算配对 / 覆盖率 |
 |:--|:--|:--|
@@ -417,10 +430,17 @@ weighted_now <- get_hstats(dh_missing, hv, surv = "Outcome", class = "Yes",
   hstats_args = list(grid_size = 10, n_max = 50),
   seed = 621, verbose = FALSE, num.threads = 1)
 st <- attr(weighted_now, "settings")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(st[["n_input"]] == 120L, st[["n_complete"]] == 119L,
           st[["n_train"]] == 100L, length(st[["train_rows"]]) == 100L,
           !5L %in% st[["train_rows"]], all(st[["train_rows"]] %in% seq_len(120)))
 ```
+:::
 
 `case.weights` 和每个 `inbag` 向量必须按**原始输入全部行**提供；函数随完整病例筛选、训练抽样同步取子集，不要提前裁短。`settings$train_rows` 给出保留行的原始位置，另记录输入、完整病例、训练和背景行数；`num.threads` 同时控制拟合与预测。成功或报错均恢复调用者 RNG。
 
@@ -435,12 +455,19 @@ h_time <- get_hstats(ds_now, hv, surv = 13.5,
   hstats_args = list(grid_size = 8, n_max = 40),
   seed = 621, verbose = FALSE, num.threads = 1)
 ts <- attr(h_time, "settings")
+ts[c("target_time", "actual_time", "time_rule", "aggregation")]
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
 stopifnot(ts[["time_rule"]] == "right_continuous", ts[["target_time"]] == 13.5,
           ts[["actual_time"]] <= 13.5,
           ts[["actual_time"]] == max(c(0, ts[["time_grid"]][["actual"]][
             ts[["time_grid"]][["actual"]] <= 13.5])))
-ts[c("target_time", "actual_time", "time_rule", "aggregation")]
 ```
+:::
 
 固定时点使用 `t_grid <= t_target` 的最后一个网格值；早于首个时间时生存概率为 1，晚于最后时间时沿用最后值。`settings` 记录 `target_time`、`actual_time`、`time_rule` 和请求/实际时间网格。`surv=TRUE` 的 CHF 路线对记录时间上的 H² 作**算术平均**，不是按时间间隔加权。更改 `time.interest` 会改变预测和统计目标，不能把缩短时间网格描述为完全等价的计算优化。
 

@@ -30,58 +30,11 @@ directory:
 [下载 draw.io 图源](../assets/module-maps/causalr/causalr-package-mindmap.drawio){.btn .btn-outline-primary download="causalr-package-mindmap.drawio"}
 [下载三页 PDF](../assets/module-maps/causalr/causalr-package-mindmap.drawio.pdf){.btn .btn-outline-secondary download="causalr-package-mindmap.drawio.pdf"}
 
-**核对记录：** 最近核对 **2026-10-10**，causalR **0.0.0.9000** 源码 [`b8add77`](https://github.com/HUI950319/causalR/tree/b8add77)。原图快照为 **2026-10-07**、原始基线 `d4aeb78`；本次未重新绘制图谱，已逐项核对当前 `NAMESPACE`，**24 个显式导出函数**仍完整覆盖。PDP/ALE/SHAP 教程已同步随机患者抽样、空水平与恒定变量的当前行为。`predict.hte_tree()` 是已注册的 S3 方法，另列，不重复计数。具体参数和返回值以当前源码或安装版本的帮助页为准。
-
 2026-10-15补充核对：显式导出仍为24项。已推送31e8e6d的unihtee返回hte、亚组表row_height已同步到 [方法选择](method-selection-guide.qmd#unihtee-return-current) 和 [结果复用](computation-reuse-guide.qmd#unihtee-reuse-current)。2026-10-16复核，远端f3f7ecc已包含f39631a的树图样式；对应实图及执行范围见 [当前iCF样式](icf-plot-guide.qmd#icf-style-current)。原图谱未重新绘制。
 
-## 当前结果打印与读取层级 {#printing-20261025}
-
-<!-- update-20261025: causal_print -->
-
-2026-10-25 按已推送 causalR `7a43fb9`、UtilsR 0.6.10 `0e4cffe` 核对，显式导出仍为 **24 项**。本轮主要更新 `get_sens()`、`get_hte()`、`get_hte_icf()`、`get_hte_tree()`、`get_PSM()`、`get_PSW()` 返回结果的打印方法，采用共享的类标签、键值、分节与紧凑表格；没有因此增加估计器。
-
-先看类名、方法和样本摘要，再读设置块与结果表，末尾提示给出后续绘图或读取入口。屏幕表可能省略行列，程序分析仍应直接读取返回对象。这里用 R 自带 mtcars 演示线性模型敏感性结果，**仅在 Windows R 4.4.3 执行**；本轮未在 WSL 重跑 causalR，也没有重新训练因果森林。
-
-```r
-library(causalR)
-sens_print25 <- get_sens(datasets::mtcars, treat = "wt", outcome = "mpg",
-  adj_var = c("hp", "am"), bench_var = "hp", method = "lm",
-  bench_args = list(k_treat = .1, k_out = .1))
-before_print25 <- sens_print25
-stats_before25 <- sens_print25[["stats"]]
-lines_sens25 <- withr::with_options(list(cli.num_colors = 1, cli.width = 100, width = 100),
-  capture.output(return_sens25 <- withVisible(print(sens_print25))))
-stopifnot(inherits(sens_print25, "sens_res"), !return_sens25[["visible"]],
-  identical(return_sens25[["value"]], sens_print25),
-  identical(before_print25, sens_print25), identical(stats_before25, sens_print25[["stats"]]))
-save_console25 <- function(lines, name) {
-  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
-  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
-    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
-    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
-    '</style><pre data-native-console>', body, '</pre>'),
-    file.path(tempdir(), paste0("20261025-update-", name, ".html")), useBytes = TRUE)
-}
-save_console25(lines_sens25, "causal-sensitivity-console")
-validation_values <- list(stats = as.data.frame(stats_before25), print_invisible = !return_sens25[["visible"]],
-  input_unchanged = identical(before_print25, sens_print25))
-```
-
-![Windows 实际拟合的 sens_res 原生无色打印。](images/function-modules/20261025-update-causal-sensitivity-console.png){fig-alt="Windows R中真实get_sens线性模型输出，先显示sens_res类名和方法，再列处理变量、结局、基准变量及敏感性统计表与提示。"}
-
-[原生 HTML 输出](images/function-modules/20261025-update-causal-sensitivity-console.html)
-
-mtcars 是非随机分配的观察数据，示例仅说明敏感性输出如何读取，不能把 wt 的回归系数解释为已识别的因果效应。打印改变不重算估计、修正混杂或改变置信区间；因果森林、iCF、树与倾向评分结果的本轮打印变化按已推送源码核对，旧教程保留各自的模型运行记录。更多显示规则见[共享打印构件](../utilsr/function-modules.qmd#console-helpers-20261025)。
-
-<!-- /update-20261025: causal_print -->
-
-## 当前亚组显示与总体行 {#updates-20261020}
-
-2026-10-20 按已推送 causalR `7a983f1d` 更新 `plt_hte_sub(effect = ...)` 的说明：未单独指定 `"All patients"` 时，总体行会跟随被替换的亚组估计或区间；明确给 `"All patients" = "conf_0.95"` 可保留森林的原总体。替换多个分组变量的估计时必须明确指定总体。
-
-[工作流中的完整模拟例子](clinical-workflow-guide.qmd#overall-edit-20261020)已在 Windows / WSL R 4.4.3 运行，提供“总体跟随”和“保留原总体”的两张 PDF。人工替换是展示操作，不重拟合森林；交互检验、cate_mean 和其他分组变量的估计不会据此重算。
-
-随后按已推送 `c200683` 补齐三处名称映射：`get_bal()` / `plt_hte_unihtee()` 的 `var_names` 与 `plt_hte_sub()` 的 `label_column_list` 接受重复键并保留第一项。不同候选变量在筛查图中仍须有不同显示名；默认合并RegR字典与 `NULL` 保留原名的区别不变。[共用字典的三个实际预览](clinical-workflow-guide.qmd#label-maps-20261020)核对平衡数值、亚组表和绘图数据不变，Windows / WSL 均通过；显式导出数量仍为24项。
+::: {.callout-note collapse="true" title="版本与复现记录"}
+**核对记录：** 最近核对 **2026-10-10**，causalR **0.0.0.9000** 源码 [`b8add77`](https://github.com/HUI950319/causalR/tree/b8add77)。原图快照为 **2026-10-07**、原始基线 `d4aeb78`；本次未重新绘制图谱，已逐项核对当前 `NAMESPACE`，**24 个显式导出函数**仍完整覆盖。PDP/ALE/SHAP 教程已同步随机患者抽样、空水平与恒定变量的当前行为。`predict.hte_tree()` 是已注册的 S3 方法，另列，不重复计数。具体参数和返回值以当前源码或安装版本的帮助页为准。
+:::
 
 ## 此次补齐的接口与阅读入口
 
@@ -145,8 +98,67 @@ names(psw[["fit"]][["covs"]])
 
 三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。
 
+## 接口变化记录 {#interface-changes}
 
-## 发布状态与树变量名称 {#release-20261016}
+各轮接口核对的说明，按日期从新到旧排列；模块图保留各自注明的历史快照。
+
+### 结果打印与读取层级（2026-10-25） {#printing-20261025}
+
+<!-- update-20261025: causal_print -->
+
+2026-10-25 按已推送 causalR `7a43fb9`、UtilsR 0.6.10 `0e4cffe` 核对，显式导出仍为 **24 项**。本轮主要更新 `get_sens()`、`get_hte()`、`get_hte_icf()`、`get_hte_tree()`、`get_PSM()`、`get_PSW()` 返回结果的打印方法，采用共享的类标签、键值、分节与紧凑表格；没有因此增加估计器。
+
+先看类名、方法和样本摘要，再读设置块与结果表，末尾提示给出后续绘图或读取入口。屏幕表可能省略行列，程序分析仍应直接读取返回对象。这里用 R 自带 mtcars 演示线性模型敏感性结果，**仅在 Windows R 4.4.3 执行**；本轮未在 WSL 重跑 causalR，也没有重新训练因果森林。
+
+```r
+library(causalR)
+sens_print25 <- get_sens(datasets::mtcars, treat = "wt", outcome = "mpg",
+  adj_var = c("hp", "am"), bench_var = "hp", method = "lm",
+  bench_args = list(k_treat = .1, k_out = .1))
+before_print25 <- sens_print25
+stats_before25 <- sens_print25[["stats"]]
+lines_sens25 <- withr::with_options(list(cli.num_colors = 1, cli.width = 100, width = 100),
+  capture.output(return_sens25 <- withVisible(print(sens_print25))))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。
+
+```r
+stopifnot(inherits(sens_print25, "sens_res"), !return_sens25[["visible"]],
+  identical(return_sens25[["value"]], sens_print25),
+  identical(before_print25, sens_print25), identical(stats_before25, sens_print25[["stats"]]))
+save_console25 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '</style><pre data-native-console>', body, '</pre>'),
+    file.path(tempdir(), paste0("20261025-update-", name, ".html")), useBytes = TRUE)
+}
+save_console25(lines_sens25, "causal-sensitivity-console")
+validation_values <- list(stats = as.data.frame(stats_before25), print_invisible = !return_sens25[["visible"]],
+  input_unchanged = identical(before_print25, sens_print25))
+```
+:::
+
+![Windows 实际拟合的 sens_res 原生无色打印。](images/function-modules/20261025-update-causal-sensitivity-console.png){fig-alt="Windows R中真实get_sens线性模型输出，先显示sens_res类名和方法，再列处理变量、结局、基准变量及敏感性统计表与提示。"}
+
+[原生 HTML 输出](images/function-modules/20261025-update-causal-sensitivity-console.html)
+
+mtcars 是非随机分配的观察数据，示例仅说明敏感性输出如何读取，不能把 wt 的回归系数解释为已识别的因果效应。打印改变不重算估计、修正混杂或改变置信区间；因果森林、iCF、树与倾向评分结果的本轮打印变化按已推送源码核对，旧教程保留各自的模型运行记录。更多显示规则见[共享打印构件](../utilsr/function-modules.qmd#console-helpers-20261025)。
+
+<!-- /update-20261025: causal_print -->
+
+### 亚组显示与总体行（2026-10-20） {#updates-20261020}
+
+2026-10-20 按已推送 causalR `7a983f1d` 更新 `plt_hte_sub(effect = ...)` 的说明：未单独指定 `"All patients"` 时，总体行会跟随被替换的亚组估计或区间；明确给 `"All patients" = "conf_0.95"` 可保留森林的原总体。替换多个分组变量的估计时必须明确指定总体。
+
+[工作流中的完整模拟例子](clinical-workflow-guide.qmd#overall-edit-20261020)已在 Windows / WSL R 4.4.3 运行，提供“总体跟随”和“保留原总体”的两张 PDF。人工替换是展示操作，不重拟合森林；交互检验、cate_mean 和其他分组变量的估计不会据此重算。
+
+随后按已推送 `c200683` 补齐三处名称映射：`get_bal()` / `plt_hte_unihtee()` 的 `var_names` 与 `plt_hte_sub()` 的 `label_column_list` 接受重复键并保留第一项。不同候选变量在筛查图中仍须有不同显示名；默认合并RegR字典与 `NULL` 保留原名的区别不变。[共用字典的三个实际预览](clinical-workflow-guide.qmd#label-maps-20261020)核对平衡数值、亚组表和绘图数据不变，Windows / WSL 均通过；显式导出数量仍为24项。
+
+### 发布状态与树变量名称（2026-10-16） {#release-20261016}
 
 2026-10-16核对：树图样式及绘图环境整理已推送到causalR `f3f7ecc`。仅保存plt_hte_tree/plt_hte_icf的图对象时，绘图环境不再连带保存整个拟合；图仍含绘图所需数据，这不是匿名化功能。既有图片和数值保留各自执行日期，本轮没有重跑历史分析。
 
