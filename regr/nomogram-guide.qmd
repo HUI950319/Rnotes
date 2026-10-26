@@ -2,13 +2,13 @@
 title: "列线图、ROC、校准与决策曲线：Cox 和 Logistic"
 description: "8 个 nomogram 接口的实际图；核对时间单位、结局、占位注释、校准曲线来源与重采样预算。"
 date: 2026-10-01
-date-modified: 2026-10-21
+date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
   title: "列线图、ROC、校准与决策曲线：Cox 和 Logistic"
   topic: 模型评估与验证
-  updated: 2026-10-21
+  updated: 2026-10-27
 ---
 
 
@@ -261,6 +261,106 @@ drop_fixed_boot_label(p)
 :::
 
 
+### 样本、事件方向与 bootstrap 标签（2026-10-27） {#logistic-contract-20261027}
+
+<!-- update-20261027: regr_logistic -->
+
+按已推送 RegR `212a156`，`get_roc_log()` 和 `get_cal_log()` 统一按**所选预测变量和结局**取完整病例；无关列缺失不会删行。SPSS 声明的用户缺失先转为 NA，字符化列名不会被当成公式运算符。因子编码会保留；不支持的自定义编码、常量/共线或分离导致的 lrm 失败会给出相关变量名，不能以重采样掩盖失败。
+
+本例 100 行完全合成输入：4 个 SPSS 缺失码和另一行缺失结局，实际分析应为 95 行。
+
+```r
+library(RegR)
+library(ggplot2)
+set.seed(20261027)
+log_marker27 <- rnorm(100)
+log_data27 <- data.frame(Group = factor(rep(c("A", "B"), 50)), Unused = NA_real_)
+log_data27[["Clinical event"]] <- factor(ifelse(runif(100) < plogis(
+  -.1 + .4 * log_marker27 + .2 * (log_data27[["Group"]] == "B")), "Event", "Control"),
+  levels = c("Control", "Event"))
+log_marker27[1:4] <- 999
+log_data27[["Marker score"]] <- haven::labelled_spss(log_marker27, na_values = 999)
+log_data27[["Clinical event"]][5] <- NA
+log_before27 <- log_data27
+log_dd27 <- getOption("datadist")
+log_globals27 <- ls(globalenv(), all.names = TRUE)
+set.seed(27)
+log_roc27 <- get_roc_log(log_data27, vars = c("Marker score", "Group"),
+  outcome = "Clinical event", R = 0)
+set.seed(27)
+log_cal27 <- get_cal_log(log_data27, vars = c("Marker score", "Group"),
+  outcome = "Clinical event", B = 5, R = 0)
+set.seed(27)
+log_oob27 <- get_roc_log(log_data27, vars = c("Marker score", "Group"),
+  outcome = "Clinical event", R = 3)
+ggsave(file.path(tempdir(), "20261027-update-logistic-apparent-roc.pdf"), log_roc27,
+  width = 8, height = 6, device = grDevices::cairo_pdf)
+ggsave(file.path(tempdir(), "20261027-update-logistic-calibration.pdf"), log_cal27,
+  width = 8, height = 6, device = grDevices::cairo_pdf)
+ggsave(file.path(tempdir(), "20261027-update-logistic-oob-roc.pdf"), log_oob27,
+  width = 8, height = 6, device = grDevices::cairo_pdf)
+log_globals_after27 <- ls(globalenv(), all.names = TRUE)
+```
+
+ROC 固定按拟合事件的预测方向绘制，不能把低于 0.5 的 bootstrap AUC 自动翻转成“较好”的表现。结局为数值 0/1 或逻辑时以 1/TRUE 为事件，两水平因子以第二个观测水平为事件并保留水平顺序。
+
+`R=0` 或 1 的指标标作 apparent，`R` 至少为 2 时才标注实际次数的 out-of-bag bootstrap。这里的 R=3 只为验证标签与计算路径，不能用三次重采样得出稳定区间。校准的 `B` 是另一项预算：即使 `R=0`，`B=5` 仍实际运行并消费随机数；显示的线仍是 **calibrated.orig 原始校准曲线**，不是乐观校正线。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+log_clean27 <- data.frame(marker = as.numeric(log_data27[["Marker score"]]),
+  Group = log_data27[["Group"]], event = log_data27[["Clinical event"]])
+log_clean27[["marker"]][log_clean27[["marker"]] == 999] <- NA
+log_clean27 <- log_clean27[complete.cases(log_clean27), ]
+log_glm27 <- glm(event ~ marker + Group, family = binomial(), data = log_clean27)
+log_auc27 <- as.numeric(pROC::auc(pROC::roc(log_clean27[["event"]],
+  fitted(log_glm27), direction = "<", quiet = TRUE)))
+labels27 <- function(p) unlist(lapply(ggplot2::ggplot_build(p)[["data"]],
+  function(z) if ("label" %in% names(z)) as.character(z[["label"]])))
+hist27 <- ggplot2::ggplot_build(log_cal27)[["data"]][[1]]
+stopifnot(nrow(log_clean27) == 95L, sum(hist27[["count"]]) == 95,
+  identical(log_data27, log_before27), identical(getOption("datadist"), log_dd27),
+  identical(log_globals_after27, log_globals27),
+  any(grepl(sprintf("%.3f", log_auc27), labels27(log_roc27), fixed = TRUE)),
+  any(grepl("apparent", labels27(log_roc27), fixed = TRUE)),
+  any(grepl("3 Bootstrap, out-of-bag", labels27(log_oob27), fixed = TRUE)))
+log_bad_time27 <- tryCatch(get_cal_log(transform(log_data27,
+  Visit = as.Date("2026-01-01") + 1:100), vars = "Visit",
+  outcome = "Clinical event", B = 2, R = 0), error = conditionMessage)
+stopifnot(is.character(log_bad_time27), grepl("units", log_bad_time27, fixed = TRUE))
+validation_values <- list(n_input = 100, n_analysis = nrow(log_clean27),
+  histogram_n = sum(hist27[["count"]]), independent_auc = log_auc27,
+  date_rejected = TRUE, input_unchanged = identical(log_data27, log_before27))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 表观 ROC {.unnumbered}
+
+![95 个完整病例的原生表观 ROC。](images/nomogram-guide/20261027-update-logistic-apparent-roc.png){fig-alt="合成 Logistic 数据的表观 ROC，按 Event 预测方向绘制；AUC 与独立 glm 和 pROC 核对。"}
+
+[PDF](images/nomogram-guide/20261027-update-logistic-apparent-roc.pdf)
+
+#### 原始校准与频数 {.unnumbered}
+
+![原始校准线和同一批 95 行的预测频数。](images/nomogram-guide/20261027-update-logistic-calibration.png){fig-alt="原始 calibrated.orig 校准线与按原结局水平着色的预测直方图；频数总和为 95，B 和 R 表示两项不同预算。"}
+
+[PDF](images/nomogram-guide/20261027-update-logistic-calibration.pdf)
+
+#### 三次 bootstrap 路径演示 {.unnumbered}
+
+![标注真实次数及 out-of-bag 口径。](images/nomogram-guide/20261027-update-logistic-oob-roc.png){fig-alt="仅用于流程演示的三次 bootstrap ROC 注释，明确 out-of-bag 估计；不把三次演示当作稳定性能区间。"}
+
+[PDF](images/nomogram-guide/20261027-update-logistic-oob-roc.pdf)
+
+:::
+
+H-L 辅助检验不可计算时会告警并显示 unavailable，保留其余校准图；不会把检验失败当作模型通过校准。校准的 Date、POSIXt、difftime 或其他时间跨度预测变量必须先选择单位并转换为数值；函数不推断“天/月/年”。模型、评分对象和完整原数据也不再附着在绘图环境中，临时 datadist 设定调用结束后恢复。
+
+<!-- /update-20261027: regr_logistic -->
+
 ## Logistic 决策曲线
 
 
@@ -303,3 +403,9 @@ get_dca_log(d, vars = predictors, outcome = "DSS")
 packageVersion("RegR")
 sessionInfo()
 ```
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[Logistic 分析样本、事件方向与 bootstrap 标签](#logistic-contract-20261027)的 95 行核对及三份原生 PDF。
+:::
