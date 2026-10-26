@@ -2,13 +2,13 @@
 title: "变量筛选：策略比较、LASSO 路径与共线性"
 description: "变量筛选、LASSO、Boruta、相关性与共线性；get_cor 的完整统计矩阵、P值校正、阈值、排序与无损转换边界。"
 date: 2026-10-01
-date-modified: 2026-10-22
+date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
   title: "变量筛选：策略比较、LASSO 路径与共线性"
   topic: 回归与生存分析
-  updated: 2026-10-22
+  updated: 2026-10-27
 ---
 
 
@@ -66,6 +66,84 @@ boruta <- run_quiet({get_boruta(d, vars = candidate,
   max_runs = 20L, num_trees = 100L)})
 ```
 
+
+### 独立 LASSO：校验、命名与复用拟合（2026-10-27） {#lasso-inputs-20261027}
+
+<!-- update-20261027: regr_lasso -->
+
+按已推送 RegR `212a156`，独立 `get_lasso()` 仍固定 10 折、alpha=1，参数没有增加可调折数；现在先检查结局、变量类型、缺失、有限值及响应泄漏，再构造矩阵。它复用 `cv.fit$glmnet.fit`，不再为相同路径额外拟合一次。
+
+本例是 80 行合成二分类数据，保留带空格及连字符的预测变量名。真实多水平分类变量请先按研究定义构造设计矩阵；`data.matrix()` 的类别整数编码并不自动等于 one-hot。
+
+```r
+library(RegR)
+library(ggplot2)
+set.seed(20261027)
+lasso_data27 <- data.frame("Marker A" = rnorm(80), "Marker-B" = rnorm(80),
+  Noise = rnorm(80), check.names = FALSE)
+lasso_data27[["Outcome"]] <- rbinom(80, 1, plogis(.2 + lasso_data27[["Marker A"]] -
+  .4 * lasso_data27[["Marker-B"]]))
+lasso_vars27 <- c("Marker A", "Marker-B", "Noise")
+lasso_before27 <- lasso_data27
+set.seed(27)
+lasso_fit27 <- get_lasso(lasso_data27, vars = lasso_vars27, surv = "Outcome")
+lasso_cv27 <- plot_cv_glmnet(lasso_fit27[["cv.fit"]])
+lasso_path27 <- plot_coef_path(lasso_fit27, n_labels = 3)
+ggsave(file.path(tempdir(), "20261027-update-lasso-cv.pdf"), lasso_cv27,
+  width = 7, height = 5, device = grDevices::cairo_pdf)
+ggsave(file.path(tempdir(), "20261027-update-lasso-path.pdf"), lasso_path27,
+  width = 7, height = 5, device = grDevices::cairo_pdf)
+lasso_fit27[["vars_min"]]
+lasso_fit27[["vars_1se"]]
+```
+
+`lambda.min` / `lambda.1se` 下的变量名来自 beta 行位置，不能把截距当作预测变量，也不能把系数路径当作 HR。两种规则可能都只选中一个特征，也可能返回空集合；空集合不等于拟合失败。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(inherits(lasso_fit27, "get_lasso"), identical(lasso_data27, lasso_before27),
+  isTRUE(all.equal(lasso_fit27[["fit"]][["beta"]],
+    lasso_fit27[["cv.fit"]][["glmnet.fit"]][["beta"]])),
+  all(c(lasso_fit27[["vars_min"]], lasso_fit27[["vars_1se"]]) %in% lasso_vars27),
+  identical(lasso_fit27[["fit"]][["call"]][["family"]], "binomial"))
+bad_lasso27 <- list(
+  leakage = tryCatch(get_lasso(lasso_data27, vars = c(lasso_vars27, "Outcome"),
+    surv = "Outcome"), error = conditionMessage),
+  missing = tryCatch(get_lasso(transform(lasso_data27, Noise = NA_real_),
+    vars = lasso_vars27, surv = "Outcome"), error = conditionMessage),
+  selector = tryCatch(get_lasso(lasso_data27, vars = lasso_vars27, surv = FALSE),
+    error = conditionMessage))
+stopifnot(all(vapply(bad_lasso27, is.character, logical(1))),
+  grepl("Response columns", bad_lasso27[["leakage"]], fixed = TRUE),
+  grepl("missing", bad_lasso27[["missing"]], fixed = TRUE))
+validation_values <- list(n = nrow(lasso_data27), classes = as.integer(table(lasso_data27[["Outcome"]])),
+  vars_min = lasso_fit27[["vars_min"]], vars_1se = lasso_fit27[["vars_1se"]],
+  family = "binomial", rejected = names(bad_lasso27), input_unchanged = identical(lasso_data27, lasso_before27))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 十折 CV {.unnumbered}
+
+![80 行合成二分类输入的原生交叉验证曲线。](images/variable-selection-guide/20261027-update-lasso-cv.png){fig-alt="独立 get_lasso 仍使用固定 10 折交叉验证，展示 lambda.min 和 lambda.1se 对应的误差与非零系数数目。"}
+
+[PDF](images/variable-selection-guide/20261027-update-lasso-cv.pdf)
+
+#### 复用同一全数据拟合 {.unnumbered}
+
+![路径来自 cv.glmnet 的全数据拟合，原预测变量名保留。](images/variable-selection-guide/20261027-update-lasso-path.png){fig-alt="同一次交叉验证的全数据 glmnet 路径，保留带空格和连字符的特征名，不额外重新拟合。"}
+
+[PDF](images/variable-selection-guide/20261027-update-lasso-path.pdf)
+
+:::
+
+输入不会自动删行或插补：至少 10 行、至少两个预测变量，且至少一列有变化。Cox 要求精确列名 time/DSS、正随访及至少两个事件；二分类每类至少三人，这些只是必要条件，随机十折仍可能因稀疏结局失败。重复模型列名、矩阵/list、integer64、未处理的 SPSS 用户缺失等会提前报错。
+
+CV 错误会报告模型与数据维度，并保留原始错误；CV 成功后的绘图失败则告警且仍返回拟合。调用前的 glmnet 全局控制会恢复，保存的 family 可用于重拟合，但仍需原编码 x/y，不能只凭打印摘要恢复模型。此处没有重新计算旧页的性能倍数。
+
+<!-- /update-20261027: regr_lasso -->
 
 ## 策略热图与可导出的摘要
 
@@ -782,3 +860,9 @@ P 值筛选、逐步回归和 LASSO 的选择会受样本、编码与随机折�
 packageVersion("RegR")
 sessionInfo()
 ```
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[独立 LASSO 输入与拟合复用](#lasso-inputs-20261027)的 80 行实跑、两份 PDF 及无效输入复核。
+:::
