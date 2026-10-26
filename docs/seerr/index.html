@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="用包内样例运行 SEER ETL 与分析变量派生，核对出版用标签、年龄与肿瘤大小分组边界、缺失及复发标记。">
+<meta name="description" content="按癌种与 schema 选择 SEER ETL；补充肺、结直肠和 CNS 流水线、多原发分析单位、未知 NAT 与 WHO 分级字段。">
 
 <title>seerR 笔记 – R 包开发笔记</title>
 <style>
@@ -1130,7 +1130,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <h2 id="toc-title">目录</h2>
 
   <ul>
-  <li><a href="#pipeline-current" id="toc-pipeline-current" class="nav-link active" data-scroll-target="#pipeline-current">选择流水线与 schema</a></li>
+  <li><a href="#pipeline-current" id="toc-pipeline-current" class="nav-link active" data-scroll-target="#pipeline-current">选择流水线与 schema</a>
+  <ul class="collapse">
+  <li><a href="#site-pipelines-20261026" id="toc-site-pipelines-20261026" class="nav-link" data-scroll-target="#site-pipelines-20261026">肺、结直肠与 CNS 的独立入口（2026-10-26）</a></li>
+  <li><a href="#crc-primary-unit-20261026" id="toc-crc-primary-unit-20261026" class="nav-link" data-scroll-target="#crc-primary-unit-20261026">结直肠多原发：记录数不等于患者数（2026-10-26）</a></li>
+  <li><a href="#crc-nat-20261026" id="toc-crc-nat-20261026" class="nav-link" data-scroll-target="#crc-nat-20261026">未知治疗顺序不能自动写成 No（2026-10-26）</a></li>
+  <li><a href="#cns-grade-20261026" id="toc-cns-grade-20261026" class="nav-link" data-scroll-target="#cns-grade-20261026">CNS 的 WHO 分级与缺失来源（2026-10-26）</a></li>
+  </ul></li>
   <li><a href="#derived-current" id="toc-derived-current" class="nav-link" data-scroll-target="#derived-current">从 ETL 到分析变量</a>
   <ul class="collapse">
   <li><a href="#标签变化与分组规则分开核对" id="toc-标签变化与分组规则分开核对" class="nav-link" data-scroll-target="#标签变化与分组规则分开核对">标签变化与分组规则分开核对</a></li>
@@ -1145,6 +1151,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <li><a href="#并列最大随访会增加连接行数" id="toc-并列最大随访会增加连接行数" class="nav-link" data-scroll-target="#并列最大随访会增加连接行数">并列最大随访会增加连接行数</a></li>
   </ul></li>
   <li><a href="#当前优化与复现范围" id="toc-当前优化与复现范围" class="nav-link" data-scroll-target="#当前优化与复现范围">当前优化与复现范围</a></li>
+  <li><a href="#page-updates" id="toc-page-updates" class="nav-link" data-scroll-target="#page-updates">更新记录</a></li>
   </ul>
 <div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/seerr/index.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
     </div>
@@ -1166,7 +1173,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
     <div>
     <div class="quarto-title-meta-heading">修改于</div>
     <div class="quarto-title-meta-contents">
-      <p class="date-modified">2026年10月18日</p>
+      <p class="date-modified">2026年10月26日</p>
     </div>
   </div>
 
@@ -1475,22 +1482,74 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <p>两套样例均保留 100 行，字段数随 schema 和派生变量而变。输出的行数不能代替患者数，也不能据此确认结局完整。</p>
-</section>
-<section id="derived-current" class="level2">
-<h2 class="anchored" data-anchor-id="derived-current">从 ETL 到分析变量</h2>
-<p>2026-10-18 按已推送 seerR <code>4e7afb9</code>、UtilsR <code>545bf4b</code>，在 Windows / WSL R 4.4.3 分别运行以下两套2026包内样例，输出规模与边界归属一致。上面的ETL结果仍是原执行快照；本节追加的是后续分析变量步骤。</p>
-<p><code>pipeline()</code> 完成字段整理，<strong>不会自动调用 <code>select_analysis()</code> 或 <code>mutate_derived()</code></strong>。前者选择常用分析列，并移除 <code>Patient_ID</code> 等上游列；后者派生分组、整理标签并新增 <code>status_tb</code>。需要追踪患者时，应在选列前保留经过核对的连接键和行对应关系。</p>
-<div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">甲状腺完整步骤</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">胰腺完整步骤</a></li></ul>
-<div class="tab-content">
-<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>raw_thy <span class="ot">&lt;-</span> readr<span class="sc">::</span><span class="fu">read_csv</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_seer_thyroid_2026.csv"</span>,</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">package =</span> <span class="st">"seerR"</span>), <span class="at">show_col_types =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>etl_thy <span class="ot">&lt;-</span> <span class="fu">seer_thyroid_pipeline</span>(raw_thy, <span class="at">schema =</span> <span class="st">"2026"</span>)</span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>selected_thy <span class="ot">&lt;-</span> <span class="fu">seer_thyroid_select_analysis</span>(etl_thy)</span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>derived_thy <span class="ot">&lt;-</span> <span class="fu">seer_thyroid_mutate_derived</span>(selected_thy)</span>
-<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="fu">levels</span>(derived_thy[[<span class="st">"age_55"</span>]])</span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="fu">levels</span>(derived_thy[[<span class="st">"Yea_3"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="site-pipelines-20261026" class="level3">
+<h3 class="anchored" data-anchor-id="site-pipelines-20261026">肺、结直肠与 CNS 的独立入口（2026-10-26）</h3>
+<!-- update-20261026: seer_sites -->
+<p>按已推送 seerR 0.1.0 <code>5a0f4f3</code> 核对，三个新模块应使用各自的选择器和整理规则。下例在 Windows / WSL R 4.4.3 执行包内各 100 行 sample，本站只发布行列计数；原始记录、内置患者队列和个体标识不进入附件或页面。</p>
+<div class="table-responsive" tabindex="0" role="region" aria-label="按癌种与schema选择SEER流水线">
+<table class="caption-top table">
+<colgroup>
+<col style="width: 33%">
+<col style="width: 33%">
+<col style="width: 33%">
+</colgroup>
+<thead>
+<tr class="header">
+<th style="text-align: left;">癌种</th>
+<th style="text-align: left;">公共入口</th>
+<th style="text-align: left;">schema 与后续分析</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;">甲状腺</td>
+<td style="text-align: left;"><code>seer_thyroid_pipeline(data,schema=...)</code></td>
+<td style="text-align: left;">2025 / 2026；沿用上方示例</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">胰腺</td>
+<td style="text-align: left;"><code>seer_pancreas_pipeline(data,schema=...)</code></td>
+<td style="text-align: left;">2025 / 2026，默认 2025，2026 需显式选择</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">肺</td>
+<td style="text-align: left;"><code>seer_lung_pipeline(data,schema="2026")</code></td>
+<td style="text-align: left;">仅 2026；再接 lung 的 select_analysis / mutate_derived</td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">结直肠</td>
+<td style="text-align: left;"><code>seer_colorectal_pipeline(data)</code></td>
+<td style="text-align: left;">仅 2026；保留原发记录与患者的区别</td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;">脑与其他 CNS</td>
+<td style="text-align: left;"><code>seer_cns_pipeline(data)</code></td>
+<td style="text-align: left;">仅 2026；走 WHO 分级与分子标记字段，不套肺或结直肠 TNM</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>2026 CSV 统一按字符读取，避免手术、SSF 等前导零被猜成数值；选择器虽会修复部分码宽，不能代替对导出字典的核对。癌种选择器不会替研究者完成原始队列的纳排条件。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(seerR)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>sample_files26 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">Lung =</span> <span class="st">"sample_seer_lung_2026.csv"</span>,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">Colorectal =</span> <span class="st">"sample_seer_colorectal_2026.csv"</span>, <span class="at">CNS =</span> <span class="st">"sample_seer_cns_2026.csv"</span>)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>raw_sites26 <span class="ot">&lt;-</span> <span class="fu">lapply</span>(sample_files26, <span class="cf">function</span>(filename) readr<span class="sc">::</span><span class="fu">read_csv</span>(</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">system.file</span>(<span class="st">"extdata"</span>, filename, <span class="at">package =</span> <span class="st">"seerR"</span>),</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">col_types =</span> readr<span class="sc">::</span><span class="fu">cols</span>(<span class="at">.default =</span> <span class="st">"c"</span>), <span class="at">show_col_types =</span> <span class="cn">FALSE</span>, <span class="at">progress =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>etl_sites26 <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">Lung =</span> <span class="fu">seer_lung_pipeline</span>(raw_sites26[[<span class="st">"Lung"</span>]], <span class="at">schema =</span> <span class="st">"2026"</span>),</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">Colorectal =</span> <span class="fu">seer_colorectal_pipeline</span>(raw_sites26[[<span class="st">"Colorectal"</span>]]),</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">CNS =</span> <span class="fu">seer_cns_pipeline</span>(raw_sites26[[<span class="st">"CNS"</span>]]))</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>analysis_sites26 <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">Lung =</span> <span class="fu">seer_lung_select_analysis</span>(etl_sites26[[<span class="st">"Lung"</span>]]),</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">Colorectal =</span> <span class="fu">seer_colorectal_select_analysis</span>(etl_sites26[[<span class="st">"Colorectal"</span>]]),</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">CNS =</span> <span class="fu">seer_cns_select_analysis</span>(etl_sites26[[<span class="st">"CNS"</span>]]))</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>derived_sites26 <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">Lung =</span> <span class="fu">seer_lung_mutate_derived</span>(analysis_sites26[[<span class="st">"Lung"</span>]]),</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">Colorectal =</span> <span class="fu">seer_colorectal_mutate_derived</span>(analysis_sites26[[<span class="st">"Colorectal"</span>]]),</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">CNS =</span> <span class="fu">seer_cns_mutate_derived</span>(analysis_sites26[[<span class="st">"CNS"</span>]]))</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>summary_sites26 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">site =</span> <span class="fu">names</span>(etl_sites26),</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">raw_rows =</span> <span class="fu">vapply</span>(raw_sites26, nrow, <span class="fu">integer</span>(<span class="dv">1</span>)), <span class="at">etl_rows =</span> <span class="fu">vapply</span>(etl_sites26, nrow, <span class="fu">integer</span>(<span class="dv">1</span>)),</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">analysis_rows =</span> <span class="fu">vapply</span>(analysis_sites26, nrow, <span class="fu">integer</span>(<span class="dv">1</span>)),</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">derived_columns =</span> <span class="fu">vapply</span>(derived_sites26, ncol, <span class="fu">integer</span>(<span class="dv">1</span>)))</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>summary_sites26</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="callout callout-style-default callout-note callout-titled" title="复核代码">
 <div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
@@ -1503,22 +1562,37 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(derived_thy) <span class="sc">==</span> <span class="fu">nrow</span>(etl_thy),</span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(derived_thy[[<span class="st">"DSS"</span>]], selected_thy[[<span class="st">"DSS"</span>]]),</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(derived_thy[[<span class="st">"time"</span>]], selected_thy[[<span class="st">"time"</span>]]))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">all</span>(summary_sites26[[<span class="st">"raw_rows"</span>]] <span class="sc">==</span> <span class="dv">100</span>L),</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(summary_sites26[[<span class="st">"raw_rows"</span>]], summary_sites26[[<span class="st">"etl_rows"</span>]]),</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(summary_sites26[[<span class="st">"etl_rows"</span>]], summary_sites26[[<span class="st">"analysis_rows"</span>]]),</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Patient_ID"</span> <span class="sc">%in%</span> <span class="fu">names</span>(analysis_sites26[[<span class="st">"Lung"</span>]]),</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">c</span>(<span class="st">"Patient_ID"</span>, <span class="st">"Sequence_number"</span>, <span class="st">"CRC_n"</span>, <span class="st">"CRC_order"</span>, <span class="st">"CRC_gap"</span>, <span class="st">"CRC_multi"</span>) <span class="sc">%in%</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">names</span>(analysis_sites26[[<span class="st">"Colorectal"</span>]])),</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">c</span>(<span class="st">"WHO_grade"</span>, <span class="st">"IDH"</span>, <span class="st">"Codel_1p19q"</span>) <span class="sc">%in%</span> <span class="fu">names</span>(derived_sites26[[<span class="st">"CNS"</span>]])))</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(summary_sites26), <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-seer-pipelines.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </div>
 </div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/index/20261026-update-seer-pipelines.png" class="img-fluid figure-img" alt="肺、结直肠和CNS各100条包内样例的原生汇总表，核对raw、ETL和analysis阶段行数；不展示任何样例记录。" loading="lazy" decoding="async" width="741" height="221" srcset="../assets/figure-previews/0c21a785244850065c2aadd56c3eea72.webp"></p>
+<figcaption>三个独立流水线的行数与派生列数汇总。</figcaption>
+</figure>
 </div>
-<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>raw_pan <span class="ot">&lt;-</span> readr<span class="sc">::</span><span class="fu">read_csv</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_seer_pancreas_2026.csv"</span>,</span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">package =</span> <span class="st">"seerR"</span>), <span class="at">show_col_types =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>etl_pan <span class="ot">&lt;-</span> <span class="fu">seer_pancreas_pipeline</span>(raw_pan, <span class="at">schema =</span> <span class="st">"2026"</span>)</span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>selected_pan <span class="ot">&lt;-</span> <span class="fu">seer_pancreas_select_analysis</span>(etl_pan)</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>derived_pan <span class="ot">&lt;-</span> <span class="fu">seer_pancreas_mutate_derived</span>(selected_pan)</span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="fu">levels</span>(derived_pan[[<span class="st">"Rad"</span>]])</span>
-<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a><span class="fu">levels</span>(derived_pan[[<span class="st">"Tum_3"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p><a href="images/index/20261026-update-seer-pipelines.html">原生 HTML 汇总</a></p>
+<p>样例中的非数字生存时间码在数值转换时会提示产生 NA；应检查缺失来源，不改成零，也不能只凭行数相同认为结局已经验证。肺模块的本轮修复涉及年代对应的大小字段回退、EOD/CS 分期与多部位转移计数；大小码 000 表示未见原发，不当成 0 mm，符合回退规则的大小保留到 400 mm。软组织等其他 schema 不套肺 T 分类。以上规则按 <code>R/seer_lung.R</code>、帮助与随包回归测试核对；本页没有重建大型发布队列，也没有重新测量压缩或计算速度。</p>
+<p>结直肠模块另行处理阑尾代码、节点信息缺失回退、腹膜等多部位转移和大小回退。不要因为函数名相似就把肺、甲状腺或阑尾的分期表相互替换。包还提供 <code>seer_lung_2026</code>、<code>seer_colorectal_2026</code>、<code>seer_cns_2026</code>；上表仅描述小型 sample，不是这些完整队列的维度。</p>
+</section>
+<section id="crc-primary-unit-20261026" class="level3">
+<h3 class="anchored" data-anchor-id="crc-primary-unit-20261026">结直肠多原发：记录数不等于患者数（2026-10-26）</h3>
+<p>新增字段以 <code>Patient_ID</code> 分组，按 <code>Record_number_recode</code> 排序；<code>CRC_n</code> 为输入中的结直肠原发记录数，<code>CRC_order</code> 为记录顺序，<code>CRC_gap</code> 为首条记录的 time 减去当前记录的 time。<code>CRC_multi</code> 使用第二条与第一条的 time 差：不超过 6 个月为 Synchronous，超过为 Metachronous，并把该标签复制到该患者所有行；差值未知时保持 NA。这里依赖同一截点下的随访差，不能无条件当作独立记录的准确诊断日期差。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>synthetic_crc26 <span class="ot">&lt;-</span> tibble<span class="sc">::</span><span class="fu">tibble</span>(<span class="at">Year_of_dia =</span> <span class="st">"2015"</span>, <span class="at">Race =</span> <span class="st">"White"</span>, <span class="at">Tumor_size =</span> <span class="dv">40</span>,</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">Tumor_deposits =</span> <span class="st">"Blank(s)"</span>, <span class="at">CEA_2010 =</span> <span class="st">"Blank(s)"</span>, <span class="at">Perineural_2010 =</span> <span class="st">"Blank(s)"</span>,</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">Patient_ID =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"C"</span>, <span class="st">"C"</span>, <span class="st">"C"</span>, <span class="st">"D"</span>, <span class="st">"D"</span>),</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">Record_number_recode =</span> <span class="fu">c</span>(<span class="st">"02"</span>, <span class="st">"01"</span>, <span class="st">"01"</span>, <span class="st">"01"</span>, <span class="st">"03"</span>, <span class="st">"02"</span>, <span class="st">"01"</span>, <span class="st">"02"</span>),</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">time =</span> <span class="fu">c</span>(<span class="dv">98</span>, <span class="dv">100</span>, <span class="dv">50</span>, <span class="dv">60</span>, <span class="dv">10</span>, <span class="dv">30</span>, <span class="dv">40</span>, <span class="cn">NA</span>))</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>multiple_crc26 <span class="ot">&lt;-</span> <span class="fu">seer_colorectal_fmt_all</span>(synthetic_crc26)</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>multiple_crc26[<span class="fu">c</span>(<span class="st">"Patient_ID"</span>, <span class="st">"Record_number_recode"</span>, <span class="st">"CRC_n"</span>, <span class="st">"CRC_order"</span>, <span class="st">"CRC_gap"</span>, <span class="st">"CRC_multi"</span>)]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="callout callout-style-default callout-note callout-titled" title="复核代码">
 <div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
@@ -1531,10 +1605,166 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="callout-4" class="callout-4-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(multiple_crc26) <span class="sc">==</span> <span class="dv">8</span>L, dplyr<span class="sc">::</span><span class="fu">n_distinct</span>(multiple_crc26[[<span class="st">"Patient_ID"</span>]]) <span class="sc">==</span> <span class="dv">4</span>L,</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(multiple_crc26[[<span class="st">"CRC_gap"</span>]], <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">50</span>, <span class="dv">30</span>, <span class="dv">0</span>, <span class="cn">NA</span>)),</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">as.character</span>(multiple_crc26[[<span class="st">"CRC_multi"</span>]]),</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    <span class="fu">c</span>(<span class="st">"Synchronous"</span>, <span class="st">"Synchronous"</span>, <span class="st">"Single"</span>, <span class="st">"Metachronous"</span>, <span class="st">"Metachronous"</span>, <span class="st">"Metachronous"</span>, <span class="cn">NA</span>, <span class="cn">NA</span>)))</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>crc_preview26 <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(multiple_crc26[<span class="fu">c</span>(<span class="st">"Patient_ID"</span>, <span class="st">"Record_number_recode"</span>, <span class="st">"CRC_n"</span>, <span class="st">"CRC_order"</span>, <span class="st">"CRC_gap"</span>, <span class="st">"CRC_multi"</span>)])</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(crc_preview26), <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-seer-primary-unit.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/index/20261026-update-seer-primary-unit.png" class="img-fluid figure-img" alt="仅含虚构A至D标识的原生表，核对八条记录、患者内原发顺序、间隔及同步或异时多原发标签；未知间隔保留NA。" loading="lazy" decoding="async" width="939" height="498" srcset="../assets/figure-previews/5dbc782bcc57ca932cfd8c399cf1b621.webp"></p>
+<figcaption>八条合成原发记录属于四个合成患者，行数保持不变。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-seer-primary-unit.html">原生 HTML 表</a></p>
+<p>这些字段描述多原发，不是复发或 RFS。函数不自动选出每患者一行；需要患者级分析时先明确记录选择规则、核对保留人数，再拟合模型。旧的<a href="#recurrence-current">甲状腺复发标记示例</a>不应移植为结直肠复发定义。</p>
+</section>
+<section id="crc-nat-20261026" class="level3">
+<h3 class="anchored" data-anchor-id="crc-nat-20261026">未知治疗顺序不能自动写成 No（2026-10-26）</h3>
+<p>结直肠 <code>NAT</code> 在记录有术前放疗或系统治疗时为 Yes，其余组合按当前非术前代码与缺失规则处理，不能由“没有记录 Yes”一律推断 No。<code>No/Unknown</code> 本身是登记合并码，程序输出的 No 不能解释为已确证未接受治疗。下例只改变 5 条 sample 的治疗顺序，公开表仅包含这些人为指定的序列及其标签，不显示其他字段。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>nat_input26 <span class="ot">&lt;-</span> analysis_sites26[[<span class="st">"Colorectal"</span>]][<span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>, ]</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>nat_input26[[<span class="st">"RadS"</span>]] <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"No/Unknown"</span>, <span class="st">"Pre surgery"</span>, <span class="st">"No/Unknown"</span>, <span class="st">"Post surgery"</span>, <span class="st">"Intraoperative"</span>)</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>nat_input26[[<span class="st">"SysS"</span>]] <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Blank"</span>, <span class="st">"Blank"</span>, <span class="st">"No therapy/surgery"</span>, <span class="st">"Post surgery"</span>, <span class="st">"No therapy/surgery"</span>)</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>nat_result26 <span class="ot">&lt;-</span> <span class="fu">seer_colorectal_mutate_derived</span>(nat_input26)</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="fu">data.frame</span>(<span class="at">RadS =</span> nat_input26[[<span class="st">"RadS"</span>]], <span class="at">SysS =</span> nat_input26[[<span class="st">"SysS"</span>]], <span class="at">NAT =</span> nat_result26[[<span class="st">"NAT"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-5" class="callout-5-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(<span class="fu">as.character</span>(nat_result26[[<span class="st">"NAT"</span>]]), <span class="fu">c</span>(<span class="cn">NA</span>, <span class="st">"Yes"</span>, <span class="st">"No"</span>, <span class="st">"No"</span>, <span class="cn">NA</span>)))</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>nat_preview26 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">RadS =</span> nat_input26[[<span class="st">"RadS"</span>]], <span class="at">SysS =</span> nat_input26[[<span class="st">"SysS"</span>]], <span class="at">NAT =</span> nat_result26[[<span class="st">"NAT"</span>]])</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(nat_preview26), <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-seer-nat.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/index/20261026-update-seer-nat.png" class="img-fluid figure-img" alt="五种人为指定治疗序列的原生表，未知系统治疗顺序不会自动当作No，而明确术前治疗给出Yes。" loading="lazy" decoding="async" width="483" height="332" srcset="../assets/figure-previews/86716349b185bdd5c11df034bed79edc.webp"></p>
+<figcaption>术前、术后和未知序列形成不同的 NAT 标签。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-seer-nat.html">原生 HTML 表</a></p>
+</section>
+<section id="cns-grade-20261026" class="level3">
+<h3 class="anchored" data-anchor-id="cns-grade-20261026">CNS 的 WHO 分级与缺失来源（2026-10-26）</h3>
+<p>该模块使用登记字段中的 WHO 分级，不从组织学名称猜分级。2004–2017 对应 CS Brain/CNS Other 的 SSF1；2018 起读相应 schema 的 Derived Summary Grade。<code>High grade</code> 只确定高低分组，不自动确定 WHO Grade 3 或 4。未收集、schema 不适用及血液肿瘤等情况与登记了 Unknown 应分开看。这里是该提交的编码合同，不是独立的病理诊断规则。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>synthetic_cns26 <span class="ot">&lt;-</span> tibble<span class="sc">::</span><span class="fu">tibble</span>(<span class="at">Year_of_dia =</span> <span class="fu">c</span>(<span class="st">"2002"</span>, <span class="st">"2010"</span>, <span class="st">"2020"</span>, <span class="st">"2020"</span>, <span class="st">"2020"</span>, <span class="st">"2018"</span>),</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">His_ICD =</span> <span class="fu">c</span>(<span class="st">"9440"</span>, <span class="st">"9440"</span>, <span class="st">"9440"</span>, <span class="st">"9440"</span>, <span class="st">"9680"</span>, <span class="st">"9450"</span>),</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">CS_schema =</span> <span class="st">"Brain"</span>, <span class="at">Schema_2018 =</span> <span class="st">"Brain"</span>, <span class="at">SSF1 =</span> <span class="fu">c</span>(<span class="st">"999"</span>, <span class="st">"040"</span>, <span class="st">"999"</span>, <span class="st">"999"</span>, <span class="st">"999"</span>, <span class="st">"999"</span>),</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">Grade_2018 =</span> <span class="fu">c</span>(<span class="st">"Blank(s)"</span>, <span class="st">"Blank(s)"</span>, <span class="st">"High grade"</span>, <span class="st">"Site-specific grade system category (4)"</span>,</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Site-specific grade system category (4)"</span>, <span class="st">"Site-specific grade system category (2)"</span>),</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">Brain_markers_2018 =</span> <span class="fu">c</span>(<span class="st">"Blank(s)"</span>, <span class="st">"Blank(s)"</span>, <span class="st">"Not documented"</span>, <span class="st">"Glioblastoma, IDH-wildtype (9440/3)"</span>,</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Blank(s)"</span>, <span class="st">"Oligodendroglioma, IDH-mutant and 1 p/19q co-deleted (9450/3)"</span>),</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">Chr1p_2010 =</span> <span class="fu">c</span>(<span class="fu">rep</span>(<span class="st">"Not documented"</span>, <span class="dv">4</span>), <span class="st">"Not applicable"</span>, <span class="st">"Not documented"</span>),</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">Chr19q_2010 =</span> <span class="fu">c</span>(<span class="fu">rep</span>(<span class="st">"Not documented"</span>, <span class="dv">4</span>), <span class="st">"Not applicable"</span>, <span class="st">"Not documented"</span>), <span class="at">Age =</span> <span class="st">"50 years"</span>,</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">Tumor_size_1988 =</span> <span class="st">"020"</span>, <span class="at">Sex =</span> <span class="st">"Female"</span>, <span class="at">Race =</span> <span class="st">"White"</span>, <span class="at">Race_5 =</span> <span class="st">"Non-Hispanic White"</span>,</span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">SEER_stage_5 =</span> <span class="fu">c</span>(<span class="st">"Blank(s)"</span>, <span class="fu">rep</span>(<span class="st">"Localized only"</span>, <span class="dv">5</span>)))</span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>grade_cns26 <span class="ot">&lt;-</span> <span class="fu">seer_cns_fmt_grade</span>(synthetic_cns26)</span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>grade_cns26[<span class="fu">c</span>(<span class="st">"Year_of_dia"</span>, <span class="st">"His_ICD"</span>, <span class="st">"WHO_grade"</span>, <span class="st">"Grade_2"</span>, <span class="st">"IDH"</span>, <span class="st">"Codel_1p19q"</span>)]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-6-contents" aria-controls="callout-6" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-6" class="callout-6-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(<span class="fu">as.character</span>(grade_cns26[[<span class="st">"WHO_grade"</span>]]), <span class="fu">c</span>(<span class="cn">NA</span>, <span class="st">"Grade 4"</span>, <span class="st">"Unknown"</span>, <span class="st">"Grade 4"</span>, <span class="cn">NA</span>, <span class="st">"Grade 2"</span>)),</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">as.character</span>(grade_cns26[[<span class="st">"Grade_2"</span>]]), <span class="fu">c</span>(<span class="cn">NA</span>, <span class="st">"High grade"</span>, <span class="st">"High grade"</span>, <span class="st">"High grade"</span>, <span class="cn">NA</span>, <span class="st">"Low grade"</span>)),</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!</span><span class="fu">any</span>(<span class="fu">c</span>(<span class="st">"T_stage"</span>, <span class="st">"N_stage"</span>, <span class="st">"TNM"</span>) <span class="sc">%in%</span> <span class="fu">names</span>(grade_cns26)))</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>cns_preview26 <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(grade_cns26[<span class="fu">c</span>(<span class="st">"Year_of_dia"</span>, <span class="st">"His_ICD"</span>, <span class="st">"WHO_grade"</span>, <span class="st">"Grade_2"</span>, <span class="st">"IDH"</span>, <span class="st">"Codel_1p19q"</span>)])</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(cns_preview26), <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-seer-cns-grade.html"</span>))</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">pipelines =</span> summary_sites26, <span class="at">primary_unit =</span> crc_preview26,</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">NAT =</span> nat_preview26, <span class="at">WHO_grade =</span> cns_preview26)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/index/20261026-update-seer-cns-grade.png" class="img-fluid figure-img" alt="六条完全合成CNS编码输入的原生表，明确High grade不等于具体WHO四级，未收集或不适用与Unknown分别保留。" loading="lazy" decoding="async" width="837" height="387" srcset="../assets/figure-previews/204f48f45561f5deca2d5df492681376.webp"></p>
+<figcaption>合成病例按年代与字段来源保留具体等级、Unknown 或 NA。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-seer-cns-grade.html">原生 HTML 表</a></p>
+<p><code>IDH</code> 与 <code>Codel_1p19q</code> 也有组织学和年代适用条件，不能把字段缺失统一当作阴性；这些登记编码不能补出未提供的分子检测结果。CNS 流水线没有肺或结直肠的 TNM、节点和转移整理步骤，不应为凑齐通用列而伪造 T/N/M。</p>
+<!-- /update-20261026: seer_sites -->
+</section>
+</section>
+<section id="derived-current" class="level2">
+<h2 class="anchored" data-anchor-id="derived-current">从 ETL 到分析变量</h2>
+<p>2026-10-18 按已推送 seerR <code>4e7afb9</code>、UtilsR <code>545bf4b</code>，在 Windows / WSL R 4.4.3 分别运行以下两套2026包内样例，输出规模与边界归属一致。上面的ETL结果仍是原执行快照；本节追加的是后续分析变量步骤。</p>
+<p><code>pipeline()</code> 完成字段整理，<strong>不会自动调用 <code>select_analysis()</code> 或 <code>mutate_derived()</code></strong>。前者选择常用分析列，并移除 <code>Patient_ID</code> 等上游列；后者派生分组、整理标签并新增 <code>status_tb</code>。需要追踪患者时，应在选列前保留经过核对的连接键和行对应关系。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">甲状腺完整步骤</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">胰腺完整步骤</a></li></ul>
+<div class="tab-content">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>raw_thy <span class="ot">&lt;-</span> readr<span class="sc">::</span><span class="fu">read_csv</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_seer_thyroid_2026.csv"</span>,</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">package =</span> <span class="st">"seerR"</span>), <span class="at">show_col_types =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>etl_thy <span class="ot">&lt;-</span> <span class="fu">seer_thyroid_pipeline</span>(raw_thy, <span class="at">schema =</span> <span class="st">"2026"</span>)</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>selected_thy <span class="ot">&lt;-</span> <span class="fu">seer_thyroid_select_analysis</span>(etl_thy)</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>derived_thy <span class="ot">&lt;-</span> <span class="fu">seer_thyroid_mutate_derived</span>(selected_thy)</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a><span class="fu">levels</span>(derived_thy[[<span class="st">"age_55"</span>]])</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a><span class="fu">levels</span>(derived_thy[[<span class="st">"Yea_3"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-7" class="callout-7-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
 <p>生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(derived_pan) <span class="sc">==</span> <span class="fu">nrow</span>(etl_pan),</span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(derived_pan[[<span class="st">"DSS"</span>]], selected_pan[[<span class="st">"DSS"</span>]]),</span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(derived_pan[[<span class="st">"time"</span>]], selected_pan[[<span class="st">"time"</span>]]))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(derived_thy) <span class="sc">==</span> <span class="fu">nrow</span>(etl_thy),</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(derived_thy[[<span class="st">"DSS"</span>]], selected_thy[[<span class="st">"DSS"</span>]]),</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(derived_thy[[<span class="st">"time"</span>]], selected_thy[[<span class="st">"time"</span>]]))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>raw_pan <span class="ot">&lt;-</span> readr<span class="sc">::</span><span class="fu">read_csv</span>(<span class="fu">system.file</span>(<span class="st">"extdata"</span>, <span class="st">"sample_seer_pancreas_2026.csv"</span>,</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">package =</span> <span class="st">"seerR"</span>), <span class="at">show_col_types =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>etl_pan <span class="ot">&lt;-</span> <span class="fu">seer_pancreas_pipeline</span>(raw_pan, <span class="at">schema =</span> <span class="st">"2026"</span>)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>selected_pan <span class="ot">&lt;-</span> <span class="fu">seer_pancreas_select_analysis</span>(etl_pan)</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>derived_pan <span class="ot">&lt;-</span> <span class="fu">seer_pancreas_mutate_derived</span>(selected_pan)</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a><span class="fu">levels</span>(derived_pan[[<span class="st">"Rad"</span>]])</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a><span class="fu">levels</span>(derived_pan[[<span class="st">"Tum_3"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-8" class="callout-8-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(derived_pan) <span class="sc">==</span> <span class="fu">nrow</span>(etl_pan),</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(derived_pan[[<span class="st">"DSS"</span>]], selected_pan[[<span class="st">"DSS"</span>]]),</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(derived_pan[[<span class="st">"time"</span>]], selected_pan[[<span class="st">"time"</span>]]))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </div>
 </div>
@@ -1655,16 +1885,16 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="tumor-boundary-current">肿瘤大小：甲状腺与胰腺不能共用上界</h2>
 <p>单位为毫米。甲状腺 <code>Tum_3</code> 的上组只含41–90 mm，超过90 mm归<code>Unknown</code>，<code>Tum_5</code>则得到NA。胰腺的 <code>Tum_3</code> 和 <code>Tum_5</code> 上组均为<code>&gt;40</code>，包含91–200 mm；不能沿用甲状腺90 mm的上界。</p>
 <p>以下以两套已选分析列各取一条模板，仅改写 <code>Tum</code> 为边界值，实际调用派生函数。它是接口边界演示，不是患者肿瘤大小分布。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>sizes <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">10</span>, <span class="dv">20</span>, <span class="dv">40</span>, <span class="dv">41</span>, <span class="dv">90</span>, <span class="dv">91</span>, <span class="dv">120</span>, <span class="dv">200</span>, <span class="cn">NA_real_</span>)</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>check_tumor_bins <span class="ot">&lt;-</span> <span class="cf">function</span>(selected, derive) {</span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  example <span class="ot">&lt;-</span> selected[<span class="fu">rep</span>(<span class="dv">1</span>L, <span class="fu">length</span>(sizes)), ]</span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  example[[<span class="st">"Tum"</span>]] <span class="ot">&lt;-</span> sizes</span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  out <span class="ot">&lt;-</span> <span class="fu">derive</span>(example)</span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.frame</span>(<span class="at">Tum_mm =</span> sizes, <span class="at">Tum_3 =</span> <span class="fu">as.character</span>(out[[<span class="st">"Tum_3"</span>]]),</span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">Tum_5 =</span> <span class="fu">as.character</span>(out[[<span class="st">"Tum_5"</span>]]))</span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a><span class="fu">check_tumor_bins</span>(selected_thy, seer_thyroid_mutate_derived)</span>
-<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a><span class="fu">check_tumor_bins</span>(selected_pan, seer_pancreas_mutate_derived)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>sizes <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">10</span>, <span class="dv">20</span>, <span class="dv">40</span>, <span class="dv">41</span>, <span class="dv">90</span>, <span class="dv">91</span>, <span class="dv">120</span>, <span class="dv">200</span>, <span class="cn">NA_real_</span>)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>check_tumor_bins <span class="ot">&lt;-</span> <span class="cf">function</span>(selected, derive) {</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  example <span class="ot">&lt;-</span> selected[<span class="fu">rep</span>(<span class="dv">1</span>L, <span class="fu">length</span>(sizes)), ]</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>  example[[<span class="st">"Tum"</span>]] <span class="ot">&lt;-</span> sizes</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>  out <span class="ot">&lt;-</span> <span class="fu">derive</span>(example)</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.frame</span>(<span class="at">Tum_mm =</span> sizes, <span class="at">Tum_3 =</span> <span class="fu">as.character</span>(out[[<span class="st">"Tum_3"</span>]]),</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">Tum_5 =</span> <span class="fu">as.character</span>(out[[<span class="st">"Tum_5"</span>]]))</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a><span class="fu">check_tumor_bins</span>(selected_thy, seer_thyroid_mutate_derived)</span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a><span class="fu">check_tumor_bins</span>(selected_pan, seer_pancreas_mutate_derived)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive">
 <table class="caption-top table">
 <thead>
@@ -1835,9 +2065,9 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="quality-current" class="level2">
 <h2 class="anchored" data-anchor-id="quality-current">检查输出质量</h2>
 <p>样例运行中会出现数值转换产生 NA 和部分对数计算产生 NaN 的警告，不能把成功完成流水线等同于所有字段均可直接分析。应保留并核对这些提示。下面是 2026 样例实际输出的缺失数：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>quality_fields <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"DSS"</span>, <span class="st">"RFS"</span>, <span class="st">"time.RFS"</span>)</span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="fu">data.frame</span>(<span class="at">field =</span> quality_fields,</span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">missing =</span> <span class="fu">vapply</span>(analysis_2026[quality_fields], <span class="cf">function</span>(x) <span class="fu">sum</span>(<span class="fu">is.na</span>(x)), <span class="fu">integer</span>(<span class="dv">1</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>quality_fields <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"DSS"</span>, <span class="st">"RFS"</span>, <span class="st">"time.RFS"</span>)</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">data.frame</span>(<span class="at">field =</span> quality_fields,</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">missing =</span> <span class="fu">vapply</span>(analysis_2026[quality_fields], <span class="cf">function</span>(x) <span class="fu">sum</span>(<span class="fu">is.na</span>(x)), <span class="fu">integer</span>(<span class="dv">1</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive">
 <table class="caption-top table">
 <thead>
@@ -1877,10 +2107,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="recurrence-current">同人记录与复发标记</h2>
 <p><code>seer_fmt_recurrence()</code> 按现有行顺序读取同一患者的首条、末条记录，用首条 time 减末条 time。只有同人多条记录、时间差至少六个月且所有 His_6 都与首条相同时，才接入 <code>RFS=1</code> 与共同的 <code>time.RFS</code>；它不会先按 time 自动排序。</p>
 <p>这是该函数按记录规则推导的标记，研究中仍须核验它与所需复发定义是否一致。未满足规则的记录得到 <code>RFS=0</code>、<code>time.RFS=time</code>，不能仅凭这个零值断言临床未复发。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>d_rec <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Patient_ID =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"B"</span>, <span class="st">"C"</span>, <span class="st">"C"</span>),</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">time =</span> <span class="fu">c</span>(<span class="dv">60</span>, <span class="dv">24</span>, <span class="dv">20</span>, <span class="dv">30</span>, <span class="dv">50</span>, <span class="dv">10</span>),</span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">His_6 =</span> <span class="fu">c</span>(<span class="st">"PTC"</span>, <span class="st">"PTC"</span>, <span class="st">"PTC"</span>, <span class="st">"PTC"</span>, <span class="st">"PTC"</span>, <span class="st">"MTC"</span>))</span>
-<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="fu">seer_fmt_recurrence</span>(d_rec)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>d_rec <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Patient_ID =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"B"</span>, <span class="st">"C"</span>, <span class="st">"C"</span>),</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">time =</span> <span class="fu">c</span>(<span class="dv">60</span>, <span class="dv">24</span>, <span class="dv">20</span>, <span class="dv">30</span>, <span class="dv">50</span>, <span class="dv">10</span>),</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">His_6 =</span> <span class="fu">c</span>(<span class="st">"PTC"</span>, <span class="st">"PTC"</span>, <span class="st">"PTC"</span>, <span class="st">"PTC"</span>, <span class="st">"PTC"</span>, <span class="st">"MTC"</span>))</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="fu">seer_fmt_recurrence</span>(d_rec)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive">
 <table class="caption-top table">
 <thead>
@@ -1942,12 +2172,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="并列最大随访会增加连接行数" class="level3">
 <h3 class="anchored" data-anchor-id="并列最大随访会增加连接行数">并列最大随访会增加连接行数</h3>
 <p>当前向量化实现保留了原来的并列最大值和 left join 行为。同一患者最大 time 出现两次时，该患者原记录会各连接两次。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>d_ties <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Patient_ID =</span> <span class="fu">rep</span>(<span class="st">"D"</span>, <span class="dv">3</span>), <span class="at">time =</span> <span class="fu">c</span>(<span class="dv">80</span>, <span class="dv">80</span>, <span class="dv">30</span>),</span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">His_6 =</span> <span class="fu">rep</span>(<span class="st">"PTC"</span>, <span class="dv">3</span>))</span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>rec_ties <span class="ot">&lt;-</span> <span class="fu">seer_fmt_recurrence</span>(d_ties)</span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="fu">nrow</span>(d_ties)    <span class="co"># 3</span></span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a><span class="fu">nrow</span>(rec_ties)  <span class="co"># 6</span></span>
-<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="fu">table</span>(rec_ties<span class="sc">$</span>Patient_ID)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>d_ties <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Patient_ID =</span> <span class="fu">rep</span>(<span class="st">"D"</span>, <span class="dv">3</span>), <span class="at">time =</span> <span class="fu">c</span>(<span class="dv">80</span>, <span class="dv">80</span>, <span class="dv">30</span>),</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">His_6 =</span> <span class="fu">rep</span>(<span class="st">"PTC"</span>, <span class="dv">3</span>))</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>rec_ties <span class="ot">&lt;-</span> <span class="fu">seer_fmt_recurrence</span>(d_ties)</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a><span class="fu">nrow</span>(d_ties)    <span class="co"># 3</span></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a><span class="fu">nrow</span>(rec_ties)  <span class="co"># 6</span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a><span class="fu">table</span>(rec_ties<span class="sc">$</span>Patient_ID)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>本轮实际核验了 3 → 6 行及 <code>time.RFS=50</code>；dplyr 可同时提示 many-to-many 连接。需要患者级结果时，应先确定记录选择与并列处理原则，再核对行数和患者数，不把重复行直接当成新增患者。</p>
 </section>
 </section>
@@ -1958,6 +2188,27 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <ul>
 <li><a href="../seerr/function-modules.html">功能模块图</a></li>
 </ul>
+</section>
+<section id="page-updates" class="level2">
+<h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
+<div class="callout callout-style-default callout-note callout-titled" title="更新记录">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>更新记录
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<ul>
+<li>2026-10-26：补充<a href="#site-pipelines-20261026">三个新癌种流水线</a>、<a href="#crc-primary-unit-20261026">多原发分析单位</a>、<a href="#crc-nat-20261026">未知 NAT</a>与<a href="#cns-grade-20261026">CNS 分级来源</a>。</li>
+</ul>
+</div>
+</div>
+</div>
 
 
 </section>

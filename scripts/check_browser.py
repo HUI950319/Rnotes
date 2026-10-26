@@ -39,6 +39,7 @@ PAGES = [
     "regr/um-guide.html", "regr/table-guide.html",
     "labr/index.html",
     "scmmr/index.html",
+    "seerr/index.html",
 ]
 
 

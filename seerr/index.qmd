@@ -1,10 +1,10 @@
 ---
-description: "用包内样例运行 SEER ETL 与分析变量派生，核对出版用标签、年龄与肿瘤大小分组边界、缺失及复发标记。"
-date-modified: 2026-10-18
+description: "按癌种与 schema 选择 SEER ETL；补充肺、结直肠和 CNS 流水线、多原发分析单位、未知 NAT 与 WHO 分级字段。"
+date-modified: 2026-10-26
 directory:
   title: "SEER流水线：ETL、衍生变量与编码边界"
   topic: 数据准备与筛选
-  updated: 2026-10-18
+  updated: 2026-10-26
 ---
 
 # seerR 笔记
@@ -124,6 +124,173 @@ stopifnot(nzchar(sample_2026))
 :::
 
 两套样例均保留 100 行，字段数随 schema 和派生变量而变。输出的行数不能代替患者数，也不能据此确认结局完整。
+
+### 肺、结直肠与 CNS 的独立入口（2026-10-26） {#site-pipelines-20261026}
+
+<!-- update-20261026: seer_sites -->
+
+按已推送 seerR 0.1.0 `5a0f4f3` 核对，三个新模块应使用各自的选择器和整理规则。下例在 Windows / WSL R 4.4.3 执行包内各 100 行 sample，本站只发布行列计数；原始记录、内置患者队列和个体标识不进入附件或页面。
+
+::: {.table-responsive tabindex="0" role="region" aria-label="按癌种与schema选择SEER流水线"}
+
+| 癌种 | 公共入口 | schema 与后续分析 |
+|:--|:--|:--|
+| 甲状腺 | `seer_thyroid_pipeline(data,schema=...)` | 2025 / 2026；沿用上方示例 |
+| 胰腺 | `seer_pancreas_pipeline(data,schema=...)` | 2025 / 2026，默认 2025，2026 需显式选择 |
+| 肺 | `seer_lung_pipeline(data,schema="2026")` | 仅 2026；再接 lung 的 select_analysis / mutate_derived |
+| 结直肠 | `seer_colorectal_pipeline(data)` | 仅 2026；保留原发记录与患者的区别 |
+| 脑与其他 CNS | `seer_cns_pipeline(data)` | 仅 2026；走 WHO 分级与分子标记字段，不套肺或结直肠 TNM |
+
+:::
+
+2026 CSV 统一按字符读取，避免手术、SSF 等前导零被猜成数值；选择器虽会修复部分码宽，不能代替对导出字典的核对。癌种选择器不会替研究者完成原始队列的纳排条件。
+
+```r
+library(seerR)
+sample_files26 <- c(Lung = "sample_seer_lung_2026.csv",
+  Colorectal = "sample_seer_colorectal_2026.csv", CNS = "sample_seer_cns_2026.csv")
+raw_sites26 <- lapply(sample_files26, function(filename) readr::read_csv(
+  system.file("extdata", filename, package = "seerR"),
+  col_types = readr::cols(.default = "c"), show_col_types = FALSE, progress = FALSE))
+etl_sites26 <- list(Lung = seer_lung_pipeline(raw_sites26[["Lung"]], schema = "2026"),
+  Colorectal = seer_colorectal_pipeline(raw_sites26[["Colorectal"]]),
+  CNS = seer_cns_pipeline(raw_sites26[["CNS"]]))
+analysis_sites26 <- list(Lung = seer_lung_select_analysis(etl_sites26[["Lung"]]),
+  Colorectal = seer_colorectal_select_analysis(etl_sites26[["Colorectal"]]),
+  CNS = seer_cns_select_analysis(etl_sites26[["CNS"]]))
+derived_sites26 <- list(Lung = seer_lung_mutate_derived(analysis_sites26[["Lung"]]),
+  Colorectal = seer_colorectal_mutate_derived(analysis_sites26[["Colorectal"]]),
+  CNS = seer_cns_mutate_derived(analysis_sites26[["CNS"]]))
+summary_sites26 <- data.frame(site = names(etl_sites26),
+  raw_rows = vapply(raw_sites26, nrow, integer(1)), etl_rows = vapply(etl_sites26, nrow, integer(1)),
+  analysis_rows = vapply(analysis_sites26, nrow, integer(1)),
+  derived_columns = vapply(derived_sites26, ncol, integer(1)))
+summary_sites26
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(all(summary_sites26[["raw_rows"]] == 100L),
+  identical(summary_sites26[["raw_rows"]], summary_sites26[["etl_rows"]]),
+  identical(summary_sites26[["etl_rows"]], summary_sites26[["analysis_rows"]]),
+  "Patient_ID" %in% names(analysis_sites26[["Lung"]]),
+  all(c("Patient_ID", "Sequence_number", "CRC_n", "CRC_order", "CRC_gap", "CRC_multi") %in%
+    names(analysis_sites26[["Colorectal"]])),
+  all(c("WHO_grade", "IDH", "Codel_1p19q") %in% names(derived_sites26[["CNS"]])))
+gt::gtsave(gt::gt(summary_sites26), file.path(tempdir(), "20261026-update-seer-pipelines.html"))
+```
+
+:::
+
+![三个独立流水线的行数与派生列数汇总。](images/index/20261026-update-seer-pipelines.png){fig-alt="肺、结直肠和CNS各100条包内样例的原生汇总表，核对raw、ETL和analysis阶段行数；不展示任何样例记录。"}
+
+[原生 HTML 汇总](images/index/20261026-update-seer-pipelines.html)
+
+样例中的非数字生存时间码在数值转换时会提示产生 NA；应检查缺失来源，不改成零，也不能只凭行数相同认为结局已经验证。肺模块的本轮修复涉及年代对应的大小字段回退、EOD/CS 分期与多部位转移计数；大小码 000 表示未见原发，不当成 0 mm，符合回退规则的大小保留到 400 mm。软组织等其他 schema 不套肺 T 分类。以上规则按 `R/seer_lung.R`、帮助与随包回归测试核对；本页没有重建大型发布队列，也没有重新测量压缩或计算速度。
+
+结直肠模块另行处理阑尾代码、节点信息缺失回退、腹膜等多部位转移和大小回退。不要因为函数名相似就把肺、甲状腺或阑尾的分期表相互替换。包还提供 `seer_lung_2026`、`seer_colorectal_2026`、`seer_cns_2026`；上表仅描述小型 sample，不是这些完整队列的维度。
+
+### 结直肠多原发：记录数不等于患者数（2026-10-26） {#crc-primary-unit-20261026}
+
+新增字段以 `Patient_ID` 分组，按 `Record_number_recode` 排序；`CRC_n` 为输入中的结直肠原发记录数，`CRC_order` 为记录顺序，`CRC_gap` 为首条记录的 time 减去当前记录的 time。`CRC_multi` 使用第二条与第一条的 time 差：不超过 6 个月为 Synchronous，超过为 Metachronous，并把该标签复制到该患者所有行；差值未知时保持 NA。这里依赖同一截点下的随访差，不能无条件当作独立记录的准确诊断日期差。
+
+```r
+synthetic_crc26 <- tibble::tibble(Year_of_dia = "2015", Race = "White", Tumor_size = 40,
+  Tumor_deposits = "Blank(s)", CEA_2010 = "Blank(s)", Perineural_2010 = "Blank(s)",
+  Patient_ID = c("A", "A", "B", "C", "C", "C", "D", "D"),
+  Record_number_recode = c("02", "01", "01", "01", "03", "02", "01", "02"),
+  time = c(98, 100, 50, 60, 10, 30, 40, NA))
+multiple_crc26 <- seer_colorectal_fmt_all(synthetic_crc26)
+multiple_crc26[c("Patient_ID", "Record_number_recode", "CRC_n", "CRC_order", "CRC_gap", "CRC_multi")]
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(nrow(multiple_crc26) == 8L, dplyr::n_distinct(multiple_crc26[["Patient_ID"]]) == 4L,
+  identical(multiple_crc26[["CRC_gap"]], c(2, 0, 0, 0, 50, 30, 0, NA)),
+  identical(as.character(multiple_crc26[["CRC_multi"]]),
+    c("Synchronous", "Synchronous", "Single", "Metachronous", "Metachronous", "Metachronous", NA, NA)))
+crc_preview26 <- as.data.frame(multiple_crc26[c("Patient_ID", "Record_number_recode", "CRC_n", "CRC_order", "CRC_gap", "CRC_multi")])
+gt::gtsave(gt::gt(crc_preview26), file.path(tempdir(), "20261026-update-seer-primary-unit.html"))
+```
+
+:::
+
+![八条合成原发记录属于四个合成患者，行数保持不变。](images/index/20261026-update-seer-primary-unit.png){fig-alt="仅含虚构A至D标识的原生表，核对八条记录、患者内原发顺序、间隔及同步或异时多原发标签；未知间隔保留NA。"}
+
+[原生 HTML 表](images/index/20261026-update-seer-primary-unit.html)
+
+这些字段描述多原发，不是复发或 RFS。函数不自动选出每患者一行；需要患者级分析时先明确记录选择规则、核对保留人数，再拟合模型。旧的[甲状腺复发标记示例](#recurrence-current)不应移植为结直肠复发定义。
+
+### 未知治疗顺序不能自动写成 No（2026-10-26） {#crc-nat-20261026}
+
+结直肠 `NAT` 在记录有术前放疗或系统治疗时为 Yes，其余组合按当前非术前代码与缺失规则处理，不能由“没有记录 Yes”一律推断 No。`No/Unknown` 本身是登记合并码，程序输出的 No 不能解释为已确证未接受治疗。下例只改变 5 条 sample 的治疗顺序，公开表仅包含这些人为指定的序列及其标签，不显示其他字段。
+
+```r
+nat_input26 <- analysis_sites26[["Colorectal"]][1:5, ]
+nat_input26[["RadS"]] <- c("No/Unknown", "Pre surgery", "No/Unknown", "Post surgery", "Intraoperative")
+nat_input26[["SysS"]] <- c("Blank", "Blank", "No therapy/surgery", "Post surgery", "No therapy/surgery")
+nat_result26 <- seer_colorectal_mutate_derived(nat_input26)
+data.frame(RadS = nat_input26[["RadS"]], SysS = nat_input26[["SysS"]], NAT = nat_result26[["NAT"]])
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(identical(as.character(nat_result26[["NAT"]]), c(NA, "Yes", "No", "No", NA)))
+nat_preview26 <- data.frame(RadS = nat_input26[["RadS"]], SysS = nat_input26[["SysS"]], NAT = nat_result26[["NAT"]])
+gt::gtsave(gt::gt(nat_preview26), file.path(tempdir(), "20261026-update-seer-nat.html"))
+```
+
+:::
+
+![术前、术后和未知序列形成不同的 NAT 标签。](images/index/20261026-update-seer-nat.png){fig-alt="五种人为指定治疗序列的原生表，未知系统治疗顺序不会自动当作No，而明确术前治疗给出Yes。"}
+
+[原生 HTML 表](images/index/20261026-update-seer-nat.html)
+
+### CNS 的 WHO 分级与缺失来源（2026-10-26） {#cns-grade-20261026}
+
+该模块使用登记字段中的 WHO 分级，不从组织学名称猜分级。2004–2017 对应 CS Brain/CNS Other 的 SSF1；2018 起读相应 schema 的 Derived Summary Grade。`High grade` 只确定高低分组，不自动确定 WHO Grade 3 或 4。未收集、schema 不适用及血液肿瘤等情况与登记了 Unknown 应分开看。这里是该提交的编码合同，不是独立的病理诊断规则。
+
+```r
+synthetic_cns26 <- tibble::tibble(Year_of_dia = c("2002", "2010", "2020", "2020", "2020", "2018"),
+  His_ICD = c("9440", "9440", "9440", "9440", "9680", "9450"),
+  CS_schema = "Brain", Schema_2018 = "Brain", SSF1 = c("999", "040", "999", "999", "999", "999"),
+  Grade_2018 = c("Blank(s)", "Blank(s)", "High grade", "Site-specific grade system category (4)",
+    "Site-specific grade system category (4)", "Site-specific grade system category (2)"),
+  Brain_markers_2018 = c("Blank(s)", "Blank(s)", "Not documented", "Glioblastoma, IDH-wildtype (9440/3)",
+    "Blank(s)", "Oligodendroglioma, IDH-mutant and 1 p/19q co-deleted (9450/3)"),
+  Chr1p_2010 = c(rep("Not documented", 4), "Not applicable", "Not documented"),
+  Chr19q_2010 = c(rep("Not documented", 4), "Not applicable", "Not documented"), Age = "50 years",
+  Tumor_size_1988 = "020", Sex = "Female", Race = "White", Race_5 = "Non-Hispanic White",
+  SEER_stage_5 = c("Blank(s)", rep("Localized only", 5)))
+grade_cns26 <- seer_cns_fmt_grade(synthetic_cns26)
+grade_cns26[c("Year_of_dia", "His_ICD", "WHO_grade", "Grade_2", "IDH", "Codel_1p19q")]
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(identical(as.character(grade_cns26[["WHO_grade"]]), c(NA, "Grade 4", "Unknown", "Grade 4", NA, "Grade 2")),
+  identical(as.character(grade_cns26[["Grade_2"]]), c(NA, "High grade", "High grade", "High grade", NA, "Low grade")),
+  !any(c("T_stage", "N_stage", "TNM") %in% names(grade_cns26)))
+cns_preview26 <- as.data.frame(grade_cns26[c("Year_of_dia", "His_ICD", "WHO_grade", "Grade_2", "IDH", "Codel_1p19q")])
+gt::gtsave(gt::gt(cns_preview26), file.path(tempdir(), "20261026-update-seer-cns-grade.html"))
+validation_values <- list(pipelines = summary_sites26, primary_unit = crc_preview26,
+  NAT = nat_preview26, WHO_grade = cns_preview26)
+```
+
+:::
+
+![合成病例按年代与字段来源保留具体等级、Unknown 或 NA。](images/index/20261026-update-seer-cns-grade.png){fig-alt="六条完全合成CNS编码输入的原生表，明确High grade不等于具体WHO四级，未收集或不适用与Unknown分别保留。"}
+
+[原生 HTML 表](images/index/20261026-update-seer-cns-grade.html)
+
+`IDH` 与 `Codel_1p19q` 也有组织学和年代适用条件，不能把字段缺失统一当作阴性；这些登记编码不能补出未提供的分子检测结果。CNS 流水线没有肺或结直肠的 TNM、节点和转移整理步骤，不应为凑齐通用列而伪造 T/N/M。
+
+<!-- /update-20261026: seer_sites -->
 
 ## 从 ETL 到分析变量 {#derived-current}
 
@@ -350,3 +517,9 @@ table(rec_ties$Patient_ID)
 本页实际执行了两种 schema 的包内样例、基本复发规则、记录顺序与并列连接例；没有用这些结果验证真实数据的分期或复发终点。参数、字段与解释应结合当前帮助和自己的导出字典核对。
 
 - [功能模块图](function-modules.qmd)
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-26：补充[三个新癌种流水线](#site-pipelines-20261026)、[多原发分析单位](#crc-primary-unit-20261026)、[未知 NAT](#crc-nat-20261026)与[CNS 分级来源](#cns-grade-20261026)。
+:::
