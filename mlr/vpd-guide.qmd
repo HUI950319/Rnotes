@@ -4,11 +4,11 @@ description: "get_exp、get_vpd、get_vpd_pnl 与 get_ale2 的工作流；比较
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-10-20
+date-modified: 2026-10-27
 directory:
   title: "变量分布、PDP与二阶ALE：网格与统一入口"
   topic: 模型解释
-  updated: 2026-10-20
+  updated: 2026-10-27
 ---
 
 `get_exp()` 构建预测解释器，`get_vpd()` 将变量分布（VD）与部分依赖（PD）放在一起。本页用实际图形解释两块面板的差别，并对照主要任务和分组路径。
@@ -121,6 +121,87 @@ get_vpd(EXP.obj, exp_var, tidy_plot = TRUE, cores = NULL)
 get_vpd_pnl(EXP.obj, exp_var, N = 300, cores = NULL)
 ```
 
+
+### 输入隔离、正类编码与预测缓存（2026-10-27） {#explainer-contract-20261027}
+
+<!-- update-20261027: mlr_explainer -->
+
+按已推送 MLR `52c03f9`，`get_exp()` 在拟合前统一输入检查，阻止把结局放进 `vars`，保留字 `yhat` 也不能被原数据占用。生存任务还禁止 `time` / `DSS` 出现在预测变量中，并在无事件时提前停止。下例只拟合 60 行合成 Logistic 数据，演示带空格的结局名、字符/逻辑特征和预测缓存。
+
+```r
+library(MLR)
+library(ggplot2)
+set.seed(20261027)
+exp_data27 <- data.frame("Marker score" = rnorm(60), Group = rep(c("A", "B"), 30),
+  Flag = rep(c(TRUE, FALSE, FALSE), 20), check.names = FALSE)
+exp_data27[["Clinical outcome"]] <- factor(ifelse(runif(60) < plogis(
+  .2 + .5 * exp_data27[["Marker score"]]), "Event", "Control"),
+  levels = c("Unused", "Control", "Event"))
+exp_before27 <- exp_data27
+exp_vars27 <- c("Marker score", "Group", "Flag")
+exp27 <- get_exp(exp_data27, vars = exp_vars27, surv = "Clinical outcome", model = "default")
+print(exp27)
+exp_types27 <- data.frame(variable = exp_vars27,
+  input = vapply(exp_before27[exp_vars27], function(x) class(x)[1], ""),
+  returned = vapply(exp27[["dat"]][exp_vars27], function(x) class(x)[1], ""))
+gt::gtsave(gt::gt(exp_types27), file.path(tempdir(), "20261027-update-explainer-types.html"))
+exp_plot27 <- ggplot(exp27[["dat"]], aes(x = yhat, fill = `Clinical outcome`)) +
+  geom_histogram(position = "identity", alpha = .5, bins = 12) +
+  labs(x = "P(Event)", y = "Training observations", fill = "Original outcome",
+    title = "Apparent predictions; no validation split") + theme_minimal(base_size = 12)
+ggsave(file.path(tempdir(), "20261027-update-explainer-probabilities.pdf"), exp_plot27,
+  width = 7, height = 4.5)
+```
+
+因子结局丢掉未观测水平后，保持其余原顺序，**第二个水平为 1 和预测正类**；字符结局按 `factor(y)` 的水平顺序，数值可用 0/1 或 1/2（较大值为正类），逻辑 TRUE 为正类。缺失、单类和多类结局会拒绝。本例是 Control / Event，因此 `EXP$y=1` 对应 Event；`dat` 和 `par_lis$data` 仍保留原结局标签。
+
+字符、逻辑预测变量被转成 factor，`cat_vars` 与返回数据保持一致；普通数值仍是连续变量。Date、difftime、integer64、矩阵或 list 预测列应先明确转换，不能自动猜测单位或编码。data.table、分组 tibble 会在内部规范化为普通 data.frame，调用者对象不被改写；命名 vars 向量的名字也不重命名真实列。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(inherits(exp27, "exp.obj.log"), length(exp27) == 12L,
+  identical(exp_data27, exp_before27),
+  all(exp27[["EXP"]][["y"]] == as.integer(exp_data27[["Clinical outcome"]] == "Event")),
+  isTRUE(all.equal(as.numeric(exp27[["dat"]][["yhat"]]), as.numeric(exp27[["EXP"]][["y_hat"]]))),
+  isTRUE(all.equal(as.numeric(exp27[["EXP"]][["residuals"]]),
+    as.numeric(exp27[["EXP"]][["y"]] - exp27[["EXP"]][["y_hat"]]))),
+  setequal(exp27[["cat_vars"]], c("Group", "Flag")),
+  identical(exp27[["con_vars"]], "Marker score"),
+  all(is.finite(exp27[["dat"]][["yhat"]])),
+  all(exp27[["dat"]][["yhat"]] >= 0 & exp27[["dat"]][["yhat"]] <= 1))
+exp_bad27 <- list(
+  leakage = tryCatch(get_exp(exp_data27, vars = c(exp_vars27, "Clinical outcome"),
+    surv = "Clinical outcome"), error = conditionMessage),
+  reserved = tryCatch(get_exp(transform(exp_data27, yhat = 0), vars = exp_vars27,
+    surv = "Clinical outcome"), error = conditionMessage),
+  selector = tryCatch(get_exp(exp_data27, vars = exp_vars27, surv = NA), error = conditionMessage))
+stopifnot(all(vapply(exp_bad27, is.character, logical(1))))
+validation_values <- list(n = nrow(exp_data27), types = exp_types27,
+  encoded_classes = as.integer(table(exp27[["EXP"]][["y"]])),
+  probabilities = as.numeric(exp27[["dat"]][["yhat"]]), rejected = names(exp_bad27), unchanged = TRUE)
+```
+:::
+
+::: {.panel-tabset}
+
+#### 规范化后的类型 {.unnumbered}
+
+![实际返回对象中的预测变量类型。](images/vpd-guide/20261027-update-explainer-types.png){fig-alt="三个合成特征的原始和返回类型：数值保持 numeric，字符 Group 与逻辑 Flag 转为 factor，原输入保留。"}
+
+[原生 HTML](images/vpd-guide/20261027-update-explainer-types.html)
+
+#### 同一缓存的训练预测 {.unnumbered}
+
+![返回概率来自同一次全数据预测。](images/vpd-guide/20261027-update-explainer-probabilities.png){fig-alt="60 行合成训练数据的预测概率直方图，以原结局 Control 和 Event 填色，展示缓存一致性，不是验证集性能。"}
+
+[PDF](images/vpd-guide/20261027-update-explainer-probabilities.pdf)
+
+:::
+
+分类解释器复用一次全数据预测给 `dat$yhat`、解释器缓存和残差；`per` 仍是 apparent performance，既不是留出验证也不是交叉验证。默认仍不预先计算置换重要性或 PDP；缓存复用没有新增端到端提速倍数。`get_ale2()` 还会屏蔽内部 iml 特定的 `merge(on=...)` 兼容警告，其他警告继续报告；这不改变二阶 ALE 的统计定义。
+
+<!-- /update-20261027: mlr_explainer -->
 
 ## 生存任务：四种变量组合
 
@@ -485,3 +566,9 @@ ale_all$ale2 + theme(text=element_text(size=10),strip.text=element_text(size=12)
 ![get_all的二阶ALE入口](images/vpd-guide/20261016-ale-unified.png){fig-alt="get_all的二阶ALE入口；固定输入、按注明源码快照实际运行的示例。"}
 
 get_all现在有13个分析入口。ale2.args必须显式提供才启用；仅提供exp_var时继承model="xgboost"、scale="link"、grid_size=20。com.args提供data、adj_var、surv和生存预测时间time；N、engine、cores、save继续传给get_ale2。返回 `res$ale2` 是图，不是交互显著性检验。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[解释器输入、正类编码与缓存](#explainer-contract-20261027)的 60 行实际拟合与类型核对。
+:::
