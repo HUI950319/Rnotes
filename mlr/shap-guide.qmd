@@ -2,13 +2,13 @@
 title: "SHAP：get_shp 与 14 个绘图函数"
 description: "get_shp 的自动分箱、任务、采样、后端与返回对象详解；37张图覆盖14个绘图函数、多行TI及单变量交互锚点。"
 date: 2026-09-30
-date-modified: 2026-10-21
+date-modified: 2026-10-26
 lightbox: true
 toc-depth: 2
 directory:
   title: "SHAP：40张图、整页预览与TM层级"
   topic: 模型解释
-  updated: 2026-10-21
+  updated: 2026-10-26
 ---
 
 这一页分为两部分：先介绍 `get_shp()` 如何训练树模型、计算 SHAP 并组织结果，再用已经计算好的 `ToyData::toy_shp` 展示全部 14 个 `plt_shp_*()` 函数。图形选项放在各节的标签页中，可切换比较，并点击图片放大。
@@ -341,6 +341,62 @@ plt_shp_sum(shp_labels, mode = "sum_tot", tot_var = "chemo",
 ![plt_shp_sum：蜂群与分组依赖。右侧查看 chemo（原 Che）的总贡献分布；横轴分组含 No/Unknown。](images/shap-guide/sum-total.png){fig-alt="总体蜂群与组合图；蜂群与分组依赖；数据为 toy_shp 的 400 个观测。"}
 
 :::
+
+### 百分比插图的标签换行（2026-10-26） {#sum-per-labels-20261026}
+
+<!-- update-20261026: mlr_shap_labels -->
+
+按已推送 MLR `45e743a`，`plt_shp_sum(mode="sum_per")` 把 `label_args` 转发给比例插图。`wrap/size/lineheight/offset/col/font` 与[重要性径向条](imp-guide.qmd#radial-labels-20261026)同义，但这里的默认 offset 是 0.04。该 list 不调整蜂群点、普通 summary 或总 SHAP 插图的文字；可分别用 `per_position` 与 `scale_x` 给插图预留空间。
+
+```r
+library(MLR)
+set.seed(102602)
+X_labels26 <- data.frame(F1 = rnorm(40), F2 = rnorm(40), F3 = rnorm(40), F4 = rnorm(40))
+S_labels26 <- as.matrix(X_labels26) * rep(c(1.5, 1, .6, .3), each = 40)
+shp_labels26 <- shapviz::shapviz(S_labels26, X = X_labels26, baseline = 0)
+names_labels26 <- c(F1 = "Tumor size at diagnosis", F2 = "Age at initial diagnosis",
+  F3 = "Regional lymph node count", F4 = "Treatment sequence group")
+sum_line26 <- plt_shp_sum(shp_labels26, mode = "sum_per", add_name = names_labels26,
+  scale_x = list(xlim = c(-5, 10)), per_position = c(.6, .15, .38, .7),
+  label_args = list(size = 2, offset = .04))
+sum_wrap26 <- plt_shp_sum(shp_labels26, mode = "sum_per", add_name = names_labels26,
+  scale_x = list(xlim = c(-5, 10)), per_position = c(.6, .15, .38, .7),
+  label_args = list(wrap = 13, size = 2, lineheight = .9, offset = .04, col = "grey20"))
+ggplot2::ggsave(file.path(tempdir(), "20261026-update-shap-label-line.pdf"), sum_line26, width = 11, height = 6)
+ggplot2::ggsave(file.path(tempdir(), "20261026-update-shap-label-wrap.pdf"), sum_wrap26, width = 11, height = 6)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(identical(shp_labels26[["S"]], S_labels26), identical(shp_labels26[["X"]], X_labels26))
+stopifnot(inherits(sum_line26, "ggplot"), inherits(sum_wrap26, "ggplot"))
+means_labels26 <- colMeans(abs(S_labels26))
+validation_values <- list(mean_absolute_SHAP = means_labels26,
+  percentages = 100 * means_labels26 / sum(means_labels26), input_unchanged = identical(shp_labels26[["S"]], S_labels26))
+```
+
+:::
+
+::: {.panel-tabset}
+
+### 单行 {.unnumbered}
+
+![同一组合成 SHAP 矩阵使用单行比例标签。](images/shap-guide/20261026-update-shap-label-line.png){fig-alt="原生SHAP蜂群加比例插图PDF，40个合成观察和4个特征用于单行标签展示，不代表真实模型解释。"}
+
+[PDF](images/shap-guide/20261026-update-shap-label-line.pdf)
+
+### 换行 {.unnumbered}
+
+![插图名称换行，原 SHAP 矩阵与份额保持不变。](images/shap-guide/20261026-update-shap-label-wrap.png){fig-alt="相同合成SHAP蜂群和插图使用label_args换行，原始SHAP值与按平均绝对SHAP计算的比例不变。"}
+
+[PDF](images/shap-guide/20261026-update-shap-label-wrap.pdf)
+
+:::
+
+本例直接构造 40×4 的合成 SHAP 矩阵，只验证显示和输入保护，没有训练模型或重新计算 SHAP。插图按平均绝对 SHAP 给出份额，不能读作效应方向、因果贡献或模型解释方差。WSL 绘图环境产生了 element_blank 标签对象提示，属于当前绘图兼容性问题；本页保留该提示记录，并核对了实际 PDF 与原 SHAP 值，没有将它解释为方法限制。
+
+<!-- /update-20261026: mlr_shap_labels -->
 
 ## `plt_shp_imp()`： 全局重要性与百分比 {#plt-shp-imp}
 
@@ -1121,3 +1177,9 @@ page_shp_new <- RegR::fmt_page(Summary = p_summary, `Total and main` = p_tm_new,
 [打开完整 HTML](images/shap-guide/20261017-shap-view.html){target="_blank"} · [下载 HTML](images/shap-guide/20261017-shap-view.html){download="shap-results.html"}
 
 本轮核验了返回类与十个字段、非交互打印、图形构建，以及 HTML 离线加载、手机宽度和点击缩放。前面的 37 张历史图与解释数值保留原快照；新增三张图分别说明当前模型、纯布局与页面预览。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-26：补充[sum_per 插图标签换行](#sum-per-labels-20261026)的两张合成 SHAP 原生 PDF。
+:::
