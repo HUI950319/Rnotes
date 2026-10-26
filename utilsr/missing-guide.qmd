@@ -2,13 +2,13 @@
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
 description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
-date-modified: 2026-10-25
+date-modified: 2026-10-26
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-10-25
+  updated: 2026-10-26
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -107,6 +107,58 @@ lv(dat, count = c("group", "stage"))
 {{< include _html/missing-guide/04.md >}}
 
 :::
+
+### lv 的控制台标题随标准输出保留（2026-10-26） {#lv-stdout-20261026}
+
+<!-- update-20261026: utils_lv_stdout -->
+
+按已推送 UtilsR **0.6.12** `0b59c82`，控制台下的报告标题、变量与分组信息现在随表格写到 stdout，`capture.output()` 能一起保存；`suppressMessages()` 不再把这些报告标题去掉。空选择、高基数跳过等诊断仍可能是消息，不应混作报告正文。Quarto / knitr 编织时保持原来的消息与原生表格路径；本节测试的是控制台，没有重新编织下面的历史报告。
+
+8 行合成数据的单变量频数表可直接用于日志。`lv()` 仍不可见返回完整输入，选列或计数不改变返回的数据范围。两变量计数还会显示原生 gt 宽表；在非交互式 Rscript 中，该表可能以 HTML 源码输出，不宜把整段捕获结果当作纯文本表。
+
+```r
+library(UtilsR)
+lv_console26 <- data.frame(Arm = rep(c("A", "B"), each = 4),
+  Stage = rep(c("I", "II", "II", "III"), 2), Age = 41:48)
+original_lv26 <- lv_console26
+lines_lv26 <- capture.output(lv_visible26 <- withVisible(
+  suppressMessages(lv(lv_console26, count = Stage))))
+cat(lines_lv26, sep = "\n")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(!lv_visible26[["visible"]],
+  identical(lv_visible26[["value"]], original_lv26),
+  identical(lv_console26, original_lv26),
+  any(grepl("Cross-tabulation", lines_lv26, fixed = TRUE)),
+  any(grepl("Variables", lines_lv26, fixed = TRUE)))
+save_console26 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  chars <- strsplit(body, "", fixed = TRUE)[[1]]; cp <- utf8ToInt(body)
+  for (i in which(cp > 127L & !(cp >= 0x2500L & cp <= 0x257fL))) {
+    w <- cli::ansi_nchar(chars[i], type = "width")
+    if (w %in% 1:2) chars[i] <- sprintf('<span class="w%d">%s</span>', w, chars[i])
+  }
+  html <- paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '.w1,.w2{display:inline-block}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', paste(chars, collapse = ""), '</pre>')
+  writeLines(html, file.path(tempdir(), paste0("20261026-update-", name, ".html")), useBytes = TRUE)
+}
+save_console26(lines_lv26, "lv-stdout")
+validation_values <- list(lines = lines_lv26, n = nrow(lv_console26),
+  unchanged = identical(lv_visible26[["value"]], original_lv26))
+```
+:::
+
+![lv 的真实控制台报告：标题、变量信息、频数与百分比均在标准输出中。](images/missing-guide/20261026-update-lv-stdout.png){fig-alt="8 行合成数据的单变量频数表：Stage I、II、III 分别为 2、4、2 行，百分比为 25、50、25。"}
+
+[原生 HTML](images/missing-guide/20261026-update-lv-stdout.html)
+
+<!-- /update-20261026: utils_lv_stdout -->
 
 ### lv：原生报告与分组边界（2026-10-24） {#lv-report-20261024}
 
@@ -1204,6 +1256,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-26：验证[lv 控制台报告的标准输出](#lv-stdout-20261026)及不可见返回合同。
 - 2026-10-25：[环境诊断：包副本与实时可用内存](#environment-20261025)
 - 2026-10-24：[lv：原生报告与分组边界](#lv-report-20261024)
 :::
