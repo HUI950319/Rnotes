@@ -1,10 +1,10 @@
 ---
 description: "按癌种与 schema 选择 SEER ETL；补充肺、结直肠和 CNS 流水线、多原发分析单位、未知 NAT 与 WHO 分级字段。"
-date-modified: 2026-10-26
+date-modified: 2026-10-27
 directory:
   title: "SEER流水线：ETL、衍生变量与编码边界"
   topic: 数据准备与筛选
-  updated: 2026-10-26
+  updated: 2026-10-27
 ---
 
 # seerR 笔记
@@ -467,6 +467,57 @@ data.frame(field = quality_fields,
 
 `time` 来自 SEER 随访月字段，`DSS` 与 `RFS` 是不同的编码结果。实际分析还需核对零随访、状态编码、患者重复记录、因子未知水平及所需协变量。`UtilsR::check_na()` / `lv()` 的当前特殊字符串识别见 [数据检视页](../utilsr/missing-guide.qmd)；函数不会自动把所有 Unknown 字符串改为 NA。
 
+### 用 seer_view 检查队列与变量字典（2026-10-27） {#viewer-20261027}
+
+<!-- update-20261027: seer_view -->
+
+已推送 seerR **0.1.0** `91e9de6` 新增 `seer_view(data=NULL, notes=NULL, max_levels=10)`，导出总数为 **57 项**。它把队列概况、中文说明/注意事项和变量字典组合成 `RegR::fmt_page` 页面；字典保留英文变量名、类型与帮助描述。RegR 经 Suggests 使用，需要显示或保存页面时再安装，不新增反向硬依赖。
+
+`seer_view("seer_cns_2026")` 可查看包内队列；无参数时列出所有队列，并读取每个数据集以汇总规模。筛选后数据框的变量名不再等于原队列名，应显式传 `notes="seer_cns_2026"`。`notes` 借用原队列帮助与字典，**不会筛选、校验或重建该队列**，也不会改变数据的分析单位。
+
+下面仅用 20 行完全合成数据演示页面，不读取或发布真实患者记录。借用 CNS 注意事项用于展示中文说明格式，不表示这 20 行是真实 CNS 队列。
+
+```r
+library(seerR)
+view_data27 <- data.frame(Patient_ID = sprintf("demo-%02d", rep(1:12, length.out = 20)),
+  Yea = rep(2020:2023, 5),
+  His = factor(rep(c("GBM", "Diffuse glioma", "Other", "Unknown", "GBM"), 4)),
+  WHO_grade = factor(rep(c("Grade 1", "Grade 2", "Grade 3", "Grade 4", NA), 4)),
+  time = 1:20)
+view_before27 <- view_data27
+view27 <- seer_view(view_data27, notes = "seer_cns_2026", max_levels = 3)
+RegR::fmt_page(view27, save = list(filename = file.path(tempdir(),
+  "20261027-update-seer-view.html")))
+```
+
+缺失颜色对应 NA 占比：无缺失不着色，低于 5% 为绿，5% 至不足 20% 为黄，20% 及以上为红；它不同于 Unknown/Missing/Blank 水平的灰色分布条。类型另用因子蓝、数值绿、其他灰。`max_levels` 保留最常见水平，多余的至少两个水平合并为 Other；高基数字符标识仅显示不同值个数，数值测量可显示直方图。颜色是数据检查线索，不能代替研究定义或自动清洗。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+view_html27 <- as.character(htmltools::renderTags(view27)[["html"]])
+stopifnot(inherits(view27, "fmt_page"), identical(view_data27, view_before27),
+  nrow(view_data27) == 20L, length(unique(view_data27[["Patient_ID"]])) == 12L,
+  sum(is.na(view_data27[["WHO_grade"]])) == 4L,
+  grepl("注意事项取自", view_html27, fixed = TRUE),
+  grepl("没有 TNM", view_html27, fixed = TRUE),
+  grepl("Histology group", view_html27, fixed = TRUE),
+  grepl("20.0%", view_html27, fixed = TRUE),
+  file.info(file.path(tempdir(), "20261027-update-seer-view.html"))[["size"]] > 0)
+validation_values <- list(rows = nrow(view_data27), patients = length(unique(view_data27[["Patient_ID"]])),
+  who_missing = sum(is.na(view_data27[["WHO_grade"]])), unchanged = identical(view_data27, view_before27),
+  page_class = class(view27), chinese_notes = TRUE)
+```
+:::
+
+![20 行合成数据生成的完整 seer_view 页面。](images/index/20261027-update-seer-view.png){fig-alt="seer_view 的真实原生 HTML 预览，概况与说明采用中文，变量字典保留英文名称和描述，显示 20 行合成输入的类型、缺失与分布。"}
+
+[打开完整 HTML](images/index/20261027-update-seer-view.html){target="_blank"} · [下载 HTML](images/index/20261027-update-seer-view.html){download="seer-view-demo.html"}
+
+返回页面打印时在 RStudio Viewer（或浏览器）显示，可继续交给 `fmt_page()` 组合/另存，不返回清洗后的数据。中文说明来自包内 `inst/notes/zh/<队列>.md`；缺少该说明的队列回退到英文帮助。更新数据帮助的描述、注意事项或来源时，需同步对应中文说明。本例只核验合成输入与已发布说明，不验证真实队列的字段完整性。
+
+<!-- /update-20261027: seer_view -->
+
 ## 同人记录与复发标记 {#recurrence-current}
 
 `seer_fmt_recurrence()` 按现有行顺序读取同一患者的首条、末条记录，用首条 time 减末条 time。只有同人多条记录、时间差至少六个月且所有 His_6 都与首条相同时，才接入 `RFS=1` 与共同的 `time.RFS`；它不会先按 time 自动排序。
@@ -521,5 +572,6 @@ table(rec_ties$Patient_ID)
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-27：补充[seer_view 中文队列页与变量字典](#viewer-20261027)的合成示例、原生 HTML 和说明来源。
 - 2026-10-26：补充[三个新癌种流水线](#site-pipelines-20261026)、[多原发分析单位](#crc-primary-unit-20261026)、[未知 NAT](#crc-nat-20261026)与[CNS 分级来源](#cns-grade-20261026)。
 :::
