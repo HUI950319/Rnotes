@@ -40,6 +40,7 @@ PAGES = [
     "labr/index.html",
     "scmmr/index.html",
     "seerr/index.html",
+    "regr/conditional-survival-guide.html",
 ]
 
 

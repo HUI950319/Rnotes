@@ -2,20 +2,121 @@
 title: "条件生存：已存活多久、再存活多久与固定终点"
 description: "get_cs 与 get_cs_time 的实际曲线、KM 比值核对、固定终点/额外时长区别，以及当前图例方向修正。"
 date: 2026-10-01
+date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
   title: "条件生存：已存活多久、再存活多久与固定终点"
   topic: 回归与生存分析
-  updated: 2026-10-01
+  updated: 2026-10-27
 ---
+条件生存把“从诊断起的生存”换成“已存活到某时点之后的生存”。先明确已存活时间 s、额外时长 u 与固定终点，再用 KM 比值读图。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-27 按已推送 RegR **0.1.3** `212a156`、UtilsR **0.6.12** `45a162d` 核对，新增示例在 Windows / WSL R 4.4.3 运行。当前包已修正曲线、组名与标签顺序，无需旧版 `label_cs_time()`；旧图与修正代码在页末封存，仅代表 2026-10-01 的快照。
+:::
 
-条件生存将“从诊断起的生存”换成“已经存活到某时点之后的生存”。需要同时指定已存活时间 s 和接下来时长 u；固定终点与固定额外时长是不同问题。本页用函数输出的数据核对曲线和比值。
+## 数据准备与复现 {#data}
 
-**版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
+本轮使用 8 行完全合成数据，时间单位设为月。DSS=1 表示事件、0 表示删失；仅演示估计量与坐标，不代表临床结论。
 
-## 数据准备与复现
+### 精确 KM 曲线与两种条件问题（2026-10-27） {#km-steps-20261027}
+
+<!-- update-20261027: regr_conditional -->
+
+```r
+library(RegR)
+library(ggplot2)
+cs_data27 <- data.frame(time = c(.5, 1, 2, 3, 4, 6, 7, 10),
+  DSS = c(1L, 1L, 0L, 1L, 1L, 0L, 1L, 0L))
+cs_before27 <- cs_data27
+cs_marks27 <- c(0, 1, 4, 8)
+cs_curve27 <- get_cs(cs_data27, times = cs_marks27, max_time = 8,
+  color = c("#1B6CA8", "#2E8B57", "#C46B29", "#8055A2"))
+set.seed(20261027)
+cs_rng27 <- .Random.seed
+cs_points27 <- get_cs_time(cs_data27, times = cs_marks27, max_time = 8,
+  extra_alive = 2, add_label = TRUE)
+ggsave(file.path(tempdir(), "20261027-update-cs-exact-steps.pdf"),
+  cs_curve27, width = 8, height = 5)
+ggsave(file.path(tempdir(), "20261027-update-cs-two-questions.pdf"),
+  cs_points27, width = 8, height = 5)
+```
+
+`get_cs()` 直接画事件时点上的右连续阶梯，包含起点和精确终点，纵轴覆盖完整概率范围；无需 loess 或手工扩轴。s=8 已等于终点，此条件概率为 1，原生图以端点显示它。不同起点的条件人群不同，曲线升高不能解释为随访产生保护效应。
+
+`get_cs_time()` 的第一组是 `S(8)/S(s)`，终点固定在第 8 月；第二组是 `S(s+2)/S(s)`，每个起点都再存活 2 月。图例与 `cs(u|s)` 标签现在按这个含义直接对应，不再交换标签或套用旧修正 helper。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+cs_fit27 <- survival::survfit(survival::Surv(time, DSS) ~ 1,
+  data = cs_data27)
+S27 <- function(t) c(1, cs_fit27[["surv"]])[findInterval(t, cs_fit27[["time"]]) + 1L]
+cs_check27 <- function(z) {
+  expected <- S27(z[["xy"]]) / S27(z[["x"]])
+  stopifnot(all(abs(z[["cs"]] - expected) < 1e-12))
+}
+cs_check27(cs_curve27[["data"]])
+cs_check27(cs_points27[["data"]])
+stopifnot(identical(cs_data27, cs_before27), identical(.Random.seed, cs_rng27),
+  any(vapply(cs_curve27[["layers"]], function(x) inherits(x[["geom"]], "GeomStep"), logical(1))),
+  identical(levels(cs_points27[["data"]][["group"]]), c("cs(8-x|x)", "cs(2|x)")),
+  all(cs_curve27[["data"]][["cs"]] >= 0 & cs_curve27[["data"]][["cs"]] <= 1))
+bad_cs27 <- tryCatch(get_cs(cs_data27, times = 11, max_time = 11), error = conditionMessage)
+stopifnot(is.character(bad_cs27))
+validation_values <- list(curve = cs_curve27[["data"]], points = cs_points27[["data"]],
+  outside_followup_rejected = TRUE, rng_preserved = identical(.Random.seed, cs_rng27))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 精确阶梯与终点 {.unnumbered}
+
+![原生条件生存阶梯及终点 landmark。](images/conditional-survival-guide/20261027-update-cs-exact-steps.png){fig-alt="8 行合成数据的条件 KM 曲线，在事件时点阶梯下降；每条曲线从 1 开始，终点 landmark 8 用单点表示，低于 0.75 的概率仍可见。"}
+
+[PDF](images/conditional-survival-guide/20261027-update-cs-exact-steps.pdf)
+
+#### 固定终点与额外时长 {.unnumbered}
+
+![直接使用函数返回的正确组名与标签。](images/conditional-survival-guide/20261027-update-cs-two-questions.png){fig-alt="固定第 8 月终点与额外 2 月的两组条件概率，标签直接按 cs(u|s) 显示，不手工换组名。"}
+
+[PDF](images/conditional-survival-guide/20261027-update-cs-two-questions.pdf)
+
+:::
+
+<!-- /update-20261027: regr_conditional -->
+
+## 共用计算与返回对象
+
+两者计算 `CS(u|s)=S(s+u)/S(s)`，返回 ggplot；绘图数据在 `p[["data"]]`，包含 x=s、y=u、xy=s+u 和 cs。`get_cs()` 的横轴为绝对时间 s+u，`get_cs_time()` 的横轴为 landmark s。`get_cs()` 也会打印终点汇总与图，仍不可见返回图；`get_cs_time()` 可见返回图。
+
+## 接口与默认显示边界
+
+::: {.table-responsive tabindex="0" role="region" aria-label="条件生存的两种接口，可横向滚动"}
+
+| 接口 | 估计问题 | 关键参数 |
+|:--|:--|:--|
+| `get_cs()` | 多个 s 到 max_time 的条件曲线 | times、max_time、color、save |
+| `get_cs_time()` | 各 s 上的固定终点和固定额外时长 | times、max_time、extra_alive、add_label、save |
+
+:::
+
+landmark 必须唯一、有限、非负且不超过 max_time；所有查询终点都须在完整病例的随访范围内，条件分母必须大于零。缺失 time/DSS 的行会告警并剔除；显式 0/1 字符或因子、逻辑事件编码可用，SPSS 声明的缺失值会先规范化。时间单位必须一致，difftime 沿用其存储单位，不自动换算为月。
+
+`color=NULL` 使用默认配色，短色向量可循环；`save=NULL` 或 `list()` 不保存，有配置时使用 `save=list(filename="cs.pdf", width=8, height=5)`。无效保存参数会在分析前报错。`add_label=TRUE` 使用固定内部种子，密集标签不会主动丢弃，但仍可能重叠，需要调整画布。
+
+## 使用边界、保存与复现记录
+
+DSS 把其他原因死亡当作删失时，这里是该事件编码下的 KM 净生存描述，不能替代存在竞争事件时的真实累计死亡概率或 CIF。函数没有计算条件比值置信区间，也未调整协变量、处理时间依赖治疗或做 landmark 回归。远期在险数小、分母接近零时需报告支持范围，不能从图形延伸证据。
+
+## 历史示例（2026-10-01）
+
+::: {.callout-note collapse="true" title="旧执行快照：平滑图、旧标签修正与当时的数据核对"}
+以下图、汇总表及代码保留 2026-10-01 的运行快照，没有在当前提交重跑。旧代码中的 loess、截断纵轴与 `label_cs_time()` 是当时的显示处理，当前包已修正；新分析使用上面的原生调用。
+
+### 数据准备与复现
 
 
 使用 RegR 自带的 SEER 甲状腺髓样癌队列。保留完整模型变量、正随访时间及肿瘤大小在 0–200 mm 内的记录，再固定种子抽取最多 800 人。`stage` 合并为 T1/T2 与其余分期，`surgery` 为无手术与任一手术。它们是本页的演示编码。时间单位沿用原始队列的月。只发布汇总结果。
@@ -39,7 +140,7 @@ d <- droplevels(d[sample.int(nrow(d), min(800L, nrow(d))), , drop = FALSE])
 ```
 
 
-## 共用计算与返回对象
+### 共用计算与返回对象
 
 
 定义 CS(u|s)=S(s+u)/S(s)。get_cs() 的横轴是绝对时间 t=s+u；get_cs_time() 的横轴是 landmark s。本页时间单位为月，分母必须大于 0，且 s、s+u 均应在有支持的随访范围内。当前图例修正仅作用于返回的绘图数据，未修改包源码。
@@ -65,7 +166,7 @@ label_cs_time <- function(p, horizon, extra) {
 ```
 
 
-## 接口与默认显示边界
+### 接口与默认显示边界
 
 
 | 接口 | 计算问题 | 关键参数 |
@@ -75,7 +176,7 @@ label_cs_time <- function(p, horizon, extra) {
 
 两者均固定使用 time 和 DSS==1 的 KM。get_cs 原生显示为 loess 平滑，默认 y 范围 0.75–1；get_cs_time 默认 0.70–1。因此本页扩大 y 轴，并另画直接 KM 比值的阶梯曲线，避免低生存概率被隐藏。
 
-## 不同 landmark 的整条条件曲线
+### 不同 landmark 的整条条件曲线
 
 
 每个起点的 CS 为 1，随绝对随访时间增长而下降。换起点会改变条件人群；曲线更高不表示随访本身产生保护效应。平滑线只用于展示，精确值来自 KM 比值。
@@ -83,7 +184,7 @@ label_cs_time <- function(p, horizon, extra) {
 ::: {.panel-tabset}
 
 
-### 平滑显示 {.unnumbered}
+#### 平滑显示 {.unnumbered}
 
 
 s=0/24/60 月，到 120 月的条件曲线；横轴保持诊断后的绝对时间。
@@ -98,7 +199,7 @@ p + labs(x = "Time since diagnosis (months)") +
 ![s=0/24/60 月，到 120 月的条件曲线；横轴保持诊断后的绝对时间。](images/conditional-survival-guide/cs-smooth.png){fig-alt="平滑显示；s=0/24/60 月，到 120 月的条件曲线；横轴保持诊断后的绝对时间。"}
 
 
-### 直接 KM 比值 {.unnumbered}
+#### 直接 KM 比值 {.unnumbered}
 
 
 使用同一函数的实际计算数据画阶梯，不额外平滑。
@@ -115,7 +216,7 @@ ggplot(p[["data"]], aes(x = xy, y = cs, color = x_lab)) +
 ![使用同一函数的实际计算数据画阶梯，不额外平滑。](images/conditional-survival-guide/cs-step.png){fig-alt="直接 KM 比值；使用同一函数的实际计算数据画阶梯，不额外平滑。"}
 
 
-### 更密的起点 {.unnumbered}
+#### 更密的起点 {.unnumbered}
 
 
 改为 12/24/36/60 月起点并改变配色；终点保持 120 月。
@@ -134,7 +235,7 @@ p + labs(x = "Time since diagnosis (months)") +
 :::
 
 
-## 固定终点与额外 12/24 月
+### 固定终点与额外 12/24 月
 
 
 到 120 月的条件概率是 S(120)/S(s)，剩余时长随着 s 缩短；额外 12 月是 S(s+12)/S(s)，总终点随 s 移动。当前 get_cs_time 的标签互换，因此下面显式按计算数据修正组名；不据原图例推断这两条线。
@@ -142,7 +243,7 @@ p + labs(x = "Time since diagnosis (months)") +
 ::: {.panel-tabset}
 
 
-### 额外 12 月、带标签 {.unnumbered}
+#### 额外 12 月、带标签 {.unnumbered}
 
 
 同时画到 120 月和再存活 12 月，标签按 CS(u|s) 顺序修正。
@@ -157,7 +258,7 @@ label_cs_time(p, horizon = 120, extra = 12)
 ![同时画到 120 月和再存活 12 月，标签按 CS(u|s) 顺序修正。](images/conditional-survival-guide/cs-time-labels.png){fig-alt="额外 12 月、带标签；同时画到 120 月和再存活 12 月，标签按 CS(u|s) 顺序修正。"}
 
 
-### 隐藏数值标签 {.unnumbered}
+#### 隐藏数值标签 {.unnumbered}
 
 
 相同计算隐藏文字，适合比较两种条件问题。
@@ -172,7 +273,7 @@ label_cs_time(p, horizon = 120, extra = 12)
 ![相同计算隐藏文字，适合比较两种条件问题。](images/conditional-survival-guide/cs-time-simple.png){fig-alt="隐藏数值标签；相同计算隐藏文字，适合比较两种条件问题。"}
 
 
-### 改为额外 24 月 {.unnumbered}
+#### 改为额外 24 月 {.unnumbered}
 
 
 额外时长改为 24 月，重新计算比值，不能只改图例。
@@ -190,7 +291,7 @@ label_cs_time(p, horizon = 120, extra = 24)
 :::
 
 
-## 比值与在险人数直接核对
+### 比值与在险人数直接核对
 
 
 使用生存对象重新读取 S(s)、S(s+u) 以及 n.risk。比值表只是点估计，没有把函数未提供的置信区间补成看似精确的区间。n.risk 是 landmark 前的在险数，与原始样本量不同。
@@ -198,7 +299,7 @@ label_cs_time(p, horizon = 120, extra = 24)
 ::: {.panel-tabset}
 
 
-### 12 月比值表 {.unnumbered}
+#### 12 月比值表 {.unnumbered}
 
 
 从同一 KM 对象核对额外 12 月 CS 及 landmark 在险数。
@@ -263,7 +364,7 @@ data.frame(s = landmarks, u = 12, n_risk = a[["n.risk"]],
 :::
 
 
-### 读取绘图数据 {.unnumbered}
+#### 读取绘图数据 {.unnumbered}
 
 
 修正后的 get_cs_time 数据保留 s、u、总时间与实际 CS。
@@ -344,26 +445,20 @@ p[["data"]][, c("x", "y", "xy", "group", "cs")]
 :::
 
 
-## 使用边界、保存与复现记录
+### 使用边界、保存与复现记录
 
 
 其他原因死亡被 DSS 编码为删失时，以上是该原因特异编码下的 KM 净生存描述，不是有竞争事件时的真实累计死亡概率或 CIF。本页函数没有给条件比值的置信区间，也没有调整协变量、处理时间依赖治疗或进行 landmark 回归。远期分母接近 0、在险数少或超出随访范围时，比值和显示可能不稳定；应限制在有支持的范围，不能用绘图平滑延伸证据。
 
 绘图调色、字体和布局只改变展示；模型、编码、样本、预测时间或权重改变后需要重新计算。带 `save` 的接口按帮助页传入保存配置；其余返回图可用 `ggplot2::ggsave()` 或 `RegR::save_plt()`，表格按返回类型使用 `save_tb()` / `save_gt()`。重采样示例的预算仅用于演示，应结合实际分析目的增加并报告失败与收敛情况。
 
+:::
 ## 相关页面与源码
 
+[KM/CIF 组合图](cat-guide.qmd) · [列线图与条件概率轴边界](nomogram-guide.qmd)
 
-- [KM/CIF 组合图](cat-guide.qmd)
+## 更新记录 {#page-updates}
 
-- [列线图与条件概率轴边界](nomogram-guide.qmd)
-
-- [RegR 函数参考](https://hui950319.github.io/RegR/reference/index.html)
-
-- 条件生存函数帮助页：[`get_cs()`](https://hui950319.github.io/RegR/reference/get_cs.html)、[`get_cs_time()`](https://hui950319.github.io/RegR/reference/get_cs_time.html)
-
-
-```r
-packageVersion("RegR")
-sessionInfo()
-```
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：以[8 行合成数据](#km-steps-20261027)核对原生 KM 阶梯、两组条件概率和终点；旧修正代码单独封存。
+:::
