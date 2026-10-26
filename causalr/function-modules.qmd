@@ -2,7 +2,7 @@
 title: "causalR 功能模块图"
 description: "24 个导出函数与 S3 预测方法：倾向评分设计、因果森林、PDP / ALE / SHAP、亚组规则、稳定性和 E-value。"
 date: 2026-10-07
-date-modified: 2026-10-25
+date-modified: 2026-10-26
 lightbox: true
 format:
   html:
@@ -16,7 +16,7 @@ format:
 directory:
   title: "causalR功能模块：24项导出与返回对象"
   topic: 包概览与数据
-  updated: 2026-10-25
+  updated: 2026-10-26
 ---
 
 ::: {.callout-note title="运行前核对树变量参数"}
@@ -150,6 +150,62 @@ mtcars 是非随机分配的观察数据，示例仅说明敏感性输出如何�
 
 <!-- /update-20261025: causal_print -->
 
+### 平衡结果的摘要与组成字段（2026-10-26） {#balance-print-20261026}
+
+<!-- update-20261026: causal_balance -->
+
+按已推送 causalR `4952af8`，`get_bal()` 返回 `bal_res`：`print()` 先显示方法摘要与最大绝对 SMD，再提示组成字段；完整 SMD、权重和图仍从命名分量读取。`get_hte_select()`、树稳定性与 unihtee 的返回类也增加摘要打印，HTE、iCF、树、PSM、PSW、敏感性结果末尾列出 Components，帮助定位对象内部，不会因打印重拟合。
+
+下面使用 60 行合成数据，仅在 **Windows R 4.4.3** 运行 ATE / ATO 两种 glm 权重方案，不重训因果森林。摘要中的 SMD 是本次平衡诊断，不能把它单独当作因果识别或结局效果的证明。
+
+```r
+library(causalR)
+set.seed(102604)
+data_balance26 <- data.frame(Age = rnorm(60, 55, 8), Sex = factor(rep(c("Female", "Male"), 30)),
+  Tx = factor(rep(c("No", "Yes"), each = 30)))
+balance26 <- get_bal(data_balance26, treat = "Tx", adj_var = c("Age", "Sex"),
+  methods = c("ATE", "ATO"), tbl = FALSE, cores = 1)
+lines_balance26 <- capture.output(printed_balance26 <- withVisible(print(balance26)))
+names(balance26)
+UtilsR::pr_tree(balance26, max_depth = 1, max_items = 4, attrs = FALSE)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(inherits(balance26, "bal_res"), !printed_balance26[["visible"]],
+  identical(printed_balance26[["value"]], balance26),
+  all(c("plt", "balance", "data") %in% names(balance26)),
+  any(grepl("Components:", lines_balance26, fixed = TRUE)))
+save_console26 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  chars <- strsplit(body, "", fixed = TRUE)[[1]]; cp <- utf8ToInt(body)
+  for (i in which(cp > 127L & !(cp >= 0x2500L & cp <= 0x257fL))) {
+    w <- cli::ansi_nchar(chars[i], type = "width")
+    if (w %in% 1:2) chars[i] <- sprintf('<span class="w%d">%s</span>', w, chars[i])
+  }
+  html <- paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '.w1,.w2{display:inline-block}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', paste(chars, collapse = ""), '</pre>')
+  writeLines(html, file.path(tempdir(), paste0("20261026-update-", name, ".html")), useBytes = TRUE)
+}
+save_console26(lines_balance26, "causal-balance-summary")
+validation_values <- list(class = class(balance26), components = names(balance26),
+  balance = as.data.frame(balance26[["balance"]]), print_invisible = !printed_balance26[["visible"]])
+```
+
+:::
+
+![平衡结果的原生摘要与 Components 提示。](images/function-modules/20261026-update-causal-balance-summary.png){fig-alt="Windows中60行合成数据计算ATE和ATO权重后的实际bal_res标准输出，显示各方法平衡摘要并列出可读取的组成字段。"}
+
+[原生 HTML](images/function-modules/20261026-update-causal-balance-summary.html)
+
+这里读取 love plot 用 `balance26[["plt"]]`，完整 SMD 用 `balance26[["balance"]]`，权重数据用 `balance26[["data"]]`。打印默认只展示摘要；`pr_tree()` 也受深度与行数限制，不能据此认为未展开字段不存在。其他结果类变化按本轮源码和帮助核对，没有在本轮重新拟合其历史森林或稳定性实验。
+
+<!-- /update-20261026: causal_balance -->
+
 ### 亚组显示与总体行（2026-10-20） {#updates-20261020}
 
 2026-10-20 按已推送 causalR `7a983f1d` 更新 `plt_hte_sub(effect = ...)` 的说明：未单独指定 `"All patients"` 时，总体行会跟随被替换的亚组估计或区间；明确给 `"All patients" = "conf_0.95"` 可保留森林的原总体。替换多个分组变量的估计时必须明确指定总体。
@@ -163,3 +219,9 @@ mtcars 是非随机分配的观察数据，示例仅说明敏感性输出如何�
 2026-10-16核对：树图样式及绘图环境整理已推送到causalR `f3f7ecc`。仅保存plt_hte_tree/plt_hte_icf的图对象时，绘图环境不再连带保存整个拟合；图仍含绘图所需数据，这不是匿名化功能。既有图片和数值保留各自执行日期，本轮没有重跑历史分析。
 
 2026-10-17 核对的远端 `ceb2003` 已包含 `e389a75` 与 `f505185` 的改名，四个入口均使用 `tree_var`，不再是仅本机可用的接口。本站 `72d6139` 与 `b0f67c1` 的代码拼写已与之统一。当前源码已在 Windows R 4.4.3 核对四个签名，并实际执行 `get_hte_unihtee(method="glm", tree_var=...)`。旧安装可用 `names(formals(causalR::get_hte_tree))` 等检查；`candidate_var` 与 `tree_var` 应按安装接口选择，不同时传入。历史模型、表格与图片保持原执行快照，本轮没有重算历史森林。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-26：补充[bal_res 实际摘要与组成字段读取](#balance-print-20261026)，同步其他结果类的 Components 说明。
+:::
