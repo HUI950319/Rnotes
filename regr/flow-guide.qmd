@@ -2,13 +2,13 @@
 title: "队列筛选与流程图：get_flt 与三个绘图入口"
 description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，并补充 plt_flo3 的多队列分组、阶段与 PDF 保存。"
 date: 2026-10-01
-date-modified: 2026-10-25
+date-modified: 2026-10-26
 lightbox: true
 toc-depth: 2
 directory:
   title: "队列流程图：粗体标题、筛选标签与多队列"
   topic: 数据准备与筛选
-  updated: 2026-10-25
+  updated: 2026-10-26
 ---
 
 `get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图，`plt_flo2()` 用阶段说明和队列人数绘制彩色研究流程。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
@@ -96,6 +96,86 @@ attr(cohort, "flt")
 :::
 
 `get_flt()` 会打印历史，但打印出的 tibble 不是函数的返回对象。输入命名的数据框列表时，会返回逐个筛选后的列表；`plt_flo()` 接收其中一个数据框，不能直接把整个列表作为流程图数据。
+
+### 筛选历史与分析摘要分开读（2026-10-26） {#summary-20261026}
+
+<!-- update-20261026: regr_summary -->
+
+按已推送 RegR `df14885`、UtilsR 0.6.12 `0b59c82`，`get_flt()` 用分节表打印筛选历史，仍不可见返回 data.frame；`get_all()` 运行结束后打印完成块、失败块、分析人数、筛选历史和重编码设置，仍不可见返回已命名的结果 list。控制台摘要不是返回表，不能把输出文字当作后续分析数据。
+
+下例只有 12 行合成输入，启用筛选、重编码和分布图，不拟合回归模型。两段控制台输出分别从实际调用捕获；不是手工绘制的界面。
+
+```r
+library(RegR)
+data_summary26 <- data.frame(Age = c(15, 16, 17, 18, 20, 25, 30, 40, 50, 60, 75, 80),
+  site = factor(rep(c("Head", "Body", "Tail"), 4)), Arm = factor(rep(c("No", "Yes"), 6)),
+  time = 1:12 + 1, DSS = rep(c(0L, 1L), 6))
+original_summary26 <- data_summary26
+lines_filter26 <- capture.output(filtered_visible26 <- withVisible(
+  get_flt(data_summary26, Age >= 18, Age <= 70)))
+filtered_summary26 <- filtered_visible26[["value"]]
+lines_summary26 <- capture.output(all_visible26 <- withVisible(get_all(
+  com.args = list(data = data_summary26, get_flt = list("Age >= 18", "Age <= 70"),
+    fct_cat = list(list("site", Head_Body = c("Head", "Body"))),
+    adj_var = c("Age", "site"), surv = TRUE, time = 6),
+  dis.args = list(dis_var = c("site", "Arm"), type = "bar",
+    label_args = list(style = "count_percent_wrap")))))
+analysis_summary26 <- all_visible26[["value"]]
+names(analysis_summary26)
+attr(analysis_summary26, "flt")
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+history_summary26 <- attr(analysis_summary26, "flt")
+stopifnot(!filtered_visible26[["visible"]], !all_visible26[["visible"]],
+  is.data.frame(filtered_summary26), nrow(filtered_summary26) == 7L,
+  identical(names(analysis_summary26), "dis"), is.null(attr(analysis_summary26, "failures")),
+  tail(history_summary26[["res_pat"]], 1) == 7L,
+  identical(data_summary26, original_summary26))
+save_console26 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  chars <- strsplit(body, "", fixed = TRUE)[[1]]; cp <- utf8ToInt(body)
+  for (i in which(cp > 127L & !(cp >= 0x2500L & cp <= 0x257fL))) {
+    w <- cli::ansi_nchar(chars[i], type = "width")
+    if (w %in% 1:2) chars[i] <- sprintf('<span class="w%d">%s</span>', w, chars[i])
+  }
+  html <- paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '.w1,.w2{display:inline-block}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', paste(chars, collapse = ""), '</pre>')
+  writeLines(html, file.path(tempdir(), paste0("20261026-update-", name, ".html")), useBytes = TRUE)
+}
+save_console26(lines_filter26, "regr-filter-summary")
+save_console26(lines_summary26, "regr-analysis-summary")
+validation_values <- list(filtered_rows = nrow(filtered_summary26), history = as.data.frame(history_summary26),
+  components = names(analysis_summary26), invisible = c(filtered_visible26[["visible"]], all_visible26[["visible"]]),
+  unchanged = identical(data_summary26, original_summary26))
+```
+
+:::
+
+::: {.panel-tabset}
+
+### get_flt {.unnumbered}
+
+![筛选表只列每步排除与剩余人数，数据从返回值读取。](images/flow-guide/20261026-update-regr-filter-summary.png){fig-alt="实际get_flt标准输出将两步筛选的排除数、剩余人数及条件分列，12行输入最终保留7行。"}
+
+[原生 HTML](images/flow-guide/20261026-update-regr-filter-summary.html)
+
+### get_all {.unnumbered}
+
+![分析摘要区分完成块、样本数、历史与重编码。](images/flow-guide/20261026-update-regr-analysis-summary.png){fig-alt="实际get_all输出显示仅启用分布块、七条观察和筛选历史，并单列重编码后的site水平；没有运行模型拟合。"}
+
+[原生 HTML](images/flow-guide/20261026-update-regr-analysis-summary.html)
+
+:::
+
+取图用 `analysis_summary26[["dis"]]`，取历史用 `attr(result,"flt")`，检查失败用 `attr(result,"failures")`。`suppressMessages()` 关闭运行提示，不关闭这些 stdout 结果表；需要分别捕获两个通道。当前 `get_facet()` 的分层提示与拟合公式提示也改用 UtilsR 消息，见[输出通道说明](../console-print/runtime-messages.qmd#cat-message)。
+
+<!-- /update-20261026: regr_summary -->
 
 ## plt_flo()：共用设置与重要参数 {#plt-flo}
 
@@ -934,5 +1014,6 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-26：补充[get_flt 与 get_all 摘要的实际输出](#summary-20261026)，区分返回对象、筛选历史与消息通道。
 - 2026-10-24：[get_all：先筛选，再重编码](#all-preprocess-20261024)
 :::
