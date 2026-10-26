@@ -4,11 +4,11 @@ description: "比较 SHAP、impurity/Gain、permutation 与 rfsrc 的 VIMP/最�
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-10-25
+date-modified: 2026-10-26
 directory:
   title: "特征重要性：rfsrc、重复稳定性与9类图"
   topic: 模型解释
-  updated: 2026-10-25
+  updated: 2026-10-26
 ---
 
 本页先说明 `get_imp()` 如何组织多种重要性，再用同一份结果比较全部 9 个 `plt_imp_*()` 函数。关键选项放在标签页中，代码与图片相邻；点击图片可放大。重要性回答变量对预测贡献有多大，方向与个体解释接着看 [SHAP 页](shap-guide.qmd)。
@@ -423,6 +423,70 @@ plt_imp_bar_per(imp, mode = "bar_per2", bar_display = "b", bar_per_palette = c("
 
 
 :::
+
+### 径向比例条的 label_args（2026-10-26） {#radial-labels-20261026}
+
+<!-- update-20261026: mlr_radial -->
+
+按已推送 MLR 0.1.13 `45e743a`，`plt_bar_per()` 和 `plt_imp_bar_per()` 的径向比例条支持 `label_args`。它只控制 `mode="per"` 或 `"bar_per"` 插图中的“百分比＋变量名”；两圈的 `per2/bar_per2` 保持自动排字，普通条形轴也不受影响。下例的五项数值是合成显示输入，不是新拟合的重要性。
+
+```r
+library(MLR)
+radial_data26 <- data.frame(var = paste0("F", 1:5), yhat = c(9, 6, 4, 2, 1), yhat_raw = c(9, 6, 4, 2, 1))
+radial_names26 <- setNames(c("Tumor size at diagnosis", "Age at initial diagnosis", "Regional lymph node count",
+  "Treatment sequence group", "Clinical marker score"), radial_data26[["var"]])
+radial_line26 <- plt_bar_per(radial_data26, mode = "per", add_name = radial_names26,
+  label_args = list(size = 2.8, offset = .03))
+radial_wrap26 <- plt_bar_per(radial_data26, mode = "per", add_name = radial_names26,
+  label_args = list(wrap = 13, size = 2.8, lineheight = .9, offset = .03, col = "grey20", font = 1))
+ggplot2::ggsave(file.path(tempdir(), "20261026-update-radial-line.pdf"), radial_line26, width = 8, height = 8)
+ggplot2::ggsave(file.path(tempdir(), "20261026-update-radial-wrap.pdf"), radial_wrap26, width = 8, height = 8)
+radial_imp26 <- transform(radial_data26, order = 1:5, imp_type = "mean.SHAP")
+radial_forward26 <- plt_imp_bar_per(radial_imp26, mode = "per", add_name = radial_names26,
+  label_args = list(wrap = 13, size = 2.8, lineheight = .9, offset = .03))
+ggplot2::ggsave(file.path(tempdir(), "20261026-update-radial-importance.pdf"), radial_forward26, width = 8, height = 8)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+before_radial26 <- radial_data26
+for (p in list(radial_line26, radial_wrap26, radial_forward26)) ggplot2::ggplot_build(p)
+stopifnot(identical(radial_data26, before_radial26))
+label_args26 <- eval(formals(plt_bar_per)[["label_args"]])
+stopifnot(identical(names(label_args26), c("wrap", "size", "lineheight", "offset", "col", "font")),
+  identical(eval(formals(plt_imp_bar_per)[["label_args"]]), label_args26))
+validation_values <- list(data = radial_data26, percentages = 100 * radial_data26[["yhat_raw"]] / sum(radial_data26[["yhat_raw"]]),
+  unchanged = identical(radial_data26, before_radial26), label_defaults = label_args26)
+```
+
+:::
+
+::: {.panel-tabset}
+
+### 单行 {.unnumbered}
+
+![相同五项输入使用单行标签。](images/imp-guide/20261026-update-radial-line.png){fig-alt="原生径向比例条PDF，五个合成变量的百分比与长名称使用单行文字。"}
+
+[PDF](images/imp-guide/20261026-update-radial-line.pdf)
+
+### 按空格换行 {.unnumbered}
+
+![只改变变量名排版，份额仍按同一原始值总量计算。](images/imp-guide/20261026-update-radial-wrap.png){fig-alt="相同径向比例条输入使用label_args的wrap按空格换行变量名，百分比仍在第一行靠近条端。"}
+
+[PDF](images/imp-guide/20261026-update-radial-wrap.pdf)
+
+### 重要性包装入口 {.unnumbered}
+
+![plt_imp_bar_per 转发相同标签设置。](images/imp-guide/20261026-update-radial-importance.png){fig-alt="plt_imp_bar_per以合成mean.SHAP重要性表生成原生径向条，label_args参数与通用入口一致。"}
+
+[PDF](images/imp-guide/20261026-update-radial-importance.pdf)
+
+:::
+
+`wrap` 按变量名的空格折行，长的无空格单词不硬拆；百分比不计入换行宽度，保留在靠近条端的第一行。`size` 是 ggplot 的毫米单位，`offset` 是比例单位：0.02 表示 2 个百分点的径向距离；`font` 1/2/3/4 对应普通/粗体/斜体/粗斜体。部分 list 只覆盖指定项。旧 `per_args$text_height` 仍会警告兼容，但应改用 `label_args$offset`；标签设置不改变份额和原始重要性。
+
+<!-- /update-20261026: mlr_radial -->
 
 ## `plt_imp_flo()`：标准流向图
 
@@ -928,5 +992,6 @@ attr(p_rank_save, "plot_size")
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-26：补充[径向比例条 label_args](#radial-labels-20261026)的单行、换行及包装入口 PDF。
 - 2026-10-25：[标签、份额与绘图缩放](#labels-shares-20261025)
 :::
