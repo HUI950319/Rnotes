@@ -2,13 +2,13 @@
 title: "模型评估：时间 ROC、概率误差与分类阈值"
 description: "生存与二分类的 13 张实图，比较表观/留出、时间点、区间、PR、阈值和混淆矩阵。"
 date: 2026-10-01
-date-modified: 2026-10-20
+date-modified: 2026-10-26
 lightbox: true
 toc-depth: 2
 directory:
   title: "模型评估：按需制表与MCC阈值曲线，14张图"
   topic: 模型评估与验证
-  updated: 2026-10-20
+  updated: 2026-10-26
 ---
 
 `get_model_evaluation()` 从指定学习器得到表观预测与重采样留出预测，返回标量指标、曲线和表格。本页用相同重采样方案对照不同指标及图形参数。
@@ -369,6 +369,74 @@ ROC / PR 由概率排序计算；阈值影响混淆矩阵和灵敏度等指标�
 
 如果在全数据上先调参或筛选变量，再只重采样固定学习器，性能仍可能乐观。需要把这些步骤放在训练折内，参见调优/特征筛选的嵌套选项；该函数不会自动重做外部手工选择。
 
+### 重采样的线程边界（2026-10-26） {#threads-20261026}
+
+<!-- update-20261026: mlr_evaluation_threads -->
+
+按已推送 MLR `45e743a`（线程修复 `38223f5`），`get_model_evaluation()` 在工作副本中把可识别的学习器线程参数设为 1，包括 `num.threads` 和 GraphLearner 的 `classif.ranger.num.threads` 等带点号字段，也递归处理 AutoTuner 内的学习器。外层并行由 `backend/workers` 管理；sequential 也会限制内层线程。函数克隆调用者的学习器，不把原对象的 8 线程改成 1。
+
+下面用 48 个合成观察、两折 CV、12 棵树作聚焦验证，并显式保留折次模型。它不是新的性能基准，也不能用两折小样本结果评价真实模型。线程限制不替代把调参和特征筛选放入训练折的设计。
+
+```r
+library(MLR)
+set.seed(102603)
+library(mlr3learners)
+data_threads26 <- data.frame(x = rnorm(48), z = rnorm(48),
+  outcome = factor(rep(c("No", "Yes"), each = 24)))
+data_threads26[["x"]] <- data_threads26[["x"]] + .5 * (data_threads26[["outcome"]] == "Yes")
+task_threads26 <- mlr3::TaskClassif$new("threads_demo", backend = data_threads26,
+  target = "outcome", positive = "Yes")
+learner_threads26 <- mlr3::lrn("classif.ranger", predict_type = "prob", num.trees = 12L, num.threads = 8L)
+evaluation_threads26 <- get_model_evaluation(task_threads26, learner_threads26,
+  metrics = c("auc", "brier"), resampling = mlr3::rsmp("cv", folds = 2L),
+  backend = "sequential", workers = 1L, store_models = TRUE, curve_points = 11L, seed = 102603L)
+evaluation_threads26[["metric_summary"]]
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+fold_threads26 <- vapply(evaluation_threads26[["resample_result"]][["learners"]],
+  function(fit) fit[["param_set"]][["values"]][["num.threads"]], integer(1))
+thread_table26 <- data.frame(object = c("Caller", "Final fitted copy", paste0("CV fit ", seq_along(fold_threads26))),
+  num_threads = c(learner_threads26[["param_set"]][["values"]][["num.threads"]],
+    evaluation_threads26[["learner"]][["param_set"]][["values"]][["num.threads"]], fold_threads26))
+stopifnot(identical(thread_table26[["num_threads"]], c(8L, 1L, 1L, 1L)),
+  nrow(evaluation_threads26[["metric_summary"]]) == 2L,
+  all(is.finite(evaluation_threads26[["metric_summary"]][["mean"]])))
+gt::gtsave(gt::gt(thread_table26), file.path(tempdir(), "20261026-update-mlr-thread-boundary.html"))
+# No fitting is needed to verify GraphLearner / AutoTuner parameter traversal.
+shapes_threads26 <- list()
+for (graph in c(FALSE, TRUE)) for (tuned in c(FALSE, TRUE)) {
+  check_learner <- mlr3::lrn("classif.ranger", num.threads = 8L, num.trees = 12L)
+  if (graph) check_learner <- mlr3::as_learner(mlr3pipelines::as_graph(check_learner))
+  if (tuned) {
+    parameter <- if (graph) "classif.ranger.mtry" else "mtry"
+    space <- do.call(paradox::ps, stats::setNames(list(paradox::p_int(1L, 2L)), parameter))
+    check_learner <- mlr3tuning::AutoTuner$new(learner = check_learner,
+      resampling = mlr3::rsmp("holdout"), measure = mlr3::msr("classif.ce"),
+      terminator = bbotk::trm("evals", n_evals = 1L), tuner = mlr3tuning::tnr("grid_search"), search_space = space)
+  }
+  MLR:::.me_set_single_thread(check_learner)
+  inner <- if (tuned) check_learner[["learner"]] else check_learner
+  key <- if (graph) "classif.ranger.num.threads" else "num.threads"
+  stopifnot(identical(inner[["param_set"]][["values"]][[key]], 1L))
+  shapes_threads26[[paste(graph, tuned)]] <- inner[["param_set"]][["values"]][[key]]
+}
+validation_values <- list(threads = thread_table26, traversed_shapes = shapes_threads26,
+  metrics = as.data.frame(evaluation_threads26[["metric_summary"]]))
+```
+
+:::
+
+![调用者保留 8 线程，最终模型和两折模型副本均使用 1 线程。](images/model-evaluation-guide/20261026-update-mlr-thread-boundary.png){fig-alt="原生线程核对表显示原学习器仍为8线程，最终模型与两个CV模型均为1线程，样本量48且未作速度比较。"}
+
+[原生 HTML](images/model-evaluation-guide/20261026-update-mlr-thread-boundary.html)
+
+上面的四种参数遍历检查没有拟合 AutoTuner，不能据此声称完成了嵌套调优验证。只对当前能识别且能设置的线程字段作约束；没有线程参数的学习器、外部 BLAS 和 GPU 资源仍需按各自后端管理。Windows 的外层并行使用支持的 multisession 或 sequential，不能照搬不支持的 multicore。
+
+<!-- /update-20261026: mlr_evaluation_threads -->
+
 ## 相关页面与源码 {#references}
 
 - [模型筛选](model-selection-guide.qmd)
@@ -410,3 +478,9 @@ plt_model_evaluation(eval_new, type = "threshold", metric = "mcc",
 分类阈值曲线当前一次组织整组计数，MCC 的乘积使用双精度，避免较大计数时的整数溢出。本轮以原预测的四格计数手算核对了 0.5 处 MCC，并检查两种公开取表方式的内容一致。曲线是同一模型的表观结果，不能据此选择阈值后继续把它当作独立验证；两折 CV 也只是教程预算。
 
 生存 Brier 路径也减少了各时间点的重复评分工作；仍使用传入的时间网格与原指标定义，必要时按标准评分接口逐时点回退。本轮没有新增计时，前面的 13 张图保留原执行快照。需要数值计算时读取 `metric_summary` / `resample_metrics` 等原数据字段，避免反复生成排版表。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-26：补充[重采样线程边界](#threads-20261026)的实际模型与参数遍历核对。
+:::
