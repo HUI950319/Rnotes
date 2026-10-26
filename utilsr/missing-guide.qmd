@@ -2,13 +2,13 @@
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
 description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
-date-modified: 2026-10-26
+date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-10-26
+  updated: 2026-10-27
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -108,13 +108,94 @@ lv(dat, count = c("group", "stage"))
 
 :::
 
+### 数据总览、变量分布与二向表（2026-10-27） {#lv-report-20261027}
+
+<!-- update-20261027: utils_lv_report -->
+
+按已推送 UtilsR **0.6.12** `45a162d`，控制台的 `lv()` 先概括行数、选中变量类型、含缺失及特殊值的变量，再逐变量显示频数或分布、可复制的筛选语句，最后列出分布与汇总。连续数值超过 10 个不同值时展示范围、四分位数和均值/SD，不把前几个数值的频数当作连续分布。分布摘要采用三位有效数字，不能从显示精度反推出原值。
+
+```r
+library(UtilsR)
+lv_data27 <- data.frame(Arm = rep(c("A", "B"), each = 8),
+  Age = 31:46,
+  Stage = factor(rep(c("I", "II", "Unknown", NA), 4),
+    levels = c("I", "II", "Unknown", "Unobserved")),
+  Stamp = as.POSIXct("2026-01-01 12:30:00", tz = "UTC") + rep(0:3, 4) * 3600,
+  Wait = as.difftime(rep(c(1.25, 2.5, 3, NA), 4), units = "days"),
+  ID = sprintf("demo-%02d", 1:16))
+lv_before27 <- lv_data27
+chosen27 <- c("Age", "Stage", "Stamp", "Wait", "ID")
+lv_lines27 <- capture.output(lv_return27 <- withVisible(
+  lv(lv_data27, dplyr::all_of(chosen27))))
+cat(lv_lines27, sep = "\n")
+two_way27 <- capture.output(lv(lv_data27, count = c(Arm, Stage)))
+cat(two_way27, sep = "\n")
+```
+
+向量选列推荐 `all_of(chosen27)`，列名仍从调用环境解析；返回值仍是**不可见的完整原输入**，不是摘要表。上述缺失与特殊值百分比以 16 行为分母；`Unknown` 不会自动变成 NA。日期时间在频数中保留完整显示，时间差不填充多余空格。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(!lv_return27[["visible"]], identical(lv_return27[["value"]], lv_before27),
+  identical(lv_data27, lv_before27), any(grepl("16 rows", lv_lines27, fixed = TRUE)),
+  any(grepl("Variable summary", lv_lines27, fixed = TRUE)),
+  any(grepl("Mean (SD)", lv_lines27, fixed = TRUE)),
+  !any(grepl("<table", c(lv_lines27, two_way27), fixed = TRUE)),
+  any(grepl("row %", two_way27, fixed = TRUE)))
+save_console26 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  chars <- strsplit(body, "", fixed = TRUE)[[1]]; cp <- utf8ToInt(body)
+  for (i in which(cp > 127L & !(cp >= 0x2500L & cp <= 0x257fL))) {
+    w <- cli::ansi_nchar(chars[i], type = "width")
+    if (w %in% 1:2) chars[i] <- sprintf('<span class="w%d">%s</span>', w, chars[i])
+  }
+  html <- paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '.w1,.w2{display:inline-block}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', paste(chars, collapse = ""), '</pre>')
+  writeLines(html, file.path(tempdir(), paste0("20261027-update-", name, ".html")), useBytes = TRUE)
+}
+save_console26(lv_lines27, "lv-variable-report")
+save_console26(two_way27, "lv-two-way")
+validation_values <- list(n = nrow(lv_data27), selected = length(chosen27),
+  na_stage = sum(is.na(lv_data27[["Stage"]])),
+  special_stage = sum(lv_data27[["Stage"]] == "Unknown", na.rm = TRUE),
+  counts = as.data.frame(table(lv_data27[["Arm"]], lv_data27[["Stage"]], useNA = "ifany")),
+  unchanged = identical(lv_data27, lv_before27))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 数据总览与逐变量报告 {.unnumbered}
+
+![16 行合成数据的真实控制台报告。](images/missing-guide/20261027-update-lv-variable-report.png){fig-alt="lv 控制台先概括数据规模，再按变量显示频数、连续分布与筛选语句，结尾保留分布与缺失汇总。"}
+
+[原生 HTML](images/missing-guide/20261027-update-lv-variable-report.html)
+
+#### 一张二向表 {.unnumbered}
+
+![计数与行百分比合并展示。](images/missing-guide/20261027-update-lv-two-way.png){fig-alt="Arm 按 Stage 的二向频数表，每格合并计数及该行百分比；Total 行的分母是全部 16 行，缺失独立保留。"}
+
+[原生 HTML](images/missing-guide/20261027-update-lv-two-way.html)
+
+:::
+
+二向表每格是 `n (row %)`，分母为该行人数；Total 行则使用全体行数，不是行百分比的简单平均。超过任一方向 100 个类别时仍跳过宽表，保留长频数表。分组检视 `group=` 的原生表现在写明分组列和样本量。
+
+非交互式 Rscript 不再输出 gt 的 HTML 源码；交互式控制台仍显示原生表，knitr 则继续输出原生报告并省略逐变量控制台段。这里展示的是 Rscript 的真实 stdout，不代表本节重新编织了下方的旧报告。
+
+<!-- /update-20261027: utils_lv_report -->
+
 ### lv 的控制台标题随标准输出保留（2026-10-26） {#lv-stdout-20261026}
 
 <!-- update-20261026: utils_lv_stdout -->
 
-按已推送 UtilsR **0.6.12** `0b59c82`，控制台下的报告标题、变量与分组信息现在随表格写到 stdout，`capture.output()` 能一起保存；`suppressMessages()` 不再把这些报告标题去掉。空选择、高基数跳过等诊断仍可能是消息，不应混作报告正文。Quarto / knitr 编织时保持原来的消息与原生表格路径；本节测试的是控制台，没有重新编织下面的历史报告。
+以下保留 2026-10-26 的 UtilsR **0.6.12** `0b59c82` 快照：控制台下的报告标题、变量与分组信息现在随表格写到 stdout，`capture.output()` 能一起保存；`suppressMessages()` 不再把这些报告标题去掉。空选择、高基数跳过等诊断仍可能是消息，不应混作报告正文。Quarto / knitr 编织时保持原来的消息与原生表格路径；本节测试的是控制台，没有重新编织下面的历史报告。
 
-8 行合成数据的单变量频数表可直接用于日志。`lv()` 仍不可见返回完整输入，选列或计数不改变返回的数据范围。两变量计数还会显示原生 gt 宽表；在非交互式 Rscript 中，该表可能以 HTML 源码输出，不宜把整段捕获结果当作纯文本表。
+8 行合成数据的单变量频数表可直接用于日志。`lv()` 仍不可见返回完整输入，选列或计数不改变返回的数据范围。该旧快照在 Rscript 的两变量计数中可能捕获到 gt HTML 源码；此行为已由上节的新提交修复。
 
 ```r
 library(UtilsR)
@@ -1256,6 +1337,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[数据总览、变量分布与二向表](#lv-report-20261027)，核对百分比分母及完整输入返回。
 - 2026-10-26：验证[lv 控制台报告的标准输出](#lv-stdout-20261026)及不可见返回合同。
 - 2026-10-25：[环境诊断：包副本与实时可用内存](#environment-20261025)
 - 2026-10-24：[lv：原生报告与分组边界](#lv-report-20261024)
