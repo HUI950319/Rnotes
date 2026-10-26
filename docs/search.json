@@ -8163,7 +8163,7 @@
     "href": "scmmr/function-modules.html#分析流程与对象流",
     "title": "scMMR 功能模块图",
     "section": "分析流程与对象流",
-    "text": "分析流程与对象流\n\n\n\nscMMR：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。",
+    "text": "分析流程与对象流\n\n\n\nscMMR：分析流程与对象流\n\n\n查看原尺寸 PNG\n三页分别用于了解模块分工、定位公共接口和衔接输入输出。图中的流程分支按具体任务选择。\n\n相关性与完整配对（2026-10-26）\n按已推送 scMMR 0.3.1 91d493e 核对，显式导出仍为 54 项。RunCorrelation() 修正了有限值配对、Spearman 的对内排秩、Kendall 并列校正、数字分组名及 Seurat 按基因表达比例筛选。\n三种方法、分组和表达比例的原生表在 Windows / WSL R 4.4.3 使用 8–30 个合成观察运行。原三张图保留历史快照；新例只验证相关性接口，不训练神经网络。",
     "crumbs": [
       "scMMR · 单细胞建模",
       "<span class='chapter-number'>57</span>  <span class='chapter-title'>功能模块图</span>"
@@ -8174,7 +8174,51 @@
     "href": "scmmr/index.html",
     "title": "scMMR 概览",
     "section": "",
-    "text": "scMMR 是基于 reticulate + PyTorch 的单细胞多任务深度学习模型，包含细胞注释、模块评分和通路分析。\n主要函数： DNN_*()、ComputeModuleScore()、RunPathwayAnalysis()、PlotPathway*()\n参考文档：https://hui950319.github.io/scMMR/　源码：https://github.com/HUI950319/scMMR\n\n\n\n\n\n\n注记\n\n\n\n这个分区的笔记还在整理中。",
+    "text": "用 RunCorrelation 获取系数、P 值与配对数\nscMMR 是基于 reticulate + PyTorch 的单细胞多任务深度学习模型，包含细胞注释、模块评分和通路分析。\n主要函数： DNN_*()、ComputeModuleScore()、RunPathwayAnalysis()、PlotPathway*()\n参考文档：https://hui950319.github.io/scMMR/　源码：https://github.com/HUI950319/scMMR",
+    "crumbs": [
+      "scMMR · 单细胞建模",
+      "<span class='chapter-number'>58</span>  <span class='chapter-title'>单细胞模型概览</span>"
+    ]
+  },
+  {
+    "objectID": "scmmr/index.html#correlation",
+    "href": "scmmr/index.html#correlation",
+    "title": "scMMR 概览",
+    "section": "",
+    "text": "方法与有限值配对（2026-10-26）\n默认方法是 Spearman；可显式选择 Pearson 或 Kendall。每个特征只使用目标和该特征都为有限数值的行，NA、NaN、Inf 不计入该对的 n_cells。Spearman 在各自完整配对中重新排秩；Kendall 的 P 值考虑并列值。秩检验使用 cor.test(...,exact=FALSE) 的渐近推断，不是小样本精确检验。\nlibrary(scMMR)\nd_cor26 &lt;- data.frame(target = 1:8,\n  a = c(NA, 1, 2, NA, 4, 4, 6, 7),\n  b = c(8, 5, NA, 3, 2, 4, Inf, 0))\nmethods_cor26 &lt;- c(\"pearson\", \"spearman\", \"kendall\")\nresults_cor26 &lt;- setNames(lapply(methods_cor26, function(method)\n  RunCorrelation(d_cor26, \"target\", features = c(\"a\", \"b\"), method = method,\n    min.cells = 3, padjust.method = \"fdr\", verbose = FALSE)), methods_cor26)\nresults_cor26[[\"spearman\"]]\n\n\n\n\n\n\n注记复核代码\n\n\n\n\n\nfor (method in methods_cor26) for (feature in c(\"a\", \"b\")) {\n  paired &lt;- is.finite(d_cor26[[\"target\"]]) & is.finite(d_cor26[[feature]])\n  reference &lt;- stats::cor.test(d_cor26[[\"target\"]][paired], d_cor26[[feature]][paired],\n    method = method, exact = FALSE)\n  actual &lt;- results_cor26[[method]][results_cor26[[method]][[\"gene\"]] == feature, ]\n  stopifnot(nrow(actual) == 1L, actual[[\"n_cells\"]] == sum(paired),\n    isTRUE(all.equal(actual[[\"score\"]], unname(reference[[\"estimate\"]]))),\n    isTRUE(all.equal(actual[[\"pvalue\"]], reference[[\"p.value\"]])))\n}\ntable_cor26 &lt;- do.call(rbind, lapply(methods_cor26, function(method)\n  data.frame(method = method, results_cor26[[method]][c(\"gene\", \"score\", \"pvalue\", \"padj\", \"n_cells\")], row.names = NULL)))\ngt::gtsave(gt::fmt_number(gt::gt(table_cor26), columns = c(\"score\", \"pvalue\", \"padj\"), decimals = 4),\n  file.path(tempdir(), \"20261026-update-scmmr-pairs.html\"))\n\n\n\n\n\n\n三种方法分别以相同特征的有限值配对计算系数与检验。\n\n\n原生 HTML 表\n结果仍是 data.frame：gene 为特征名，score 为该方法的系数，pvalue 为原始双侧 P，padj 为校正 P，abs_score 用于降序排列，n_cells 为该对的观察数。min.cells 默认 20，本页为展示小数据显式设为 3；每对至少需 max(3,min.cells) 个观察值，常量或不可估计的特征不进入有效结果。系数的正负和大小需与方法一起解释，显著性也不等于预测能力。",
+    "crumbs": [
+      "scMMR · 单细胞建模",
+      "<span class='chapter-number'>58</span>  <span class='chapter-title'>单细胞模型概览</span>"
+    ]
+  },
+  {
+    "objectID": "scmmr/index.html#groups",
+    "href": "scmmr/index.html#groups",
+    "title": "scMMR 概览",
+    "section": "先保留分组名称，再核对校正范围",
+    "text": "先保留分组名称，再核对校正范围\n数字 10、20 是标签，不是列表位置。因子未观测水平 30 不产生结果；缺失组的行不归入任一组。一次调用的 padj 在合并所有有效组与特征后的原始 P 值上统一计算，不是分别在每组里校正。\ngroup_cor26 &lt;- rbind(transform(d_cor26, group = 10), transform(d_cor26, group = 20),\n  transform(d_cor26[1, ], group = NA_real_))\ngrouped_cor26 &lt;- RunCorrelation(group_cor26, \"target\", c(\"a\", \"b\"), group.by = \"group\",\n  method = \"spearman\", min.cells = 3, cl = 1, verbose = FALSE)\ngrouped_cor26[c(\"group\", \"gene\", \"score\", \"n_cells\", \"padj\")]\n\n\n\n\n\n\n注记复核代码\n\n\n\n\n\nstopifnot(setequal(grouped_cor26[[\"group\"]], c(\"10\", \"20\")),\n  all(grouped_cor26[[\"n_cells\"]] == 6L),\n  isTRUE(all.equal(grouped_cor26[[\"padj\"]], stats::p.adjust(grouped_cor26[[\"pvalue\"]], method = \"fdr\"))))\nfactor_cor26 &lt;- group_cor26\nfactor_cor26[[\"group\"]] &lt;- factor(factor_cor26[[\"group\"]], levels = c(20, 10, 30))\nfactor_result26 &lt;- RunCorrelation(factor_cor26, \"target\", c(\"a\", \"b\"), group.by = \"group\",\n  method = \"spearman\", min.cells = 3, verbose = FALSE)\nstopifnot(setequal(factor_result26[[\"group\"]], c(\"10\", \"20\")))\ngt::gtsave(gt::fmt_number(gt::gt(grouped_cor26[c(\"group\", \"gene\", \"score\", \"n_cells\", \"padj\")]),\n  columns = c(\"score\", \"padj\"), decimals = 4), file.path(tempdir(), \"20261026-update-scmmr-groups.html\"))\n\n\n\n\n\n\n数字组标签按名称返回，缺失组和未观测因子水平不制造空组。\n\n\n原生 HTML 表",
+    "crumbs": [
+      "scMMR · 单细胞建模",
+      "<span class='chapter-number'>58</span>  <span class='chapter-title'>单细胞模型概览</span>"
+    ]
+  },
+  {
+    "objectID": "scmmr/index.html#seurat-filter",
+    "href": "scmmr/index.html#seurat-filter",
+    "title": "scMMR 概览",
+    "section": "Seurat 的表达比例筛选",
+    "text": "Seurat 的表达比例筛选\nmin.pct 只用于 Seurat 的基因特征：按全部所选细胞中表达值大于零的比例预筛，随后才做组内完整配对与 min.cells 检查。它不筛掉低表达细胞，也不对普通 data.frame 的数值列做阳性比例筛选。应明确 assay 与 layer，下例使用 30 个合成细胞的 counts，无需标准化流程。\ncounts_cor26 &lt;- rbind(target = 1:30, rare = c(1, rep(0, 29)), common = rep(c(1, 3, 2), 10))\ncolnames(counts_cor26) &lt;- paste0(\"cell\", 1:30)\nobject_cor26 &lt;- SeuratObject::CreateSeuratObject(counts = Matrix::Matrix(counts_cor26, sparse = TRUE))\nunfiltered_cor26 &lt;- RunCorrelation(object_cor26, \"target\", c(\"rare\", \"common\"),\n  assay = \"RNA\", layer = \"counts\", min.pct = 0, min.cells = 3, verbose = FALSE)\nfiltered_cor26 &lt;- RunCorrelation(object_cor26, \"target\", c(\"rare\", \"common\"),\n  assay = \"RNA\", layer = \"counts\", min.pct = .5, min.cells = 3, verbose = FALSE)\nfiltered_cor26\n\n\n\n\n\n\n注记复核代码\n\n\n\n\n\nstopifnot(setequal(unfiltered_cor26[[\"gene\"]], c(\"rare\", \"common\")),\n  identical(filtered_cor26[[\"gene\"]], \"common\"), filtered_cor26[[\"n_cells\"]] == 30L)\nfilter_table26 &lt;- data.frame(gene = c(\"rare\", \"common\"),\n  positive_cells = c(1L, 30L), total_cells = 30L,\n  kept_at_zero = c(\"Yes\", \"Yes\"), kept_at_half = c(\"No\", \"Yes\"))\ngt::gtsave(gt::gt(filter_table26), file.path(tempdir(), \"20261026-update-scmmr-expression.html\"))\nvalidation_values &lt;- list(methods = table_cor26, groups = grouped_cor26,\n  unfiltered = unfiltered_cor26, filtered = filtered_cor26, expression_filter = filter_table26)\n\n\n\n\n\n\n稀有基因与常见基因按各自跨细胞的表达比例筛选。\n\n\n原生 HTML 表\n在真实单细胞研究中，n_cells 不是独立供者数；细胞相关性不自动处理同一供者内的依赖。分析单位、重复结构和多重比较范围仍需按研究设计确定。RunCorrelation() 的结果可继续交给 PlotRankScatter() 展示排序，但绘图不会重新验证独立性。",
+    "crumbs": [
+      "scMMR · 单细胞建模",
+      "<span class='chapter-number'>58</span>  <span class='chapter-title'>单细胞模型概览</span>"
+    ]
+  },
+  {
+    "objectID": "scmmr/index.html#page-updates",
+    "href": "scmmr/index.html#page-updates",
+    "title": "scMMR 概览",
+    "section": "更新记录",
+    "text": "更新记录\n\n\n\n\n\n\n注记更新记录\n\n\n\n\n\n\n2026-10-26：补充三种方法与完整配对、组名与 FDR、Seurat 表达比例筛选的实际输出。",
     "crumbs": [
       "scMMR · 单细胞建模",
       "<span class='chapter-number'>58</span>  <span class='chapter-title'>单细胞模型概览</span>"

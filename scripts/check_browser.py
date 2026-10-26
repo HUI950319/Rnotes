@@ -38,6 +38,7 @@ PAGES = [
     "mlr/function-modules.html", "regr/ps-guide.html", "causalr/clinical-workflow-guide.html",
     "regr/um-guide.html", "regr/table-guide.html",
     "labr/index.html",
+    "scmmr/index.html",
 ]
 
 

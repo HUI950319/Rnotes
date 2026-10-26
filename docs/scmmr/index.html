@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="基于 reticulate 与 PyTorch 的 scMMR 单细胞模型功能概览，涵盖细胞注释、模块评分、通路分析与主要接口。">
+<meta name="description" content="scMMR 概览及 RunCorrelation：三种相关方法、有限值完整配对、分组标签和 Seurat 基因表达比例筛选。">
 
 <title>scMMR 概览 – R 包开发笔记</title>
 <style>
@@ -20,6 +20,41 @@ ul.task-list li input[type="checkbox"] {
   width: 0.8em;
   margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */
   vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
 }
 </style>
 
@@ -48,6 +83,9 @@ ul.task-list li input[type="checkbox"] {
 <link href="../site_libs/bootstrap/bootstrap-49cd541467695df53af29df194cd9b04.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
 <link href="../site_libs/bootstrap/bootstrap-dark-813fd77ea255b52178c1bc1719ec8594.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
 <link href="../site_libs/bootstrap/bootstrap-49cd541467695df53af29df194cd9b04.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="../site_libs/quarto-contrib/glightbox/glightbox.min.js"></script>
+<link href="../site_libs/quarto-contrib/glightbox/glightbox.min.css" rel="stylesheet">
+<link href="../site_libs/quarto-contrib/glightbox/lightbox.css" rel="stylesheet">
 <script id="quarto-search-options" type="application/json">{
   "location": "sidebar",
   "copy-button": false,
@@ -1090,8 +1128,20 @@ ul.task-list li input[type="checkbox"] {
 </nav>
 <div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
 <!-- margin-sidebar -->
-    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar zindex-bottom">
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">目录</h2>
 
+  <ul>
+  <li><a href="#correlation" id="toc-correlation" class="nav-link active" data-scroll-target="#correlation">用 RunCorrelation 获取系数、P 值与配对数</a>
+  <ul class="collapse">
+  <li><a href="#方法与有限值配对2026-10-26" id="toc-方法与有限值配对2026-10-26" class="nav-link" data-scroll-target="#方法与有限值配对2026-10-26">方法与有限值配对（2026-10-26）</a></li>
+  </ul></li>
+  <li><a href="#groups" id="toc-groups" class="nav-link" data-scroll-target="#groups">先保留分组名称，再核对校正范围</a></li>
+  <li><a href="#seurat-filter" id="toc-seurat-filter" class="nav-link" data-scroll-target="#seurat-filter">Seurat 的表达比例筛选</a></li>
+  <li><a href="#page-updates" id="toc-page-updates" class="nav-link" data-scroll-target="#page-updates">更新记录</a></li>
+  </ul>
+<div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/scmmr/index.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></nav>
     </div>
 <!-- main -->
 <main class="content" id="quarto-document-content">
@@ -1108,6 +1158,12 @@ ul.task-list li input[type="checkbox"] {
 
 
 
+    <div>
+    <div class="quarto-title-meta-heading">修改于</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date-modified">2026年10月26日</p>
+    </div>
+  </div>
 
   </div>
 
@@ -1119,21 +1175,183 @@ ul.task-list li input[type="checkbox"] {
 <p>scMMR 是基于 reticulate + PyTorch 的单细胞多任务深度学习模型，包含细胞注释、模块评分和通路分析。</p>
 <p><strong>主要函数：</strong> <code>DNN_*()</code>、<code>ComputeModuleScore()</code>、<code>RunPathwayAnalysis()</code>、<code>PlotPathway*()</code></p>
 <p>参考文档：<a href="https://hui950319.github.io/scMMR/" class="uri">https://hui950319.github.io/scMMR/</a>　源码：<a href="https://github.com/HUI950319/scMMR" class="uri">https://github.com/HUI950319/scMMR</a></p>
-<div class="callout callout-style-default callout-note callout-titled">
-<div class="callout-header d-flex align-content-center">
+<div class="callout callout-style-default callout-note callout-titled" title="版本与复现记录">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
 <div class="callout-title-container flex-fill">
-注记
+<span class="screen-reader-only">注记</span>版本与复现记录
 </div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
+<div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>这个分区的笔记还在整理中。</p>
+<p>2026-10-26 按已推送 scMMR 0.3.1 <code>91d493e</code>，在 Windows / WSL R 4.4.3 执行 8 行普通表、17 行分组表与 30 个细胞的合成计数矩阵。只运行相关性接口，没有加载 Python 模型、训练 DNN 或调用 GPU；<a href="../scmmr/function-modules.html">模块图</a>保留原快照。</p>
+</div>
+</div>
+</div>
+<section id="correlation" class="level2">
+<h2 class="anchored" data-anchor-id="correlation">用 RunCorrelation 获取系数、P 值与配对数</h2>
+<!-- update-20261026: scmmr_correlation -->
+<section id="方法与有限值配对2026-10-26" class="level3">
+<h3 class="anchored" data-anchor-id="方法与有限值配对2026-10-26">方法与有限值配对（2026-10-26）</h3>
+<p>默认方法是 Spearman；可显式选择 Pearson 或 Kendall。每个特征只使用目标和该特征都为有限数值的行，NA、NaN、Inf 不计入该对的 <code>n_cells</code>。Spearman 在各自完整配对中重新排秩；Kendall 的 P 值考虑并列值。秩检验使用 <code>cor.test(...,exact=FALSE)</code> 的渐近推断，不是小样本精确检验。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(scMMR)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>d_cor26 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">target =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">8</span>,</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">a =</span> <span class="fu">c</span>(<span class="cn">NA</span>, <span class="dv">1</span>, <span class="dv">2</span>, <span class="cn">NA</span>, <span class="dv">4</span>, <span class="dv">4</span>, <span class="dv">6</span>, <span class="dv">7</span>),</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">b =</span> <span class="fu">c</span>(<span class="dv">8</span>, <span class="dv">5</span>, <span class="cn">NA</span>, <span class="dv">3</span>, <span class="dv">2</span>, <span class="dv">4</span>, <span class="cn">Inf</span>, <span class="dv">0</span>))</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>methods_cor26 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"pearson"</span>, <span class="st">"spearman"</span>, <span class="st">"kendall"</span>)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>results_cor26 <span class="ot">&lt;-</span> <span class="fu">setNames</span>(<span class="fu">lapply</span>(methods_cor26, <span class="cf">function</span>(method)</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">RunCorrelation</span>(d_cor26, <span class="st">"target"</span>, <span class="at">features =</span> <span class="fu">c</span>(<span class="st">"a"</span>, <span class="st">"b"</span>), <span class="at">method =</span> method,</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">min.cells =</span> <span class="dv">3</span>, <span class="at">padjust.method =</span> <span class="st">"fdr"</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)), methods_cor26)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>results_cor26[[<span class="st">"spearman"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (method <span class="cf">in</span> methods_cor26) <span class="cf">for</span> (feature <span class="cf">in</span> <span class="fu">c</span>(<span class="st">"a"</span>, <span class="st">"b"</span>)) {</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>  paired <span class="ot">&lt;-</span> <span class="fu">is.finite</span>(d_cor26[[<span class="st">"target"</span>]]) <span class="sc">&amp;</span> <span class="fu">is.finite</span>(d_cor26[[feature]])</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>  reference <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">cor.test</span>(d_cor26[[<span class="st">"target"</span>]][paired], d_cor26[[feature]][paired],</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">method =</span> method, <span class="at">exact =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  actual <span class="ot">&lt;-</span> results_cor26[[method]][results_cor26[[method]][[<span class="st">"gene"</span>]] <span class="sc">==</span> feature, ]</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">nrow</span>(actual) <span class="sc">==</span> <span class="dv">1</span>L, actual[[<span class="st">"n_cells"</span>]] <span class="sc">==</span> <span class="fu">sum</span>(paired),</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(actual[[<span class="st">"score"</span>]], <span class="fu">unname</span>(reference[[<span class="st">"estimate"</span>]]))),</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>    <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(actual[[<span class="st">"pvalue"</span>]], reference[[<span class="st">"p.value"</span>]])))</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>table_cor26 <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, <span class="fu">lapply</span>(methods_cor26, <span class="cf">function</span>(method)</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.frame</span>(<span class="at">method =</span> method, results_cor26[[method]][<span class="fu">c</span>(<span class="st">"gene"</span>, <span class="st">"score"</span>, <span class="st">"pvalue"</span>, <span class="st">"padj"</span>, <span class="st">"n_cells"</span>)], <span class="at">row.names =</span> <span class="cn">NULL</span>)))</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">fmt_number</span>(gt<span class="sc">::</span><span class="fu">gt</span>(table_cor26), <span class="at">columns =</span> <span class="fu">c</span>(<span class="st">"score"</span>, <span class="st">"pvalue"</span>, <span class="st">"padj"</span>), <span class="at">decimals =</span> <span class="dv">4</span>),</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-scmmr-pairs.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/index/20261026-update-scmmr-pairs.png" class="lightbox" data-gallery="quarto-lightbox-gallery-1" title="三种方法分别以相同特征的有限值配对计算系数与检验。"><img src="images/index/20261026-update-scmmr-pairs.png" class="img-fluid figure-img" alt="三种方法与两个合成特征的原生结果表，列出gene、相关系数、原始P值、FDR校正值及每对实际观察数。" loading="lazy" decoding="async" width="582" height="387" srcset="../assets/figure-previews/ccddaebc605d113ffac80b86639bb141.webp"></a></p>
+<figcaption>三种方法分别以相同特征的有限值配对计算系数与检验。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-scmmr-pairs.html">原生 HTML 表</a></p>
+<p>结果仍是 data.frame：<code>gene</code> 为特征名，<code>score</code> 为该方法的系数，<code>pvalue</code> 为原始双侧 P，<code>padj</code> 为校正 P，<code>abs_score</code> 用于降序排列，<code>n_cells</code> 为该对的观察数。<code>min.cells</code> 默认 20，本页为展示小数据显式设为 3；每对至少需 <code>max(3,min.cells)</code> 个观察值，常量或不可估计的特征不进入有效结果。系数的正负和大小需与方法一起解释，显著性也不等于预测能力。</p>
+</section>
+</section>
+<section id="groups" class="level2">
+<h2 class="anchored" data-anchor-id="groups">先保留分组名称，再核对校正范围</h2>
+<p>数字 10、20 是标签，不是列表位置。因子未观测水平 30 不产生结果；缺失组的行不归入任一组。一次调用的 <code>padj</code> 在<strong>合并所有有效组与特征后的原始 P 值</strong>上统一计算，不是分别在每组里校正。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>group_cor26 <span class="ot">&lt;-</span> <span class="fu">rbind</span>(<span class="fu">transform</span>(d_cor26, <span class="at">group =</span> <span class="dv">10</span>), <span class="fu">transform</span>(d_cor26, <span class="at">group =</span> <span class="dv">20</span>),</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">transform</span>(d_cor26[<span class="dv">1</span>, ], <span class="at">group =</span> <span class="cn">NA_real_</span>))</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>grouped_cor26 <span class="ot">&lt;-</span> <span class="fu">RunCorrelation</span>(group_cor26, <span class="st">"target"</span>, <span class="fu">c</span>(<span class="st">"a"</span>, <span class="st">"b"</span>), <span class="at">group.by =</span> <span class="st">"group"</span>,</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">method =</span> <span class="st">"spearman"</span>, <span class="at">min.cells =</span> <span class="dv">3</span>, <span class="at">cl =</span> <span class="dv">1</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>grouped_cor26[<span class="fu">c</span>(<span class="st">"group"</span>, <span class="st">"gene"</span>, <span class="st">"score"</span>, <span class="st">"n_cells"</span>, <span class="st">"padj"</span>)]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">setequal</span>(grouped_cor26[[<span class="st">"group"</span>]], <span class="fu">c</span>(<span class="st">"10"</span>, <span class="st">"20"</span>)),</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(grouped_cor26[[<span class="st">"n_cells"</span>]] <span class="sc">==</span> <span class="dv">6</span>L),</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(grouped_cor26[[<span class="st">"padj"</span>]], stats<span class="sc">::</span><span class="fu">p.adjust</span>(grouped_cor26[[<span class="st">"pvalue"</span>]], <span class="at">method =</span> <span class="st">"fdr"</span>))))</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>factor_cor26 <span class="ot">&lt;-</span> group_cor26</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>factor_cor26[[<span class="st">"group"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(factor_cor26[[<span class="st">"group"</span>]], <span class="at">levels =</span> <span class="fu">c</span>(<span class="dv">20</span>, <span class="dv">10</span>, <span class="dv">30</span>))</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>factor_result26 <span class="ot">&lt;-</span> <span class="fu">RunCorrelation</span>(factor_cor26, <span class="st">"target"</span>, <span class="fu">c</span>(<span class="st">"a"</span>, <span class="st">"b"</span>), <span class="at">group.by =</span> <span class="st">"group"</span>,</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">method =</span> <span class="st">"spearman"</span>, <span class="at">min.cells =</span> <span class="dv">3</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">setequal</span>(factor_result26[[<span class="st">"group"</span>]], <span class="fu">c</span>(<span class="st">"10"</span>, <span class="st">"20"</span>)))</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">fmt_number</span>(gt<span class="sc">::</span><span class="fu">gt</span>(grouped_cor26[<span class="fu">c</span>(<span class="st">"group"</span>, <span class="st">"gene"</span>, <span class="st">"score"</span>, <span class="st">"n_cells"</span>, <span class="st">"padj"</span>)]),</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">columns =</span> <span class="fu">c</span>(<span class="st">"score"</span>, <span class="st">"padj"</span>), <span class="at">decimals =</span> <span class="dv">4</span>), <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-scmmr-groups.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/index/20261026-update-scmmr-groups.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="数字组标签按名称返回，缺失组和未观测因子水平不制造空组。"><img src="images/index/20261026-update-scmmr-groups.png" class="img-fluid figure-img" alt="原生分组结果表保留10与20两组名称，各特征有六个完整有限值配对，FDR针对本次调用的所有有效比较。" loading="lazy" decoding="async" width="450" height="276" srcset="../assets/figure-previews/8bcf4e6c2217b22b12cb76cd49e6120d.webp"></a></p>
+<figcaption>数字组标签按名称返回，缺失组和未观测因子水平不制造空组。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-scmmr-groups.html">原生 HTML 表</a></p>
+</section>
+<section id="seurat-filter" class="level2">
+<h2 class="anchored" data-anchor-id="seurat-filter">Seurat 的表达比例筛选</h2>
+<p><code>min.pct</code> 只用于 Seurat 的基因特征：按全部所选细胞中表达值大于零的比例预筛，随后才做组内完整配对与 <code>min.cells</code> 检查。它不筛掉低表达细胞，也不对普通 data.frame 的数值列做阳性比例筛选。应明确 <code>assay</code> 与 <code>layer</code>，下例使用 30 个合成细胞的 counts，无需标准化流程。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>counts_cor26 <span class="ot">&lt;-</span> <span class="fu">rbind</span>(<span class="at">target =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">30</span>, <span class="at">rare =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="fu">rep</span>(<span class="dv">0</span>, <span class="dv">29</span>)), <span class="at">common =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">3</span>, <span class="dv">2</span>), <span class="dv">10</span>))</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(counts_cor26) <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"cell"</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">30</span>)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>object_cor26 <span class="ot">&lt;-</span> SeuratObject<span class="sc">::</span><span class="fu">CreateSeuratObject</span>(<span class="at">counts =</span> Matrix<span class="sc">::</span><span class="fu">Matrix</span>(counts_cor26, <span class="at">sparse =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>unfiltered_cor26 <span class="ot">&lt;-</span> <span class="fu">RunCorrelation</span>(object_cor26, <span class="st">"target"</span>, <span class="fu">c</span>(<span class="st">"rare"</span>, <span class="st">"common"</span>),</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">assay =</span> <span class="st">"RNA"</span>, <span class="at">layer =</span> <span class="st">"counts"</span>, <span class="at">min.pct =</span> <span class="dv">0</span>, <span class="at">min.cells =</span> <span class="dv">3</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>filtered_cor26 <span class="ot">&lt;-</span> <span class="fu">RunCorrelation</span>(object_cor26, <span class="st">"target"</span>, <span class="fu">c</span>(<span class="st">"rare"</span>, <span class="st">"common"</span>),</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">assay =</span> <span class="st">"RNA"</span>, <span class="at">layer =</span> <span class="st">"counts"</span>, <span class="at">min.pct =</span> .<span class="dv">5</span>, <span class="at">min.cells =</span> <span class="dv">3</span>, <span class="at">verbose =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>filtered_cor26</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-4" class="callout-4-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">setequal</span>(unfiltered_cor26[[<span class="st">"gene"</span>]], <span class="fu">c</span>(<span class="st">"rare"</span>, <span class="st">"common"</span>)),</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(filtered_cor26[[<span class="st">"gene"</span>]], <span class="st">"common"</span>), filtered_cor26[[<span class="st">"n_cells"</span>]] <span class="sc">==</span> <span class="dv">30</span>L)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>filter_table26 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">gene =</span> <span class="fu">c</span>(<span class="st">"rare"</span>, <span class="st">"common"</span>),</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">positive_cells =</span> <span class="fu">c</span>(<span class="dv">1</span>L, <span class="dv">30</span>L), <span class="at">total_cells =</span> <span class="dv">30</span>L,</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">kept_at_zero =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"Yes"</span>), <span class="at">kept_at_half =</span> <span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>))</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(filter_table26), <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261026-update-scmmr-expression.html"</span>))</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">methods =</span> table_cor26, <span class="at">groups =</span> grouped_cor26,</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">unfiltered =</span> unfiltered_cor26, <span class="at">filtered =</span> filtered_cor26, <span class="at">expression_filter =</span> filter_table26)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/index/20261026-update-scmmr-expression.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="稀有基因与常见基因按各自跨细胞的表达比例筛选。"><img src="images/index/20261026-update-scmmr-expression.png" class="img-fluid figure-img" alt="原生表中rare只有一个细胞表达，在min.pct为0.5时剔除；common在30个细胞中均表达而保留。" loading="lazy" decoding="async" width="723" height="165" srcset="../assets/figure-previews/b8cf7f55045612d9eb24201b62874776.webp"></a></p>
+<figcaption>稀有基因与常见基因按各自跨细胞的表达比例筛选。</figcaption>
+</figure>
+</div>
+<p><a href="images/index/20261026-update-scmmr-expression.html">原生 HTML 表</a></p>
+<p>在真实单细胞研究中，<code>n_cells</code> 不是独立供者数；细胞相关性不自动处理同一供者内的依赖。分析单位、重复结构和多重比较范围仍需按研究设计确定。<code>RunCorrelation()</code> 的结果可继续交给 <code>PlotRankScatter()</code> 展示排序，但绘图不会重新验证独立性。</p>
+<!-- /update-20261026: scmmr_correlation -->
+</section>
+<section id="page-updates" class="level2">
+<h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
+<div class="callout callout-style-default callout-note callout-titled" title="更新记录">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>更新记录
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-5" class="callout-5-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<ul>
+<li>2026-10-26：补充<a href="#correlation">三种方法与完整配对</a>、<a href="#groups">组名与 FDR</a>、<a href="#seurat-filter">Seurat 表达比例筛选</a>的实际输出。</li>
+</ul>
+</div>
 </div>
 </div>
 
 
+</section>
 
 </main> <!-- /main -->
 <script id="quarto-html-after-body" type="application/javascript">
@@ -1562,7 +1780,39 @@ ul.task-list li input[type="checkbox"] {
   </div>
 </nav>
 </div> <!-- /content -->
-<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/scmmr/index.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script src="../assets/sidebar-navigation.js"></script>
+<footer class="footer"><div class="nav-footer"><div class="nav-footer-center"><div class="toc-actions d-sm-block d-md-none"><ul><li><a href="https://github.com/HUI950319/Rnotes/blob/main/scmmr/index.qmd" class="toc-action"><i class="bi bi-github"></i>查看代码</a></li><li><a href="https://github.com/HUI950319/Rnotes/issues/new" class="toc-action"><i class="bi empty"></i>反馈问题</a></li></ul></div></div></div></footer><script src="../assets/sidebar-navigation.js"></script>
+<script>var lightboxQuarto = GLightbox({"closeEffect":"zoom","descPosition":"bottom","loop":false,"openEffect":"zoom","selector":".lightbox"});
+(function() {
+  let previousOnload = window.onload;
+  window.onload = () => {
+    if (previousOnload) {
+      previousOnload();
+    }
+    lightboxQuarto.on('slide_before_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      const href = trigger.getAttribute('href');
+      if (href !== null) {
+        const imgEl = window.document.querySelector(`a[href="${href}"] img`);
+        if (imgEl !== null) {
+          const srcAttr = imgEl.getAttribute("src");
+          if (srcAttr && srcAttr.startsWith("data:")) {
+            slideConfig.href = srcAttr;
+          }
+        }
+      }
+    });
+
+    lightboxQuarto.on('slide_after_load', (data) => {
+      const { slideIndex, slideNode, slideConfig, player, trigger } = data;
+      if (window.Quarto?.typesetMath) {
+        window.Quarto.typesetMath(slideNode);
+      }
+    });
+
+  };
+
+})();
+          </script>
 
 
 
