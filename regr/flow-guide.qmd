@@ -496,6 +496,81 @@ do.call(plt_flo, modifyList(flow_args, list(
 
 :::
 
+### 研究内容和排除框自适应布局（2026-10-27） {#adaptive-flow-20261027}
+
+<!-- update-20261027: regr_flow_layout -->
+
+按已推送 RegR `212a156`，`plt_flo()` 根据文本与分组数量安排研究内容框、排除框及组间距离，人数使用千位分隔并避免科学计数与对齐填充。下例 1,200 行输入全部为合成数据，布局参数只改变显示，不重新筛选队列。
+
+```r
+library(RegR)
+flow_data27 <- data.frame(Age = rep(1:100, 12), Eligible = rep(c(TRUE, TRUE, TRUE, FALSE), 300),
+  Arm = factor(rep(c("A", "B"), each = 600)))
+flow_selected27 <- get_flt(flow_data27, Eligible, Age >= 18, Age <= 80)
+flow_before27 <- flow_selected27
+flow_content27 <- c(
+  "**Model development**\nClinical variables and extended marker models",
+  "**Validation**\nIndependent cohorts and sensitivity analyses",
+  "**Interpretation**\nModel explanation and robustness checks")
+flow_auto27 <- plt_flo(flow_selected27, inclu_row = 1,
+  cohort = list(label = "Synthetic cohort"), split_var = "Arm",
+  content_labels = flow_content27, box_args = list(content_lines = "auto"))
+flow_lines27 <- plt_flo(flow_selected27, inclu_row = 1,
+  cohort = list(label = "Synthetic cohort"), split_var = "Arm",
+  content_labels = c("**Development**\nClinical model\nExtended model",
+    "**Validation**\nIndependent cohort\nSensitivity analysis",
+    "**Interpretation**\nFeature effects\nRobustness"),
+  box_args = list(content_lines = NULL, equal_width = TRUE),
+  exc_args = list(header_style = "n_suffix"), count_style = "suffix")
+flow_size27 <- attr(flow_auto27, "flo_size")
+flow_lines_size27 <- attr(flow_lines27, "flo_size")
+ggplot2::ggsave(file.path(tempdir(), "20261027-update-flow-adaptive.pdf"), flow_auto27,
+  width = flow_size27[1], height = flow_size27[2], device = grDevices::cairo_pdf)
+ggplot2::ggsave(file.path(tempdir(), "20261027-update-flow-explicit-lines.pdf"), flow_lines27,
+  width = flow_lines_size27[1], height = flow_lines_size27[2], device = grDevices::cairo_pdf)
+```
+
+自动模式会按行数预算重新换行，显式 `\n` 可能被重排；`content_lines=NULL` 才保留手工换行。整行的 `**标题**` 可加粗并对齐标题与正文，不能在一行中间随意插入 `**`。默认主框可以按文字宽度不同；`equal_width=TRUE` 统一主框宽度，研究内容框本身仍共用紧凑宽度。
+
+本页固定的是**远端已推送接口**：`content_lines` 仍在 `box_args` 内。当前本机分支另有把它移到顶层、紧随 `content_labels` 的未推送提交，此处不提前采用。新安装后先核对 `formals(plt_flo)`；不要把两种位置混用。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+flow_labels27 <- function(p) unlist(lapply(ggplot2::ggplot_build(p)[["data"]],
+  function(x) if ("label" %in% names(x)) as.character(x[["label"]])))
+flow_return27 <- plt_flo(flow_selected27, inclu_row = 1,
+  cohort = list(label = "Synthetic cohort"), return_data = TRUE)
+stopifnot(identical(flow_selected27, flow_before27), identical(flow_return27, flow_selected27),
+  any(grepl("1,200", flow_labels27(flow_auto27), fixed = TRUE)),
+  all(is.finite(flow_size27)), all(flow_size27 > 0),
+  tail(attr(flow_selected27, "flt")[["res_pat"]], 1) == nrow(flow_selected27))
+validation_values <- list(n_start = nrow(flow_data27), n_final = nrow(flow_selected27),
+  by_arm = as.integer(table(flow_selected27[["Arm"]])),
+  history = attr(flow_selected27, "flt"), unchanged = identical(flow_selected27, flow_before27))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 自动安排内容框 {.unnumbered}
+
+![相同筛选队列的自适应流程图。](images/flow-guide/20261027-update-flow-adaptive.png){fig-alt="1,200 行合成输入的筛选流程，两组分析队列连接三个研究内容框；排除数、人数格式和内容换行按原生布局生成。"}
+
+[PDF](images/flow-guide/20261027-update-flow-adaptive.pdf)
+
+#### 显式换行与 CONSORT 式计数 {.unnumbered}
+
+![保留手动换行，计数与数据保持一致。](images/flow-guide/20261027-update-flow-explicit-lines.png){fig-alt="同一合成队列保留三行研究内容标签，主框等宽，排除标题和各行人数采用后缀格式；不改变筛选历史或组人数。"}
+
+[PDF](images/flow-guide/20261027-update-flow-explicit-lines.pdf)
+
+:::
+
+`content_width` 用于显式宽度控制，不能与显式 `content_lines` 同时设置；`gap_args` 未指定时按组数及内容行宽自适应，显式值则按英寸控制。保存时优先使用 `attr(p,"flo_size")` 的推荐尺寸，避免把固定面板硬塞进过小设备。人数换行和框宽优化没有新增统计估计量，也未重算本页其他历史图。
+
+<!-- /update-20261027: regr_flow_layout -->
+
 ## 字号、框形、间距与 PDF 保存 {#layout-save}
 
 ::: {.table-responsive}
@@ -1106,6 +1181,7 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[自适应研究内容与排除框](#adaptive-flow-20261027)的两张实际流程图，固定已推送参数位置。
 - 2026-10-27：补充[get_all 返回类、种子与中断保留](#dispatcher-20261027)的实际调用和模拟中断核对。
 - 2026-10-26：补充[get_flt 与 get_all 摘要的实际输出](#summary-20261026)，区分返回对象、筛选历史与消息通道。
 - 2026-10-24：[get_all：先筛选，再重编码](#all-preprocess-20261024)
