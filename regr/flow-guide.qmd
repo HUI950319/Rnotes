@@ -2,13 +2,13 @@
 title: "队列筛选与流程图：get_flt 与三个绘图入口"
 description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，并补充 plt_flo3 的多队列分组、阶段与 PDF 保存。"
 date: 2026-10-01
-date-modified: 2026-10-26
+date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
   title: "队列流程图：粗体标题、筛选标签与多队列"
   topic: 数据准备与筛选
-  updated: 2026-10-26
+  updated: 2026-10-27
 ---
 
 `get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图，`plt_flo2()` 用阶段说明和队列人数绘制彩色研究流程。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
@@ -97,11 +97,103 @@ attr(cohort, "flt")
 
 `get_flt()` 会打印历史，但打印出的 tibble 不是函数的返回对象。输入命名的数据框列表时，会返回逐个筛选后的列表；`plt_flo()` 接收其中一个数据框，不能直接把整个列表作为流程图数据。
 
+### 返回类、种子与未完成分析（2026-10-27） {#dispatcher-20261027}
+
+<!-- update-20261027: regr_dispatcher -->
+
+按已推送 RegR **0.1.3** `212a156`，`get_all()` 现在返回 `c("get_all","list")` 对象，仍不可见；再次 `print(result)` 只显示分析摘要和 `Components:`，不重画已完成图表。用 `result[["dis"]]` 等分量继续分析；原来的命名字段不变，`attr(result,"analysis")` 保存本轮设定、完成情况与耗时。
+
+```r
+library(RegR)
+dispatch_data27 <- data.frame(Age = 21:36,
+  Arm = factor(rep(c("No", "Yes"), each = 8)),
+  Stage = factor(rep(c("I", "II"), 8)),
+  time = 1:16, DSS = rep(c(0L, 1L), 8))
+dispatch_before27 <- dispatch_data27
+set.seed(20261027)
+dispatch_rng27 <- .Random.seed
+dispatch_lines27 <- capture.output(dispatch_visible27 <- withVisible(get_all(
+  com.args = list(data = dispatch_data27, seed = 71, time = 8,
+    get_flt = list(Age >= 25), fct_cat = c(Age_band = Age, breaks = c(30))),
+  dis.args = list(dis_var = c("Arm", "Stage"), type = "bar"))))
+dispatch27 <- dispatch_visible27[["value"]]
+names(dispatch27)
+dispatch_print27 <- capture.output(dispatch_printed27 <- withVisible(print(dispatch27)))
+attr(dispatch27, "analysis")[["seed"]]
+```
+
+`com.args$seed` 默认 123，每个启用块及公共分层的每个层都从同一种子开始；调用结束后恢复会话 RNG。显式 `seed=NULL` 才让各块依次消费调用者的随机流。这保证开关其他块不改变某块的随机起点，不代表 Windows / WSL 或不同依赖版本必然逐位相同。
+
+列名和各块参数在运行前集中检查，包含不可见字符的近似列名会给出可辨认提示。`fct_cat=c(Age_band=Age,...)` 创建新列时不能覆盖已有同名列；保留连续原列可供 RCS 使用。学习器块的特征缺失行与公共分层缺失行分别计数，不能把摘要中的全体 n 当作每个模型的有效 n；RPA 的置信水平也继承公共设定。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+以下中断复核只在当前 R 进程临时替换耗时评分步骤，以 `rlang::interrupt()` 模拟中断；它不代表运行了真实评分模型。
+
+```r
+stopifnot(inherits(dispatch27, "get_all"), identical(names(dispatch27), "dis"),
+  !dispatch_visible27[["visible"]], !dispatch_printed27[["visible"]],
+  identical(dispatch_printed27[["value"]], dispatch27),
+  identical(.Random.seed, dispatch_rng27), identical(dispatch_data27, dispatch_before27),
+  attr(dispatch27, "analysis")[["n"]] == 12,
+  attr(dispatch27, "analysis")[["seed"]] == 71,
+  any(grepl("Components:", dispatch_print27, fixed = TRUE)))
+interrupted_lines27 <- capture.output(interrupted27 <- testthat::with_mocked_bindings(
+  get_all(com.args = list(data = dispatch_data27, surv = "DSS"),
+    dis.args = list(dis_var = c("Arm", "Stage"), type = "bar"),
+    msr.args = list(vars = "Age")),
+  get_score = function(data, vars, surv, ...) rlang::interrupt(), .package = "RegR"))
+stopifnot(inherits(interrupted27, "get_all"), identical(names(interrupted27), "dis"),
+  identical(attr(interrupted27, "interrupted"), "msr.args"),
+  !"msr" %in% names(interrupted27))
+save_console26 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  chars <- strsplit(body, "", fixed = TRUE)[[1]]; cp <- utf8ToInt(body)
+  for (i in which(cp > 127L & !(cp >= 0x2500L & cp <= 0x257fL))) {
+    w <- cli::ansi_nchar(chars[i], type = "width")
+    if (w %in% 1:2) chars[i] <- sprintf('<span class="w%d">%s</span>', w, chars[i])
+  }
+  html <- paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '.w1,.w2{display:inline-block}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', paste(chars, collapse = ""), '</pre>')
+  writeLines(html, file.path(tempdir(), paste0("20261027-update-", name, ".html")), useBytes = TRUE)
+}
+save_console26(dispatch_print27, "dispatcher-summary")
+save_console26(interrupted_lines27, "dispatcher-interrupted")
+validation_values <- list(n = attr(dispatch27, "analysis")[["n"]],
+  completed = names(dispatch27), class = class(dispatch27),
+  interrupted = attr(interrupted27, "interrupted"), retained = names(interrupted27),
+  unchanged = identical(dispatch_data27, dispatch_before27), rng_preserved = identical(.Random.seed, dispatch_rng27))
+```
+:::
+
+::: {.panel-tabset}
+
+#### 再次 print 的摘要 {.unnumbered}
+
+![真实调用后的结果摘要，不重画分布图。](images/flow-guide/20261027-update-dispatcher-summary.png){fig-alt="16 行合成数据筛选为 12 行，get_all 结果显示 dis 模块、公共 seed、筛选历史、重编码和 Components；耗时以实际调用为准。"}
+
+[原生 HTML](images/flow-guide/20261027-update-dispatcher-summary.html)
+
+#### 模拟评分步骤中断 {.unnumbered}
+
+![中断后保留已经完成的 dis。](images/flow-guide/20261027-update-dispatcher-interrupted.png){fig-alt="验证夹具在 msr.args 处模拟中断，摘要明确后续分析未运行，返回对象只保留此前完成的 dis。"}
+
+[原生 HTML](images/flow-guide/20261027-update-dispatcher-interrupted.html)
+
+:::
+
+中断发生在分析块中时返回先前已完成的结果，`attr(result,"interrupted")` 记录中断块；该块即使已创建临时图，也不会作为完成结果返回。普通块错误与分层失败仍分别记录，部分成功不是完整分析。输入预检阶段的错误也不能据此解释为会返回部分结果。
+
+<!-- /update-20261027: regr_dispatcher -->
+
 ### 筛选历史与分析摘要分开读（2026-10-26） {#summary-20261026}
 
 <!-- update-20261026: regr_summary -->
 
-按已推送 RegR `df14885`、UtilsR 0.6.12 `0b59c82`，`get_flt()` 用分节表打印筛选历史，仍不可见返回 data.frame；`get_all()` 运行结束后打印完成块、失败块、分析人数、筛选历史和重编码设置，仍不可见返回已命名的结果 list。控制台摘要不是返回表，不能把输出文字当作后续分析数据。
+以下保留 2026-10-26 的 RegR `df14885`、UtilsR 0.6.12 `0b59c82` 快照；新版返回类见上节。该快照中，`get_flt()` 用分节表打印筛选历史，仍不可见返回 data.frame；`get_all()` 运行结束后打印完成块、失败块、分析人数、筛选历史和重编码设置，仍不可见返回已命名的结果 list。控制台摘要不是返回表，不能把输出文字当作后续分析数据。
 
 下例只有 12 行合成输入，启用筛选、重编码和分布图，不拟合回归模型。两段控制台输出分别从实际调用捕获；不是手工绘制的界面。
 
@@ -1014,6 +1106,7 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[get_all 返回类、种子与中断保留](#dispatcher-20261027)的实际调用和模拟中断核对。
 - 2026-10-26：补充[get_flt 与 get_all 摘要的实际输出](#summary-20261026)，区分返回对象、筛选历史与消息通道。
 - 2026-10-24：[get_all：先筛选，再重编码](#all-preprocess-20261024)
 :::
