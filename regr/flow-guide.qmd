@@ -2,13 +2,13 @@
 title: "队列筛选与流程图：get_flt 与三个绘图入口"
 description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，并补充 plt_flo3 的多队列分组、阶段与 PDF 保存。"
 date: 2026-10-01
-date-modified: 2026-10-27
+date-modified: 2026-10-28
 lightbox: true
 toc-depth: 2
 directory:
   title: "队列流程图：粗体标题、筛选标签与多队列"
   topic: 数据准备与筛选
-  updated: 2026-10-27
+  updated: 2026-10-28
 ---
 
 `get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图，`plt_flo2()` 用阶段说明和队列人数绘制彩色研究流程。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
@@ -1253,6 +1253,82 @@ attr(p_flow3, "flo_size")
 
 ![多队列共用底部研究内容框。](images/flow-guide/20261018-flow3-bold.png){fig-alt="模拟开发和验证队列分别纳入100和70条记录，再分Low与High；下方共用带整行粗体的研究内容框。"}
 
+### 粗体标题闭合后的说明自动另起一行（2026-10-28） {#bold-close-20261028}
+
+<!-- update-20261028: regr_bold_close -->
+
+RegR `c44a602` 的 `plt_flo()`、`plt_flo3()` 现在将 `"**Title** description"` 解释为粗体标题加下一行常规说明，与 `"**Title**\ndescription"` 等价。自动生成的断行也按手工断行处理，避免自动宽度计算再次压挤标题。它仍不是通用 Markdown：粗体须从行首开启并闭合，不能在普通句子中任意加粗。
+
+下面 100 行合成记录排除 10 行后保留 90 行，No/Yes 各 45；多队列图的 Development 与 Validation 分别保留 100、70 行。两图都使用不含显式换行的标题写法。
+
+```r
+library(RegR)
+flow_data28 <- data.frame(Age = 20:119, Tx = factor(rep(c("No", "Yes"), 50)))
+flow_kept28 <- get_flt(flow_data28, Age >= 30)
+flow_inline28 <- c("**Survival analysis** (curves and models)",
+  "**Model checking** (calibration and discrimination)")
+flow_plot28 <- plt_flo(flow_kept28, inclu_row = 0, cohort = list(label = "Synthetic records"),
+  split_var = "Tx", content_labels = flow_inline28, content_lines = NULL,
+  exc_args = list(bold_summary = FALSE), name_map = c(Age = "Age below 30"))
+flow_cohorts28 <- list(
+  list(label = "Development", N = 120, exclude = c("Excluded" = 20), split = c("Low" = 50, "High" = 50)),
+  list(label = "Validation", N = 80, exclude = c("Excluded" = 10), split = c("Low" = 35, "High" = 35)))
+flow_multi28 <- plt_flo3(flow_cohorts28, content_labels = flow_inline28)
+flow_size28 <- attr(flow_plot28, "flo_size")
+flow_multi_size28 <- attr(flow_multi28, "flo_size")
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-flow-inline-title.pdf"), flow_plot28,
+  width = flow_size28[[1]], height = flow_size28[[2]])
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-flow3-inline-title.pdf"), flow_multi28,
+  width = flow_multi_size28[[1]], height = flow_multi_size28[[2]])
+```
+
+::: {.panel-tabset}
+
+#### 单队列 {.unnumbered}
+
+![标题闭合后的说明自动另起一行。](images/flow-guide/20261028-update-flow-inline-title.png){fig-alt="100 行合成输入排除 10 行后 No 与 Yes 各 45 行，底部 Survival analysis 与 Model checking 为粗体标题，闭合标记后的说明自动放到下一行。"}
+
+[原生 PDF](images/flow-guide/20261028-update-flow-inline-title.pdf)
+
+#### 多队列 {.unnumbered}
+
+![多队列共用的内容框使用相同断行规则。](images/flow-guide/20261028-update-flow3-inline-title.png){fig-alt="Development 保留 100 行、Validation 保留 70 行，多队列底部共用内容框的粗体标题和说明自动分行，与显式换行的几何数据一致。"}
+
+[原生 PDF](images/flow-guide/20261028-update-flow3-inline-title.pdf)
+
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+flow_broken28 <- sub("** ", "**\n", flow_inline28, fixed = TRUE)
+flow_explicit28 <- plt_flo(flow_kept28, inclu_row = 0, cohort = list(label = "Synthetic records"),
+  split_var = "Tx", content_labels = flow_broken28, content_lines = NULL,
+  exc_args = list(bold_summary = FALSE), name_map = c(Age = "Age below 30"))
+flow_multi_explicit28 <- plt_flo3(flow_cohorts28, content_labels = flow_broken28)
+flow_labels28 <- function(p) do.call(rbind, lapply(ggplot2::ggplot_build(p)[["data"]], function(d) {
+  if (all(c("label", "fontface", "x", "y") %in% names(d)))
+    data.frame(label = d[["label"]], face = as.character(d[["fontface"]]), x = d[["x"]], y = d[["y"]])
+}))
+stopifnot(nrow(flow_kept28) == 90L, all(table(flow_kept28[["Tx"]]) == 45L),
+  identical(flow_labels28(flow_plot28), flow_labels28(flow_explicit28)),
+  identical(flow_labels28(flow_multi28), flow_labels28(flow_multi_explicit28)),
+  identical(attr(flow_plot28, "flo_size"), attr(flow_explicit28, "flo_size")),
+  identical(attr(flow_multi28, "flo_size"), attr(flow_multi_explicit28, "flo_size")))
+flow_bad28 <- vapply(c("Ordinary **bold** text", "**Unclosed title"), function(label) {
+  message <- tryCatch(plt_flo3(flow_cohorts28, content_labels = label), error = conditionMessage)
+  is.character(message) && grepl("whole lines", message)
+}, logical(1))
+stopifnot(all(flow_bad28))
+validation_values <- list(n_input = 100L, n_kept = 90L, groups = as.integer(table(flow_kept28[["Tx"]])),
+  inline_matches_explicit = TRUE, multi_matches_explicit = TRUE, invalid_rejected = flow_bad28)
+```
+:::
+
+`plt_flo(content_lines=NULL)` 保留这些断行；显式设置行数仍会按行预算重新排版，不能把两种控制同时理解成强制保留原布局。本节在 Windows / WSL R 4.4.3 逐项比较各自平台的文字坐标、字重和画布尺寸；历史图保留旧执行快照。
+
+<!-- /update-20261028: regr_bold_close -->
+
 ### 因子水平晚出现也要保留 {#factor-20261018}
 
 get_flt先检查每个因子前10,000行是否包含全部水平；没出现齐时会回查完整结果，再只清理真正空的水平。这里实际验证late仅在第20,001行出现仍被保留，unused被移除：
@@ -1276,6 +1352,7 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-28：补充 [粗体标题闭合后自动断行](#bold-close-20261028)的单队列、多队列 PDF 与显式换行等价核对。
 - 2026-10-27：跟进已发布 RegR `79bb436` 的[顶层 content_lines 与五种阶段样式](#phase-styles-20261027)，新增三张原生 PDF。
 - 2026-10-27：补充[自适应研究内容与排除框](#adaptive-flow-20261027)的两张实际流程图，固定已推送参数位置。
 - 2026-10-27：补充[get_all 返回类、种子与中断保留](#dispatcher-20261027)的实际调用和模拟中断核对。
