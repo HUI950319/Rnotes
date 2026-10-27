@@ -2,13 +2,13 @@
 title: "观察性研究工作流：平衡、效应、HTE 与敏感性"
 description: "用完整模拟队列串联 PSM、PSW、get_bal、HTE 和未测量混杂敏感性，展示计算与绘图的重要参数。"
 date: 2026-10-02
-date-modified: 2026-10-20
+date-modified: 2026-10-28
 lightbox: true
 toc-depth: 2
 directory:
   title: "观察性工作流：HTE坐标、表头与平衡诊断"
   topic: 因果推断与 HTE
-  updated: 2026-10-20
+  updated: 2026-10-28
 ---
 
 ::: {.callout-note title="运行前核对树变量参数"}
@@ -220,6 +220,83 @@ plt_hte_sub(hte, fixed_size = FALSE, show_pinter = TRUE)
 HTE 参数与诊断见 [总览](index.qmd)、[诊断页](hte-diagnostics-guide.qmd) 和
 [规则选择](method-selection-guide.qmd)。不能把同一权重再次传入森林后就称为
 “多做一层双稳健”；目标人群、PS、样本权重与得分构造必须一起论证。
+
+### HTE 输入标签、缺失与保留列（2026-10-28） {#input-contract-20261028}
+
+<!-- update-20261028: causal_inputs -->
+
+按已推送 causalR `26af481`，`get_hte()` 分析带标签列的底层值，先将 SPSS 用户缺失值转成 NA，再判断完整结局与暴露。**仅暴露或结局缺失会删除整行**；协变量缺失保留给 grf。`get_hte_unihtee(method="glm")` 的交叉拟合则需要完整的暴露、结局和模型协变量，两条路径的分母不能混用。
+
+本例使用 240 行合成随机分配数据：四行协变量含缺失，两行结局是 SPSS 缺失码。实际输入与规范化后的去向如下；固定 100 棵树只用于接口复核，不作为正式分析的精度建议。
+
+```r
+library(causalR)
+set.seed(2801)
+input_data28 <- data.frame(id = seq_len(240), z = rep(0:1, 120), x = rnorm(240),
+  g = factor(rep(c("A", "B", "C"), 80)))
+input_data28[["y"]] <- .5 * input_data28[["x"]] + input_data28[["z"]] *
+  (1 + (input_data28[["g"]] == "B")) + rnorm(240)
+input_data28[["x"]][1:4] <- c(999, 850, 860, NA)
+input_data28[["y"]][5:6] <- 999
+input_data28[["x"]] <- haven::labelled_spss(input_data28[["x"]],
+  na_values = 999, na_range = c(800, 900))
+input_data28[["y"]] <- haven::labelled_spss(input_data28[["y"]], na_values = 999)
+input_data28[["z"]] <- haven::labelled(input_data28[["z"]], labels = c(No = 0, Yes = 1))
+input_args28 <- list(num.trees = 100, num.threads = 1, seed = 28, W.hat = .5, Y.hat = 0)
+input_hte28 <- get_hte(input_data28, "z", adj_var = c("x", "g"), sub_var = "g", surv = "y",
+  grf_args = input_args28)
+input_counts28 <- data.frame(stage = c("Input", "Analyzed", "Missing x kept", "Missing y dropped"),
+  n = c(nrow(input_data28), nrow(input_hte28[["data"]]),
+    sum(is.na(input_hte28[["data"]][["x"]])),
+    sum(!input_data28[["id"]] %in% input_hte28[["data"]][["id"]])))
+gt::gtsave(gt::gt(input_counts28), file.path(tempdir(), "20261028-update-hte-input-counts.html"))
+```
+
+![240 行输入保留 238 行分析记录，四行缺失协变量仍在。](images/clinical-workflow-guide/20261028-update-hte-input-counts.png){fig-alt="合成数据输入 240 行，删除两行 SPSS 缺失结局后分析 238 行，其中四行 x 缺失仍保留给 grf。"}
+
+[原生 HTML](images/clinical-workflow-guide/20261028-update-hte-input-counts.html)
+
+输入列名必须唯一；分析列必须是一维向量，矩阵、数组、list、复数及无限值会在拟合前拒绝。`get_hte()` 接受精确 double 范围内的 `integer64`，超出正负 2 的 53 次方应先处理。`get_hte_unihtee()` 则要求显式转换 `integer64`，不能根据森林入口的支持推断筛查入口也支持它。
+
+两函数都保留 `.cate`、`.dr_score` 作为输出名；unihtee 还保留 `.ps`、`.mu1`、`.mu0`、`.score_diff`、`.score_ratio`、`.score_OR`。已有同名列须在调用前改名，避免结果覆盖输入；普通协变量名 `.w`、`.y` 不属于这份保留名单。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+input_ref28 <- input_data28
+input_ref28[["z"]] <- haven::zap_labels(input_ref28[["z"]])
+for (v in c("x", "y")) input_ref28[[v]] <- haven::zap_labels(haven::zap_missing(input_ref28[[v]]))
+input_plain28 <- get_hte(input_ref28, "z", adj_var = c("x", "g"), sub_var = "g", surv = "y",
+  grf_args = input_args28)
+stopifnot(identical(input_counts28[["n"]], c(240L, 238L, 4L, 2L)),
+  isTRUE(all.equal(input_hte28[["stats"]], input_plain28[["stats"]])),
+  isTRUE(all.equal(input_hte28[["fit"]][["X.orig"]], input_plain28[["fit"]][["X.orig"]])))
+input_int28 <- input_ref28
+for (v in c("x", "y")) input_int28[[v]] <- round(input_int28[[v]])
+input_int_fit28 <- get_hte(input_int28, "z", adj_var = c("x", "g"), surv = "y", grf_args = input_args28)
+input_i6428 <- input_int28
+for (v in c("z", "x", "y")) input_i6428[[v]] <- bit64::as.integer64(input_i6428[[v]])
+input_i64_fit28 <- get_hte(input_i6428, "z", adj_var = c("x", "g"), surv = "y", grf_args = input_args28)
+stopifnot(isTRUE(all.equal(input_i64_fit28[["stats"]], input_int_fit28[["stats"]])))
+input_bad28 <- list(reserved = transform(input_ref28, .cate = 0), matrix = input_ref28,
+  infinite = input_ref28, integer64_range = input_i6428)
+input_bad28[["matrix"]][["x"]] <- cbind(input_ref28[["x"]], input_ref28[["x"]])
+input_bad28[["infinite"]][["x"]][10] <- Inf
+input_bad28[["integer64_range"]][["x"]][10] <- bit64::as.integer64("9007199254740993")
+input_rejected28 <- vapply(input_bad28, function(d) {
+  message <- tryCatch(get_hte(d, "z", adj_var = c("x", "g"), surv = "y", grf_args = input_args28),
+    error = conditionMessage)
+  is.character(message)
+}, logical(1))
+stopifnot(all(input_rejected28))
+validation_values <- list(n = input_counts28[["n"]], estimate = input_hte28[["stats"]][["estimate"]],
+  labels_match = TRUE, integer64_match = TRUE, rejected = input_rejected28)
+```
+:::
+
+本节新增例子使用 Windows R 4.4.3 与固定源码；原临床流程及历史森林继续保留各自执行快照。
+
+<!-- /update-20261028: causal_inputs -->
 
 ## 未测量混杂敏感性：绑定到明确模型 {#sec-workflow-sens}
 
@@ -530,3 +607,10 @@ validation_values <- list(balance_unchanged = TRUE, subgroup_unchanged = TRUE,
 :::
 
 重复**键**可以保留第一项；`plt_hte_unihtee()` 仍禁止把两个不同候选变量映射成同一个显示名称，避免读图混淆。本节比较重复字典与去重字典的平衡数值、原始亚组表和绘图数据，均保持一致；没有把改名当作重新分析或提高因果识别质量。
+
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [HTE 输入标签与缺失](#input-contract-20261028)的 240 行例子、完整结局分母及保留列约定。
+:::
