@@ -1,12 +1,12 @@
 ---
 title: "SHAP：get_shp 与 14 个绘图函数"
-description: "get_shp 的自动分箱、任务、采样、后端与返回对象详解；48张图覆盖14个绘图函数、多行TI、单变量交互与聚类分配。"
+description: "get_shp 的自动分箱、任务、采样、后端与返回对象详解；51张图覆盖14个绘图函数、多行TI、单变量交互与聚类分配。"
 date: 2026-09-30
 date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
-  title: "SHAP：48张图、聚类分配与TM层级"
+  title: "SHAP：51张图、聚类分配与TM层级"
   topic: 模型解释
   updated: 2026-10-27
 ---
@@ -433,6 +433,122 @@ validation_values <- list(n = 24L, sizes = seed_table27[["n"]],
 `hclust` 与 silhouette 复用同一份 SHAP 成对距离；本例宽度与独立计算逐项一致，没有新测提速倍数。距离仍需二次规模存储；关闭 silhouette 可减少轮廓计算，但层次聚类本身仍需距离，不能据此把大样本开销当成线性。
 
 <!-- /update-20261027: mlr_followup_cluster -->
+
+### 聚类缩放状态、基线与空分配（2026-10-27） {#preprocessing-state-20261027b}
+
+<!-- update-20261027b: mlr_shp_state -->
+
+MLR `6ea0111` 将训练用的 `center`、`scale` 另存于 `obj$preprocess`。矩阵的缩放属性在传递中丢失时，新对象仍能复用训练尺度；两份记录不一致则报错，避免静默改变分配距离。没有此字段的旧对象仍依赖原矩阵属性，应保留完整训练对象。
+
+本节接着使用[上方 60 行线性模型](#cluster-assignment-20261027)的 `cl_shp27`、`cl_explain27`，新增 8 行只做解释与分配。下表记录的是 **SHAP 列**的训练均值和标准差，不是原始临床变量的均值与标准差。
+
+```r
+state_clu27 <- get_shp_clust(cl_shp27, 3, cluster_fun = "hclust", compare = TRUE)
+state_new27 <- data.frame(x1 = seq(-1, 1, length.out = 8), x2 = cos(seq_len(8)),
+  Grade = rep(c("A", "B", "C"), length.out = 8), Flag = rep(c(TRUE, FALSE), 4))
+state_shp27 <- cl_explain27(state_new27)
+state_assigned27 <- get_shp_assign(state_clu27, state_shp27)
+state_training27 <- state_clu27[["obj"]][["preprocess"]]
+state_table27 <- data.frame(feature = names(state_training27[["center"]]),
+  SHAP_center = unname(state_training27[["center"]]),
+  SHAP_scale = unname(state_training27[["scale"]]))
+gt::gtsave(gt::fmt_number(gt::gt(state_table27), columns = c("SHAP_center", "SHAP_scale"),
+  decimals = 6), file.path(tempdir(), "20261027b-update-shap-training-scale.html"))
+
+# 带标签基线仍表示这个已拟合模型的同一个数值。
+state_labelled27 <- cl_shp27
+state_labelled27[["baseline"]] <- haven::labelled(cl_baseline27,
+  labels = c(reference = cl_baseline27))
+state_map27 <- plt_shp_map(state_labelled27, clust = state_clu27,
+  color_by = "prediction", outline = "none", label = FALSE) +
+  ggplot2::labs(title = "Same model, normalized labelled baseline")
+ggplot2::ggsave(file.path(tempdir(), "20261027b-update-shap-labelled-baseline.pdf"),
+  state_map27, width = 7, height = 5)
+
+state_empty27 <- get_shp_assign(state_clu27, state_shp27[["S"]][FALSE, , drop = FALSE])
+print(state_empty27)
+state_empty_table27 <- data.frame(cluster = levels(state_empty27[["cluster"]]),
+  assigned_n = as.integer(table(state_empty27[["cluster"]])))
+gt::gtsave(gt::gt(state_empty_table27),
+  file.path(tempdir(), "20261027b-update-shap-empty-assignment.html"))
+```
+
+::: {.panel-tabset}
+
+#### 训练缩放记录 {.unnumbered}
+
+![四个 SHAP 特征的训练缩放记录。](images/shap-guide/20261027b-update-shap-training-scale.png){fig-alt="60 行训练 SHAP 的四列均值接近零，各列标准差保存在独立的 preprocess 字段，供新样本复用。"}
+
+[原生 HTML](images/shap-guide/20261027b-update-shap-training-scale.html)
+
+#### 带标签基线的预测着色 {.unnumbered}
+
+![同一线性模型的预测值用于着色。](images/shap-guide/20261027b-update-shap-labelled-baseline.png){fig-alt="60 行训练解释的二维 SHAP 投影，以模型预测值着色；带标签基线先转为相同的普通数值，预测值等于基线加各特征 SHAP 之和。"}
+
+[原生 PDF](images/shap-guide/20261027b-update-shap-labelled-baseline.pdf)
+
+#### 空批次的各簇计数 {.unnumbered}
+
+![空批次保留三个训练簇，计数均为零。](images/shap-guide/20261027b-update-shap-empty-assignment.png){fig-alt="空批次分配结果保留三个训练簇，assigned_n 均为零，没有可汇总的距离。"}
+
+[原生 HTML](images/shap-guide/20261027b-update-shap-empty-assignment.html)
+
+:::
+
+`integer64` 与 haven 带标签基线先转成普通数值，再用于簇内预测均值、预测着色和堆叠图；SPSS 用户缺失值不能作为基线。超大整数仍受 double 精度约束。空分配的打印明确提示没有待分配样本，不再计算空距离的中位数或最大值。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+state_noattr27 <- state_clu27
+attr(state_noattr27[["obj"]][["x"]], "scaled:center") <- NULL
+attr(state_noattr27[["obj"]][["x"]], "scaled:scale") <- NULL
+state_reloaded27 <- unserialize(serialize(state_noattr27, NULL))
+state_legacy27 <- state_clu27; state_legacy27[["obj"]][["preprocess"]] <- NULL
+stopifnot(identical(state_assigned27, get_shp_assign(state_noattr27, state_shp27)),
+  identical(state_assigned27, get_shp_assign(state_reloaded27, state_shp27)),
+  identical(state_assigned27, get_shp_assign(state_legacy27, state_shp27)))
+state_bad27 <- state_clu27
+attr(state_bad27[["obj"]][["x"]], "scaled:center")[[1]] <- 1
+state_conflict27 <- tryCatch(get_shp_assign(state_bad27, state_shp27), error = conditionMessage)
+stopifnot(is.character(state_conflict27), grepl("disagree", state_conflict27))
+state_label_result27 <- get_shp_clust(state_labelled27, 3, cluster_fun = "hclust")
+stopifnot(isTRUE(all.equal(state_label_result27[["tab"]][["mean_fx"]],
+  state_clu27[["tab"]][["mean_fx"]])),
+  max(abs(cl_baseline27 + rowSums(cl_shp27[["S"]]) - predict(cl_fit27))) < 1e-10)
+invisible(ggplot2::ggplot_build(state_map27))
+state_missing27 <- cl_shp27
+state_missing27[["baseline"]] <- haven::labelled_spss(999, na_values = 999)
+state_missing_error27 <- tryCatch(get_shp_clust(state_missing27, 3), error = conditionMessage)
+stopifnot(is.character(state_missing_error27), grepl("finite", state_missing_error27))
+state_range_errors27 <- vapply(c(1e-170, 1e154), function(multiplier) {
+  message <- tryCatch(get_shp_clust(cl_shp27[["S"]] * multiplier, 3,
+    cluster_fun = "hclust"), error = conditionMessage)
+  is.character(message) && grepl("supported numeric range", message)
+}, logical(1))
+stopifnot(all(state_range_errors27))
+state_zero27 <- get_shp_clust(cl_shp27, 3, scale = FALSE, cluster_fun = "hclust")
+state_centers27 <- get_shp_assign(state_zero27, state_shp27)[["centers"]]
+stopifnot(all(get_shp_assign(state_zero27, state_centers27)[["dist"]] == 0))
+state_empty_text27 <- capture.output(print(state_empty27))
+stopifnot(length(state_empty27[["dist"]]) == 0L,
+  all(state_empty_table27[["assigned_n"]] == 0L),
+  any(grepl("no observations to assign", state_empty_text27)),
+  !any(grepl("Inf|NaN", state_empty_text27)))
+state_kmeans27 <- get_shp_clust(cl_shp27, 3, seed = 27, silhouette = FALSE)
+state_kmeans_text27 <- capture.output(print(state_kmeans27))
+stopifnot(any(grepl("ifault", state_kmeans_text27)), any(grepl("iterations", state_kmeans_text27)))
+validation_values <- list(n_train = 60L, n_new = 8L,
+  center = state_table27[["SHAP_center"]], scale = state_table27[["SHAP_scale"]],
+  assigned = as.integer(state_assigned27[["cluster"]]), distance = state_assigned27[["dist"]],
+  restored = TRUE, conflict_rejected = TRUE, missing_baseline_rejected = TRUE,
+  range_rejected = state_range_errors27, empty_counts = state_empty_table27[["assigned_n"]])
+```
+:::
+
+SHAP 变异、标准化或 `baseline + rowSums(S)` 超出支持的数值范围时会提前拒绝；`compare=TRUE` 的编码特征也有同类检查。分配时，非零差值的平方若下溢为零或进入非正规数范围，应先调整 SHAP 数值尺度，不能把它当成真正的零距离；精确相等的中心仍允许零距离。Manhattan 距离继续使用绝对差值。k-means 打印的 `ifault` 和迭代次数帮助识别本次拟合状态，不保证最优簇数或不同初值下的划分一致。
+
+<!-- /update-20261027b: mlr_shp_state -->
 
 ## 绘图函数速查 {#plot-index}
 
@@ -1361,6 +1477,7 @@ page_shp_new <- RegR::fmt_page(Summary = p_summary, `Total and main` = p_tm_new,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-27：补充[独立缩放记录、带标签基线与空分配](#preprocessing-state-20261027b)，复用 60 行模型并解释 8 行新样本，新增三张实图。
 - 2026-10-27：补充[随机状态与同大小簇](#cluster-seed-20261027)的 24 行规则核对。
 - 2026-10-27：补充[同模型同基线聚类与分配](#cluster-assignment-20261027)的 60/12 行例子和两张原生 PDF。
 - 2026-10-26：补充[sum_per 插图标签换行](#sum-per-labels-20261026)的两张合成 SHAP 原生 PDF。
