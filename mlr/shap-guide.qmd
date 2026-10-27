@@ -1,14 +1,14 @@
 ---
 title: "SHAP：get_shp 与 14 个绘图函数"
-description: "get_shp 的自动分箱、任务、采样、后端与返回对象详解；37张图覆盖14个绘图函数、多行TI及单变量交互锚点。"
+description: "get_shp 的自动分箱、任务、采样、后端与返回对象详解；47张图覆盖14个绘图函数、多行TI、单变量交互与聚类分配。"
 date: 2026-09-30
-date-modified: 2026-10-26
+date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
-  title: "SHAP：40张图、整页预览与TM层级"
+  title: "SHAP：47张图、聚类分配与TM层级"
   topic: 模型解释
-  updated: 2026-10-26
+  updated: 2026-10-27
 ---
 
 这一页分为两部分：先介绍 `get_shp()` 如何训练树模型、计算 SHAP 并组织结果，再用已经计算好的 `ToyData::toy_shp` 展示全部 14 个 `plt_shp_*()` 函数。图形选项放在各节的标签页中，可切换比较，并点击图片放大。
@@ -253,6 +253,125 @@ res_python <- get_shp(data, vars = vars, surv = TRUE, model = "ranger",
 
 
 返回值中没有单独的已拟合 learner 字段。大部分绘图入口既可接收完整结果 `res`，也可接收 `res[["shp"]]`；`plt_shp_stack()` 的首个参数是聚类结果，`plt_shp_circ()` 还可接收命名的多组 SHAP 对象列表。
+
+
+### 聚类输入与同基线的新样本分配（2026-10-27） {#cluster-assignment-20261027}
+
+<!-- update-20261027: mlr_latest_cluster -->
+
+按已推送 MLR `a4865f2`，`get_shp_clust()` 先核对 SHAP 为有限实数矩阵、列名唯一非空、行名存在时也唯一非空；`X` 的行数应与 SHAP 相同，且覆盖所有 SHAP 列。重复列、Inf、非整数控制量或损坏的训练缩放属性会明确拒绝。
+
+**新队列必须复用同一个已拟合模型、同一解释尺度与同一 SHAP 背景。** 不能在新队列另调一次 `get_shp()` 训练另一模型后，直接把两个解释矩阵拿来分配。下面实际拟合 60 行合成线性模型，为四个加性特征计算精确的 interventional SHAP；新增 12 行只解释、不重训。所有图都来自本例，不沿用上面的 SEER 示例对象。
+
+```r
+library(MLR)
+library(ggplot2)
+set.seed(2711)
+cl_train27 <- data.frame(x1 = rnorm(60), x2 = rnorm(60),
+  Grade = rep(c("A", "B", "C"), 20), Flag = rep(c(TRUE, FALSE), 30))
+cl_train27[["y"]] <- 2 + 1.5 * cl_train27[["x1"]] - .5 * cl_train27[["x2"]] +
+  c(A = -1, B = .5, C = 1.5)[cl_train27[["Grade"]]] + .7 * cl_train27[["Flag"]]
+cl_fit27 <- lm(y ~ x1 + x2 + Grade + Flag, data = cl_train27)
+cl_beta27 <- coef(cl_fit27)
+cl_terms27 <- function(d) {
+  cbind(x1 = cl_beta27[["x1"]] * d[["x1"]], x2 = cl_beta27[["x2"]] * d[["x2"]],
+    Grade = cl_beta27[["GradeB"]] * (d[["Grade"]] == "B") +
+      cl_beta27[["GradeC"]] * (d[["Grade"]] == "C"),
+    Flag = cl_beta27[["FlagTRUE"]] * d[["Flag"]])
+}
+cl_reference27 <- colMeans(cl_terms27(cl_train27))
+cl_baseline27 <- unname(cl_beta27[["(Intercept)"]] + sum(cl_reference27))
+cl_explain27 <- function(d) {
+  shapviz::shapviz(sweep(cl_terms27(d), 2, cl_reference27, "-"),
+    X = d[, c("x1", "x2", "Grade", "Flag")], baseline = cl_baseline27)
+}
+cl_shp27 <- cl_explain27(cl_train27)
+clu27 <- get_shp_clust(cl_shp27, k = 3, cluster_fun = "hclust", compare = TRUE)
+cl_new27 <- data.frame(x1 = rnorm(12), x2 = rnorm(12),
+  Grade = rep(c("A", "B", "C"), 4), Flag = rep(c(TRUE, FALSE), 6))
+cl_new_shp27 <- cl_explain27(cl_new27)
+cl_assigned27 <- get_shp_assign(clu27, cl_new_shp27)
+print(clu27)
+print(cl_assigned27)
+cl_map27 <- plt_shp_map(cl_shp27, clust = clu27, outline = "none", label = FALSE) +
+  labs(title = "Training SHAP clusters: fixed k = 3")
+cl_distance27 <- ggplot(data.frame(row = seq_len(12),
+  distance = cl_assigned27[["dist"]], cluster = cl_assigned27[["cluster"]]),
+  aes(row, distance, color = cluster)) + geom_point(size = 2.5) +
+  labs(x = "New observation", y = "Distance on training scale",
+    title = "New explanations assigned to training cluster means") + theme_minimal(base_size = 12)
+ggsave(file.path(tempdir(), "20261027-update-shap-cluster-training.pdf"), cl_map27,
+  width = 7, height = 5)
+ggsave(file.path(tempdir(), "20261027-update-shap-cluster-assignment.pdf"), cl_distance27,
+  width = 7, height = 4.5)
+```
+
+::: {.panel-tabset}
+
+#### 训练解释的聚类 {.unnumbered}
+
+![60 行训练解释的固定三簇二维投影。](images/shap-guide/20261027-update-shap-cluster-training.png){fig-alt="60 行合成线性模型的四特征 SHAP 聚类，PCA 投影显示固定 k 等于 3 的分组，不代表最优簇数。"}
+
+[原生 PDF](images/shap-guide/20261027-update-shap-cluster-training.pdf)
+
+#### 新解释的分配距离 {.unnumbered}
+
+![12 行新解释复用训练尺度与簇中心。](images/shap-guide/20261027-update-shap-cluster-assignment.png){fig-alt="12 行新样本到所分配训练簇均值的距离，颜色为簇标签；距离越大说明与训练中心越远，不是经过校准的异常概率。"}
+
+[原生 PDF](images/shap-guide/20261027-update-shap-cluster-assignment.pdf)
+
+:::
+
+`get_shp_assign()` 保留训练集的中心化与标准差，再按欧氏或 Manhattan 距离选择最近的**训练簇均值**。它支持空输入、单行和 SHAP 列重排；额外列不参与已经训练好的聚类。尤其是层次聚类，对训练数据再次分配也可能与原树切割标签不同，不能把该函数当成层次聚类的原标签恢复器。距离没有默认的已校准异常阈值。
+
+`compare=TRUE` 将每个分类特征完整 one-hot 编码、去除常量并标准化，结果不依赖原特征列顺序或 treatment/sum contrasts。它比较特征空间与 SHAP 空间分组的一致程度；ARI 接近 0 表示超出随机的一致性较少，不能单凭它认定任一分组有用或发现临床亚型。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(max(abs(cl_baseline27 + rowSums(cl_shp27[["S"]]) - predict(cl_fit27))) < 1e-10,
+  max(abs(cl_baseline27 + rowSums(cl_new_shp27[["S"]]) - predict(cl_fit27, cl_new27))) < 1e-10)
+cl_reordered27 <- cl_shp27
+cl_reordered27[["X"]] <- cl_reordered27[["X"]][, c("Flag", "Grade", "x2", "x1")]
+cl_reordered27[["X"]][["Grade"]] <- factor(cl_reordered27[["X"]][["Grade"]])
+contrasts(cl_reordered27[["X"]][["Grade"]]) <- contr.sum(3)
+clu_reordered27 <- get_shp_clust(cl_reordered27, 3, cluster_fun = "hclust", compare = TRUE)
+stopifnot(identical(clu27[["compare"]], clu_reordered27[["compare"]]),
+  identical(get_shp_assign(clu27, cl_new_shp27[["S"]]),
+    get_shp_assign(clu27, cl_new_shp27[["S"]][, 4:1, drop = FALSE])),
+  length(get_shp_assign(clu27, cl_new_shp27[["S"]][FALSE, , drop = FALSE])[["dist"]]) == 0L,
+  length(get_shp_assign(clu27, cl_new_shp27[["S"]][1, , drop = FALSE])[["dist"]]) == 1L)
+cl_x27 <- sweep(sweep(cl_new_shp27[["S"]], 2, attr(clu27[["obj"]][["x"]], "scaled:center"), "-"),
+  2, attr(clu27[["obj"]][["x"]], "scaled:scale"), "/")
+cl_gaps27 <- vapply(seq_len(3), function(i) {
+  sqrt(rowSums(sweep(cl_x27, 2, cl_assigned27[["centers"]][i, ], "-")^2))
+}, numeric(12))
+stopifnot(identical(as.integer(cl_assigned27[["cluster"]]), max.col(-cl_gaps27, ties.method = "first")))
+# 仅复核类型规范化；这份带缺失值的副本不用于拟合或上述图形。
+cl_typed27 <- cl_shp27
+cl_typed27[["X"]][["x1"]] <- bit64::as.integer64(seq_len(60))
+cl_typed27[["X"]][["x2"]] <- haven::labelled_spss(c(999, seq_len(59)), na_values = 999)
+cl_typed_result27 <- get_shp_clust(cl_typed27, 3, cluster_fun = "hclust")
+for (f in c("x1", "x2")) {
+  values <- if (f == "x1") seq_len(60) else c(NA_real_, seq_len(59))
+  expected <- as.numeric(tapply(values, cl_typed_result27[["cluster"]], mean, na.rm = TRUE))
+  stopifnot(isTRUE(all.equal(cl_typed_result27[["tab"]][["mean_x"]][
+    cl_typed_result27[["tab"]][["feature"]] == f], expected)))
+}
+cl_bad27 <- cl_shp27[["S"]]; cl_bad27[1, 1] <- Inf
+cl_error27 <- tryCatch(get_shp_clust(cl_bad27, 3), error = conditionMessage)
+stopifnot(is.character(cl_error27), grepl("finite", cl_error27))
+validation_values <- list(n_train = 60L, n_new = 12L, baseline = cl_baseline27,
+  sizes = as.integer(table(clu27[["cluster"]])), assigned = as.integer(cl_assigned27[["cluster"]]),
+  distances = as.numeric(cl_assigned27[["dist"]]), ari = clu27[["compare"]][["ari"]],
+  typed_means = as.numeric(cl_typed_result27[["tab"]][["mean_x"]][
+    cl_typed_result27[["tab"]][["feature"]] %in% c("x1", "x2")]))
+```
+:::
+
+特征概要中，普通数值给均值，逻辑/因子/字符给众数；`integer64` 转为数值，SPSS 用户缺失值先规范化为 NA 再汇总。超大整数仍受 double 精度约束；Date、difftime、矩阵或 list 等列需要显式预处理。`compare=TRUE` 要求原特征没有缺失，不能把概要允许缺失误解成比较路径也会自动填补。
+
+<!-- /update-20261027: mlr_latest_cluster -->
 
 ## 绘图函数速查 {#plot-index}
 
@@ -1181,5 +1300,6 @@ page_shp_new <- RegR::fmt_page(Summary = p_summary, `Total and main` = p_tm_new,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-27：补充[同模型同基线聚类与分配](#cluster-assignment-20261027)的 60/12 行例子和两张原生 PDF。
 - 2026-10-26：补充[sum_per 插图标签换行](#sum-per-labels-20261026)的两张合成 SHAP 原生 PDF。
 :::
