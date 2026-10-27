@@ -2,13 +2,13 @@
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
 description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
-date-modified: 2026-10-27
+date-modified: 2026-10-28
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-10-27
+  updated: 2026-10-28
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -188,6 +188,76 @@ validation_values <- list(n = nrow(lv_data27), selected = length(chosen27),
 非交互式 Rscript 不再输出 gt 的 HTML 源码；交互式控制台仍显示原生表，knitr 则继续输出原生报告并省略逐变量控制台段。这里展示的是 Rscript 的真实 stdout，不代表本节重新编织了下方的旧报告。
 
 <!-- /update-20261027: utils_lv_report -->
+
+### 筛选建议的浅灰底与纯文本回退（2026-10-28） {#filter-style-20261028}
+
+<!-- update-20261028: utils_filter_style -->
+
+已推送 UtilsR `be1ff96` 为 `lv()` 的建议筛选语句增加黑字、浅灰背景。支持 ANSI 颜色的终端可将它与频数表分开识别；复制得到的仍是同一筛选语句。无色终端或日志继续输出纯文本，不添加 R 向量的 `[1]` 前缀，不改变筛选条件、数据或返回值。版本仍为 0.6.12。
+
+```r
+library(UtilsR)
+gray_data28 <- data.frame(Stage = c("B", "A", "B", "A", "A", "B", "A", "B"),
+  Arm = rep(c("No", "Yes"), 4))
+lv(gray_data28)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+下方分别强制 256 色与无色输出以生成预览；不会修改用户的全局终端配置。
+
+```r
+gray_before28 <- gray_data28
+gray_colored28 <- withr::with_options(list(cli.num_colors = 256),
+  capture.output(gray_visible28 <- withVisible(lv(gray_data28))))
+gray_plain28 <- withr::with_options(list(cli.num_colors = 1), capture.output(lv(gray_data28)))
+gray_colored_filters28 <- gray_colored28[startsWith(cli::ansi_strip(gray_colored28), "get_flt(")]
+gray_plain_filters28 <- gray_plain28[startsWith(gray_plain28, "get_flt(")]
+stopifnot(length(gray_colored_filters28) == 2L, all(cli::ansi_has_any(gray_colored_filters28)),
+  identical(cli::ansi_strip(gray_colored_filters28), gray_plain_filters28),
+  !gray_visible28[["visible"]], identical(gray_visible28[["value"]], gray_before28),
+  identical(gray_data28, gray_before28))
+save_console28 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  chars <- strsplit(body, "", fixed = TRUE)[[1]]; cp <- utf8ToInt(body)
+  for (i in which(cp > 127L & !(cp >= 0x2500L & cp <= 0x257fL))) {
+    w <- cli::ansi_nchar(chars[i], type = "width")
+    if (w %in% 1:2) chars[i] <- sprintf('<span class="w%d">%s</span>', w, chars[i])
+  }
+  html <- paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{display:inline-block;margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '.w1,.w2{display:inline-block}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', paste(chars, collapse = ""), '</pre>')
+  writeLines(html, file.path(tempdir(), paste0("20261028-update-", name, ".html")), useBytes = TRUE)
+}
+
+save_console28(gray_colored_filters28, "lv-gray-filters")
+save_console28(gray_plain_filters28, "lv-plain-filters")
+validation_values <- list(n = nrow(gray_data28), filters = gray_plain_filters28,
+  ansi_present = TRUE, plain_matches = TRUE, unchanged = TRUE)
+```
+:::
+
+::: {.panel-tabset}
+
+#### 支持颜色的终端 {.unnumbered}
+
+![实际 ANSI 输出中的浅灰底筛选建议。](images/missing-guide/20261028-update-lv-gray-filters.png){fig-alt="八行合成数据的两条实际 get_flt 筛选建议，支持颜色时为黑字浅灰底，语句内容与纯文本相同。"}
+
+[原生 HTML](images/missing-guide/20261028-update-lv-gray-filters.html)
+
+#### 无色输出 {.unnumbered}
+
+![无色输出保留相同的可复制语句。](images/missing-guide/20261028-update-lv-plain-filters.png){fig-alt="同一八行数据的无色筛选建议，没有 ANSI 控制码或向量打印前缀，语句内容与彩色版本相同。"}
+
+[原生 HTML](images/missing-guide/20261028-update-lv-plain-filters.html)
+
+:::
+
+此处只展示提示样式；完整 `lv()` 报告、分布和分母见上节。示例在 Windows / WSL R 4.4.3 核对，没有新测性能变化。
+
+<!-- /update-20261028: utils_filter_style -->
 
 ### lv 的控制台标题随标准输出保留（2026-10-26） {#lv-stdout-20261026}
 
@@ -1337,6 +1407,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-28：补充 [筛选建议浅灰底与无色回退](#filter-style-20261028)的实际控制台对照。
 - 2026-10-27：补充[数据总览、变量分布与二向表](#lv-report-20261027)，核对百分比分母及完整输入返回。
 - 2026-10-26：验证[lv 控制台报告的标准输出](#lv-stdout-20261026)及不可见返回合同。
 - 2026-10-25：[环境诊断：包副本与实时可用内存](#environment-20261025)
