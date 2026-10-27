@@ -2,13 +2,13 @@
 title: "HTE 方法选择：变量筛选、线性投影与亚组规则"
 description: "在同一模拟数据上对照 select、unihtee、iCF 和亚组树，展示重要计算参数、输出差异与验证边界。"
 date: 2026-10-02
-date-modified: 2026-10-16
+date-modified: 2026-10-28
 lightbox: true
 toc-depth: 2
 directory:
   title: "HTE方法选择：线性筛查与森林对象复用"
   topic: 因果推断与 HTE
-  updated: 2026-10-17
+  updated: 2026-10-28
 ---
 
 ::: {.callout-note title="运行前核对树变量参数"}
@@ -181,6 +181,121 @@ plt_hte_unihtee(uni, type = "dep", x_var = c("b", "x", "u"), var_names = NULL,
 
 :::
 
+### unihtee 输入、投影与交叉拟合诊断（2026-10-28） {#unihtee-contract-20261028}
+
+<!-- update-20261028: causal_unihtee -->
+
+causalR `26af481` 的 `get_hte_unihtee()` 先规范化 Haven 标签和用户缺失，检查保留列、分析列存储及后端参数。`method="glm"` 只接受非生存结局，不能同时传非空 `grf_args`；森林路径也不接收非空 `glm_args`。GLM 每个训练折须支持因子水平，二分类结局还须同时有事件与非事件。报错会指出折号和 propensity、treated/control outcome 角色，**不自动重抽折、不改用其他模型**；有限但不可估计的预测也会停止。
+
+以下 400 行合成随机分配数据仅演示筛查合同，刻意设置强线性修饰，实际得到下溢至 0 的 Wald p 值。火山图用有限统计量恢复 log 概率坐标，表中的原始 p 值与 BH 调整值保持不变；0 是浮点下溢，不是数学上严格为零的概率。
+
+```r
+library(causalR)
+set.seed(1027)
+uni_data28 <- data.frame(a = rep(0:1, 200), x = rnorm(400), v = runif(400))
+set.seed(11)
+uni_data28[["y"]] <- uni_data28[["a"]] * (1 + 6 * uni_data28[["x"]]) + rnorm(400)
+uni_rng_before28 <- get(".Random.seed", envir = .GlobalEnv)
+uni_result28 <- get_hte_unihtee(uni_data28, "a", tree_var = c("x", "v"), surv = "y", method = "glm")
+uni_rng_after28 <- get(".Random.seed", envir = .GlobalEnv)
+uni_vip28 <- uni_result28[["vip"]]
+uni_table28 <- as.data.frame(uni_vip28[, c("variable", "contrast", "estimate", "std.error", "p.value", "p.adj")])
+gt::gtsave(gt::fmt_number(gt::gt(uni_table28), columns = c("estimate", "std.error"), decimals = 5),
+  file.path(tempdir(), "20261028-update-unihtee-vip.html"))
+uni_volcano28 <- plt_hte_unihtee(uni_result28, type = "volcano")
+uni_dep28 <- plt_hte_unihtee(uni_result28, type = "dep", x_var = "x")
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-unihtee-volcano.pdf"), uni_volcano28,
+  width = 7, height = 4.8)
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-unihtee-dependence.pdf"), uni_dep28,
+  width = 7, height = 4.8)
+```
+
+::: {.panel-tabset}
+
+#### VIP 与原始 p 值 {.unnumbered}
+
+![同一检验族中的两个连续候选按每 1 SD 报告。](images/method-selection-guide/20261028-update-unihtee-vip.png){fig-alt="400 行合成数据的 x、v 边际线性 VIP 与 HC3 标准误，强修饰 x 的 p 值下溢至零，BH 校正在同一效应尺度的两个候选中进行。"}
+
+[原生 HTML](images/method-selection-guide/20261028-update-unihtee-vip.html)
+
+#### 有限的火山图坐标 {.unnumbered}
+
+![下溢 p 值仍有有限的负 log10 坐标。](images/method-selection-guide/20261028-update-unihtee-volcano.png){fig-alt="实际火山图保留两个候选，x 的极小 p 值从有限 Wald 统计量恢复为有限高度，BH 标记与原表一致。"}
+
+[原生 PDF](images/method-selection-guide/20261028-update-unihtee-volcano.pdf)
+
+#### 原始横轴上的投影 {.unnumbered}
+
+![投影内部中心化与标准化，显示仍使用原始 x。](images/method-selection-guide/20261028-update-unihtee-dependence.png){fig-alt="同一 AIPW 得分的边际线性投影与样条对照，横轴仍为原始 x；直线斜率按原单位显示，VIP 表按每标准差报告。"}
+
+[原生 PDF](images/method-selection-guide/20261028-update-unihtee-dependence.pdf)
+
+:::
+
+连续候选在投影内部中心化并标准化，以减少大偏移或单位引起的秩和 HC3 数值问题，报告仍是每 SD 的边际修饰。此处理不替代 nuisance 模型的可估计性检查。二分类候选保留水平信息，连续候选的 `candidate_levels` 为 NULL，避免复制所有唯一数值。
+
+另一个 200 行例子只有第一个聚类含 `binary` 的变化：删除该聚类后无法估计其斜率，HC3 不可定义，故仅该候选不可用。不能为了得到 p 值而擅自换方差公式。
+
+```r
+set.seed(21)
+uni_cl28 <- rep(seq_len(5), each = 40)
+uni_cluster_data28 <- data.frame(a = rep(0:1, 100), binary = as.integer(uni_cl28 == 1), v = rnorm(200))
+uni_cluster_data28[["y"]] <- uni_cluster_data28[["v"]] + uni_cluster_data28[["a"]] + rnorm(200)
+uni_cluster28 <- get_hte_unihtee(uni_cluster_data28, "a", tree_var = c("binary", "v"), surv = "y",
+  seed = 123, grf_args = list(num.trees = 100, num.threads = 1, seed = 28,
+    clusters = uni_cl28, W.hat = .5, Y.hat = 0))
+uni_cluster_table28 <- as.data.frame(uni_cluster28[["vip"]][, c("variable", "type", "estimate", "std.error")])
+gt::gtsave(gt::fmt_number(gt::gt(uni_cluster_table28), columns = c("estimate", "std.error"), decimals = 5),
+  file.path(tempdir(), "20261028-update-unihtee-cluster-support.html"))
+```
+
+![聚类删除后无变异的候选不可用，另一候选仍有有效结果。](images/method-selection-guide/20261028-update-unihtee-cluster-support.png){fig-alt="五个聚类共 200 行，binary 的变异只来自一个聚类，因此其估计和标准误为 NA，连续候选 v 保持有限结果。"}
+
+[原生 HTML](images/method-selection-guide/20261028-update-unihtee-cluster-support.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(identical(uni_rng_before28, uni_rng_after28), any(uni_vip28[["p.value"]] == 0),
+  identical(uni_vip28, uni_result28[["vip"]]), is.null(attr(uni_result28, "analysis")[["candidate_levels"]][["x"]]),
+  attr(uni_cluster28, "analysis")[["seed"]] == 28)
+uni_manual_data28 <- uni_result28[["data"]]
+uni_manual_data28[["standard_x"]] <- as.numeric(scale(uni_manual_data28[["x"]]))
+uni_manual28 <- lm(.score_diff ~ standard_x, data = uni_manual_data28)
+uni_cov28 <- sandwich::vcovHC(uni_manual28, type = "HC3")
+uni_x28 <- uni_vip28[uni_vip28[["variable"]] == "x", ]
+stopifnot(abs(coef(uni_manual28)[[2]] - uni_x28[["estimate"]]) < 1e-8,
+  abs(sqrt(uni_cov28[2, 2]) - uni_x28[["std.error"]]) < 1e-8)
+uni_point28 <- Filter(function(layer) inherits(layer[["geom"]], "GeomPoint"), uni_volcano28[["layers"]])[[1]][["data"]]
+uni_expected28 <- -(log(2) + pnorm(-abs(uni_vip28[["estimate"]] / uni_vip28[["std.error"]]), log.p = TRUE)) / log(10)
+stopifnot(all(is.finite(uni_point28[["neglog10p"]])),
+  isTRUE(all.equal(uni_point28[["neglog10p"]], uni_expected28)))
+uni_v28 <- uni_cluster28[["vip"]]
+stopifnot(is.na(uni_v28[["estimate"]][uni_v28[["variable"]] == "binary"]),
+  is.finite(uni_v28[["std.error"]][uni_v28[["variable"]] == "v"]))
+uni_rare28 <- uni_data28; uni_rare28[["rare"]] <- factor(c("rare", rep("common", 399)))
+uni_fold_error28 <- tryCatch(get_hte_unihtee(uni_rare28, "a", tree_var = "x", adj_var = "rare",
+  surv = "y", method = "glm"), error = conditionMessage)
+stopifnot(is.character(uni_fold_error28), grepl("Fold [0-9]+.*(propensity|outcome).*rare", uni_fold_error28))
+uni_errors28 <- vapply(c("bar", "volcano", "dep"), function(type) {
+  message <- tryCatch(plt_hte_unihtee(uni_result28, type = type, x_var = character()), error = conditionMessage)
+  is.character(message) && grepl("at least one candidate", message)
+}, logical(1))
+uni_inactive28 <- tryCatch(get_hte_unihtee(uni_data28, "a", tree_var = "x", surv = "y",
+  method = "glm", grf_args = list(seed = 1)), error = conditionMessage)
+stopifnot(all(uni_errors28), is.character(uni_inactive28), grepl("only", uni_inactive28))
+validation_values <- list(n = c(400L, 200L), vip = uni_vip28[["estimate"]], se = uni_vip28[["std.error"]],
+  finite_volcano_y = uni_point28[["neglog10p"]], raw_underflow = any(uni_vip28[["p.value"]] == 0),
+  seed = attr(uni_cluster28, "analysis")[["seed"]], cluster_unavailable = TRUE, empty_rejected = uni_errors28)
+```
+:::
+
+对 ratio/OR，表中效应及区间指数化，标准误仍在 log 尺度。近边界臂预测、非有限伪结局及指数化的零或非有限界限会给出诊断；不会偷偷改变得分公式或截断默认值。`ps_trim` 的截断计数会报告，仍不能修复因果重叠不足。
+
+本节在 Windows R 4.4.3 运行。森林种子以 `grf_args$seed` 的实际设置为准，上例记录 28；GLM 交叉拟合恢复调用者随机状态。空 `x_var` 会在构图前拒绝，避免生成不能打印或保存的空图。
+
+<!-- /update-20261028: causal_unihtee -->
+
 ## iCF 与 tree：从连续异质性到规则 {#sec-methods-rules}
 
 | 参数 | iCF | tree |
@@ -266,3 +381,10 @@ method="grf"新增返回hte，即产生得分的get_hte()拟合，可直接传�
 2026-10-16核对：树图样式及绘图环境整理已推送到causalR `f3f7ecc`。仅保存plt_hte_tree/plt_hte_icf的图对象时，绘图环境不再连带保存整个拟合；图仍含绘图所需数据，这不是匿名化功能。既有图片和数值保留各自执行日期，本轮没有重跑历史分析。
 
 2026-10-17 核对的远端 `ceb2003` 已包含 `e389a75` 与 `f505185` 的改名，四个入口均使用 `tree_var`，不再是仅本机可用的接口。本站 `72d6139` 与 `b0f67c1` 的代码拼写已与之统一。当前源码已在 Windows R 4.4.3 核对四个签名，并实际执行 `get_hte_unihtee(method="glm", tree_var=...)`。旧安装可用 `names(formals(causalR::get_hte_tree))` 等检查；`candidate_var` 与 `tree_var` 应按安装接口选择，不同时传入。历史模型、表格与图片保持原执行快照，本轮没有重算历史森林。2026-10-18 已用 Windows R 4.4.3 与 causalR `e4b86c6` 重新执行本页全部代码块，结果缓存在 `_freeze/`。
+
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [unihtee 投影与交叉拟合诊断](#unihtee-contract-20261028)，实际验证 p 值下溢和聚类删除支持。
+:::
