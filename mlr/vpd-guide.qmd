@@ -280,6 +280,82 @@ validation_values <- list(n = 48L, fresh_process = TRUE, unchanged = TRUE,
 
 <!-- /update-20261027: mlr_latest_reload -->
 
+
+### 生存预测缓存与累计风险（2026-10-27） {#survival-cache-20261027}
+
+<!-- update-20261027: mlr_followup_cache -->
+
+MLR `4d7d979` 的 Cox 解释器缓存已拟合模型的基线累计风险，同模型重复预测可直接复用；回调收到不同的已拟合模型时会刷新缓存。ranger 生存解释器的 `output_type="chf"` 从终端节点累计风险直接求平均，与生存概率共用计算；避免先把生存概率下溢到 0 后再通过 `-log(S)` 反推风险。
+
+下面用 36 行、2 个预测变量的合成生存数据拟合 Cox 和 ranger，按相同原始时间单位请求 0、重复时点及超过观测范围的时点。模型输出是条件于该拟合模型的生存概率或累计风险，不能把 CHF 当成概率或因果治疗效应。
+
+```r
+library(MLR)
+set.seed(2733)
+cache_data27 <- data.frame(time = seq_len(36), DSS = rep(c(0, 1, 1), 12),
+  Marker = rnorm(36), Group = rep(c("A", "B"), 18))
+cache_vars27 <- c("Marker", "Group")
+cache_cox27 <- get_exp(cache_data27, cache_vars27, surv = 12, model = "default", cores = 1)
+cache_rf27 <- get_exp(cache_data27, cache_vars27, surv = 12, model = "ranger", cores = 1)
+cache_times27 <- c(100, 0, 6, 6, 12)
+cache_new27 <- cache_rf27[["EXP"]][["data"]][1:6, , drop = FALSE]
+cache_chf27 <- stats::predict(cache_rf27[["EXP"]], cache_new27,
+  output_type = "chf", times = cache_times27)
+cache_survival27 <- stats::predict(cache_rf27[["EXP"]], cache_new27,
+  output_type = "survival", times = cache_times27)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+cache_cox_new27 <- cache_cox27[["EXP"]][["data"]][1:6, , drop = FALSE]
+cache_cox_actual27 <- stats::predict(cache_cox27[["EXP"]], cache_cox_new27,
+  output_type = "survival", times = cache_times27)
+cache_fit27 <- cache_cox27[["EXP"]][["model"]]$model
+cache_base27 <- survival::basehaz(cache_fit27, centered = TRUE)
+cache_H027 <- c(0, cache_base27[["hazard"]])[
+  findInterval(cache_times27, cache_base27[["time"]]) + 1L]
+cache_cox_expected27 <- exp(-outer(exp(stats::predict(cache_fit27,
+  newdata = cache_cox_new27, type = "lp")), cache_H027))
+cache_native27 <- stats::predict(cache_rf27[["EXP"]][["model"]]$model,
+  data = cache_new27, num.threads = 1)
+cache_index27 <- findInterval(cache_times27, cache_native27[["unique.death.times"]])
+cache_expected_chf27 <- matrix(cache_native27[["chf"]], nrow = 6)[,
+  pmax(cache_index27, 1L), drop = FALSE]
+cache_expected_chf27[, cache_index27 == 0L] <- 0
+cache_doubled27 <- cache_data27; cache_doubled27[["time"]] <- 2 * cache_doubled27[["time"]]
+cache_cox_second27 <- get_exp(cache_doubled27, cache_vars27, surv = 12, cores = 1)
+cache_callback27 <- cache_cox27[["EXP"]][["predict_survival_function"]]
+cache_switched27 <- cache_callback27(cache_cox_second27[["EXP"]][["model"]],
+  cache_cox_new27, cache_times27)
+cache_second_expected27 <- stats::predict(cache_cox_second27[["EXP"]], cache_cox_new27,
+  output_type = "survival", times = cache_times27)
+cache_back27 <- cache_callback27(cache_cox27[["EXP"]][["model"]], cache_cox_new27, cache_times27)
+cache_errors27 <- c(
+  cox_baseline = max(abs(unname(cache_cox_actual27) - unname(cache_cox_expected27))),
+  ranger_CHF = max(abs(unname(cache_chf27) - unname(cache_expected_chf27))),
+  survival_from_CHF = max(abs(unname(cache_survival27) - exp(-unname(cache_chf27)))),
+  different_fit_refresh = max(abs(unname(cache_switched27) - unname(cache_second_expected27))),
+  original_fit_refresh = max(abs(unname(cache_back27) - unname(cache_cox_actual27))))
+stopifnot(all(cache_errors27 < 1e-10), all(is.finite(cache_chf27)),
+  all(cache_chf27[, 2] == 0), all(cache_survival27[, 2] == 1),
+  identical(cache_chf27[, 3], cache_chf27[, 4]))
+gt::gtsave(gt::fmt_scientific(gt::gt(data.frame(check = names(cache_errors27),
+  max_absolute_error = unname(cache_errors27))), columns = "max_absolute_error", decimals = 2),
+  file.path(tempdir(), "20261027-update-survival-prediction-checks.html"))
+validation_values <- list(n = 36L, times = cache_times27, errors = unname(cache_errors27),
+  chf = unname(as.numeric(cache_chf27)), cox = unname(as.numeric(cache_cox_actual27)))
+```
+:::
+
+![生存预测与原生计算及缓存切换结果一致。](images/vpd-guide/20261027-update-survival-prediction-checks.png){fig-alt="36 行合成生存模型的五项数值核对：Cox 基线计算、ranger 原生 CHF、生存概率与 CHF 关系，以及模型切换前后的缓存刷新；表内为实际最大绝对误差。"}
+
+[原生 HTML](images/vpd-guide/20261027-update-survival-prediction-checks.html)
+
+表格检验数值一致性，没有重新测量端到端耗时或发布新的速度倍数。下溢处理按源码说明；本例使用常规累计风险范围。重复预测复用同一拟合不等于在验证队列重新拟合模型，缓存也不改变先前的训练或验证边界。
+
+<!-- /update-20261027: mlr_followup_cache -->
+
 ## 生存任务：四种变量组合
 
 `exp_var` 为一个变量时直接展示该变量；两个变量时第一项必须为分类分组，第二项为关注变量。纵轴是选定时间点的预测生存概率 S(t)，不是 HR。
@@ -647,6 +723,7 @@ get_all现在有13个分析入口。ale2.args必须显式提供才启用；仅�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[生存缓存与累计风险](#survival-cache-20261027)的 36 行 Cox/ranger 数值核对。
 - 2026-10-27：补充[原始预测列与 RDS 回读](#explainer-reload-20261027)的 48 行独立进程核对。
 - 2026-10-27：补充[解释器输入、正类编码与缓存](#explainer-contract-20261027)的 60 行实际拟合与类型核对。
 :::
