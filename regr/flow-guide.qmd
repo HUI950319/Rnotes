@@ -288,7 +288,8 @@ validation_values <- list(filtered_rows = nrow(filtered_summary26), history = as
 | `split2` | `list(label = NULL, N = NULL, merge = NULL)` | 一一对应的第二级分组与汇合框 |
 | `content_labels` | `NULL` | 分组之后的研究内容框 |
 | `gap_args` | `list(group = NULL, content = 0.3)` | 分组 / 内容框间的横向间距，单位英寸 |
-| `phase_labels, phase_style` | 无阶段标签；`"bracket"` | 纳排、分组、研究内容三个结构阶段；可切换为 `"box"` |
+| `phase_labels, phase_style` | 无阶段标签；`"box"` | 当前 `79bb436` 支持 box / bracket / fill / band / arrow，见[阶段样式](#phase-styles-20261027) |
+| `content_lines` | `"auto"` | 当前为顶层参数；NULL 保留手工换行 |
 | `fixed_size` | `TRUE` | 保持推荐物理尺寸；`FALSE` 适配绘图区；正数指定宽度，单位英寸 |
 | `return_data` | `FALSE` 返回 ggplot | `TRUE` 保留原数据用于管道 |
 | `save` | `list()` 无保存副作用 | 命名 list 转交 `save_plt()`；只指定文件名时使用流程图推荐尺寸 |
@@ -532,7 +533,7 @@ ggplot2::ggsave(file.path(tempdir(), "20261027-update-flow-explicit-lines.pdf"),
 
 自动模式会按行数预算重新换行，显式 `\n` 可能被重排；`content_lines=NULL` 才保留手工换行。整行的 `**标题**` 可加粗并对齐标题与正文，不能在一行中间随意插入 `**`。默认主框可以按文字宽度不同；`equal_width=TRUE` 统一主框宽度，研究内容框本身仍共用紧凑宽度。
 
-本页固定的是**远端已推送接口**：`content_lines` 仍在 `box_args` 内。当前本机分支另有把它移到顶层、紧随 `content_labels` 的未推送提交，此处不提前采用。新安装后先核对 `formals(plt_flo)`；不要把两种位置混用。
+本小节保留 RegR `212a156` 的历史执行快照，代码中的 `content_lines` 位于 `box_args` 内。图中 Eligible 未提供名称映射，默认的 missing 是标签占位，不能把这 300 行解读为缺失；新版示例已显式给出排除理由。后续已发布版本迁移到顶层，见下方[当前参数与阶段样式](#phase-styles-20261027)；新安装先核对 `formals(plt_flo)`，按对应版本使用。
 
 ::: {.callout-note collapse="true" title="复核代码"}
 
@@ -570,6 +571,100 @@ validation_values <- list(n_start = nrow(flow_data27), n_final = nrow(flow_selec
 `content_width` 用于显式宽度控制，不能与显式 `content_lines` 同时设置；`gap_args` 未指定时按组数及内容行宽自适应，显式值则按英寸控制。保存时优先使用 `attr(p,"flo_size")` 的推荐尺寸，避免把固定面板硬塞进过小设备。人数换行和框宽优化没有新增统计估计量，也未重算本页其他历史图。
 
 <!-- /update-20261027: regr_flow_layout -->
+
+
+### 顶层换行参数与阶段样式（2026-10-27） {#phase-styles-20261027}
+
+<!-- update-20261027: regr_latest_flow -->
+
+RegR `79bb436` 已发布 `content_lines` 的顶层迁移，位置紧随 `content_labels`；旧的 `box_args$content_lines` 不再属于该版本的合法字段。默认仍为 `"auto"`，`NULL` 保留手工换行；指定顶层行数时不能同时指定 `box_args$content_width`。
+
+`phase_style` 当前默认 **`"box"`**，另外支持 `"bracket"`、`"fill"`、`"band"`、`"arrow"`。`band` 用蓝、浅沙、浅绿区分结构阶段，左侧较深的标签块与文字在各自分区内居中；`arrow` 以逐段加深的箭头串联阶段。阶段名称对应实际存在的筛选、分组和研究内容，最多三个；配色与形状不改变分析样本。
+
+```r
+library(RegR)
+phase_data27 <- data.frame(Age = rep(1:100, 12),
+  Eligible = rep(c(TRUE, TRUE, TRUE, FALSE), 300),
+  Arm = factor(rep(c("A", "B"), each = 600)))
+phase_selected27 <- get_flt(phase_data27, Eligible == TRUE, Age >= 18, Age <= 80)
+phase_before27 <- phase_selected27
+phase_args27 <- list(data = phase_selected27, inclu_row = 1,
+  cohort = list(label = "Synthetic cohort"), split_var = "Arm",
+  name_map = c(Eligible = "Not eligible"),
+  content_labels = c("**Development**\nClinical model\nExtended model",
+    "**Validation**\nIndependent cohort\nSensitivity analyses",
+    "**Interpretation**\nFeature effects\nRobustness"),
+  content_lines = NULL, box_args = list(equal_width = TRUE),
+  phase_labels = c("Selection", "Groups", "Study contents"))
+phase_plots27 <- list(box = do.call(plt_flo, phase_args27),
+  band = do.call(plt_flo, c(phase_args27, list(phase_style = "band"))),
+  arrow = do.call(plt_flo, c(phase_args27, list(phase_style = "arrow"))))
+for (style in names(phase_plots27)) {
+  p <- phase_plots27[[style]]
+  size <- attr(p, "flo_size")
+  ggplot2::ggsave(file.path(tempdir(), paste0("20261027-update-flow-phase-", style, ".pdf")),
+    p, width = size[["width"]], height = size[["height"]], device = grDevices::cairo_pdf)
+}
+```
+
+::: {.panel-tabset}
+
+#### 默认框 {.unnumbered}
+
+![默认 box 用左侧框标识阶段。](images/flow-guide/20261027-update-flow-phase-box.png){fig-alt="RegR 79bb436 默认 box 样式的合成队列流程，三阶段使用左侧圆角框，内容框保留显式换行。"}
+
+[原生 PDF](images/flow-guide/20261027-update-flow-phase-box.pdf)
+
+#### 分区底色 {.unnumbered}
+
+![band 以三种浅色分区增强层级。](images/flow-guide/20261027-update-flow-phase-band.png){fig-alt="相同筛选结果的 band 样式，蓝、浅沙和浅绿阶段分区分别承载居中的深色标签块，不改筛选人数。"}
+
+[原生 PDF](images/flow-guide/20261027-update-flow-phase-band.pdf)
+
+#### 流程箭头 {.unnumbered}
+
+![arrow 使用逐段加深的流程箭头。](images/flow-guide/20261027-update-flow-phase-arrow.png){fig-alt="相同分析队列的 arrow 阶段标识，三个左侧箭头依次加深，保持同一主流程与分组人数。"}
+
+[原生 PDF](images/flow-guide/20261027-update-flow-phase-arrow.pdf)
+
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+phase_formals27 <- formals(plt_flo)
+stopifnot(identical(phase_formals27[["content_lines"]], "auto"),
+  "content_lines" %in% names(phase_formals27),
+  !"content_lines" %in% names(eval(phase_formals27[["box_args"]])),
+  eval(phase_formals27[["phase_style"]])[[1]] == "box",
+  identical(phase_selected27, phase_before27), nrow(phase_selected27) == 564L,
+  identical(as.integer(table(phase_selected27[["Arm"]])), c(282L, 282L)))
+phase_labels27 <- lapply(phase_plots27, function(p) {
+  unlist(lapply(ggplot2::ggplot_build(p)[["data"]], function(d) {
+    if ("label" %in% names(d)) as.character(d[["label"]])
+  }))
+})
+for (labels in phase_labels27) stopifnot(any(grepl("1,200", labels, fixed = TRUE)),
+  all(c("Selection", "Groups", "Study contents") %in% labels),
+  any(grepl("Not eligible", labels, fixed = TRUE)), !any(grepl("missing", labels, ignore.case = TRUE)))
+phase_rejected_args27 <- phase_args27
+phase_rejected_args27[["box_args"]] <- list(content_lines = NULL)
+phase_rejected27 <- tryCatch(do.call(plt_flo, phase_rejected_args27), error = conditionMessage)
+phase_conflict_args27 <- phase_args27
+phase_conflict_args27[["content_lines"]] <- 3
+phase_conflict_args27[["box_args"]] <- list(content_width = 2)
+phase_conflict27 <- tryCatch(do.call(plt_flo, phase_conflict_args27), error = conditionMessage)
+stopifnot(grepl("content_lines", phase_rejected27), grepl("only one", phase_conflict27),
+  identical(phase_selected27, phase_before27))
+validation_values <- list(n_start = 1200L, n_final = nrow(phase_selected27),
+  by_arm = as.integer(table(phase_selected27[["Arm"]])), styles = names(phase_plots27),
+  unchanged = TRUE, default = "box", top_level = TRUE)
+```
+:::
+
+本例实际导出默认框、分区底色与箭头；`fill` 和 `bracket` 的选项按源码核对，旧方括号图保留原快照。保存继续使用 `attr(p,"flo_size")`，阶段标签过长时先用换行控制尺寸。配色、行数和阶段标签不重新建队列，也没有新的统计或速度结论。
+
+<!-- /update-20261027: regr_latest_flow -->
 
 ## 字号、框形、间距与 PDF 保存 {#layout-save}
 
@@ -1181,6 +1276,7 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：跟进已发布 RegR `79bb436` 的[顶层 content_lines 与五种阶段样式](#phase-styles-20261027)，新增三张原生 PDF。
 - 2026-10-27：补充[自适应研究内容与排除框](#adaptive-flow-20261027)的两张实际流程图，固定已推送参数位置。
 - 2026-10-27：补充[get_all 返回类、种子与中断保留](#dispatcher-20261027)的实际调用和模拟中断核对。
 - 2026-10-26：补充[get_flt 与 get_all 摘要的实际输出](#summary-20261026)，区分返回对象、筛选历史与消息通道。
