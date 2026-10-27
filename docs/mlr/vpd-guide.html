@@ -1415,6 +1415,85 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>分类解释器复用一次全数据预测给 <code>dat$yhat</code>、解释器缓存和残差；<code>per</code> 仍是 apparent performance，既不是留出验证也不是交叉验证。默认仍不预先计算置换重要性或 PDP；缓存复用没有新增端到端提速倍数。<code>get_ale2()</code> 还会屏蔽内部 iml 特定的 <code>merge(on=...)</code> 兼容警告，其他警告继续报告；这不改变二阶 ALE 的统计定义。</p>
 <!-- /update-20261027: mlr_explainer -->
 </section>
+<section id="explainer-reload-20261027" class="level3">
+<h3 class="anchored" data-anchor-id="explainer-reload-20261027">原始预测列、缺失边界与保存后复用（2026-10-27）</h3>
+<!-- update-20261027: mlr_latest_reload -->
+<p>MLR <code>a4865f2</code> 在上一小节 <code>52c03f9</code> 的快照之后，继续补齐预测输入和 RDS 回读。原始字符/逻辑预测列可直接交给 <code>stats::predict(result$EXP, newdata)</code>，内部与拟合时的因子水平对齐；ranger 分类预测也遵守 <code>cores</code>，小批量预测的线程数不会超过行数。下面只训练 48 行合成分类数据，不作外部验证或速度比较。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MLR)</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2712</span>)</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>reload_data27 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Marker =</span> <span class="fu">rnorm</span>(<span class="dv">48</span>),</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">Group =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="dv">24</span>), <span class="at">Flag =</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="cn">TRUE</span>, <span class="cn">TRUE</span>, <span class="cn">FALSE</span>, <span class="cn">FALSE</span>), <span class="dv">12</span>))</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>reload_data27[[<span class="st">"Outcome"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(<span class="dv">48</span>) <span class="sc">&lt;</span> <span class="fu">plogis</span>(.<span class="dv">3</span> <span class="sc">*</span> reload_data27[[<span class="st">"Marker"</span>]]),</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Event"</span>, <span class="st">"Control"</span>), <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Control"</span>, <span class="st">"Event"</span>))</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>reload_vars27 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"Marker"</span>, <span class="st">"Group"</span>, <span class="st">"Flag"</span>)</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>reload_before27 <span class="ot">&lt;-</span> reload_data27</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>reload_log27 <span class="ot">&lt;-</span> <span class="fu">get_exp</span>(reload_data27, reload_vars27, <span class="at">surv =</span> <span class="st">"Outcome"</span>, <span class="at">model =</span> <span class="st">"default"</span>)</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>reload_rf27 <span class="ot">&lt;-</span> <span class="fu">get_exp</span>(reload_data27, reload_vars27, <span class="at">surv =</span> <span class="st">"Outcome"</span>, <span class="at">model =</span> <span class="st">"ranger"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>reload_file27 <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"explainer-ranger-20261027.rds"</span>)</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(reload_rf27, reload_file27)</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a><span class="co"># 在另一个 R 会话中加载同一版本及依赖后，可直接读取并预测，不重新训练。</span></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>reload_restored27 <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(reload_file27)</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>stats<span class="sc">::</span><span class="fu">predict</span>(reload_restored27[[<span class="st">"EXP"</span>]], reload_data27[<span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>, reload_vars27])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>预测变量的边界按后端区分：所有路径拒绝 Inf / -Inf；Logistic 分类、Cox 与 ranger 生存要求完整预测列，不自动删行。ranger 分类和 XGBoost 保留各自的缺失值处理能力，不应统一 <code>na.omit()</code> 或笼统写成所有后端都拒绝 NA。</p>
+<p>生存结局必须是普通数值向量：<code>DSS</code> 无缺失且为 0/1、至少 1 个事件；<code>time</code> 有限且非负，XGBoost 进一步要求随访严格大于 0。<strong>预测时点为 0</strong> 与<strong>随访为 0</strong>是两件事，不能把 XGBoost 的随访限制套到预测时点。因子/逻辑事件列、Date 时间列须先按真实含义显式转换。</p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>下面通过 <code>callr</code> 启动独立 R 进程读回同一个 RDS，并比较全部 48 行概率。本站用 <code>rnotes.MLR.source</code> 指向固定源码副本；普通安装环境保持该选项为 NULL，子进程加载已安装的同一版 MLR。RDS 跨会话复用仍需相应包及兼容版本，不保证任意版本间的模型迁移。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>reload_child27 <span class="ot">&lt;-</span> callr<span class="sc">::</span><span class="fu">r</span>(<span class="cf">function</span>(path, source_path) {</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">is.null</span>(source_path)) <span class="fu">loadNamespace</span>(<span class="st">"MLR"</span>) <span class="cf">else</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    pkgload<span class="sc">::</span><span class="fu">load_all</span>(source_path, <span class="at">quiet =</span> <span class="cn">TRUE</span>, <span class="at">export_all =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>  z <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(path)</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">prediction =</span> <span class="fu">as.numeric</span>(stats<span class="sc">::</span><span class="fu">predict</span>(z[[<span class="st">"EXP"</span>]], z[[<span class="st">"EXP"</span>]][[<span class="st">"data"</span>]])),</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">pid =</span> <span class="fu">Sys.getpid</span>())</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>}, <span class="at">args =</span> <span class="fu">list</span>(reload_file27, <span class="fu">getOption</span>(<span class="st">"rnotes.MLR.source"</span>)), <span class="at">timeout =</span> <span class="dv">20</span>)</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>reload_raw27 <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(stats<span class="sc">::</span><span class="fu">predict</span>(reload_log27[[<span class="st">"EXP"</span>]], reload_data27[reload_vars27]))</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>reload_normalized27 <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(stats<span class="sc">::</span><span class="fu">predict</span>(reload_log27[[<span class="st">"EXP"</span>]],</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>  reload_log27[[<span class="st">"EXP"</span>]][[<span class="st">"data"</span>]]))</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(reload_raw27, reload_normalized27)),</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(reload_child27[[<span class="st">"prediction"</span>]], <span class="fu">as.numeric</span>(reload_rf27[[<span class="st">"dat"</span>]][[<span class="st">"yhat"</span>]]))),</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  reload_child27[[<span class="st">"pid"</span>]] <span class="sc">!=</span> <span class="fu">Sys.getpid</span>(), <span class="fu">identical</span>(reload_data27, reload_before27))</span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>reload_bad27 <span class="ot">&lt;-</span> reload_data27; reload_bad27[[<span class="st">"Marker"</span>]][<span class="dv">1</span>] <span class="ot">&lt;-</span> <span class="cn">Inf</span></span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>reload_inf27 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_exp</span>(reload_bad27, reload_vars27, <span class="at">surv =</span> <span class="st">"Outcome"</span>), <span class="at">error =</span> conditionMessage)</span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>reload_bad27[[<span class="st">"Marker"</span>]][<span class="dv">1</span>] <span class="ot">&lt;-</span> <span class="cn">NA_real_</span></span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>reload_na27 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_exp</span>(reload_bad27, reload_vars27, <span class="at">surv =</span> <span class="st">"Outcome"</span>), <span class="at">error =</span> conditionMessage)</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>reload_surv27 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">time =</span> <span class="fu">seq_len</span>(<span class="dv">12</span>), <span class="at">DSS =</span> <span class="fu">rep</span>(<span class="dv">0</span><span class="sc">:</span><span class="dv">1</span>, <span class="dv">6</span>), <span class="at">Marker =</span> <span class="fu">seq_len</span>(<span class="dv">12</span>))</span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>reload_surv27[[<span class="st">"time"</span>]][<span class="dv">1</span>] <span class="ot">&lt;-</span> <span class="dv">0</span></span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>reload_zero27 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_exp</span>(reload_surv27, <span class="st">"Marker"</span>, <span class="at">model =</span> <span class="st">"xgboost"</span>), <span class="at">error =</span> conditionMessage)</span>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a>reload_surv27[[<span class="st">"DSS"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(reload_surv27[[<span class="st">"DSS"</span>]])</span>
+<span id="cb9-22"><a href="#cb9-22" aria-hidden="true" tabindex="-1"></a>reload_event27 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_exp</span>(reload_surv27, <span class="st">"Marker"</span>), <span class="at">error =</span> conditionMessage)</span>
+<span id="cb9-23"><a href="#cb9-23" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">grepl</span>(<span class="st">"Infinite predictor"</span>, reload_inf27), <span class="fu">grepl</span>(<span class="st">"Missing predictor"</span>, reload_na27),</span>
+<span id="cb9-24"><a href="#cb9-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">grepl</span>(<span class="st">"positive, finite"</span>, reload_zero27), <span class="fu">grepl</span>(<span class="st">"plain numeric"</span>, reload_event27))</span>
+<span id="cb9-25"><a href="#cb9-25" aria-hidden="true" tabindex="-1"></a>reload_table27 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">observation =</span> <span class="fu">seq_len</span>(<span class="dv">6</span>),</span>
+<span id="cb9-26"><a href="#cb9-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">original_probability =</span> <span class="fu">as.numeric</span>(reload_rf27[[<span class="st">"dat"</span>]][[<span class="st">"yhat"</span>]][<span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>]),</span>
+<span id="cb9-27"><a href="#cb9-27" aria-hidden="true" tabindex="-1"></a>  <span class="at">fresh_process_probability =</span> reload_child27[[<span class="st">"prediction"</span>]][<span class="dv">1</span><span class="sc">:</span><span class="dv">6</span>])</span>
+<span id="cb9-28"><a href="#cb9-28" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">fmt_number</span>(gt<span class="sc">::</span><span class="fu">gt</span>(reload_table27), <span class="at">columns =</span> <span class="dv">2</span><span class="sc">:</span><span class="dv">3</span>, <span class="at">decimals =</span> <span class="dv">6</span>),</span>
+<span id="cb9-29"><a href="#cb9-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261027-update-explainer-fresh-process.html"</span>))</span>
+<span id="cb9-30"><a href="#cb9-30" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> <span class="dv">48</span>L, <span class="at">fresh_process =</span> <span class="cn">TRUE</span>, <span class="at">unchanged =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb9-31"><a href="#cb9-31" aria-hidden="true" tabindex="-1"></a>  <span class="at">probabilities =</span> reload_child27[[<span class="st">"prediction"</span>]], <span class="at">logical_prediction_difference =</span></span>
+<span id="cb9-32"><a href="#cb9-32" aria-hidden="true" tabindex="-1"></a>    <span class="fu">max</span>(<span class="fu">abs</span>(reload_raw27 <span class="sc">-</span> reload_normalized27)), <span class="at">rejected =</span> <span class="fu">c</span>(<span class="st">"Inf"</span>, <span class="st">"NA logistic"</span>, <span class="st">"zero XGBoost follow-up"</span>, <span class="st">"factor event"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/vpd-guide/20261027-update-explainer-fresh-process.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="原拟合与新 R 进程读回后的概率逐行一致。"><img src="images/vpd-guide/20261027-update-explainer-fresh-process.png" class="img-fluid figure-img" alt="48 行合成 ranger 分类解释器的前六行概率对照，原拟合与独立 R 进程 RDS 回读预测一致，没有重新拟合模型。" loading="lazy" decoding="async" width="693" height="387" srcset="../assets/figure-previews/1509887ceeebe5f54045726663d9005b.webp"></a></p>
+<figcaption>原拟合与新 R 进程读回后的概率逐行一致。</figcaption>
+</figure>
+</div>
+<p><a href="images/vpd-guide/20261027-update-explainer-fresh-process.html">原生 HTML</a></p>
+<p>本例实际验证 Logistic 原始逻辑列预测、ranger 分类保存与独立进程回读。XGBoost 生存的回读回调及其他后端缺失值策略按固定源码核对，本节没有重新训练这些后端；保存解释器用 <code>saveRDS()</code>，并不是用绘图 <code>save</code> 参数保存模型。</p>
+<!-- /update-20261027: mlr_latest_reload -->
+</section>
 </section>
 <section id="生存任务四种变量组合" class="level2">
 <h2 class="anchored" data-anchor-id="生存任务四种变量组合">生存任务：四种变量组合</h2>
@@ -1424,40 +1503,40 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
 <p>生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/sur-cont.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。"><img src="images/vpd-guide/sur-cont.png" class="img-fluid figure-img" alt="生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/9e1a22935de1a919cb1be823f51f382e.webp"></a></p>
+<p><a href="images/vpd-guide/sur-cont.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。"><img src="images/vpd-guide/sur-cont.png" class="img-fluid figure-img" alt="生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/9e1a22935de1a919cb1be823f51f382e.webp"></a></p>
 <figcaption>生存模型在 60 月的 Age：VD 保留其他观测特征，PD 在参考样本上平均。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
 <p>比较性别两水平的预测分布与平均部分依赖。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="st">"Sex"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="st">"Sex"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/sur-cat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="比较性别两水平的预测分布与平均部分依赖。"><img src="images/vpd-guide/sur-cat.png" class="img-fluid figure-img" alt="比较性别两水平的预测分布与平均部分依赖。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/3ee41f0bd4773b5b337d4f02ad29732c.webp"></a></p>
+<p><a href="images/vpd-guide/sur-cat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="比较性别两水平的预测分布与平均部分依赖。"><img src="images/vpd-guide/sur-cat.png" class="img-fluid figure-img" alt="比较性别两水平的预测分布与平均部分依赖。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/3ee41f0bd4773b5b337d4f02ad29732c.webp"></a></p>
 <figcaption>比较性别两水平的预测分布与平均部分依赖。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-3-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-3-tab">
 <p>按 Sex 分组查看 Tum_3；这是分组一维剖面。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Tum_3"</span>), <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Tum_3"</span>), <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/sur-catcat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="按 Sex 分组查看 Tum_3；这是分组一维剖面。"><img src="images/vpd-guide/sur-catcat.png" class="img-fluid figure-img" alt="按 Sex 分组查看 Tum_3；这是分组一维剖面。" loading="lazy" decoding="async" width="1650" height="1050" srcset="../assets/figure-previews/8b498c8974406c6fd8801442bdad197b.webp"></a></p>
+<p><a href="images/vpd-guide/sur-catcat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="按 Sex 分组查看 Tum_3；这是分组一维剖面。"><img src="images/vpd-guide/sur-catcat.png" class="img-fluid figure-img" alt="按 Sex 分组查看 Tum_3；这是分组一维剖面。" loading="lazy" decoding="async" width="1650" height="1050" srcset="../assets/figure-previews/8b498c8974406c6fd8801442bdad197b.webp"></a></p>
 <figcaption>按 Sex 分组查看 Tum_3；这是分组一维剖面。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-3-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-4-tab">
 <p>按 Sex 分组查看 Age；当前生存路径在各组内重建模型。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Age"</span>), <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Age"</span>), <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/sur-group.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="按 Sex 分组查看 Age；当前生存路径在各组内重建模型。"><img src="images/vpd-guide/sur-group.png" class="img-fluid figure-img" alt="按 Sex 分组查看 Age；当前生存路径在各组内重建模型。" loading="lazy" decoding="async" width="1500" height="1050" srcset="../assets/figure-previews/0fda0195ebaba17b71e5c374388bf5f0.webp"></a></p>
+<p><a href="images/vpd-guide/sur-group.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="按 Sex 分组查看 Age；当前生存路径在各组内重建模型。"><img src="images/vpd-guide/sur-group.png" class="img-fluid figure-img" alt="按 Sex 分组查看 Age；当前生存路径在各组内重建模型。" loading="lazy" decoding="async" width="1500" height="1050" srcset="../assets/figure-previews/0fda0195ebaba17b71e5c374388bf5f0.webp"></a></p>
 <figcaption>按 Sex 分组查看 Age；当前生存路径在各组内重建模型。</figcaption>
 </figure>
 </div>
@@ -1473,20 +1552,20 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
 <p>把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e120, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e120, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/sur-120.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。"><img src="images/vpd-guide/sur-120.png" class="img-fluid figure-img" alt="把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/2242f0068c64f41f2115117289bb2e20.webp"></a></p>
+<p><a href="images/vpd-guide/sur-120.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。"><img src="images/vpd-guide/sur-120.png" class="img-fluid figure-img" alt="把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/2242f0068c64f41f2115117289bb2e20.webp"></a></p>
 <figcaption>把预测时间改为 120 月；对应的预测量从 S(60) 改成 S(120)。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
 <p>关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">tidy_plot =</span> <span class="cn">FALSE</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">tidy_plot =</span> <span class="cn">FALSE</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/sur-untidy.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。"><img src="images/vpd-guide/sur-untidy.png" class="img-fluid figure-img" alt="关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/cbf4b9a2cc7b0f9db4058a19b3605c31.webp"></a></p>
+<p><a href="images/vpd-guide/sur-untidy.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。"><img src="images/vpd-guide/sur-untidy.png" class="img-fluid figure-img" alt="关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/cbf4b9a2cc7b0f9db4058a19b3605c31.webp"></a></p>
 <figcaption>关闭 tidy_plot，保留原始组合布局；模型与预测目标不变。</figcaption>
 </figure>
 </div>
@@ -1502,40 +1581,40 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
 <p>二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(ec, <span class="at">exp_var =</span> <span class="st">"Age"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(ec, <span class="at">exp_var =</span> <span class="st">"Age"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/log-cont.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。"><img src="images/vpd-guide/log-cont.png" class="img-fluid figure-img" alt="二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/5399b9a8fec1d49b7ac64463baca46cf.webp"></a></p>
+<p><a href="images/vpd-guide/log-cont.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。"><img src="images/vpd-guide/log-cont.png" class="img-fluid figure-img" alt="二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/5399b9a8fec1d49b7ac64463baca46cf.webp"></a></p>
 <figcaption>二分类纵轴为预测 Outcome = Yes 的概率，数据是明确标注的模拟样本。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
 <p>比较模拟样本的 Sex 与预测阳性概率。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(ec, <span class="at">exp_var =</span> <span class="st">"Sex"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(ec, <span class="at">exp_var =</span> <span class="st">"Sex"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/log-cat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="比较模拟样本的 Sex 与预测阳性概率。"><img src="images/vpd-guide/log-cat.png" class="img-fluid figure-img" alt="比较模拟样本的 Sex 与预测阳性概率。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/ba55edf3d915bf99ee6b01880bdcfcb6.webp"></a></p>
+<p><a href="images/vpd-guide/log-cat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="比较模拟样本的 Sex 与预测阳性概率。"><img src="images/vpd-guide/log-cat.png" class="img-fluid figure-img" alt="比较模拟样本的 Sex 与预测阳性概率。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/ba55edf3d915bf99ee6b01880bdcfcb6.webp"></a></p>
 <figcaption>比较模拟样本的 Sex 与预测阳性概率。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-5-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-3-tab">
 <p>按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(ec, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Group"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(ec, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Group"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/log-catcat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。"><img src="images/vpd-guide/log-catcat.png" class="img-fluid figure-img" alt="按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。" loading="lazy" decoding="async" width="1500" height="1050" srcset="../assets/figure-previews/d5bd28d9f573bfc3e44ad693f145cc0d.webp"></a></p>
+<p><a href="images/vpd-guide/log-catcat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。"><img src="images/vpd-guide/log-catcat.png" class="img-fluid figure-img" alt="按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。" loading="lazy" decoding="async" width="1500" height="1050" srcset="../assets/figure-previews/d5bd28d9f573bfc3e44ad693f145cc0d.webp"></a></p>
 <figcaption>按 Sex 分组查看 Group；二分类路径使用 DALEX 分组剖面。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-5-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-4-tab">
 <p>按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(ec, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Age"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(ec, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Age"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/log-group.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。"><img src="images/vpd-guide/log-group.png" class="img-fluid figure-img" alt="按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/a5215042762398ab3e0374d5eb6897e3.webp"></a></p>
+<p><a href="images/vpd-guide/log-group.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。"><img src="images/vpd-guide/log-group.png" class="img-fluid figure-img" alt="按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/a5215042762398ab3e0374d5eb6897e3.webp"></a></p>
 <figcaption>按 Sex 分组查看 Age 的平均响应，不能把组间曲线差读作因果效果。</figcaption>
 </figure>
 </div>
@@ -1551,20 +1630,20 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
 <p>随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(erf, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(erf, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/sur-rf.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。"><img src="images/vpd-guide/sur-rf.png" class="img-fluid figure-img" alt="随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/754f37be2fd52e9714879a2b2be30268.webp"></a></p>
+<p><a href="images/vpd-guide/sur-rf.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。"><img src="images/vpd-guide/sur-rf.png" class="img-fluid figure-img" alt="随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/754f37be2fd52e9714879a2b2be30268.webp"></a></p>
 <figcaption>随机森林的响应形状可与上面的 Cox 结果比较；模型本身已改变。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
 <p>传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(<span class="fu">list</span>(<span class="at">data =</span> dc, <span class="at">vars =</span> cvars, <span class="at">surv =</span> <span class="st">"Outcome"</span>), <span class="at">exp_var =</span> <span class="st">"Marker"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd</span>(<span class="fu">list</span>(<span class="at">data =</span> dc, <span class="at">vars =</span> cvars, <span class="at">surv =</span> <span class="st">"Outcome"</span>), <span class="at">exp_var =</span> <span class="st">"Marker"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/list-input.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。"><img src="images/vpd-guide/list-input.png" class="img-fluid figure-img" alt="传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/65d4353a1eda6ebed37cc18b2ab7860d.webp"></a></p>
+<p><a href="images/vpd-guide/list-input.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。"><img src="images/vpd-guide/list-input.png" class="img-fluid figure-img" alt="传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。" loading="lazy" decoding="async" width="1350" height="1050" srcset="../assets/figure-previews/65d4353a1eda6ebed37cc18b2ab7860d.webp"></a></p>
 <figcaption>传入 get_exp 参数列表时，get_vpd 先训练模型并构建解释器，再绘图。</figcaption>
 </figure>
 </div>
@@ -1577,35 +1656,35 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>2026-10-20 按已推送 MLR <code>e915077e</code>（接口自 <code>bcd7ede</code>）与 RegR <code>da6157be</code>，在 Windows / WSL R 4.4.3 实际运行下例。上方历史结果保留原执行记录；本节另用 180 行固定种子模拟数据，较小计算预算只用于接口演示。</p>
 <p>当前 <code>plt_vpd_log()</code>、<code>plt_vpd_sur()</code>、<code>plt_interboot()</code> 支持 <code>save = list(filename = ...)</code>。省略 <code>width</code> / <code>height</code> 时，按面板、轴文字、条带和图例估算 PDF 画布；控制台打印尺寸，返回图携带 <code>attr(p, "plot_size")</code>。<code>list()</code> 或 <code>NULL</code> 不写文件；明确给出的尺寸覆盖对应维度，单位是英寸。相同包版本号的旧安装可能还没有此接口，应核对提交和 <code>names(formals(...))</code>。</p>
 <!-- refresh-20261020: vpd_save -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MLR)</span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3)</span>
-<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3learners)</span>
-<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261020</span>)</span>
-<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>n_save <span class="ot">&lt;-</span> <span class="dv">180</span>L</span>
-<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>d_save <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="fu">rnorm</span>(n_save, <span class="dv">55</span>, <span class="dv">10</span>), <span class="at">Marker =</span> <span class="fu">rnorm</span>(n_save),</span>
-<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">Sex =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), n_save <span class="sc">/</span> <span class="dv">2</span>)))</span>
-<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>d_save[[<span class="st">"Outcome"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(n_save) <span class="sc">&lt;</span> <span class="fu">plogis</span>(</span>
-<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>  <span class="sc">-</span><span class="fl">0.3</span> <span class="sc">+</span> <span class="fl">0.04</span> <span class="sc">*</span> (d_save[[<span class="st">"Age"</span>]] <span class="sc">-</span> <span class="dv">55</span>) <span class="sc">+</span> <span class="fl">0.5</span> <span class="sc">*</span> d_save[[<span class="st">"Marker"</span>]]),</span>
-<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Yes"</span>, <span class="st">"No"</span>), <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>))</span>
-<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>task_save <span class="ot">&lt;-</span> <span class="fu">as_task_classif</span>(d_save, <span class="at">target =</span> <span class="st">"Outcome"</span>, <span class="at">positive =</span> <span class="st">"Yes"</span>)</span>
-<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>d_save[[<span class="st">"time"</span>]] <span class="ot">&lt;-</span> <span class="fu">rexp</span>(<span class="fu">nrow</span>(d_save), <span class="fu">exp</span>(<span class="sc">-</span><span class="fl">3.6</span> <span class="sc">+</span> <span class="fl">0.015</span> <span class="sc">*</span> (d_save[[<span class="st">"Age"</span>]] <span class="sc">-</span> <span class="dv">55</span>)))</span>
-<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>d_save[[<span class="st">"DSS"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="fu">nrow</span>(d_save), <span class="dv">1</span>, <span class="fl">0.7</span>)</span>
-<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>exp_log_save <span class="ot">&lt;-</span> <span class="fu">get_exp</span>(d_save, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Marker"</span>), <span class="at">surv =</span> <span class="st">"Outcome"</span>)</span>
-<span id="cb20-15"><a href="#cb20-15" aria-hidden="true" tabindex="-1"></a>exp_sur_save <span class="ot">&lt;-</span> <span class="fu">get_exp</span>(d_save, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Marker"</span>), <span class="at">surv =</span> <span class="dv">24</span>)</span>
-<span id="cb20-16"><a href="#cb20-16" aria-hidden="true" tabindex="-1"></a>p_log <span class="ot">&lt;-</span> <span class="fu">plt_vpd_log</span>(exp_log_save, <span class="at">exp_var =</span> <span class="st">"Sex"</span>,</span>
-<span id="cb20-17"><a href="#cb20-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-vpd-log.pdf"</span>)))</span>
-<span id="cb20-18"><a href="#cb20-18" aria-hidden="true" tabindex="-1"></a>p_saved <span class="ot">&lt;-</span> <span class="fu">plt_vpd_sur</span>(exp_sur_save, <span class="at">exp_var =</span> <span class="st">"Sex"</span>, <span class="at">cores =</span> <span class="dv">1</span>,</span>
-<span id="cb20-19"><a href="#cb20-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-vpd-sur.pdf"</span>)))</span>
-<span id="cb20-20"><a href="#cb20-20" aria-hidden="true" tabindex="-1"></a><span class="co"># 独立的模拟分布例子，只演示已有数值的绘图保存，不执行 bootstrap。</span></span>
-<span id="cb20-21"><a href="#cb20-21" aria-hidden="true" tabindex="-1"></a>distribution_save <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">group =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="at">each =</span> <span class="dv">30</span>)),</span>
-<span id="cb20-22"><a href="#cb20-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">value =</span> <span class="fu">c</span>(<span class="fu">rnorm</span>(<span class="dv">30</span>), <span class="fu">rnorm</span>(<span class="dv">30</span>, <span class="fl">0.4</span>)))</span>
-<span id="cb20-23"><a href="#cb20-23" aria-hidden="true" tabindex="-1"></a>p_distribution <span class="ot">&lt;-</span> <span class="fu">plt_interboot</span>(distribution_save, <span class="at">x =</span> group, <span class="at">y =</span> value,</span>
-<span id="cb20-24"><a href="#cb20-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">centrality.plotting =</span> <span class="cn">FALSE</span>, <span class="at">point.path =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb20-25"><a href="#cb20-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-interboot.pdf"</span>)))</span>
-<span id="cb20-26"><a href="#cb20-26" aria-hidden="true" tabindex="-1"></a>size <span class="ot">&lt;-</span> <span class="fu">attr</span>(p_saved, <span class="st">"plot_size"</span>)</span>
-<span id="cb20-27"><a href="#cb20-27" aria-hidden="true" tabindex="-1"></a>size</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MLR)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3)</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3learners)</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261020</span>)</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>n_save <span class="ot">&lt;-</span> <span class="dv">180</span>L</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>d_save <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="fu">rnorm</span>(n_save, <span class="dv">55</span>, <span class="dv">10</span>), <span class="at">Marker =</span> <span class="fu">rnorm</span>(n_save),</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">Sex =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), n_save <span class="sc">/</span> <span class="dv">2</span>)))</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>d_save[[<span class="st">"Outcome"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(n_save) <span class="sc">&lt;</span> <span class="fu">plogis</span>(</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>  <span class="sc">-</span><span class="fl">0.3</span> <span class="sc">+</span> <span class="fl">0.04</span> <span class="sc">*</span> (d_save[[<span class="st">"Age"</span>]] <span class="sc">-</span> <span class="dv">55</span>) <span class="sc">+</span> <span class="fl">0.5</span> <span class="sc">*</span> d_save[[<span class="st">"Marker"</span>]]),</span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Yes"</span>, <span class="st">"No"</span>), <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>))</span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>task_save <span class="ot">&lt;-</span> <span class="fu">as_task_classif</span>(d_save, <span class="at">target =</span> <span class="st">"Outcome"</span>, <span class="at">positive =</span> <span class="st">"Yes"</span>)</span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>d_save[[<span class="st">"time"</span>]] <span class="ot">&lt;-</span> <span class="fu">rexp</span>(<span class="fu">nrow</span>(d_save), <span class="fu">exp</span>(<span class="sc">-</span><span class="fl">3.6</span> <span class="sc">+</span> <span class="fl">0.015</span> <span class="sc">*</span> (d_save[[<span class="st">"Age"</span>]] <span class="sc">-</span> <span class="dv">55</span>)))</span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a>d_save[[<span class="st">"DSS"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="fu">nrow</span>(d_save), <span class="dv">1</span>, <span class="fl">0.7</span>)</span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a>exp_log_save <span class="ot">&lt;-</span> <span class="fu">get_exp</span>(d_save, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Marker"</span>), <span class="at">surv =</span> <span class="st">"Outcome"</span>)</span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a>exp_sur_save <span class="ot">&lt;-</span> <span class="fu">get_exp</span>(d_save, <span class="at">vars =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Marker"</span>), <span class="at">surv =</span> <span class="dv">24</span>)</span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a>p_log <span class="ot">&lt;-</span> <span class="fu">plt_vpd_log</span>(exp_log_save, <span class="at">exp_var =</span> <span class="st">"Sex"</span>,</span>
+<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-vpd-log.pdf"</span>)))</span>
+<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>p_saved <span class="ot">&lt;-</span> <span class="fu">plt_vpd_sur</span>(exp_sur_save, <span class="at">exp_var =</span> <span class="st">"Sex"</span>, <span class="at">cores =</span> <span class="dv">1</span>,</span>
+<span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-vpd-sur.pdf"</span>)))</span>
+<span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a><span class="co"># 独立的模拟分布例子，只演示已有数值的绘图保存，不执行 bootstrap。</span></span>
+<span id="cb22-21"><a href="#cb22-21" aria-hidden="true" tabindex="-1"></a>distribution_save <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">group =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="at">each =</span> <span class="dv">30</span>)),</span>
+<span id="cb22-22"><a href="#cb22-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">value =</span> <span class="fu">c</span>(<span class="fu">rnorm</span>(<span class="dv">30</span>), <span class="fu">rnorm</span>(<span class="dv">30</span>, <span class="fl">0.4</span>)))</span>
+<span id="cb22-23"><a href="#cb22-23" aria-hidden="true" tabindex="-1"></a>p_distribution <span class="ot">&lt;-</span> <span class="fu">plt_interboot</span>(distribution_save, <span class="at">x =</span> group, <span class="at">y =</span> value,</span>
+<span id="cb22-24"><a href="#cb22-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">centrality.plotting =</span> <span class="cn">FALSE</span>, <span class="at">point.path =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb22-25"><a href="#cb22-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-interboot.pdf"</span>)))</span>
+<span id="cb22-26"><a href="#cb22-26" aria-hidden="true" tabindex="-1"></a>size <span class="ot">&lt;-</span> <span class="fu">attr</span>(p_saved, <span class="st">"plot_size"</span>)</span>
+<span id="cb22-27"><a href="#cb22-27" aria-hidden="true" tabindex="-1"></a>size</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="callout callout-style-default callout-note callout-titled" title="复核代码">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1614,10 +1693,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">length</span>(size) <span class="sc">==</span> <span class="dv">2</span>L, <span class="fu">all</span>(<span class="fu">is.finite</span>(size)), <span class="fu">all</span>(size <span class="sc">&gt;</span> <span class="dv">0</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">length</span>(size) <span class="sc">==</span> <span class="dv">2</span>L, <span class="fu">all</span>(<span class="fu">is.finite</span>(size)), <span class="fu">all</span>(size <span class="sc">&gt;</span> <span class="dv">0</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </div>
 </div>
@@ -1628,7 +1707,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/20261020-refresh-vpd-sur.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="生存解释器的实际 PDF 预览。"><img src="images/vpd-guide/20261020-refresh-vpd-sur.png" class="img-fluid figure-img" alt="固定模拟数据的生存解释器保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。" loading="lazy" decoding="async" width="681" height="1189" srcset="../assets/figure-previews/ecc9810b526305c3629aea8ccad26733.webp"></a></p>
+<p><a href="images/vpd-guide/20261020-refresh-vpd-sur.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="生存解释器的实际 PDF 预览。"><img src="images/vpd-guide/20261020-refresh-vpd-sur.png" class="img-fluid figure-img" alt="固定模拟数据的生存解释器保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。" loading="lazy" decoding="async" width="681" height="1189" srcset="../assets/figure-previews/ecc9810b526305c3629aea8ccad26733.webp"></a></p>
 <figcaption>生存解释器的实际 PDF 预览。</figcaption>
 </figure>
 </div>
@@ -1637,7 +1716,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/20261020-refresh-vpd-log.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="二分类解释器的实际 PDF 预览。"><img src="images/vpd-guide/20261020-refresh-vpd-log.png" class="img-fluid figure-img" alt="固定模拟数据的二分类解释器保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。" loading="lazy" decoding="async" width="681" height="1189" srcset="../assets/figure-previews/b26f6c87d4d4b3f539a90fee6b0e32a7.webp"></a></p>
+<p><a href="images/vpd-guide/20261020-refresh-vpd-log.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="二分类解释器的实际 PDF 预览。"><img src="images/vpd-guide/20261020-refresh-vpd-log.png" class="img-fluid figure-img" alt="固定模拟数据的二分类解释器保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。" loading="lazy" decoding="async" width="681" height="1189" srcset="../assets/figure-previews/b26f6c87d4d4b3f539a90fee6b0e32a7.webp"></a></p>
 <figcaption>二分类解释器的实际 PDF 预览。</figcaption>
 </figure>
 </div>
@@ -1646,7 +1725,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div id="tabset-7-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-3-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/20261020-refresh-interboot.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="已有数值分布的实际 PDF 预览。"><img src="images/vpd-guide/20261020-refresh-interboot.png" class="img-fluid figure-img" alt="固定模拟数据的已有数值分布保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。" loading="lazy" decoding="async" width="899" height="754" srcset="../assets/figure-previews/b70b12660cc4ddddc12670aaff338a15.webp"></a></p>
+<p><a href="images/vpd-guide/20261020-refresh-interboot.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="已有数值分布的实际 PDF 预览。"><img src="images/vpd-guide/20261020-refresh-interboot.png" class="img-fluid figure-img" alt="固定模拟数据的已有数值分布保存示例，预览由实际PDF转换，用于核对坐标、图例和文字边界。" loading="lazy" decoding="async" width="899" height="754" srcset="../assets/figure-previews/b70b12660cc4ddddc12670aaff338a15.webp"></a></p>
 <figcaption>已有数值分布的实际 PDF 预览。</figcaption>
 </figure>
 </div>
@@ -1700,11 +1779,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tbody>
 </table>
 <p><code>get_vpd_pnl()</code> 对拟合模型的 PDP 曲线调用 <code>RegR::get_pnl_curve()</code>，其 P 值描述所生成曲线的形状。它不是原始患者结局模型的非线性检验，也不包含完整模型开发过程的不确定性。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd_pnl</span>(e60, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">N =</span> <span class="dv">100</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd_pnl</span>(e60, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Age"</span>), <span class="at">N =</span> <span class="dv">100</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span>
-<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span>
-<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"age-pdp-60-months.pdf"</span>, p, <span class="at">width =</span> <span class="dv">9</span>, <span class="at">height =</span> <span class="dv">7</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd_pnl</span>(e60, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">N =</span> <span class="dv">100</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="fu">get_vpd_pnl</span>(e60, <span class="at">exp_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Age"</span>), <span class="at">N =</span> <span class="dv">100</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">get_vpd</span>(e60, <span class="at">exp_var =</span> <span class="st">"Age"</span>, <span class="at">cores =</span> <span class="dv">1</span>)</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"age-pdp-60-months.pdf"</span>, p, <span class="at">width =</span> <span class="dv">9</span>, <span class="at">height =</span> <span class="dv">7</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>多数 VD/PD 图由内部平滑层显示趋势；原始剖面、统计尺度和共享轴应结合条带与本文说明阅读。get_exp 控制台打印的训练分数是表观性能，需要另外的重采样或外部数据评估。</p>
 </section>
 <section id="references" class="level2">
@@ -1728,22 +1807,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="相同模型比较两种网格" class="level3">
 <h3 class="anchored" data-anchor-id="相同模型比较两种网格">相同模型比较两种网格</h3>
 <p>同一个解释器只训练一次，分别用6和16个分位数区间计算二阶ALE。连续网格更细时每格样本更少；这会改变估计的曲面，不能作为纯计算提速比较。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261016</span>)</span>
-<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>d_ale <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="fu">runif</span>(<span class="dv">400</span>,<span class="dv">20</span>,<span class="dv">80</span>), <span class="at">Marker =</span> <span class="fu">rnorm</span>(<span class="dv">400</span>),</span>
-<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">Group =</span> <span class="fu">factor</span>(<span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"A"</span>,<span class="st">"B"</span>),<span class="dv">400</span>,<span class="cn">TRUE</span>)))</span>
-<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>d_ale<span class="sc">$</span>Outcome <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(<span class="dv">400</span>) <span class="sc">&lt;</span> <span class="fu">plogis</span>(<span class="sc">-</span><span class="fl">0.4</span> <span class="sc">+</span></span>
-<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>  <span class="fl">0.04</span><span class="sc">*</span>(d_ale<span class="sc">$</span>Age<span class="dv">-50</span>) <span class="sc">+</span> d_ale<span class="sc">$</span>Marker <span class="sc">+</span> <span class="fl">0.06</span><span class="sc">*</span>(d_ale<span class="sc">$</span>Age<span class="dv">-50</span>)<span class="sc">*</span>d_ale<span class="sc">$</span>Marker),<span class="st">"Yes"</span>,<span class="st">"No"</span>))</span>
-<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>exp_ale <span class="ot">&lt;-</span> <span class="fu">get_exp</span>(d_ale, <span class="at">vars=</span><span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Marker"</span>,<span class="st">"Group"</span>), <span class="at">surv=</span><span class="st">"Outcome"</span>, <span class="at">model=</span><span class="st">"ranger"</span>,<span class="at">cores=</span><span class="dv">1</span>)</span>
-<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a>ale_coarse <span class="ot">&lt;-</span> <span class="fu">get_ale2</span>(exp_ale,<span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Marker"</span>),<span class="at">N=</span><span class="dv">400</span>,<span class="at">grid_size=</span><span class="dv">6</span>,<span class="at">scale=</span><span class="st">"prob"</span>,<span class="at">cores=</span><span class="dv">1</span>)</span>
-<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>ale_fine <span class="ot">&lt;-</span> <span class="fu">get_ale2</span>(exp_ale,<span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Marker"</span>),<span class="at">N=</span><span class="dv">400</span>,<span class="at">grid_size=</span><span class="dv">16</span>,<span class="at">scale=</span><span class="st">"prob"</span>,<span class="at">cores=</span><span class="dv">1</span>)</span>
-<span id="cb23-9"><a href="#cb23-9" aria-hidden="true" tabindex="-1"></a>(ale_coarse <span class="sc">+</span> <span class="fu">ggtitle</span>(<span class="st">"6 quantile intervals"</span>) <span class="sc">|</span></span>
-<span id="cb23-10"><a href="#cb23-10" aria-hidden="true" tabindex="-1"></a>  ale_fine <span class="sc">+</span> <span class="fu">ggtitle</span>(<span class="st">"16 quantile intervals"</span>)) <span class="sc">&amp;</span></span>
-<span id="cb23-11"><a href="#cb23-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">text=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">10</span>),<span class="at">strip.text=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">11</span>),</span>
-<span id="cb23-12"><a href="#cb23-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">axis.title=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">11</span>),<span class="at">legend.title=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">10</span>),</span>
-<span id="cb23-13"><a href="#cb23-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">plot.title=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">13</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261016</span>)</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>d_ale <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="fu">runif</span>(<span class="dv">400</span>,<span class="dv">20</span>,<span class="dv">80</span>), <span class="at">Marker =</span> <span class="fu">rnorm</span>(<span class="dv">400</span>),</span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">Group =</span> <span class="fu">factor</span>(<span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"A"</span>,<span class="st">"B"</span>),<span class="dv">400</span>,<span class="cn">TRUE</span>)))</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>d_ale<span class="sc">$</span>Outcome <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(<span class="dv">400</span>) <span class="sc">&lt;</span> <span class="fu">plogis</span>(<span class="sc">-</span><span class="fl">0.4</span> <span class="sc">+</span></span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>  <span class="fl">0.04</span><span class="sc">*</span>(d_ale<span class="sc">$</span>Age<span class="dv">-50</span>) <span class="sc">+</span> d_ale<span class="sc">$</span>Marker <span class="sc">+</span> <span class="fl">0.06</span><span class="sc">*</span>(d_ale<span class="sc">$</span>Age<span class="dv">-50</span>)<span class="sc">*</span>d_ale<span class="sc">$</span>Marker),<span class="st">"Yes"</span>,<span class="st">"No"</span>))</span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>exp_ale <span class="ot">&lt;-</span> <span class="fu">get_exp</span>(d_ale, <span class="at">vars=</span><span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Marker"</span>,<span class="st">"Group"</span>), <span class="at">surv=</span><span class="st">"Outcome"</span>, <span class="at">model=</span><span class="st">"ranger"</span>,<span class="at">cores=</span><span class="dv">1</span>)</span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>ale_coarse <span class="ot">&lt;-</span> <span class="fu">get_ale2</span>(exp_ale,<span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Marker"</span>),<span class="at">N=</span><span class="dv">400</span>,<span class="at">grid_size=</span><span class="dv">6</span>,<span class="at">scale=</span><span class="st">"prob"</span>,<span class="at">cores=</span><span class="dv">1</span>)</span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>ale_fine <span class="ot">&lt;-</span> <span class="fu">get_ale2</span>(exp_ale,<span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Marker"</span>),<span class="at">N=</span><span class="dv">400</span>,<span class="at">grid_size=</span><span class="dv">16</span>,<span class="at">scale=</span><span class="st">"prob"</span>,<span class="at">cores=</span><span class="dv">1</span>)</span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>(ale_coarse <span class="sc">+</span> <span class="fu">ggtitle</span>(<span class="st">"6 quantile intervals"</span>) <span class="sc">|</span></span>
+<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a>  ale_fine <span class="sc">+</span> <span class="fu">ggtitle</span>(<span class="st">"16 quantile intervals"</span>)) <span class="sc">&amp;</span></span>
+<span id="cb25-11"><a href="#cb25-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">text=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">10</span>),<span class="at">strip.text=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">11</span>),</span>
+<span id="cb25-12"><a href="#cb25-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">axis.title=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">11</span>),<span class="at">legend.title=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">10</span>),</span>
+<span id="cb25-13"><a href="#cb25-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">plot.title=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">13</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/20261016-ale-grid.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="相同模型比较两种网格"><img src="images/vpd-guide/20261016-ale-grid.png" class="img-fluid figure-img" alt="相同模型比较两种网格；固定输入、按注明源码快照实际运行的示例。" loading="lazy" decoding="async" width="1650" height="750" srcset="../assets/figure-previews/ededd47243a587a90fe880db40fc95dd.webp"></a></p>
+<p><a href="images/vpd-guide/20261016-ale-grid.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="相同模型比较两种网格"><img src="images/vpd-guide/20261016-ale-grid.png" class="img-fluid figure-img" alt="相同模型比较两种网格；固定输入、按注明源码快照实际运行的示例。" loading="lazy" decoding="async" width="1650" height="750" srcset="../assets/figure-previews/ededd47243a587a90fe880db40fc95dd.webp"></a></p>
 <figcaption>相同模型比较两种网格</figcaption>
 </figure>
 </div>
@@ -1751,14 +1830,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="get_all的二阶ale入口" class="level3">
 <h3 class="anchored" data-anchor-id="get_all的二阶ale入口">get_all的二阶ALE入口</h3>
 <p>统一入口显式传ale2.args才启用分析，结果在ale2字段。此例选择ranger与概率尺度；省略model的当前模板选择xgboost，省略scale选择link。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>ale_all <span class="ot">&lt;-</span> <span class="fu">get_all</span>(<span class="at">com.args=</span><span class="fu">list</span>(<span class="at">data=</span>d_ale,<span class="at">adj_var=</span><span class="st">"Group"</span>,<span class="at">surv=</span><span class="st">"Outcome"</span>),</span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">ale2.args=</span><span class="fu">list</span>(<span class="at">exp_var=</span><span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Marker"</span>),<span class="at">model=</span><span class="st">"ranger"</span>,<span class="at">scale=</span><span class="st">"prob"</span>,</span>
-<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">grid_size=</span><span class="dv">6</span>,<span class="at">N=</span><span class="dv">400</span>,<span class="at">cores=</span><span class="dv">1</span>))</span>
-<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>ale_all<span class="sc">$</span>ale2 <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">text=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">10</span>),<span class="at">strip.text=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">12</span>),</span>
-<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">legend.title=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">10</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>ale_all <span class="ot">&lt;-</span> <span class="fu">get_all</span>(<span class="at">com.args=</span><span class="fu">list</span>(<span class="at">data=</span>d_ale,<span class="at">adj_var=</span><span class="st">"Group"</span>,<span class="at">surv=</span><span class="st">"Outcome"</span>),</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">ale2.args=</span><span class="fu">list</span>(<span class="at">exp_var=</span><span class="fu">c</span>(<span class="st">"Age"</span>,<span class="st">"Marker"</span>),<span class="at">model=</span><span class="st">"ranger"</span>,<span class="at">scale=</span><span class="st">"prob"</span>,</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">grid_size=</span><span class="dv">6</span>,<span class="at">N=</span><span class="dv">400</span>,<span class="at">cores=</span><span class="dv">1</span>))</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>ale_all<span class="sc">$</span>ale2 <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">text=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">10</span>),<span class="at">strip.text=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">12</span>),</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">legend.title=</span><span class="fu">element_text</span>(<span class="at">size=</span><span class="dv">10</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/vpd-guide/20261016-ale-unified.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="get_all的二阶ALE入口"><img src="images/vpd-guide/20261016-ale-unified.png" class="img-fluid figure-img" alt="get_all的二阶ALE入口；固定输入、按注明源码快照实际运行的示例。" loading="lazy" decoding="async" width="1050" height="750" srcset="../assets/figure-previews/fcdb30f9218c9ec650564fa920ccaca0.webp"></a></p>
+<p><a href="images/vpd-guide/20261016-ale-unified.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="get_all的二阶ALE入口"><img src="images/vpd-guide/20261016-ale-unified.png" class="img-fluid figure-img" alt="get_all的二阶ALE入口；固定输入、按注明源码快照实际运行的示例。" loading="lazy" decoding="async" width="1050" height="750" srcset="../assets/figure-previews/fcdb30f9218c9ec650564fa920ccaca0.webp"></a></p>
 <figcaption>get_all的二阶ALE入口</figcaption>
 </figure>
 </div>
@@ -1768,7 +1847,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="本页更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1777,9 +1856,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div id="callout-4" class="callout-4-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li>2026-10-27：补充<a href="#explainer-reload-20261027">原始预测列与 RDS 回读</a>的 48 行独立进程核对。</li>
 <li>2026-10-27：补充<a href="#explainer-contract-20261027">解释器输入、正类编码与缓存</a>的 60 行实际拟合与类型核对。</li>
 </ul>
 </div>

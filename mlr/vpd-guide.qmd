@@ -203,6 +203,83 @@ validation_values <- list(n = nrow(exp_data27), types = exp_types27,
 
 <!-- /update-20261027: mlr_explainer -->
 
+
+### 原始预测列、缺失边界与保存后复用（2026-10-27） {#explainer-reload-20261027}
+
+<!-- update-20261027: mlr_latest_reload -->
+
+MLR `a4865f2` 在上一小节 `52c03f9` 的快照之后，继续补齐预测输入和 RDS 回读。原始字符/逻辑预测列可直接交给 `stats::predict(result$EXP, newdata)`，内部与拟合时的因子水平对齐；ranger 分类预测也遵守 `cores`，小批量预测的线程数不会超过行数。下面只训练 48 行合成分类数据，不作外部验证或速度比较。
+
+```r
+library(MLR)
+set.seed(2712)
+reload_data27 <- data.frame(Marker = rnorm(48),
+  Group = rep(c("A", "B"), 24), Flag = rep(c(TRUE, TRUE, FALSE, FALSE), 12))
+reload_data27[["Outcome"]] <- factor(ifelse(runif(48) < plogis(.3 * reload_data27[["Marker"]]),
+  "Event", "Control"), levels = c("Control", "Event"))
+reload_vars27 <- c("Marker", "Group", "Flag")
+reload_before27 <- reload_data27
+reload_log27 <- get_exp(reload_data27, reload_vars27, surv = "Outcome", model = "default")
+reload_rf27 <- get_exp(reload_data27, reload_vars27, surv = "Outcome", model = "ranger", cores = 1)
+reload_file27 <- file.path(tempdir(), "explainer-ranger-20261027.rds")
+saveRDS(reload_rf27, reload_file27)
+# 在另一个 R 会话中加载同一版本及依赖后，可直接读取并预测，不重新训练。
+reload_restored27 <- readRDS(reload_file27)
+stats::predict(reload_restored27[["EXP"]], reload_data27[1:6, reload_vars27])
+```
+
+预测变量的边界按后端区分：所有路径拒绝 Inf / -Inf；Logistic 分类、Cox 与 ranger 生存要求完整预测列，不自动删行。ranger 分类和 XGBoost 保留各自的缺失值处理能力，不应统一 `na.omit()` 或笼统写成所有后端都拒绝 NA。
+
+生存结局必须是普通数值向量：`DSS` 无缺失且为 0/1、至少 1 个事件；`time` 有限且非负，XGBoost 进一步要求随访严格大于 0。**预测时点为 0** 与**随访为 0**是两件事，不能把 XGBoost 的随访限制套到预测时点。因子/逻辑事件列、Date 时间列须先按真实含义显式转换。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+下面通过 `callr` 启动独立 R 进程读回同一个 RDS，并比较全部 48 行概率。本站用 `rnotes.MLR.source` 指向固定源码副本；普通安装环境保持该选项为 NULL，子进程加载已安装的同一版 MLR。RDS 跨会话复用仍需相应包及兼容版本，不保证任意版本间的模型迁移。
+
+```r
+reload_child27 <- callr::r(function(path, source_path) {
+  if (is.null(source_path)) loadNamespace("MLR") else
+    pkgload::load_all(source_path, quiet = TRUE, export_all = FALSE)
+  z <- readRDS(path)
+  list(prediction = as.numeric(stats::predict(z[["EXP"]], z[["EXP"]][["data"]])),
+    pid = Sys.getpid())
+}, args = list(reload_file27, getOption("rnotes.MLR.source")), timeout = 20)
+reload_raw27 <- as.numeric(stats::predict(reload_log27[["EXP"]], reload_data27[reload_vars27]))
+reload_normalized27 <- as.numeric(stats::predict(reload_log27[["EXP"]],
+  reload_log27[["EXP"]][["data"]]))
+stopifnot(isTRUE(all.equal(reload_raw27, reload_normalized27)),
+  isTRUE(all.equal(reload_child27[["prediction"]], as.numeric(reload_rf27[["dat"]][["yhat"]]))),
+  reload_child27[["pid"]] != Sys.getpid(), identical(reload_data27, reload_before27))
+reload_bad27 <- reload_data27; reload_bad27[["Marker"]][1] <- Inf
+reload_inf27 <- tryCatch(get_exp(reload_bad27, reload_vars27, surv = "Outcome"), error = conditionMessage)
+reload_bad27[["Marker"]][1] <- NA_real_
+reload_na27 <- tryCatch(get_exp(reload_bad27, reload_vars27, surv = "Outcome"), error = conditionMessage)
+reload_surv27 <- data.frame(time = seq_len(12), DSS = rep(0:1, 6), Marker = seq_len(12))
+reload_surv27[["time"]][1] <- 0
+reload_zero27 <- tryCatch(get_exp(reload_surv27, "Marker", model = "xgboost"), error = conditionMessage)
+reload_surv27[["DSS"]] <- factor(reload_surv27[["DSS"]])
+reload_event27 <- tryCatch(get_exp(reload_surv27, "Marker"), error = conditionMessage)
+stopifnot(grepl("Infinite predictor", reload_inf27), grepl("Missing predictor", reload_na27),
+  grepl("positive, finite", reload_zero27), grepl("plain numeric", reload_event27))
+reload_table27 <- data.frame(observation = seq_len(6),
+  original_probability = as.numeric(reload_rf27[["dat"]][["yhat"]][1:6]),
+  fresh_process_probability = reload_child27[["prediction"]][1:6])
+gt::gtsave(gt::fmt_number(gt::gt(reload_table27), columns = 2:3, decimals = 6),
+  file.path(tempdir(), "20261027-update-explainer-fresh-process.html"))
+validation_values <- list(n = 48L, fresh_process = TRUE, unchanged = TRUE,
+  probabilities = reload_child27[["prediction"]], logical_prediction_difference =
+    max(abs(reload_raw27 - reload_normalized27)), rejected = c("Inf", "NA logistic", "zero XGBoost follow-up", "factor event"))
+```
+:::
+
+![原拟合与新 R 进程读回后的概率逐行一致。](images/vpd-guide/20261027-update-explainer-fresh-process.png){fig-alt="48 行合成 ranger 分类解释器的前六行概率对照，原拟合与独立 R 进程 RDS 回读预测一致，没有重新拟合模型。"}
+
+[原生 HTML](images/vpd-guide/20261027-update-explainer-fresh-process.html)
+
+本例实际验证 Logistic 原始逻辑列预测、ranger 分类保存与独立进程回读。XGBoost 生存的回读回调及其他后端缺失值策略按固定源码核对，本节没有重新训练这些后端；保存解释器用 `saveRDS()`，并不是用绘图 `save` 参数保存模型。
+
+<!-- /update-20261027: mlr_latest_reload -->
+
 ## 生存任务：四种变量组合
 
 `exp_var` 为一个变量时直接展示该变量；两个变量时第一项必须为分类分组，第二项为关注变量。纵轴是选定时间点的预测生存概率 S(t)，不是 HR。
@@ -570,5 +647,6 @@ get_all现在有13个分析入口。ale2.args必须显式提供才启用；仅�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[原始预测列与 RDS 回读](#explainer-reload-20261027)的 48 行独立进程核对。
 - 2026-10-27：补充[解释器输入、正类编码与缓存](#explainer-contract-20261027)的 60 行实际拟合与类型核对。
 :::
