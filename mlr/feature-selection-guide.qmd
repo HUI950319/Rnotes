@@ -2,18 +2,18 @@
 title: "特征筛选：搜索路径、候选规模与选择稳定性"
 description: "比较前向、后向、递归消除、生存/二分类、候选变量数和嵌套选择频率。"
 date: 2026-10-01
-date-modified: 2026-10-20
+date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
-  title: "特征筛选：搜索路径、候选规模与选择稳定性，9 张参数对照图"
+  title: "特征筛选：搜索路径、候选规模与选择稳定性，10 张参数对照图"
   topic: 建模与调参
-  updated: 2026-10-20
+  updated: 2026-10-27
 ---
 
 `get_model_FeaSel()` 保留已评估子集与每个特征数的最佳结果。先查看搜索路径，再用 `get_selected_features()` 明确取出对应候选，最后在嵌套划分中观察选择频率和留出性能。
 
-**版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出本页 **9 张参数对照图**。实际运行 SFS、SBS、RFE、生存 SFS 和嵌套 SFS，生成 9 张参数对照图；同时验证选择结果和公开表格输出。
+**执行范围：** 原有 9 张参数图保留 WSL R 4.4.3 的历史示例结果，包含 SFS、SBS、RFE、生存及嵌套 SFS。本轮另按 MLR `a4865f2` 在 Windows / WSL 执行下面的 60 行 RFECV 与模型留存核对，新增 1 张原生 PDF 预览；历史模型没有重新运行。
 
 ## 示例准备与读图规则 {#data}
 
@@ -85,6 +85,86 @@ fss <- get_model_FeaSel(task_s, learner = lrn("surv.coxph"), method = "sfs",
 `get_selected_features(x)` 返回最终最佳子集。给定 n_features 时，从已经评估的该规模子集中取最佳结果；未评估规模会报错。改变 plt 的 n_features 只是移动高亮线，不会运行新的筛选。
 
 该入口返回筛选结果，不提供已经用全部样本训练的最终 learner；需要取出变量后自行训练。nested = TRUE 在每个外层训练集重新筛选；频率表示外层选择稳定性，不表示变量的真实因果作用或统计显著性。
+
+
+### RFECV 最终路径、x 列与模型留存（2026-10-27） {#rfecv-final-20261027}
+
+<!-- update-20261027: mlr_latest_fs -->
+
+按已推送 MLR `a4865f2`（含 `d4a600e`、`befdce5`、`fd8f1a3`、`a7be5f7`）核对。`rfecv` 的最终变量集合遵循原生 `instance$result_feature_set`；规范化 `archive`、`best_by_n` 只保留最终全数据重拟合路径。这里的 `score` 是 **in-sample 分数**，不能当成 RFECV 的交叉验证性能；各折搜索记录仍在 `instance$archive`。其他搜索方法的内层 CV 分数继续按各自方法解释。
+
+下面用 60 行合成二分类数据、3 个特征和 20 棵树演示，故意把一个预测列命名为 `x`。`x` 是合法特征名，不再与上游 archive 转换器的参数重名冲突。
+
+```r
+library(MLR)
+library(mlr3)
+library(mlr3learners)
+library(ggplot2)
+set.seed(2710)
+fs_data27 <- data.frame(x = seq(-2, 2, length.out = 60),
+  noise1 = rnorm(60), noise2 = rnorm(60))
+fs_data27[["Outcome"]] <- factor(ifelse(fs_data27[["x"]] > 0, "Yes", "No"),
+  levels = c("No", "Yes"))
+fs_task27 <- as_task_classif(fs_data27, target = "Outcome", positive = "Yes")
+fs_original27 <- fs_task27$data()
+fs_learner27 <- lrn("classif.ranger", predict_type = "prob", num.trees = 20,
+  num.threads = 4, importance = "permutation")
+fs_final27 <- get_model_FeaSel(fs_task27, learner = fs_learner27,
+  method = "rfecv", selector_args = list(n_features = 1L),
+  inner_resampling = rsmp("cv", folds = 2), backend = "sequential", seed = 17)
+get_selected_features(fs_final27)
+fs_path27 <- plt_model_FeaSel(fs_final27, type = "path") +
+  labs(title = "RFECV final full-data refit path", y = "In-sample AUC",
+    caption = "Selection follows the native RFECV result; this is not validation AUC.") +
+  scale_y_continuous(breaks = seq(0, 1, .25)) + coord_cartesian(ylim = c(0, 1.02)) +
+  guides(color = "none", fill = "none", shape = "none")
+ggsave(file.path(tempdir(), "20261027-update-rfecv-final-path.pdf"), fs_path27,
+  width = 7.5, height = 5)
+```
+
+![RFECV 最终全数据重拟合路径，不是验证集 AUC。](images/feature-selection-guide/20261027-update-rfecv-final-path.png){fig-alt="60 行合成数据的 RFECV 最终路径，横轴是特征数，纵轴明确标为 in-sample AUC，选择点遵循原生最终变量集合。"}
+
+[原生 PDF](images/feature-selection-guide/20261027-update-rfecv-final-path.pdf)
+
+本例原生最终结果保留 3 个特征，规范化归档只有这 1 个重拟合点，表观 AUC 为 1；图中的单点不能用来推断变量数与性能的趋势。原生 `geom_line()` 可能提示每组只有一个观测，这是没有可连接的第二点，不是拟合失败。
+
+要估计筛选后的泛化性能，使用 `nested=TRUE` 的 `outer_scores`，每个外层训练集都重新筛选。`store_models=FALSE` 同时关闭内层候选模型留存，并在提取外层分数与稳定性后丢弃外层模型；`TRUE` 可供进一步查看模型。下面的两个外层折只核对接口与留存行为，不足以报告稳定的预测性能。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+fs_native27 <- fs_final27[["instance"]]$result_feature_set
+stopifnot(setequal(get_selected_features(fs_final27), fs_native27),
+  all(is.na(fs_final27[["archive"]][["iteration"]])),
+  any(!is.na(fs_final27[["instance"]]$archive$data[["iteration"]])),
+  is.logical(fs_final27[["archive"]][["x"]]),
+  identical(fs_task27$data(), fs_original27),
+  fs_learner27$param_set$values[["num.threads"]] == 4,
+  fs_final27[["instance"]]$objective$learner$param_set$values[["num.threads"]] == 1)
+fs_nested27 <- lapply(c(FALSE, TRUE), function(store) {
+  get_model_FeaSel(fs_task27, learner = lrn("classif.rpart", predict_type = "prob"),
+    method = "sfs", selector_args = list(max_features = 1L), nested = TRUE,
+    inner_resampling = rsmp("cv", folds = 2), outer_resampling = rsmp("cv", folds = 2),
+    store_models = store, backend = "sequential", seed = 20)
+})
+fs_kept27 <- vapply(fs_nested27, function(z) {
+  sum(vapply(z[["nested_result"]]$learners, function(learner) !is.null(learner$model), logical(1)))
+}, integer(1))
+stopifnot(identical(fs_kept27, c(0L, 2L)),
+  isTRUE(all.equal(fs_nested27[[1]][["outer_scores"]][["score"]],
+    fs_nested27[[2]][["outer_scores"]][["score"]])),
+  identical(fs_task27$data(), fs_original27))
+validation_values <- list(n = nrow(fs_data27),
+  native = sort(fs_native27), selected = sort(get_selected_features(fs_final27)),
+  path_scores = as.numeric(fs_final27[["archive"]][["score"]]),
+  stored_outer_models = fs_kept27,
+  outer_scores = as.numeric(fs_nested27[[1]][["outer_scores"]][["score"]]))
+```
+:::
+
+AutoTuner 的内部学习器也在克隆后限制为单线程，调用者原对象的线程设置保持不变。本例执行了普通 ranger 与 rpart 路径；AutoTuner 及其图学习器的递归处理按源码核对，没有在本页另做完整调参或性能测试。
+
+<!-- /update-20261027: mlr_latest_fs -->
 
 ## 选择方法与搜索路径
 
@@ -339,3 +419,9 @@ fit$train(task_final)
 
 本页图片来自上面的实际公共调用。使用固定示例、固定随机种子和注明的小规模设置，图形用于学习接口及解释预测结果。
 五条实际筛选路径完成；九张图通过构建，get_selected_features 的默认与 1/2 变量读回成功；path / stability 的 flextable 返回已实际验证。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[RFECV 最终路径与模型留存](#rfecv-final-20261027)，区分重拟合分数和外层验证分数。
+:::
