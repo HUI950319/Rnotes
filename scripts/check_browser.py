@@ -46,6 +46,7 @@ PAGES = [
     "causalr/survival-estimands-guide.html",
     "causalr/method-selection-guide.html",
     "causalr/index.html",
+    "causalr/computation-reuse-guide.html",
 ]
 
 

@@ -2,13 +2,13 @@
 title: "计算与复用：森林缓存、树参数与时间网格"
 description: "用真实运行展示 reuse 的有效范围、时间和内存，并对照生存事件网格诊断；整理主要引擎参数与复现信息。"
 date: 2026-10-02
-date-modified: 2026-10-16
+date-modified: 2026-10-28
 lightbox: true
 toc-depth: 2
 directory:
   title: "HTE结果复用：返回的森林与树复用边界"
   topic: 因果推断与 HTE
-  updated: 2026-10-17
+  updated: 2026-10-28
 ---
 
 ::: {.callout-note title="运行前核对树变量参数"}
@@ -244,6 +244,49 @@ ggplot(effect, aes(grid, estimate)) + geom_point(size = 2) +
 “至少 10 个事件且至少 10% 映射到零”的包内警告阈值只是一项诊断。
 不触发它不代表网格准确；还应检查 bin 数、最大误差、稀有事件、随访支持与细网格结果。
 
+### 未缓存 OOB 的内部复用与保存范围（2026-10-28） {#oob-reuse-20261028}
+
+<!-- update-20261028: causal_oob -->
+
+按 causalR `26af481`，`get_hte()` 在 grf 未缓存 OOB 预测时，内部计算一次供平均效应、校准和诊断共用，返回的森林仍保留调用者的缓存设置。它不会为了后续绘图偷偷把 `compute.oob.predictions=FALSE` 改成 TRUE；之后单独调用 `predict()` 仍按 grf 的合同处理。
+
+本例复用[240 行输入例子](clinical-workflow-guide.qmd#input-contract-20261028)的 `input_data28`、`input_args28` 和 `input_hte28`。只将 OOB 缓存改为 FALSE，实际再拟合同一 238 行分析数据，比较总体效应和标准误；结果相同不等于已经测出速度倍数。
+
+```r
+reuse_args28 <- input_args28
+reuse_args28[["compute.oob.predictions"]] <- FALSE
+reuse_hte28 <- get_hte(input_data28, "z", adj_var = c("x", "g"), sub_var = "g", surv = "y",
+  grf_args = reuse_args28)
+reuse_table28 <- data.frame(OOB_cached = c(TRUE, FALSE),
+  n = c(input_hte28[["stats"]][["n"]], reuse_hte28[["stats"]][["n"]]),
+  estimate = c(input_hte28[["stats"]][["estimate"]], reuse_hte28[["stats"]][["estimate"]]),
+  std_error = c(input_hte28[["stats"]][["std.error"]], reuse_hte28[["stats"]][["std.error"]]))
+gt::gtsave(gt::fmt_number(gt::gt(reuse_table28), columns = c("estimate", "std_error"), decimals = 6),
+  file.path(tempdir(), "20261028-update-hte-oob-cache.html"))
+```
+
+![相同拟合设置下，OOB 缓存开关不改变本例的总体结果。](images/computation-reuse-guide/20261028-update-hte-oob-cache.png){fig-alt="同一 238 行分析数据的 OOB 缓存开关对照，总体估计和标准误逐项相同，FALSE 森林保持未缓存状态。"}
+
+[原生 HTML](images/computation-reuse-guide/20261028-update-hte-oob-cache.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(is.null(reuse_hte28[["fit"]][["predictions"]]),
+  identical(attr(reuse_hte28, "analysis")[["grf_args"]][["compute.oob.predictions"]], FALSE))
+for (component in c("stats", "subgroup", "importance", "calibration")) {
+  stopifnot(isTRUE(all.equal(input_hte28[[component]], reuse_hte28[[component]])))
+}
+validation_values <- list(n = reuse_table28[["n"]], estimates = reuse_table28[["estimate"]],
+  standard_errors = reuse_table28[["std_error"]], returned_cache_disabled = TRUE,
+  summaries_match = TRUE)
+```
+:::
+
+`plt_hte_cate()` 与 `plt_hte_unihtee()` 现在也将绘图环境限制为所需图数据，图对象不再连带保存完整分析对象和森林。图中数据仍在，RDS 缓存也仍可能包含原始患者数据，均不等于匿名化或可公开。新行为的图层和序列化复核见 [CATE 示例](index.qmd#cate-panels-20261028)；本节仅在 Windows R 4.4.3 执行，未新测内存或耗时降幅。
+
+<!-- /update-20261028: causal_oob -->
+
 ## 保存背景与复现 {#sec-reuse-save}
 
 ```{r}
@@ -336,3 +379,10 @@ Rademacher符号生成也已优化；本轮Windows检查固定种子下500个符
 已推送 `ceb2003` 的 iCF 路径直接读取 grf 森林的节点向量，并复用重复树形的投票键，减少逐树构造 R 节点对象和重复规则遍历。内部字段适配按 grf 2.6.1 核对；缺少所需字段时回退到 `grf::get_tree()`。这没有增加新的公共参数，也不等于跳过规则发现或叶子估计。
 
 本页既有计时仍属于原固定快照；本轮未重新测量 iCF 耗时，因此不把旧倍数套用于新提交。比较版本时仍应固定数据、种子、森林设置、候选变量、剪枝与投票选项。
+
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：新增 [未缓存 OOB 的复用](#oob-reuse-20261028)，保持返回森林缓存设置并核对四组摘要。
+:::
