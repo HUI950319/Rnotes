@@ -4,13 +4,13 @@ title: "causalR 包总览：问题、函数与返回对象"
 subtitle: "causalR 包函数手册 · 从研究问题选择入口"
 lang: zh
 date: 2026-10-09
-date-modified: 2026-10-18
+date-modified: 2026-10-28
 lightbox: true
 toc-depth: 2
 directory:
   title: "causalR总览：接口、返回对象与绘图控制"
   topic: 包概览与数据
-  updated: 2026-10-18
+  updated: 2026-10-28
 ---
 
 ::: {.callout-note title="运行前核对树变量参数"}
@@ -285,6 +285,82 @@ plt_hte_dep(res, x_var = "marker",
 saveRDS(res, "hte_result.rds")
 ```
 
+### CATE 缺失分组、空面板与点态区间（2026-10-28） {#cate-panels-20261028}
+
+<!-- update-20261028: causal_cate -->
+
+按 causalR `26af481`，`plt_hte_cate()` 在拟合后选取的分组列中也排除 SPSS 用户缺失；全空列会警告并略过，其他面板保留。若所有请求列都为空，则明确报错。瀑布图的点态置信区间画在柱层上方，避免区间下半部被不透明柱遮住，数值不变。
+
+下面复用[输入例子](clinical-workflow-guide.qmd#input-contract-20261028)的 `input_hte28`，它含 238 行分析记录，无须重训。`aux` 是训练分组 `g` 的派生列，前八行作为缺失演示；`empty` 刻意设为全空。有效面板实际绘制 230 行，森林中的分析行与估计仍保留。
+
+```r
+cate_result28 <- input_hte28
+cate_aux28 <- as.numeric(cate_result28[["data"]][["g"]])
+cate_aux28[1:8] <- c(999, 95:99, NA, 999)
+cate_result28[["data"]][["aux"]] <- haven::labelled_spss(cate_aux28,
+  na_values = 999, na_range = c(95, 99))
+cate_result28[["data"]][["empty"]] <- NA_real_
+cate_waterfall28 <- plt_hte_cate(cate_result28, sub_var = c("empty", "aux"),
+  show_ci = TRUE, conf_level = .9)
+cate_density28 <- plt_hte_cate(cate_result28, sub_var = c("empty", "aux"), type = "density")
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-cate-intervals.pdf"), cate_waterfall28,
+  width = 8, height = 5)
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-cate-missing-groups.pdf"), cate_density28,
+  width = 8, height = 5)
+```
+
+::: {.panel-tabset}
+
+#### 点态区间位于柱层上方 {.unnumbered}
+
+![230 行可用分组记录的 CATE 与 90% 点态区间。](images/index/20261028-update-cate-intervals.png){fig-alt="合成模型的 230 个 CATE 按预测值排序，灰色 90% 点态区间完整显示在柱层上方；分组缺失的八行未进入此面板。"}
+
+[原生 PDF](images/index/20261028-update-cate-intervals.pdf)
+
+#### 保留有效分组面板 {.unnumbered}
+
+![全空列省略后，有效分组密度图仍可打印和保存。](images/index/20261028-update-cate-missing-groups.png){fig-alt="aux 三个有效水平的森林 CATE 密度，SPSS 缺失值排除，全空 empty 列省略；虚线为同一拟合对象的总体或亚组效应。"}
+
+[原生 PDF](images/index/20261028-update-cate-missing-groups.pdf)
+
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+cate_layer28 <- function(p, geom) Filter(function(layer)
+  inherits(layer[["geom"]], geom), p[["layers"]])[[1]][["data"]]
+cate_bar28 <- cate_layer28(cate_waterfall28, "GeomCol")
+cate_ci28 <- cate_layer28(cate_waterfall28, "GeomLinerange")
+cate_density_data28 <- cate_layer28(cate_density28, "GeomDensity")
+cate_order28 <- order(cate_result28[["data"]][[".cate"]])
+cate_keep28 <- !is.na(haven::zap_missing(cate_result28[["data"]][["aux"]]))
+cate_order28 <- cate_order28[cate_keep28[cate_order28]]
+cate_pred28 <- predict(cate_result28[["fit"]], estimate.variance = TRUE)
+stopifnot(nrow(cate_bar28) == 230L, nrow(cate_density_data28) == 230L,
+  isTRUE(all.equal(cate_ci28[["conf.high"]] - cate_ci28[["cate"]],
+    qnorm(.95) * sqrt(as.numeric(cate_pred28[["variance.estimates"]]))[cate_order28])))
+cate_geoms28 <- vapply(cate_waterfall28[["layers"]], function(layer) class(layer[["geom"]])[[1]], character(1))
+stopifnot(which(cate_geoms28 == "GeomLinerange") > which(cate_geoms28 == "GeomCol"),
+  identical(cate_result28[["data"]][["aux"]], haven::labelled_spss(cate_aux28,
+    na_values = 999, na_range = c(95, 99))))
+cate_error28 <- tryCatch(plt_hte_cate(cate_result28, sub_var = "empty"), error = conditionMessage)
+stopifnot(is.character(cate_error28), grepl("No non-missing observations", cate_error28))
+cate_restored28 <- unserialize(serialize(cate_waterfall28, NULL))
+stopifnot(isTRUE(all.equal(ggplot2::ggplot_build(cate_restored28)[["data"]],
+  ggplot2::ggplot_build(cate_waterfall28)[["data"]])))
+validation_values <- list(n_analysis = nrow(cate_result28[["data"]]), n_panel = nrow(cate_bar28),
+  intervals = head(cate_ci28[["conf.high"]] - cate_ci28[["cate"]], 6),
+  interval_layer_above_bars = TRUE, all_empty_rejected = TRUE, serialization_matches = TRUE)
+```
+:::
+
+这些图显示森林估计的离散程度，不能证明逐人的真实治疗效应或独立临床亚型；点态区间也不是同时置信带。省略空分组列不等于删掉训练患者或重新定义目标人群。
+
+当前 CATE 与 unihtee 绘图环境仅保留所需绘图数据，保存图不再连带持有完整分析对象和森林；图内仍有点、柱及分组数据，不能当作匿名化功能。本例核对了实际图层和序列化，没有新测内存减少倍数，Windows R 4.4.3 之外未执行此例。
+
+<!-- /update-20261028: causal_cate -->
+
 ## 本轮接口更新 {#api-current}
 
 2026-10-15复核：已推送基线31e8e6d增加了unihtee返回的hte拟合与plt_hte_sub(row_height=...)。对应 [结果复用](computation-reuse-guide.qmd#unihtee-reuse-current) 和 [紧凑亚组森林](clinical-workflow-guide.qmd#row-height-current) 已在Windows R实跑。2026-10-16复核，远端f3f7ecc已包含右角树边、结点及叶子配色；见 [当前树图](tree-stability-guide.qmd#tree-style-current) 和 [iCF视图](icf-plot-guide.qmd#icf-style-current)。旧版内存对象需要重新计算才有新增字段。
@@ -325,3 +401,10 @@ sessionInfo()
 按已推送`e4b86c66`更新：`plt_hte_sub()`把轴设置集中到`axis_args`，列头用`header_list`，概率差默认显示为百分点。`axis_args$xlim/xticks`仍使用原始比例；`header_list$effect`可用换行明确写出区间水平。总体汇总菱形只是样式，不把同队列亚组变成独立研究。
 
 [完整模拟代码及实图](clinical-workflow-guide.qmd#subgroup-20261018)覆盖百分点/原始比例、方向标签、多行表头、`ci_shape`和图内平衡图例。`get_bal()`与`plt_hte_unihtee()`的`var_names`默认已改为`character()`，可用时合并RegR映射，NULL则保留原列名。
+
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [CATE 面板与点态区间](#cate-panels-20261028)，复用 238 行拟合并核对 230 行有效面板。
+:::

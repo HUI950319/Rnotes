@@ -45,6 +45,7 @@ PAGES = [
     "causalr/hte-diagnostics-guide.html",
     "causalr/survival-estimands-guide.html",
     "causalr/method-selection-guide.html",
+    "causalr/index.html",
 ]
 
 
