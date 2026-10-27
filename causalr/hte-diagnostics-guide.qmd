@@ -7,7 +7,8 @@ toc-depth: 2
 directory:
   title: "HTE 诊断：校准、RATE、TOC、Qini 与 GATES"
   topic: 因果推断与 HTE
-  updated: 2026-10-02
+  updated: 2026-10-28
+date-modified: 2026-10-28
 ---
 
 ```{r}
@@ -70,6 +71,95 @@ ggplot(imp, aes(reorder(variable, importance), importance, fill = p_BH < 0.05)) 
 异质性预测部分。系数接近 1 是校准的理想参照，但表中的单侧 p 值检验正向信号，
 **不是对系数等于 1 的检验**。负 differential 系数应按原符号解释，不能取绝对值制造异质性。
 生存森林的实现使用相应删失校正残差，不应将它与原始事件的线性回归混用。
+
+### 零权重、有效聚类与可用推断（2026-10-28） {#positive-weights-20261028}
+
+<!-- update-20261028: causal_weights -->
+
+causalR `26af481` 将零权重记录同时排除出校准回归及 HC3 协方差，避免仅回归忽略零权重、方差仍包含它们。`stats$n`、亚组 `n` 保留分析数据的描述人数；它们不是正权重人数，也不是有效聚类数。总体在拟合前要求至少两个正权重聚类；某个亚组不足时仅该亚组不可估计，其余有效结果保留。
+
+下例为 240 行合成随机分配数据，前 20 行权重为零，其余 220 行分布在 22 个正权重聚类中。`Zero only` 亚组保留 20 行描述计数，但没有可估计效应。校准标准误与独立的正权重回归及 cluster-HC3 计算对照。
+
+```r
+library(causalR)
+set.seed(2802)
+weight_data28 <- data.frame(z = rep(0:1, 120), x = rnorm(240),
+  band = factor(c(rep("Zero only", 20), rep("Supported", 220))))
+weight_data28[["y"]] <- weight_data28[["x"]] + weight_data28[["z"]] *
+  (1 + weight_data28[["x"]]) + rnorm(240)
+weight_w28 <- c(rep(0, 20), rep(1, 220))
+weight_cluster28 <- rep(seq_len(24), each = 10)
+weight_args28 <- list(num.trees = 100, num.threads = 1, seed = 28,
+  W.hat = .5, Y.hat = 0, sample.weights = weight_w28, clusters = weight_cluster28)
+weight_fit28 <- get_hte(weight_data28, "z", adj_var = "x", sub_var = "band", surv = "y",
+  estimand = c("ATE", "ATO"), grf_args = weight_args28)
+weight_sub28 <- weight_fit28[["subgroup"]]
+weight_sub28 <- weight_sub28[weight_sub28[["estimand"]] == "ATE", ]
+weight_sub_table28 <- data.frame(group = weight_sub28[["level"]],
+  descriptive_n = weight_sub28[["n"]],
+  positive_n = vapply(weight_sub28[["level"]], function(g)
+    sum(weight_data28[["band"]] == g & weight_w28 > 0), integer(1)),
+  estimate = weight_sub28[["estimate"]])
+gt::gtsave(gt::fmt_number(gt::gt(weight_sub_table28), columns = "estimate", decimals = 4),
+  file.path(tempdir(), "20261028-update-hte-effective-subgroups.html"))
+```
+
+![描述人数保留零权重亚组，缺乏支持的效应标为 NA。](images/hte-diagnostics-guide/20261028-update-hte-effective-subgroups.png){fig-alt="合成数据中 Supported 亚组的描述人数和正权重人数都是 220，Zero only 描述人数为 20、正权重人数为零，其效应为 NA。"}
+
+[原生 HTML](images/hte-diagnostics-guide/20261028-update-hte-effective-subgroups.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+weight_f28 <- weight_fit28[["fit"]]; weight_positive28 <- weight_w28 > 0
+weight_tau28 <- as.numeric(predict(weight_f28)[["predictions"]])
+weight_mean28 <- weighted.mean(weight_tau28, weight_w28)
+weight_centered28 <- weight_f28[["W.orig"]] - weight_f28[["W.hat"]]
+weight_cal_data28 <- data.frame(y = weight_f28[["Y.orig"]] - weight_f28[["Y.hat"]],
+  mean.forest.prediction = weight_centered28 * weight_mean28,
+  differential.forest.prediction = weight_centered28 * (weight_tau28 - weight_mean28),
+  wt = weight_w28)
+weight_cal28 <- lm(y ~ 0 + mean.forest.prediction + differential.forest.prediction,
+  data = weight_cal_data28[weight_positive28, ], weights = wt)
+weight_cov28 <- sandwich::vcovCL(weight_cal28,
+  cluster = weight_f28[["clusters"]][weight_positive28], type = "HC3")
+weight_se28 <- sqrt(diag(weight_cov28))
+weight_cal_table28 <- data.frame(term = weight_fit28[["calibration"]][["term"]],
+  package_SE = weight_fit28[["calibration"]][["std.error"]], manual_SE = unname(weight_se28))
+stopifnot(all(weight_fit28[["stats"]][["n"]] == 240L), sum(weight_positive28) == 220L,
+  length(unique(weight_f28[["clusters"]][weight_positive28])) == 22L,
+  isTRUE(all.equal(weight_fit28[["calibration"]][["estimate"]], unname(coef(weight_cal28)))),
+  isTRUE(all.equal(weight_cal_table28[["package_SE"]], weight_cal_table28[["manual_SE"]])))
+weight_ato28 <- grf::average_treatment_effect(weight_f28, target.sample = "overlap",
+  subset = which(weight_positive28))
+weight_ato_row28 <- weight_fit28[["stats"]][weight_fit28[["stats"]][["estimand"]] == "ATO", ]
+stopifnot(isTRUE(all.equal(weight_ato_row28[["estimate"]], unname(weight_ato28[["estimate"]]))),
+  isTRUE(all.equal(weight_ato_row28[["std.error"]], unname(weight_ato28[["std.err"]]))),
+  is.na(weight_sub_table28[["estimate"]][weight_sub_table28[["positive_n"]] == 0]))
+weight_bad_args28 <- weight_args28
+weight_bad_args28[["clusters"]] <- ifelse(weight_positive28, 1, 2)
+weight_cluster_error28 <- tryCatch(get_hte(weight_data28, "z", adj_var = "x", surv = "y",
+  grf_args = weight_bad_args28), error = conditionMessage)
+stopifnot(is.character(weight_cluster_error28), grepl("positive-weight clusters", weight_cluster_error28))
+gt::gtsave(gt::fmt_number(gt::gt(weight_cal_table28), columns = c("package_SE", "manual_SE"),
+  decimals = 6), file.path(tempdir(), "20261028-update-hte-calibration-hc3.html"))
+validation_values <- list(n = c(240L, 220L, 22L), calibration_SE = weight_cal_table28[["package_SE"]],
+  manual_SE = weight_cal_table28[["manual_SE"]], ato = as.numeric(weight_ato28),
+  subgroup_positive = weight_sub_table28[["positive_n"]], effective_cluster_rejected = TRUE)
+```
+:::
+
+![校准标准误与独立的正权重 cluster-HC3 结果一致。](images/hte-diagnostics-guide/20261028-update-hte-calibration-hc3.png){fig-alt="mean.forest.prediction 与 differential.forest.prediction 两个校准项的包标准误和手工正权重 HC3 标准误逐项一致。"}
+
+[原生 HTML](images/hte-diagnostics-guide/20261028-update-hte-calibration-hc3.html)
+
+ATO 估计与区间也只将正权重记录传给 grf 的 overlap 推断。零权重行的边界倾向评分不再阻断有效行的 AIPW 结果；原始行及其不可用得分仍可保留，不能把非有限得分当成有效观测。
+
+分类协变量只有满足分臂及随访支持的水平进入影响函数协方差；跳过不可用水平不表示删除其描述记录。因子的显式 NA 水平按水平编码参与分类诊断，真正缺失的编码不参与对应组。连续投影、校准或 unihtee 的 HC3 失败或非有限时，受影响的推断会标为不可用并给出诊断，已有平均效应及其他候选保留。NA 不是无异质性的证据，也不应擅自改用另一种方差使其得到 p 值。
+
+本例使用 Windows R 4.4.3；零权重亚组的警告是刻意展示的结果，不是已经通过的可用亚组。
+
+<!-- /update-20261028: causal_weights -->
 
 ## plt_hte_rate：重要参数 {#sec-diagnostics-args}
 
@@ -208,3 +298,10 @@ plt_hte_rate(res, priority = "cate", type = c("toc", "qini", "gates"),
 args(plt_hte_rate)
 sessionInfo()
 ```
+
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：新增 [零权重与有效推断](#positive-weights-20261028)，核对 240 行描述人数、220 行正权重和 22 个有效聚类。
+:::
