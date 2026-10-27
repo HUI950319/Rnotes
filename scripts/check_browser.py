@@ -41,6 +41,7 @@ PAGES = [
     "scmmr/index.html",
     "seerr/index.html",
     "regr/conditional-survival-guide.html",
+    "updates.html",
 ]
 
 

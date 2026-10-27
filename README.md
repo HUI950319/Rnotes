@@ -68,9 +68,9 @@ CI 保留前面的基础检查；当前开发源码的 runtime 检查在本机�
 源码链接检查通过 GitHub CLI 的只读 HEAD 请求，核对各包源文件、目录与提交快照；
 Windows 使用已认证的 WSL Ubuntu-22.04 gh，其他平台使用本机 gh，CI 使用只读 GitHub token。
 不存在的分支、文件或未推送提交返回非零状态；源码链接固定到运行快照时，不会要求跟随最新 HEAD。
-RegR 和 MLR 为私有仓库，本机授权账号检查全部目标。Rnotes 的 CI token 无法读取这两库时，
+RegR、MLR 和 seerR 为私有仓库，本机授权账号检查全部目标。Rnotes 的 CI token 无法读取这些库时，
 明确报告跳过的私有目标，继续检查其余可访问目标；不把权限导致的 404 当成失效文件。
-Chromium 检查 63 个代表页面在桌面及手机宽度下的溢出、亮色／暗色切换、标签页显示、
+Chromium 检查 64 个代表页面在桌面及手机宽度下的溢出、亮色／暗色切换、标签页显示、
 首页筛选与 JavaScript 错误；只访问本地 `docs/`，使用备用字体。R 需 4.4.3；各检查失败均返回非零状态。
 GitHub Actions 会在每次 push 和 pull request 中执行这四项检查。
 
