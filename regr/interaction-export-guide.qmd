@@ -2,13 +2,13 @@
 title: "交互分析：表格、Word 导出与绘图"
 description: "fmt_inter、fmt_inter_ft、fmt_inter_gt 的表格后端与细节控制，save_tb_inter 的 Word 导出与默认值，plt_inter 的组合图、分解与热图，以及多模型结果的逐模型导出。"
 date: 2026-10-25
-date-modified: 2026-10-25
+date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
   title: "交互分析：表格后端、Word 导出与交互图"
   topic: 回归与生存分析
-  updated: 2026-10-25
+  updated: 2026-10-27
 ---
 
 本页接[交互分析](interaction-guide.qmd)，把交互结果整理成表格、Word 文档和图。代码沿用该页[示例数据与分析尺度](interaction-guide.qmd#data)准备的 `inter_data`，以及[get_inter()](interaction-guide.qmd#get-inter) 一节拟合的 `inter_single`、`inter_multi`、`inter_pairs`、`inter_grid` 和 `inter_or`，请先运行这两节。
@@ -50,6 +50,60 @@ fmt_inter(inter_single, output_format = "gt")
 ![fmt_inter：相同 Cox 结果的 gt 表。](images/interaction-guide/inter-binary.png){fig-alt="与 flextable 标签页使用相同的原始结果，fmt_inter 的 gt 后端合并两个模型。"}
 
 :::
+
+### 循环分析时关闭自动表格（2026-10-27） {#auto-print-20261027}
+
+<!-- update-20261027: regr_print_switch -->
+
+按已推送 RegR `212a156`，`options(RegR.inter.print=FALSE)` 可关闭 `get_inter()`、`get_inter_abs()` 和 `get_eff_inter()` 返回前的 gt 自动打印，适合批量筛选暴露组合。它不关闭拟合、消息、警告或显式格式化，也不改变返回结果。用 `withr::with_options()` 限制在本次调用，结束后自动恢复原选项。
+
+```r
+library(RegR)
+set.seed(20261027)
+print_data27 <- data.frame(Exposure = factor(rep(c("Low", "High"), each = 60),
+  levels = c("Low", "High")), Modifier = factor(rep(rep(c("Early", "Late"), each = 30), 2),
+  levels = c("Early", "Late")), Age = rnorm(120, 60, 8))
+print_data27[["Outcome"]] <- unlist(lapply(c(6, 12, 15, 24),
+  function(events) c(rep(1L, events), rep(0L, 30 - events))))
+print_option27 <- getOption("RegR.inter.print")
+quiet_inter27 <- withr::with_options(list(RegR.inter.print = FALSE),
+  get_inter(print_data27, exposure_names = c("Exposure", "Modifier"),
+    adj_var = "Age", surv = "Outcome"))
+quiet_table27 <- fmt_inter_gt(quiet_inter27)
+gt::gtsave(quiet_table27, file.path(tempdir(), "20261027-update-interaction-print-switch.html"))
+```
+
+上例在关闭自动打印后，仍能显式 `fmt_inter_gt(quiet_inter27)` 查看或保存同一结果。已有对象的 `print()`、后续 `fmt_inter()` 和 `save_tb_inter()` 也仍按各自接口工作；该选项不是全局静默开关。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+下面仍拟合相同的 120 行数据，只把自动格式化器暂时替换为计数器，以核对 TRUE/FALSE 是否进入打印分支；不以模拟器代替上面的原生表格。
+
+```r
+printed_calls27 <- 0L
+run_print27 <- function(flag) testthat::with_mocked_bindings(
+  withr::with_options(list(RegR.inter.print = flag),
+    get_inter(print_data27, exposure_names = c("Exposure", "Modifier"),
+      adj_var = "Age", surv = "Outcome")),
+  fmt_inter_gt = function(...) { printed_calls27 <<- printed_calls27 + 1L; NULL },
+  .package = "RegR")
+printed_inter27 <- run_print27(TRUE)
+count_true27 <- printed_calls27
+silent_inter27 <- run_print27(FALSE)
+stopifnot(count_true27 == 1L, printed_calls27 == 1L,
+  isTRUE(all.equal(quiet_inter27, printed_inter27)),
+  isTRUE(all.equal(quiet_inter27, silent_inter27)),
+  identical(getOption("RegR.inter.print"), print_option27))
+validation_values <- list(n = nrow(print_data27), calls_when_true = count_true27,
+  calls_after_false = printed_calls27, results_equal = TRUE, option_restored = TRUE)
+```
+:::
+
+![关闭自动打印后显式生成的原生交互表。](images/interaction-export-guide/20261027-update-interaction-print-switch.png){fig-alt="120 行合成二分类数据的真实交互表，包含原四组人数和调整前后结果；关闭自动表格只控制显示，显式格式化仍可用。"}
+
+[原生 HTML](images/interaction-export-guide/20261027-update-interaction-print-switch.html)
+
+<!-- /update-20261027: regr_print_switch -->
 
 ## fmt_inter_ft()：Word 表格的细节控制 {#fmt-inter-ft}
 
@@ -424,3 +478,9 @@ ft_full <- save_tb_inter(inter_check[["sur"]],
 该检查不覆盖交互P值、RERI、曲线、概率差或人数，也不证明两条分析路径在未舍入数值上完全相同。若使用不同模型、参考组或逐对拆分策略，先核对 `same_model_expected` 与设置，不能为了得到 TRUE 而改写显示文本。
 
 `get_inter()` 现也接受 `cif_args`，放在 `conf_level` 后。`"CRR"` 让 Fine–Gray 比值与交互拟合回到 `tidycmprsk::crr()`；`"CSC"` 在这个不绘制 direct CIF 的入口中仍沿用默认 mets 比值拟合。`get_inter_abs()` 的固定时点 CIF 另有概率路径和区间要求，见[后端边界](get-eff-cif-benchmark.qmd#current-backend)。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：补充[关闭自动表格打印](#auto-print-20261027)的局部选项、真实输出与结果不变核对。
+:::
