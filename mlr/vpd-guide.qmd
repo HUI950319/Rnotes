@@ -356,6 +356,167 @@ validation_values <- list(n = 36L, times = cache_times27, errors = unname(cache_
 
 <!-- /update-20261027: mlr_followup_cache -->
 
+
+### 预测列、训练类型与默认解释特征（2026-10-27） {#prediction-schema-20261027b}
+
+<!-- update-20261027b: mlr_prediction_data -->
+
+MLR `6ea0111` 的分类解释器将 `EXP$data` 限定为 `vars`，结局保存在 `EXP$y`；`dat`、`par_lis$data` 仍保留原结局标签及输入字段。默认 DALEX 置换重要性与 SHAP 不再把结局列当成候选解释特征。不要因解释器中没有结局列而手工把它加回预测变量。
+
+下例实际拟合 60 行合成 Logistic 与 ranger，使用含空格、冒号及反引号的列名。预测只需四个训练特征，不需要提供结局；多余列会忽略，缺少列会在调用模型前拒绝。
+
+```r
+library(MLR)
+set.seed(2738)
+predb_data <- data.frame("Marker score" = rnorm(60),
+  "Stage:code" = rep(c("A", "B"), 30), Flag = rep(c(TRUE, TRUE, FALSE), 20),
+  "lab`mark" = rnorm(60), unused_note = rep("not a predictor", 60), check.names = FALSE)
+predb_data[["Response status"]] <- factor(ifelse(runif(60) < plogis(
+  .3 * predb_data[["Marker score"]] - .2 * predb_data[["lab`mark"]]), "Event", "Control"),
+  levels = c("Control", "Event"))
+predb_vars <- c("Marker score", "Stage:code", "Flag", "lab`mark")
+predb_before <- predb_data
+predb_glm <- get_exp(predb_data, predb_vars, surv = "Response status", model = "default")
+predb_rf <- get_exp(predb_data, predb_vars, surv = "Response status", model = "ranger", cores = 1)
+predb_new <- predb_data[1:6, predb_vars, drop = FALSE]
+predb_probability <- stats::predict(predb_rf[["EXP"]], predb_new)
+predb_parts <- DALEX::model_parts(predb_rf[["EXP"]], B = 1, N = 20)
+predb_shap <- DALEX::predict_parts(predb_rf[["EXP"]], new_observation = predb_new[1, , drop = FALSE],
+  type = "shap", B = 1)
+predb_names <- c(predb_vars, "Response status")
+predb_coverage <- data.frame(variable = predb_names,
+  in_explainer_data = predb_names %in% names(predb_rf[["EXP"]][["data"]]),
+  in_default_importance = predb_names %in% as.character(predb_parts[["variable"]]),
+  in_default_SHAP = predb_names %in% as.character(predb_shap[["variable_name"]]))
+gt::gtsave(gt::gt(predb_coverage), file.path(tempdir(), "20261027b-update-explainer-features.html"))
+```
+
+![默认解释只包含四个预测变量。](images/vpd-guide/20261027b-update-explainer-features.png){fig-alt="60 行合成 ranger 模型的变量核对表，四个预测特征同时出现在解释器数据、默认重要性和 SHAP 中，结局 Response status 均未进入。"}
+
+[原生 HTML](images/vpd-guide/20261027b-update-explainer-features.html)
+
+数值预测列必须是普通 numeric/integer，不接收字符数字或 Date。分类列可以传 factor、character 或 logical，按训练水平重新对齐；新水平会拒绝。所有路径拒绝无限值。缺失策略沿用拟合合同：Logistic、Cox、ranger 生存要求完整预测列；ranger 分类与 XGBoost 保留后端支持的缺失处理。
+
+优先为混合类型使用 data.frame；矩阵只在列名完整且各列能同时满足训练类型时适用。不要把含数值和字符的整张表转成字符矩阵后期待模型自动猜测编码。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+for (z in list(predb_glm, predb_rf)) {
+  stopifnot(identical(names(z[["EXP"]][["data"]]), predb_vars),
+    identical(z[["dat"]][["Response status"]], predb_data[["Response status"]]),
+    identical(z[["par_lis"]][["data"]][["unused_note"]], predb_data[["unused_note"]]),
+    isTRUE(all.equal(as.numeric(stats::predict(z[["EXP"]], predb_data[predb_vars])),
+      as.numeric(z[["dat"]][["yhat"]]))))
+}
+stopifnot(setequal(setdiff(as.character(predb_parts[["variable"]]), c("_baseline_", "_full_model_")), predb_vars),
+  setequal(as.character(predb_shap[["variable_name"]]), predb_vars), identical(predb_data, predb_before))
+predb_extra <- predb_new
+predb_extra[["Response status"]] <- "not required"
+predb_extra[["irrelevant"]] <- 999
+predb_reversed <- predb_new
+predb_reversed[["Stage:code"]] <- factor(predb_reversed[["Stage:code"]], levels = c("B", "A"))
+stopifnot(identical(stats::predict(predb_rf[["EXP"]], predb_extra), predb_probability),
+  identical(stats::predict(predb_rf[["EXP"]], predb_reversed), predb_probability))
+predb_bad <- list(missing = predb_new[, -1, drop = FALSE],
+  character_number = predb_new, new_level = predb_new, infinite = predb_new)
+predb_bad[["character_number"]][["Marker score"]] <- as.character(predb_new[["Marker score"]])
+predb_bad[["new_level"]][["Stage:code"]] <- "unseen"
+predb_bad[["infinite"]][["Marker score"]][1] <- Inf
+predb_errors <- lapply(predb_bad, function(d) tryCatch(stats::predict(predb_rf[["EXP"]], d), error = conditionMessage))
+stopifnot(all(vapply(predb_errors, is.character, logical(1))))
+predb_na <- predb_new; predb_na[["Marker score"]][1] <- NA_real_
+predb_na_glm <- tryCatch(stats::predict(predb_glm[["EXP"]], predb_na), error = conditionMessage)
+stopifnot(grepl("Missing prediction", predb_na_glm), all(is.finite(stats::predict(predb_rf[["EXP"]], predb_na))))
+predb_checks <- data.frame(check = names(predb_errors), rejected = vapply(predb_errors, is.character, logical(1)))
+gt::gtsave(gt::gt(predb_checks), file.path(tempdir(), "20261027b-update-prediction-input-checks.html"))
+validation_values <- list(n = 60L, features = predb_vars, coverage = predb_coverage,
+  probability = as.numeric(predb_probability), rejected = names(predb_errors), unchanged = TRUE)
+```
+:::
+
+![不合要求的预测输入在模型调用前拒绝。](images/vpd-guide/20261027b-update-prediction-input-checks.png){fig-alt="实际拒绝的四种 ranger 分类预测输入：缺少列、字符型数值、新分类水平、无限值；图表报告拒绝结果。"}
+
+[原生 HTML](images/vpd-guide/20261027b-update-prediction-input-checks.html)
+
+预测回调与 Logistic 公式只保留所需环境，避免解释器或模型额外持有无关输入列；本例核对字段和预测，没有新测内存倍数。保存整个结果时，`dat` 与 `par_lis$data` 本来就用于保留原数据，按实际需要选择保存整个结果还是解释器。
+
+<!-- /update-20261027b: mlr_prediction_data -->
+
+### Cox 输出尺度、极端值与跨会话回读（2026-10-27） {#cox-scales-20261027b}
+
+<!-- update-20261027b: mlr_cox_outputs -->
+
+MLR `6ea0111` 的 Cox `risk` 回调直接返回拟合模型的 **线性预测值 LP**；它不是事件概率，也不能直接读成 HR。默认 `chf` 与 `survival` 共用基线缓存，分别返回累计风险 H 与 `exp(-H)`。显式修改 mlr3 的预测参数时，CHF 仍转到相应的原生预测路径，保留估计方法的选择。
+
+下面实际拟合 36 行合成生存数据，同时展示六行普通输入的 LP、12 时点 CHF 与生存概率。输出名称相同并不代表不同模型的 risk 具有同一尺度；不要把这里的 Cox LP 套到生存森林。
+
+```r
+library(MLR)
+set.seed(2739)
+coxb_data <- data.frame(time = seq_len(36), DSS = rep(c(0, 1, 1), 12),
+  Marker = rnorm(36), Group = rep(c("A", "B"), 18))
+coxb <- get_exp(coxb_data, c("Marker", "Group"), surv = 12, model = "default", cores = 1)
+coxb_new <- coxb_data[1:6, c("Marker", "Group")]
+coxb_times <- c(0, 6, 12)
+coxb_lp <- stats::predict(coxb[["EXP"]], coxb_new, output_type = "risk")
+coxb_chf <- stats::predict(coxb[["EXP"]], coxb_new, output_type = "chf", times = coxb_times)
+coxb_surv <- stats::predict(coxb[["EXP"]], coxb_new, output_type = "survival", times = coxb_times)
+coxb_table <- data.frame(observation = seq_len(6), Cox_LP = as.numeric(coxb_lp),
+  CHF_at_12 = coxb_chf[, 3], survival_at_12 = coxb_surv[, 3])
+gt::gtsave(gt::fmt_number(gt::gt(coxb_table), columns = 2:4, decimals = 5),
+  file.path(tempdir(), "20261027b-update-cox-output-scales.html"))
+```
+
+![同一 Cox 模型的三个输出尺度。](images/vpd-guide/20261027b-update-cox-output-scales.png){fig-alt="36 行合成 Cox 模型中前六行的 LP、12 时点累计风险和生存概率，三列保留各自尺度，不把 LP 或 CHF 当成概率。"}
+
+[原生 HTML](images/vpd-guide/20261027b-update-cox-output-scales.html)
+
+累计风险在 log 空间计算；即使有限输入产生非常大的 LP，首个事件前 H0=0 时仍为 CHF=0、S=1，避免零乘无穷得到 NaN。以下两行极端 Marker 仅作数值压力测试，不用于临床外推。事件之后 CHF 可以溢出为 Inf，此时 S=0 与数学极限一致，不能把这种输出写成有限风险估计。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+coxb_fit <- coxb[["EXP"]][["model"]]$model
+stopifnot(isTRUE(all.equal(as.numeric(coxb_lp), as.numeric(stats::predict(coxb_fit, coxb_new, type = "lp")))),
+  isTRUE(all.equal(unname(coxb_surv), exp(-unname(coxb_chf)))) ,
+  all(coxb_chf[, 1] == 0), all(coxb_surv[, 1] == 1))
+coxb_extreme <- coxb_new[1:2, , drop = FALSE]
+coxb_extreme[["Marker"]] <- c(-1e8, 1e8)
+coxb_first_event <- min(coxb_data[["time"]][coxb_data[["DSS"]] == 1])
+coxb_extreme_times <- c(0, coxb_first_event / 2, coxb_first_event, 36)
+coxb_extreme_s <- stats::predict(coxb[["EXP"]], coxb_extreme,
+  output_type = "survival", times = coxb_extreme_times)
+coxb_extreme_h <- stats::predict(coxb[["EXP"]], coxb_extreme,
+  output_type = "chf", times = coxb_extreme_times)
+stopifnot(all(is.finite(coxb_extreme_s)), !anyNA(coxb_extreme_h),
+  all(coxb_extreme_s[, 1:2] == 1), all(coxb_extreme_h[, 1:2] == 0))
+coxb_xgb <- get_exp(coxb_data, c("Marker", "Group"), surv = 12, model = "xgboost", cores = 1)
+coxb_file <- file.path(tempdir(), "coxb-explainers.rds")
+saveRDS(list(cox = coxb, xgboost = coxb_xgb), coxb_file)
+coxb_reloaded <- callr::r(function(path, source_path) {
+  if (is.null(source_path)) loadNamespace("MLR") else
+    pkgload::load_all(source_path, quiet = TRUE, export_all = FALSE)
+  z <- readRDS(path)
+  roles <- mlr3::mlr_reflections$task_col_roles
+  answer <- lapply(z, function(x) as.numeric(stats::predict(x[["EXP"]],
+    x[["EXP"]][["data"]], output_type = "survival", times = 12)))
+  list(prediction = answer, roles_restored = identical(roles, mlr3::mlr_reflections$task_col_roles))
+}, args = list(coxb_file, getOption("rnotes.MLR.source")), timeout = 20)
+stopifnot(coxb_reloaded[["roles_restored"]],
+  isTRUE(all.equal(coxb_reloaded[["prediction"]][["cox"]], as.numeric(coxb[["dat"]][["yhat"]]))),
+  isTRUE(all.equal(coxb_reloaded[["prediction"]][["xgboost"]], as.numeric(coxb_xgb[["dat"]][["yhat"]]))))
+validation_values <- list(n = 36L, lp = as.numeric(coxb_lp), chf = as.numeric(coxb_chf),
+  survival = as.numeric(coxb_surv), extreme_before_event_survival = as.numeric(coxb_extreme_s[, 1:2]),
+  reload_cox = coxb_reloaded[["prediction"]][["cox"]],
+  reload_xgboost = coxb_reloaded[["prediction"]][["xgboost"]], roles_restored = TRUE)
+```
+:::
+
+独立 R 进程读回的 Cox 与 XGBoost 生存预测逐行核对；相关 mlr3 回调按拟合时角色执行，并恢复调用者角色注册。Cox/ranger 现在只加载需要的学习器扩展而不整包加载 mlr3verse；本节没有测量冷启动提速或改写旧性能表。
+
+<!-- /update-20261027b: mlr_cox_outputs -->
+
 ## 生存任务：四种变量组合
 
 `exp_var` 为一个变量时直接展示该变量；两个变量时第一项必须为分类分组，第二项为关注变量。纵轴是选定时间点的预测生存概率 S(t)，不是 HR。
@@ -723,6 +884,7 @@ get_all现在有13个分析入口。ale2.args必须显式提供才启用；仅�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：按 `6ea0111` 补齐[预测列与训练类型](#prediction-schema-20261027b)、[Cox 尺度与独立进程回读](#cox-scales-20261027b)。
 - 2026-10-27：补充[生存缓存与累计风险](#survival-cache-20261027)的 36 行 Cox/ranger 数值核对。
 - 2026-10-27：补充[原始预测列与 RDS 回读](#explainer-reload-20261027)的 48 行独立进程核对。
 - 2026-10-27：补充[解释器输入、正类编码与缓存](#explainer-contract-20261027)的 60 行实际拟合与类型核对。
