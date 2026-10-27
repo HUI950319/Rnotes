@@ -1182,7 +1182,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 
 <p><code>get_model_FeaSel()</code> 保留已评估子集与每个特征数的最佳结果。先查看搜索路径，再用 <code>get_selected_features()</code> 明确取出对应候选，最后在嵌套划分中观察选择频率和留出性能。</p>
-<p><strong>执行范围：</strong> 原有 9 张参数图及 1 张历史 PDF 预览保留各自的 WSL R 4.4.3 执行快照，包含 SFS、SBS、RFE、生存及嵌套 SFS。本轮另按 MLR <code>a4865f2</code> 在 Windows / WSL 执行下面的 60 行 RFECV 与模型留存核对，新增 1 张原生 PDF 预览，当前共 11 张图；历史模型没有重新运行。</p>
+<p><strong>执行范围：</strong> 原有 9 张参数图及 1 张历史 PDF 预览保留各自的 WSL R 4.4.3 执行快照，包含 SFS、SBS、RFE、生存及嵌套 SFS。本轮另按 MLR <code>a4865f2</code> 在 Windows / WSL 执行下面的 60 行 RFECV 与模型留存核对，新增 1 张原生 PDF 预览，该次共 11 张图。随后按 <code>6ea0111</code> 新增下面的选择路径与有效外层分数表，当前共 13 张图；历史模型没有重新运行。</p>
 <section id="data" class="level2">
 <h2 class="anchored" data-anchor-id="data">示例准备与读图规则</h2>
 <p>生存示例使用 <code>ToyData::toy_ptc_m1_cnd</code> 的 598 人 M1 PTC 队列，175 个疾病特异死亡事件，time 单位为月，与 <a href="../toydata/index.html">ToyData 介绍</a>一致。模型使用 Age、Sex、Tum_3；Unknown 是原有因子水平。二分类示例为固定种子的 300 行模拟数据，正类明确为 Yes，避免把删失生存记录直接当成完整二分类结局。</p>
@@ -1350,6 +1350,130 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>AutoTuner 的内部学习器也在克隆后限制为单线程，调用者原对象的线程设置保持不变。本例执行了普通 ranger 与 rpart 路径；AutoTuner 及其图学习器的递归处理按源码核对，没有在本页另做完整调参或性能测试。</p>
 <!-- /update-20261027: mlr_latest_fs -->
 </section>
+<section id="selection-contract-20261027b" class="level3">
+<h3 class="anchored" data-anchor-id="selection-contract-20261027b">原生选择、预算与外层有效分数（2026-10-27）</h3>
+<!-- update-20261027b: mlr_fs_contract -->
+<p>MLR <code>6ea0111</code> 要求 <strong>mlr3fselect 1.7.0 或更新版本</strong>，在拟合前检查版本；这包含最小化指标与非递归 RFECV 的上游修正。<code>selected_features</code>、最终摘要、选中规模的路径行和 <code>get_selected_features(x, n_features=...)</code> 现在统一遵循原生最终选择，包含分数相同的选择。不能再把自己按变量名称排序的另一个并列子集当成最终答案。</p>
+<p>下面用 40 行合成二分类数据和 2 个预测变量，采用不使用特征的 featureless 学习器制造真实的并列分数，核对取出的变量与原生结果。图展示<strong>内层 CV 分类错误率</strong>；RFECV 的最终重拟合分数仍按上一节解释。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MLR)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3)</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(ggplot2)</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2737</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>fsb_data <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">40</span>), <span class="at">z =</span> <span class="fu">rnorm</span>(<span class="dv">40</span>),</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">Outcome =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>), <span class="at">each =</span> <span class="dv">20</span>)))</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>fsb_task <span class="ot">&lt;-</span> <span class="fu">as_task_classif</span>(fsb_data, <span class="at">target =</span> <span class="st">"Outcome"</span>, <span class="at">positive =</span> <span class="st">"Yes"</span>)</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>fsb_before <span class="ot">&lt;-</span> fsb_task<span class="sc">$</span><span class="fu">data</span>()</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>fsb_rng <span class="ot">&lt;-</span> <span class="fu">get</span>(<span class="st">".Random.seed"</span>, <span class="at">envir =</span> .GlobalEnv)</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>fsb <span class="ot">&lt;-</span> <span class="fu">get_model_FeaSel</span>(fsb_task,</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">learner =</span> <span class="fu">lrn</span>(<span class="st">"classif.featureless"</span>, <span class="at">predict_type =</span> <span class="st">"prob"</span>),</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">method =</span> <span class="st">"sfs"</span>, <span class="at">measure =</span> <span class="st">"classif.ce"</span>, <span class="at">selector_args =</span> <span class="fu">list</span>(<span class="at">max_features =</span> <span class="dv">2</span>L),</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">inner_resampling =</span> <span class="fu">rsmp</span>(<span class="st">"cv"</span>, <span class="at">folds =</span> <span class="dv">2</span>), <span class="at">backend =</span> <span class="st">"sequential"</span>, <span class="at">seed =</span> <span class="dv">27</span>)</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>fsb_rng_restored <span class="ot">&lt;-</span> <span class="fu">identical</span>(<span class="fu">get</span>(<span class="st">".Random.seed"</span>, <span class="at">envir =</span> .GlobalEnv), fsb_rng)</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a><span class="fu">get_selected_features</span>(fsb)</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a><span class="fu">get_selected_features</span>(fsb, <span class="at">n_features =</span> <span class="fu">length</span>(fsb[[<span class="st">"selected_features"</span>]]))</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>fsb_plot <span class="ot">&lt;-</span> <span class="fu">plt_model_FeaSel</span>(fsb, <span class="at">type =</span> <span class="st">"path"</span>) <span class="sc">+</span></span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Native final selection under tied scores"</span>, <span class="at">y =</span> <span class="st">"Inner-CV classification error"</span>) <span class="sc">+</span></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_cartesian</span>(<span class="at">ylim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">1</span>)) <span class="sc">+</span> <span class="fu">guides</span>(<span class="at">size =</span> <span class="st">"none"</span>, <span class="at">fill =</span> <span class="st">"none"</span>)</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261027b-update-native-selection.pdf"</span>), fsb_plot,</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">width =</span> <span class="dv">7</span>, <span class="at">height =</span> <span class="fl">4.5</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/feature-selection-guide/20261027b-update-native-selection.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="并列分数下保留原生最终选择。"><img src="images/feature-selection-guide/20261027b-update-native-selection.png" class="img-fluid figure-img" alt="40 行合成二分类任务的内层 CV 分类错误率路径，featureless 学习器产生并列分数，选择线对应原生最终子集。" loading="lazy" decoding="async" width="1015" height="653" srcset="../assets/figure-previews/7b15885bf69a0d26955a980f4f7b18dc.webp"></a></p>
+<figcaption>并列分数下保留原生最终选择。</figcaption>
+</figure>
+</div>
+<p><a href="images/feature-selection-guide/20261027b-update-native-selection.pdf">原生 PDF</a></p>
+<p><code>seed</code> 在正常返回和报错后恢复调用者状态，最大值为 <code>.Machine$integer.max</code>；<code>workers</code>、<code>n_evals</code> 等整数控制量也在拟合前检查。任务必须有行和特征；嵌套筛选的 <code>inner_resampling</code> 必须尚未实例化。单特征 RFE/RFECV 默认目标为 1，不需要人为复制一列。</p>
+<p>特征名 <code>x</code> 仍合法；但 <code>x_domain</code>、<code>timestamp</code>、<code>batch_nr</code>、<code>uhash</code>、<code>runtime_learners</code>、<code>resample_result</code> 和当前指标 ID 与归档字段冲突，应先改名。RFE/RFECV 另保留 <code>importance</code>，RFECV 另保留 <code>iteration</code>。</p>
+<p>下例显式安排三个外层测试集，其中第三个只有 No 类，因此其 AUC 无法定义。函数会告警并在 <code>outer_scores</code> 保留该非有限值；<code>outer_performance</code> 的 <code>n_outer</code> 只计有限分数，脚注同时报告全部、有效和无效迭代数。这个刻意构造的划分只演示计数规则，不用于估计模型性能。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>fsb_tests <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="fu">c</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>, <span class="dv">21</span><span class="sc">:</span><span class="dv">25</span>), <span class="fu">c</span>(<span class="dv">6</span><span class="sc">:</span><span class="dv">10</span>, <span class="dv">26</span><span class="sc">:</span><span class="dv">30</span>), <span class="dv">11</span><span class="sc">:</span><span class="dv">20</span>)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>fsb_outer <span class="ot">&lt;-</span> <span class="fu">rsmp</span>(<span class="st">"custom"</span>)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>fsb_outer<span class="sc">$</span><span class="fu">instantiate</span>(fsb_task,</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">train_sets =</span> <span class="fu">lapply</span>(fsb_tests, <span class="cf">function</span>(rows) <span class="fu">setdiff</span>(<span class="fu">seq_len</span>(<span class="dv">40</span>), rows)),</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">test_sets =</span> fsb_tests)</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>fsb_nested <span class="ot">&lt;-</span> <span class="fu">get_model_FeaSel</span>(fsb_task,</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">learner =</span> <span class="fu">lrn</span>(<span class="st">"classif.featureless"</span>, <span class="at">predict_type =</span> <span class="st">"prob"</span>),</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">method =</span> <span class="st">"sfs"</span>, <span class="at">selector_args =</span> <span class="fu">list</span>(<span class="at">max_features =</span> <span class="dv">1</span>L), <span class="at">nested =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">inner_resampling =</span> <span class="fu">rsmp</span>(<span class="st">"cv"</span>, <span class="at">folds =</span> <span class="dv">2</span>), <span class="at">outer_resampling =</span> fsb_outer,</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">backend =</span> <span class="st">"sequential"</span>, <span class="at">seed =</span> <span class="dv">27</span>)</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>fsb_table <span class="ot">&lt;-</span> <span class="fu">tb_model_FeaSel</span>(fsb_nested, <span class="at">type =</span> <span class="st">"outer_performance"</span>)</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>flextable<span class="sc">::</span><span class="fu">save_as_html</span>(fsb_table,</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">path =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261027b-update-outer-valid-counts.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/feature-selection-guide/20261027b-update-outer-valid-counts.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="外层分数表保留总迭代数与有效分数口径。"><img src="images/feature-selection-guide/20261027b-update-outer-valid-counts.png" class="img-fluid figure-img" alt="实际嵌套筛选的外层汇总，三个外层测试集只有两个 AUC 有限；表体 n_outer 为 2，脚注报告总数 3、有限 2、非有限 1。" loading="lazy" decoding="async" width="576" height="138" srcset="../assets/figure-previews/41814b17af49c9b922154caf768157b7.webp"></a></p>
+<figcaption>外层分数表保留总迭代数与有效分数口径。</figcaption>
+</figure>
+</div>
+<p><a href="images/feature-selection-guide/20261027b-update-outer-valid-counts.html">原生 HTML</a></p>
+<p>拟合次数告警现在覆盖全数据搜索、嵌套搜索与外层重拟合，并考虑候选批量和可识别的 AutoTuner 预算；超过 1,000 次时提示的是<strong>次数上界，不是秒数</strong>。顺序搜索的 <code>n_evals</code> 不代替 <code>max_features</code>；只有时间上限的终止器不一定能估算次数。</p>
+<p>学习器在克隆后限制内部线程，包括 GraphLearner 中的嵌套学习器；AutoTuner 的搜索空间不能再调线程数。默认生存 ranger 在非 RFE/RFECV 方法下不计算未使用的置换重要性，显式传入的学习器保留其重要性设置。本例实跑普通与图学习器；更深的 AutoTuner 递归策略按源码核对。</p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(utils<span class="sc">::</span><span class="fu">packageVersion</span>(<span class="st">"mlr3fselect"</span>) <span class="sc">&gt;=</span> <span class="st">"1.7.0"</span>, fsb_rng_restored,</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setequal</span>(fsb[[<span class="st">"selected_features"</span>]], fsb[[<span class="st">"instance"</span>]]<span class="sc">$</span>result_feature_set),</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">get_selected_features</span>(fsb, <span class="fu">length</span>(fsb[[<span class="st">"selected_features"</span>]])), fsb[[<span class="st">"selected_features"</span>]]),</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">length</span>(<span class="fu">unique</span>(fsb[[<span class="st">"archive"</span>]][[<span class="st">"score"</span>]])) <span class="sc">==</span> <span class="dv">1</span>L,</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(fsb[[<span class="st">"selected_summary"</span>]][[<span class="st">"score"</span>]], fsb[[<span class="st">"instance"</span>]]<span class="sc">$</span>result[[<span class="st">"classif.ce"</span>]])),</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(fsb_task<span class="sc">$</span><span class="fu">data</span>(), fsb_before),</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(<span class="fu">is.finite</span>(fsb_nested[[<span class="st">"outer_scores"</span>]][[<span class="st">"score"</span>]])) <span class="sc">==</span> <span class="dv">2</span>L,</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(<span class="sc">!</span><span class="fu">is.finite</span>(fsb_nested[[<span class="st">"outer_scores"</span>]][[<span class="st">"score"</span>]])) <span class="sc">==</span> <span class="dv">1</span>L,</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  fsb_table<span class="sc">$</span>body<span class="sc">$</span>dataset[[<span class="st">"n_outer"</span>]] <span class="sc">==</span> <span class="dv">2</span>L,</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"non-finite: 1"</span>, <span class="fu">unlist</span>(fsb_table<span class="sc">$</span>footer<span class="sc">$</span>dataset), <span class="at">fixed =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>fsb_bad_task <span class="ot">&lt;-</span> fsb_task<span class="sc">$</span><span class="fu">clone</span>(<span class="at">deep =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>fsb_bad_task<span class="sc">$</span><span class="fu">rename</span>(<span class="st">"x"</span>, <span class="st">"timestamp"</span>)</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>fsb_bad_rng <span class="ot">&lt;-</span> <span class="fu">get</span>(<span class="st">".Random.seed"</span>, <span class="at">envir =</span> .GlobalEnv)</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>fsb_reserved <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_model_FeaSel</span>(fsb_bad_task, <span class="at">backend =</span> <span class="st">"sequential"</span>), <span class="at">error =</span> conditionMessage)</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>fsb_bad_seed <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_model_FeaSel</span>(fsb_task,</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">seed =</span> <span class="fu">as.double</span>(.Machine<span class="sc">$</span>integer.max) <span class="sc">+</span> <span class="dv">1</span>, <span class="at">backend =</span> <span class="st">"sequential"</span>), <span class="at">error =</span> conditionMessage)</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">grepl</span>(<span class="st">"Reserved feature"</span>, fsb_reserved), <span class="fu">grepl</span>(<span class="st">"seed must"</span>, fsb_bad_seed),</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">get</span>(<span class="st">".Random.seed"</span>, <span class="at">envir =</span> .GlobalEnv), fsb_bad_rng))</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3learners)</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>fsb_rfecv <span class="ot">&lt;-</span> <span class="fu">get_model_FeaSel</span>(fsb_task,</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">learner =</span> <span class="fu">lrn</span>(<span class="st">"classif.ranger"</span>, <span class="at">predict_type =</span> <span class="st">"prob"</span>, <span class="at">num.trees =</span> <span class="dv">10</span>L,</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">num.threads =</span> <span class="dv">1</span>L, <span class="at">importance =</span> <span class="st">"permutation"</span>),</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>  <span class="at">method =</span> <span class="st">"rfecv"</span>, <span class="at">measure =</span> <span class="st">"classif.ce"</span>,</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">selector_args =</span> <span class="fu">list</span>(<span class="at">n_features =</span> <span class="dv">1</span>L, <span class="at">feature_number =</span> <span class="dv">1</span>L, <span class="at">recursive =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">inner_resampling =</span> <span class="fu">rsmp</span>(<span class="st">"cv"</span>, <span class="at">folds =</span> <span class="dv">2</span>), <span class="at">backend =</span> <span class="st">"sequential"</span>, <span class="at">seed =</span> <span class="dv">27</span>)</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>fsb_cv <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(fsb_rfecv[[<span class="st">"instance"</span>]]<span class="sc">$</span>archive<span class="sc">$</span>data)</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>fsb_cv <span class="ot">&lt;-</span> fsb_cv[<span class="sc">!</span><span class="fu">is.na</span>(fsb_cv[[<span class="st">"iteration"</span>]]), , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>fsb_cv[[<span class="st">"n_features"</span>]] <span class="ot">&lt;-</span> <span class="fu">rowSums</span>(fsb_cv[, fsb_task<span class="sc">$</span>feature_names, <span class="at">drop =</span> <span class="cn">FALSE</span>])</span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>fsb_cv_scores <span class="ot">&lt;-</span> <span class="fu">aggregate</span>(fsb_cv[, <span class="fu">c</span>(<span class="st">"classif.ce"</span>, <span class="st">"n_features"</span>)],</span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">batch =</span> fsb_cv[[<span class="st">"batch_nr"</span>]]), mean)</span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">length</span>(fsb_rfecv[[<span class="st">"selected_features"</span>]]) <span class="sc">%in%</span></span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>  fsb_cv_scores[[<span class="st">"n_features"</span>]][fsb_cv_scores[[<span class="st">"classif.ce"</span>]] <span class="sc">==</span> <span class="fu">min</span>(fsb_cv_scores[[<span class="st">"classif.ce"</span>]])],</span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setequal</span>(fsb_rfecv[[<span class="st">"selected_features"</span>]], fsb_rfecv[[<span class="st">"instance"</span>]]<span class="sc">$</span>result_feature_set))</span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>fsb_graph <span class="ot">&lt;-</span> mlr3<span class="sc">::</span><span class="fu">as_learner</span>(mlr3pipelines<span class="sc">::</span><span class="st">`</span><span class="at">%&gt;&gt;%</span><span class="st">`</span>(mlr3pipelines<span class="sc">::</span><span class="fu">po</span>(<span class="st">"scale"</span>),</span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a>  <span class="fu">lrn</span>(<span class="st">"classif.ranger"</span>, <span class="at">predict_type =</span> <span class="st">"prob"</span>, <span class="at">num.trees =</span> <span class="dv">5</span>L, <span class="at">num.threads =</span> <span class="dv">8</span>L)))</span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>fsb_graph_result <span class="ot">&lt;-</span> <span class="fu">get_model_FeaSel</span>(fsb_task, <span class="at">learner =</span> fsb_graph,</span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>  <span class="at">method =</span> <span class="st">"random_search"</span>, <span class="at">n_evals =</span> <span class="dv">1</span>L, <span class="at">selector_args =</span> <span class="fu">list</span>(<span class="at">batch_size =</span> <span class="dv">1</span>L),</span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>  <span class="at">inner_resampling =</span> <span class="fu">rsmp</span>(<span class="st">"cv"</span>, <span class="at">folds =</span> <span class="dv">2</span>), <span class="at">backend =</span> <span class="st">"sequential"</span>, <span class="at">seed =</span> <span class="dv">27</span>)</span>
+<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a>fsb_thread_id <span class="ot">&lt;-</span> <span class="fu">grep</span>(<span class="st">"num.threads$"</span>, fsb_graph<span class="sc">$</span>param_set<span class="sc">$</span><span class="fu">ids</span>(), <span class="at">value =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-40"><a href="#cb6-40" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(fsb_graph<span class="sc">$</span>param_set<span class="sc">$</span>values[[fsb_thread_id]] <span class="sc">==</span> <span class="dv">8</span>L,</span>
+<span id="cb6-41"><a href="#cb6-41" aria-hidden="true" tabindex="-1"></a>  fsb_graph_result[[<span class="st">"instance"</span>]]<span class="sc">$</span>objective<span class="sc">$</span>learner<span class="sc">$</span>param_set<span class="sc">$</span>values[[fsb_thread_id]] <span class="sc">==</span> <span class="dv">1</span>L)</span>
+<span id="cb6-42"><a href="#cb6-42" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(<span class="fu">names</span>(fsb_plot<span class="sc">$</span>data), <span class="fu">c</span>(<span class="st">"n_features"</span>, <span class="st">"score"</span>)),</span>
+<span id="cb6-43"><a href="#cb6-43" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!</span><span class="fu">exists</span>(<span class="st">"x"</span>, <span class="at">envir =</span> fsb_plot<span class="sc">$</span>plot_env, <span class="at">inherits =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb6-44"><a href="#cb6-44" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(<span class="fu">unserialize</span>(<span class="fu">serialize</span>(fsb_plot, <span class="cn">NULL</span>))<span class="sc">$</span>data, fsb_plot<span class="sc">$</span>data)))</span>
+<span id="cb6-45"><a href="#cb6-45" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> <span class="dv">40</span>L, <span class="at">selected =</span> <span class="fu">sort</span>(fsb[[<span class="st">"selected_features"</span>]]),</span>
+<span id="cb6-46"><a href="#cb6-46" aria-hidden="true" tabindex="-1"></a>  <span class="at">score =</span> fsb[[<span class="st">"selected_summary"</span>]][[<span class="st">"score"</span>]],</span>
+<span id="cb6-47"><a href="#cb6-47" aria-hidden="true" tabindex="-1"></a>  <span class="at">finite_outer =</span> <span class="dv">2</span>L, <span class="at">nonfinite_outer =</span> <span class="dv">1</span>L, <span class="at">outer_scores =</span> fsb_nested[[<span class="st">"outer_scores"</span>]][[<span class="st">"score"</span>]],</span>
+<span id="cb6-48"><a href="#cb6-48" aria-hidden="true" tabindex="-1"></a>  <span class="at">rng_restored =</span> fsb_rng_restored, <span class="at">caller_threads =</span> <span class="dv">8</span>L, <span class="at">cloned_threads =</span> <span class="dv">1</span>L)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<p><code>plt_model_FeaSel()</code> 的图对象现在只持有绘图所需数据；本例核对图数据与序列化回读，未重测内存倍数或端到端速度。旧图继续按各自的源码与执行快照阅读。</p>
+<!-- /update-20261027b: mlr_fs_contract -->
+</section>
 </section>
 <section id="选择方法与搜索路径" class="level2">
 <h2 class="anchored" data-anchor-id="选择方法与搜索路径">选择方法与搜索路径</h2>
@@ -1359,40 +1483,40 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
 <p>每个点为已评估子集的内层 CV 分数；连线连接各特征数的最佳子集。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/sfs-path.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="每个点为已评估子集的内层 CV 分数；连线连接各特征数的最佳子集。"><img src="images/feature-selection-guide/sfs-path.png" class="img-fluid figure-img" alt="每个点为已评估子集的内层 CV 分数；连线连接各特征数的最佳子集。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/e14d9f01179f03a365204bf2f38e90d0.webp"></a></p>
+<p><a href="images/feature-selection-guide/sfs-path.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="每个点为已评估子集的内层 CV 分数；连线连接各特征数的最佳子集。"><img src="images/feature-selection-guide/sfs-path.png" class="img-fluid figure-img" alt="每个点为已评估子集的内层 CV 分数；连线连接各特征数的最佳子集。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/e14d9f01179f03a365204bf2f38e90d0.webp"></a></p>
 <figcaption>每个点为已评估子集的内层 CV 分数；连线连接各特征数的最佳子集。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
 <p>从更多变量向少数变量删减；路径和前向搜索不同。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsb, <span class="at">type =</span> <span class="st">"path"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsb, <span class="at">type =</span> <span class="st">"path"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/sbs-path.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="从更多变量向少数变量删减；路径和前向搜索不同。"><img src="images/feature-selection-guide/sbs-path.png" class="img-fluid figure-img" alt="从更多变量向少数变量删减；路径和前向搜索不同。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/e28d823b3eaf21e4aadb3522ae7a2633.webp"></a></p>
+<p><a href="images/feature-selection-guide/sbs-path.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="从更多变量向少数变量删减；路径和前向搜索不同。"><img src="images/feature-selection-guide/sbs-path.png" class="img-fluid figure-img" alt="从更多变量向少数变量删减；路径和前向搜索不同。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/e28d823b3eaf21e4aadb3522ae7a2633.webp"></a></p>
 <figcaption>从更多变量向少数变量删减；路径和前向搜索不同。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-1-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-3-tab">
 <p>RFE 需支持 importance 的学习器，本例换用 ranger；同时改变算法与学习器。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsr, <span class="at">type =</span> <span class="st">"path"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsr, <span class="at">type =</span> <span class="st">"path"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/rfe-path.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="RFE 需支持 importance 的学习器，本例换用 ranger；同时改变算法与学习器。"><img src="images/feature-selection-guide/rfe-path.png" class="img-fluid figure-img" alt="RFE 需支持 importance 的学习器，本例换用 ranger；同时改变算法与学习器。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/a6f3a7e35ea1adcc1fb6a2d421e70a26.webp"></a></p>
+<p><a href="images/feature-selection-guide/rfe-path.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="RFE 需支持 importance 的学习器，本例换用 ranger；同时改变算法与学习器。"><img src="images/feature-selection-guide/rfe-path.png" class="img-fluid figure-img" alt="RFE 需支持 importance 的学习器，本例换用 ranger；同时改变算法与学习器。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/a6f3a7e35ea1adcc1fb6a2d421e70a26.webp"></a></p>
 <figcaption>RFE 需支持 importance 的学习器，本例换用 ranger；同时改变算法与学习器。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-1-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-4-tab">
 <p>同一公开入口也支持生存，当前指标为 C-index，不能与 AUC 数值直接混用。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fss, <span class="at">type =</span> <span class="st">"path"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fss, <span class="at">type =</span> <span class="st">"path"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/survival-path.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="同一公开入口也支持生存，当前指标为 C-index，不能与 AUC 数值直接混用。"><img src="images/feature-selection-guide/survival-path.png" class="img-fluid figure-img" alt="同一公开入口也支持生存，当前指标为 C-index，不能与 AUC 数值直接混用。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/4220352928995ca5bbdb65ace4235ddf.webp"></a></p>
+<p><a href="images/feature-selection-guide/survival-path.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="同一公开入口也支持生存，当前指标为 C-index，不能与 AUC 数值直接混用。"><img src="images/feature-selection-guide/survival-path.png" class="img-fluid figure-img" alt="同一公开入口也支持生存，当前指标为 C-index，不能与 AUC 数值直接混用。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/4220352928995ca5bbdb65ace4235ddf.webp"></a></p>
 <figcaption>同一公开入口也支持生存，当前指标为 C-index，不能与 AUC 数值直接混用。</figcaption>
 </figure>
 </div>
@@ -1408,20 +1532,20 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
 <p>红线改为已评估的一变量候选，未重新筛选或训练。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>, <span class="at">n_features =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>, <span class="at">n_features =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/highlight1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="红线改为已评估的一变量候选，未重新筛选或训练。"><img src="images/feature-selection-guide/highlight1.png" class="img-fluid figure-img" alt="红线改为已评估的一变量候选，未重新筛选或训练。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/72eee7eae37e1bb2886fdae57222de8d.webp"></a></p>
+<p><a href="images/feature-selection-guide/highlight1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="红线改为已评估的一变量候选，未重新筛选或训练。"><img src="images/feature-selection-guide/highlight1.png" class="img-fluid figure-img" alt="红线改为已评估的一变量候选，未重新筛选或训练。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/72eee7eae37e1bb2886fdae57222de8d.webp"></a></p>
 <figcaption>红线改为已评估的一变量候选，未重新筛选或训练。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
 <p>两变量规模与观察窗一起改变；统计归档保持相同。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>, <span class="at">n_features =</span> <span class="dv">2</span>, <span class="at">ylim =</span> <span class="fu">c</span>(<span class="fl">0.5</span>, <span class="fl">0.9</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>, <span class="at">n_features =</span> <span class="dv">2</span>, <span class="at">ylim =</span> <span class="fu">c</span>(<span class="fl">0.5</span>, <span class="fl">0.9</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/highlight2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="两变量规模与观察窗一起改变；统计归档保持相同。"><img src="images/feature-selection-guide/highlight2.png" class="img-fluid figure-img" alt="两变量规模与观察窗一起改变；统计归档保持相同。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/738307b26b894bd8c458a78bf5663eac.webp"></a></p>
+<p><a href="images/feature-selection-guide/highlight2.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="两变量规模与观察窗一起改变；统计归档保持相同。"><img src="images/feature-selection-guide/highlight2.png" class="img-fluid figure-img" alt="两变量规模与观察窗一起改变；统计归档保持相同。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/738307b26b894bd8c458a78bf5663eac.webp"></a></p>
 <figcaption>两变量规模与观察窗一起改变；统计归档保持相同。</figcaption>
 </figure>
 </div>
@@ -1437,30 +1561,30 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <div class="tab-content">
 <div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
 <p>嵌套外层训练集分别筛选，显示被选择的频率。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"stability"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"stability"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/stability-all.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="嵌套外层训练集分别筛选，显示被选择的频率。"><img src="images/feature-selection-guide/stability-all.png" class="img-fluid figure-img" alt="嵌套外层训练集分别筛选，显示被选择的频率。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/ee73c182df5e5e736e9298db2969aac9.webp"></a></p>
+<p><a href="images/feature-selection-guide/stability-all.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="嵌套外层训练集分别筛选，显示被选择的频率。"><img src="images/feature-selection-guide/stability-all.png" class="img-fluid figure-img" alt="嵌套外层训练集分别筛选，显示被选择的频率。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/ee73c182df5e5e736e9298db2969aac9.webp"></a></p>
 <figcaption>嵌套外层训练集分别筛选，显示被选择的频率。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
 <p>top_n 控制显示项数；频率不是因果效应或假发现率。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"stability"</span>, <span class="at">top_n =</span> <span class="dv">2</span>, <span class="at">ylim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">1</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"stability"</span>, <span class="at">top_n =</span> <span class="dv">2</span>, <span class="at">ylim =</span> <span class="fu">c</span>(<span class="dv">0</span>, <span class="dv">1</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/stability-top.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="top_n 控制显示项数；频率不是因果效应或假发现率。"><img src="images/feature-selection-guide/stability-top.png" class="img-fluid figure-img" alt="top_n 控制显示项数；频率不是因果效应或假发现率。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/7ed7d4fabe2c64b834ba79c860572958.webp"></a></p>
+<p><a href="images/feature-selection-guide/stability-top.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="top_n 控制显示项数；频率不是因果效应或假发现率。"><img src="images/feature-selection-guide/stability-top.png" class="img-fluid figure-img" alt="top_n 控制显示项数；频率不是因果效应或假发现率。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/7ed7d4fabe2c64b834ba79c860572958.webp"></a></p>
 <figcaption>top_n 控制显示项数；频率不是因果效应或假发现率。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-3-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-3-tab">
 <p>留出集分数反映训练折内筛选流程，和最高内层分数含义不同。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"outer_performance"</span>, <span class="at">ylim =</span> <span class="fu">c</span>(<span class="fl">0.5</span>, <span class="fl">0.9</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"outer_performance"</span>, <span class="at">ylim =</span> <span class="fu">c</span>(<span class="fl">0.5</span>, <span class="fl">0.9</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/outer.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="留出集分数反映训练折内筛选流程，和最高内层分数含义不同。"><img src="images/feature-selection-guide/outer.png" class="img-fluid figure-img" alt="留出集分数反映训练折内筛选流程，和最高内层分数含义不同。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/03ed5fb63a4da2a2165cfdf0353ec03a.webp"></a></p>
+<p><a href="images/feature-selection-guide/outer.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="留出集分数反映训练折内筛选流程，和最高内层分数含义不同。"><img src="images/feature-selection-guide/outer.png" class="img-fluid figure-img" alt="留出集分数反映训练折内筛选流程，和最高内层分数含义不同。" loading="lazy" decoding="async" width="1350" height="900" srcset="../assets/figure-previews/03ed5fb63a4da2a2165cfdf0353ec03a.webp"></a></p>
 <figcaption>留出集分数反映训练折内筛选流程，和最高内层分数含义不同。</figcaption>
 </figure>
 </div>
@@ -1473,27 +1597,27 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>2026-10-20 按已推送 MLR <code>e915077e</code>（接口自 <code>bcd7ede</code>）与 RegR <code>da6157be</code>，在 Windows / WSL R 4.4.3 实际运行下例。上方历史结果保留原执行记录；本节另用 180 行固定种子模拟数据，较小计算预算只用于接口演示。</p>
 <p>当前 <code>plt_model_FeaSel()</code> 支持 <code>save = list(filename = ...)</code>。省略 <code>width</code> / <code>height</code> 时，按面板、轴文字、条带和图例估算 PDF 画布；控制台打印尺寸，返回图携带 <code>attr(p, "plot_size")</code>。<code>list()</code> 或 <code>NULL</code> 不写文件；明确给出的尺寸覆盖对应维度，单位是英寸。相同包版本号的旧安装可能还没有此接口，应核对提交和 <code>names(formals(...))</code>。</p>
 <!-- refresh-20261020: feasel_save -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MLR)</span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3)</span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3learners)</span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261020</span>)</span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>n_save <span class="ot">&lt;-</span> <span class="dv">180</span>L</span>
-<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>d_save <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="fu">rnorm</span>(n_save, <span class="dv">55</span>, <span class="dv">10</span>), <span class="at">Marker =</span> <span class="fu">rnorm</span>(n_save),</span>
-<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">Sex =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), n_save <span class="sc">/</span> <span class="dv">2</span>)))</span>
-<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>d_save[[<span class="st">"Outcome"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(n_save) <span class="sc">&lt;</span> <span class="fu">plogis</span>(</span>
-<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  <span class="sc">-</span><span class="fl">0.3</span> <span class="sc">+</span> <span class="fl">0.04</span> <span class="sc">*</span> (d_save[[<span class="st">"Age"</span>]] <span class="sc">-</span> <span class="dv">55</span>) <span class="sc">+</span> <span class="fl">0.5</span> <span class="sc">*</span> d_save[[<span class="st">"Marker"</span>]]),</span>
-<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Yes"</span>, <span class="st">"No"</span>), <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>))</span>
-<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>task_save <span class="ot">&lt;-</span> <span class="fu">as_task_classif</span>(d_save, <span class="at">target =</span> <span class="st">"Outcome"</span>, <span class="at">positive =</span> <span class="st">"Yes"</span>)</span>
-<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>fs_save <span class="ot">&lt;-</span> <span class="fu">get_model_FeaSel</span>(task_save,</span>
-<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">learner =</span> <span class="fu">lrn</span>(<span class="st">"classif.rpart"</span>, <span class="at">predict_type =</span> <span class="st">"prob"</span>), <span class="at">method =</span> <span class="st">"sfs"</span>,</span>
-<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">selector_args =</span> <span class="fu">list</span>(<span class="at">max_features =</span> <span class="dv">2</span>), <span class="at">inner_resampling =</span> <span class="fu">rsmp</span>(<span class="st">"cv"</span>, <span class="at">folds =</span> <span class="dv">2</span>),</span>
-<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">backend =</span> <span class="st">"sequential"</span>, <span class="at">seed =</span> <span class="dv">20261020</span>)</span>
-<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a>p_saved <span class="ot">&lt;-</span> <span class="fu">plt_model_FeaSel</span>(fs_save, <span class="at">type =</span> <span class="st">"path"</span>,</span>
-<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-feasel.pdf"</span>)))</span>
-<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a>size <span class="ot">&lt;-</span> <span class="fu">attr</span>(p_saved, <span class="st">"plot_size"</span>)</span>
-<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a>size</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(MLR)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(mlr3learners)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261020</span>)</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>n_save <span class="ot">&lt;-</span> <span class="dv">180</span>L</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>d_save <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Age =</span> <span class="fu">rnorm</span>(n_save, <span class="dv">55</span>, <span class="dv">10</span>), <span class="at">Marker =</span> <span class="fu">rnorm</span>(n_save),</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">Sex =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), n_save <span class="sc">/</span> <span class="dv">2</span>)))</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>d_save[[<span class="st">"Outcome"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(n_save) <span class="sc">&lt;</span> <span class="fu">plogis</span>(</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  <span class="sc">-</span><span class="fl">0.3</span> <span class="sc">+</span> <span class="fl">0.04</span> <span class="sc">*</span> (d_save[[<span class="st">"Age"</span>]] <span class="sc">-</span> <span class="dv">55</span>) <span class="sc">+</span> <span class="fl">0.5</span> <span class="sc">*</span> d_save[[<span class="st">"Marker"</span>]]),</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Yes"</span>, <span class="st">"No"</span>), <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>))</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>task_save <span class="ot">&lt;-</span> <span class="fu">as_task_classif</span>(d_save, <span class="at">target =</span> <span class="st">"Outcome"</span>, <span class="at">positive =</span> <span class="st">"Yes"</span>)</span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>fs_save <span class="ot">&lt;-</span> <span class="fu">get_model_FeaSel</span>(task_save,</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">learner =</span> <span class="fu">lrn</span>(<span class="st">"classif.rpart"</span>, <span class="at">predict_type =</span> <span class="st">"prob"</span>), <span class="at">method =</span> <span class="st">"sfs"</span>,</span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">selector_args =</span> <span class="fu">list</span>(<span class="at">max_features =</span> <span class="dv">2</span>), <span class="at">inner_resampling =</span> <span class="fu">rsmp</span>(<span class="st">"cv"</span>, <span class="at">folds =</span> <span class="dv">2</span>),</span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">backend =</span> <span class="st">"sequential"</span>, <span class="at">seed =</span> <span class="dv">20261020</span>)</span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a>p_saved <span class="ot">&lt;-</span> <span class="fu">plt_model_FeaSel</span>(fs_save, <span class="at">type =</span> <span class="st">"path"</span>,</span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261020-refresh-feasel.pdf"</span>)))</span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a>size <span class="ot">&lt;-</span> <span class="fu">attr</span>(p_saved, <span class="st">"plot_size"</span>)</span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a>size</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="callout callout-style-default callout-note callout-titled" title="复核代码">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1502,17 +1626,17 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">length</span>(size) <span class="sc">==</span> <span class="dv">2</span>L, <span class="fu">all</span>(<span class="fu">is.finite</span>(size)), <span class="fu">all</span>(size <span class="sc">&gt;</span> <span class="dv">0</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">length</span>(size) <span class="sc">==</span> <span class="dv">2</span>L, <span class="fu">all</span>(<span class="fu">is.finite</span>(size)), <span class="fu">all</span>(size <span class="sc">&gt;</span> <span class="dv">0</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </div>
 </div>
 <!-- /refresh-20261020: feasel_save -->
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/feature-selection-guide/20261020-refresh-feasel.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="特征选择路径的实际 PDF 预览。"><img src="images/feature-selection-guide/20261020-refresh-feasel.png" class="img-fluid figure-img" alt="固定模拟数据的特征选择路径保存示例，预览由实际导出的PDF转换；用于核对内容、图例和文字边界。" loading="lazy" decoding="async" width="1102" height="782" srcset="../assets/figure-previews/6c30cb727818ae73e151b31c37c7e259.webp"></a></p>
+<p><a href="images/feature-selection-guide/20261020-refresh-feasel.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="特征选择路径的实际 PDF 预览。"><img src="images/feature-selection-guide/20261020-refresh-feasel.png" class="img-fluid figure-img" alt="固定模拟数据的特征选择路径保存示例，预览由实际导出的PDF转换；用于核对内容、图例和文字边界。" loading="lazy" decoding="async" width="1102" height="782" srcset="../assets/figure-previews/6c30cb727818ae73e151b31c37c7e259.webp"></a></p>
 <figcaption>特征选择路径的实际 PDF 预览。</figcaption>
 </figure>
 </div>
@@ -1570,12 +1694,12 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="取出结果与表格" class="level2">
 <h2 class="anchored" data-anchor-id="取出结果与表格">取出结果与表格</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_selected_features</span>(fsf)</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">get_selected_features</span>(fsf, <span class="at">n_features =</span> <span class="dv">2</span>)</span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="fu">tb_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>)</span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="fu">tb_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"selected"</span>)</span>
-<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="fu">tb_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"stability"</span>, <span class="at">top_n =</span> <span class="dv">2</span>)</span>
-<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="fu">tb_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"outer_performance"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_selected_features</span>(fsf)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="fu">get_selected_features</span>(fsf, <span class="at">n_features =</span> <span class="dv">2</span>)</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="fu">tb_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>)</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="fu">tb_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"selected"</span>)</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a><span class="fu">tb_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"stability"</span>, <span class="at">top_n =</span> <span class="dv">2</span>)</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a><span class="fu">tb_model_FeaSel</span>(fsn, <span class="at">type =</span> <span class="st">"outer_performance"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>公开入口实际读回的分类 SFS 结果：</p>
 <table class="caption-top table">
 <thead>
@@ -1599,13 +1723,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </tr>
 </tbody>
 </table>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">plt_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>, <span class="at">n_features =</span> <span class="dv">2</span>)</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"feature-selection.pdf"</span>, p, <span class="at">width =</span> <span class="dv">9</span>, <span class="at">height =</span> <span class="dv">6</span>)</span>
-<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>chosen <span class="ot">&lt;-</span> <span class="fu">get_selected_features</span>(fsf)</span>
-<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>task_final <span class="ot">&lt;-</span> task_c<span class="sc">$</span><span class="fu">clone</span>(<span class="at">deep =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>task_final<span class="sc">$</span><span class="fu">select</span>(chosen)</span>
-<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> tree<span class="sc">$</span><span class="fu">clone</span>(<span class="at">deep =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>fit<span class="sc">$</span><span class="fu">train</span>(task_final)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>p <span class="ot">&lt;-</span> <span class="fu">plt_model_FeaSel</span>(fsf, <span class="at">type =</span> <span class="st">"path"</span>, <span class="at">n_features =</span> <span class="dv">2</span>)</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="st">"feature-selection.pdf"</span>, p, <span class="at">width =</span> <span class="dv">9</span>, <span class="at">height =</span> <span class="dv">6</span>)</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>chosen <span class="ot">&lt;-</span> <span class="fu">get_selected_features</span>(fsf)</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>task_final <span class="ot">&lt;-</span> task_c<span class="sc">$</span><span class="fu">clone</span>(<span class="at">deep =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>task_final<span class="sc">$</span><span class="fu">select</span>(chosen)</span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> tree<span class="sc">$</span><span class="fu">clone</span>(<span class="at">deep =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>fit<span class="sc">$</span><span class="fu">train</span>(task_final)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>如果后续只把全数据选出的变量交给普通 CV，筛选信息已经泄露到测试折。评估时需在每个训练折重做筛选，或直接保留本入口的嵌套流程。三个外层折的稳定频率只适合演示，没有足够精度支撑“稳定生物标志物”的结论。</p>
 </section>
 <section id="references" class="level2">
@@ -1622,7 +1746,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="本页更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1631,9 +1755,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div id="callout-4" class="callout-4-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li>2026-10-27：按 MLR <code>6ea0111</code> 补充<a href="#selection-contract-20261027b">原生选择、预算与有效外层分数</a>的 40 行双平台示例。</li>
 <li>2026-10-27：补充<a href="#rfecv-final-20261027">RFECV 最终路径与模型留存</a>，区分重拟合分数和外层验证分数。</li>
 </ul>
 </div>

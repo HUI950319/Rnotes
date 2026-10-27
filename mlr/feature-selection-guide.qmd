@@ -6,14 +6,14 @@ date-modified: 2026-10-27
 lightbox: true
 toc-depth: 2
 directory:
-  title: "特征筛选：搜索路径、候选规模与选择稳定性，11 张图"
+  title: "特征筛选：搜索路径、候选规模与选择稳定性，13 张图"
   topic: 建模与调参
   updated: 2026-10-27
 ---
 
 `get_model_FeaSel()` 保留已评估子集与每个特征数的最佳结果。先查看搜索路径，再用 `get_selected_features()` 明确取出对应候选，最后在嵌套划分中观察选择频率和留出性能。
 
-**执行范围：** 原有 9 张参数图及 1 张历史 PDF 预览保留各自的 WSL R 4.4.3 执行快照，包含 SFS、SBS、RFE、生存及嵌套 SFS。本轮另按 MLR `a4865f2` 在 Windows / WSL 执行下面的 60 行 RFECV 与模型留存核对，新增 1 张原生 PDF 预览，当前共 11 张图；历史模型没有重新运行。
+**执行范围：** 原有 9 张参数图及 1 张历史 PDF 预览保留各自的 WSL R 4.4.3 执行快照，包含 SFS、SBS、RFE、生存及嵌套 SFS。本轮另按 MLR `a4865f2` 在 Windows / WSL 执行下面的 60 行 RFECV 与模型留存核对，新增 1 张原生 PDF 预览，该次共 11 张图。随后按 `6ea0111` 新增下面的选择路径与有效外层分数表，当前共 13 张图；历史模型没有重新运行。
 
 ## 示例准备与读图规则 {#data}
 
@@ -165,6 +165,131 @@ validation_values <- list(n = nrow(fs_data27),
 AutoTuner 的内部学习器也在克隆后限制为单线程，调用者原对象的线程设置保持不变。本例执行了普通 ranger 与 rpart 路径；AutoTuner 及其图学习器的递归处理按源码核对，没有在本页另做完整调参或性能测试。
 
 <!-- /update-20261027: mlr_latest_fs -->
+
+
+### 原生选择、预算与外层有效分数（2026-10-27） {#selection-contract-20261027b}
+
+<!-- update-20261027b: mlr_fs_contract -->
+
+MLR `6ea0111` 要求 **mlr3fselect 1.7.0 或更新版本**，在拟合前检查版本；这包含最小化指标与非递归 RFECV 的上游修正。`selected_features`、最终摘要、选中规模的路径行和 `get_selected_features(x, n_features=...)` 现在统一遵循原生最终选择，包含分数相同的选择。不能再把自己按变量名称排序的另一个并列子集当成最终答案。
+
+下面用 40 行合成二分类数据和 2 个预测变量，采用不使用特征的 featureless 学习器制造真实的并列分数，核对取出的变量与原生结果。图展示**内层 CV 分类错误率**；RFECV 的最终重拟合分数仍按上一节解释。
+
+```r
+library(MLR)
+library(mlr3)
+library(ggplot2)
+set.seed(2737)
+fsb_data <- data.frame(x = rnorm(40), z = rnorm(40),
+  Outcome = factor(rep(c("No", "Yes"), each = 20)))
+fsb_task <- as_task_classif(fsb_data, target = "Outcome", positive = "Yes")
+fsb_before <- fsb_task$data()
+fsb_rng <- get(".Random.seed", envir = .GlobalEnv)
+fsb <- get_model_FeaSel(fsb_task,
+  learner = lrn("classif.featureless", predict_type = "prob"),
+  method = "sfs", measure = "classif.ce", selector_args = list(max_features = 2L),
+  inner_resampling = rsmp("cv", folds = 2), backend = "sequential", seed = 27)
+fsb_rng_restored <- identical(get(".Random.seed", envir = .GlobalEnv), fsb_rng)
+get_selected_features(fsb)
+get_selected_features(fsb, n_features = length(fsb[["selected_features"]]))
+fsb_plot <- plt_model_FeaSel(fsb, type = "path") +
+  labs(title = "Native final selection under tied scores", y = "Inner-CV classification error") +
+  coord_cartesian(ylim = c(0, 1)) + guides(size = "none", fill = "none")
+ggsave(file.path(tempdir(), "20261027b-update-native-selection.pdf"), fsb_plot,
+  width = 7, height = 4.5)
+```
+
+![并列分数下保留原生最终选择。](images/feature-selection-guide/20261027b-update-native-selection.png){fig-alt="40 行合成二分类任务的内层 CV 分类错误率路径，featureless 学习器产生并列分数，选择线对应原生最终子集。"}
+
+[原生 PDF](images/feature-selection-guide/20261027b-update-native-selection.pdf)
+
+`seed` 在正常返回和报错后恢复调用者状态，最大值为 `.Machine$integer.max`；`workers`、`n_evals` 等整数控制量也在拟合前检查。任务必须有行和特征；嵌套筛选的 `inner_resampling` 必须尚未实例化。单特征 RFE/RFECV 默认目标为 1，不需要人为复制一列。
+
+特征名 `x` 仍合法；但 `x_domain`、`timestamp`、`batch_nr`、`uhash`、`runtime_learners`、`resample_result` 和当前指标 ID 与归档字段冲突，应先改名。RFE/RFECV 另保留 `importance`，RFECV 另保留 `iteration`。
+
+下例显式安排三个外层测试集，其中第三个只有 No 类，因此其 AUC 无法定义。函数会告警并在 `outer_scores` 保留该非有限值；`outer_performance` 的 `n_outer` 只计有限分数，脚注同时报告全部、有效和无效迭代数。这个刻意构造的划分只演示计数规则，不用于估计模型性能。
+
+```r
+fsb_tests <- list(c(1:5, 21:25), c(6:10, 26:30), 11:20)
+fsb_outer <- rsmp("custom")
+fsb_outer$instantiate(fsb_task,
+  train_sets = lapply(fsb_tests, function(rows) setdiff(seq_len(40), rows)),
+  test_sets = fsb_tests)
+fsb_nested <- get_model_FeaSel(fsb_task,
+  learner = lrn("classif.featureless", predict_type = "prob"),
+  method = "sfs", selector_args = list(max_features = 1L), nested = TRUE,
+  inner_resampling = rsmp("cv", folds = 2), outer_resampling = fsb_outer,
+  backend = "sequential", seed = 27)
+fsb_table <- tb_model_FeaSel(fsb_nested, type = "outer_performance")
+flextable::save_as_html(fsb_table,
+  path = file.path(tempdir(), "20261027b-update-outer-valid-counts.html"))
+```
+
+![外层分数表保留总迭代数与有效分数口径。](images/feature-selection-guide/20261027b-update-outer-valid-counts.png){fig-alt="实际嵌套筛选的外层汇总，三个外层测试集只有两个 AUC 有限；表体 n_outer 为 2，脚注报告总数 3、有限 2、非有限 1。"}
+
+[原生 HTML](images/feature-selection-guide/20261027b-update-outer-valid-counts.html)
+
+拟合次数告警现在覆盖全数据搜索、嵌套搜索与外层重拟合，并考虑候选批量和可识别的 AutoTuner 预算；超过 1,000 次时提示的是**次数上界，不是秒数**。顺序搜索的 `n_evals` 不代替 `max_features`；只有时间上限的终止器不一定能估算次数。
+
+学习器在克隆后限制内部线程，包括 GraphLearner 中的嵌套学习器；AutoTuner 的搜索空间不能再调线程数。默认生存 ranger 在非 RFE/RFECV 方法下不计算未使用的置换重要性，显式传入的学习器保留其重要性设置。本例实跑普通与图学习器；更深的 AutoTuner 递归策略按源码核对。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(utils::packageVersion("mlr3fselect") >= "1.7.0", fsb_rng_restored,
+  setequal(fsb[["selected_features"]], fsb[["instance"]]$result_feature_set),
+  identical(get_selected_features(fsb, length(fsb[["selected_features"]])), fsb[["selected_features"]]),
+  length(unique(fsb[["archive"]][["score"]])) == 1L,
+  isTRUE(all.equal(fsb[["selected_summary"]][["score"]], fsb[["instance"]]$result[["classif.ce"]])),
+  identical(fsb_task$data(), fsb_before),
+  sum(is.finite(fsb_nested[["outer_scores"]][["score"]])) == 2L,
+  sum(!is.finite(fsb_nested[["outer_scores"]][["score"]])) == 1L,
+  fsb_table$body$dataset[["n_outer"]] == 2L,
+  any(grepl("non-finite: 1", unlist(fsb_table$footer$dataset), fixed = TRUE)))
+fsb_bad_task <- fsb_task$clone(deep = TRUE)
+fsb_bad_task$rename("x", "timestamp")
+fsb_bad_rng <- get(".Random.seed", envir = .GlobalEnv)
+fsb_reserved <- tryCatch(get_model_FeaSel(fsb_bad_task, backend = "sequential"), error = conditionMessage)
+fsb_bad_seed <- tryCatch(get_model_FeaSel(fsb_task,
+  seed = as.double(.Machine$integer.max) + 1, backend = "sequential"), error = conditionMessage)
+stopifnot(grepl("Reserved feature", fsb_reserved), grepl("seed must", fsb_bad_seed),
+  identical(get(".Random.seed", envir = .GlobalEnv), fsb_bad_rng))
+library(mlr3learners)
+fsb_rfecv <- get_model_FeaSel(fsb_task,
+  learner = lrn("classif.ranger", predict_type = "prob", num.trees = 10L,
+    num.threads = 1L, importance = "permutation"),
+  method = "rfecv", measure = "classif.ce",
+  selector_args = list(n_features = 1L, feature_number = 1L, recursive = FALSE),
+  inner_resampling = rsmp("cv", folds = 2), backend = "sequential", seed = 27)
+fsb_cv <- as.data.frame(fsb_rfecv[["instance"]]$archive$data)
+fsb_cv <- fsb_cv[!is.na(fsb_cv[["iteration"]]), , drop = FALSE]
+fsb_cv[["n_features"]] <- rowSums(fsb_cv[, fsb_task$feature_names, drop = FALSE])
+fsb_cv_scores <- aggregate(fsb_cv[, c("classif.ce", "n_features")],
+  list(batch = fsb_cv[["batch_nr"]]), mean)
+stopifnot(length(fsb_rfecv[["selected_features"]]) %in%
+  fsb_cv_scores[["n_features"]][fsb_cv_scores[["classif.ce"]] == min(fsb_cv_scores[["classif.ce"]])],
+  setequal(fsb_rfecv[["selected_features"]], fsb_rfecv[["instance"]]$result_feature_set))
+fsb_graph <- mlr3::as_learner(mlr3pipelines::`%>>%`(mlr3pipelines::po("scale"),
+  lrn("classif.ranger", predict_type = "prob", num.trees = 5L, num.threads = 8L)))
+fsb_graph_result <- get_model_FeaSel(fsb_task, learner = fsb_graph,
+  method = "random_search", n_evals = 1L, selector_args = list(batch_size = 1L),
+  inner_resampling = rsmp("cv", folds = 2), backend = "sequential", seed = 27)
+fsb_thread_id <- grep("num.threads$", fsb_graph$param_set$ids(), value = TRUE)
+stopifnot(fsb_graph$param_set$values[[fsb_thread_id]] == 8L,
+  fsb_graph_result[["instance"]]$objective$learner$param_set$values[[fsb_thread_id]] == 1L)
+stopifnot(identical(names(fsb_plot$data), c("n_features", "score")),
+  !exists("x", envir = fsb_plot$plot_env, inherits = FALSE),
+  isTRUE(all.equal(unserialize(serialize(fsb_plot, NULL))$data, fsb_plot$data)))
+validation_values <- list(n = 40L, selected = sort(fsb[["selected_features"]]),
+  score = fsb[["selected_summary"]][["score"]],
+  finite_outer = 2L, nonfinite_outer = 1L, outer_scores = fsb_nested[["outer_scores"]][["score"]],
+  rng_restored = fsb_rng_restored, caller_threads = 8L, cloned_threads = 1L)
+```
+:::
+
+`plt_model_FeaSel()` 的图对象现在只持有绘图所需数据；本例核对图数据与序列化回读，未重测内存倍数或端到端速度。旧图继续按各自的源码与执行快照阅读。
+
+<!-- /update-20261027b: mlr_fs_contract -->
 
 ## 选择方法与搜索路径
 
@@ -423,5 +548,6 @@ fit$train(task_final)
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-27：按 MLR `6ea0111` 补充[原生选择、预算与有效外层分数](#selection-contract-20261027b)的 40 行双平台示例。
 - 2026-10-27：补充[RFECV 最终路径与模型留存](#rfecv-final-20261027)，区分重拟合分数和外层验证分数。
 :::
