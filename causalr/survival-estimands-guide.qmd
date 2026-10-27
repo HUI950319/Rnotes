@@ -4,11 +4,11 @@ description: "逐图对照同一队列的生存效应尺度、time 截点和 grf
 date: 2026-10-02
 lightbox: true
 toc-depth: 2
-date-modified: 2026-10-18
+date-modified: 2026-10-28
 directory:
   title: "生存效应尺度：概率差、百分点与RMST"
   topic: 因果推断与 HTE
-  updated: 2026-10-18
+  updated: 2026-10-28
 ---
 
 ```{r}
@@ -239,6 +239,78 @@ attr(r24, "analysis")$target
 sessionInfo()
 ```
 
+### 正权重随访支持与不可用候选（2026-10-28） {#followup-support-20261028}
+
+<!-- update-20261028: causal_survival -->
+
+causalR `26af481` 的 `get_hte()`、`get_hte_unihtee()` 只用正权重记录判断随访及连续候选的共同支持。生存概率要求在 `time` **之后**仍有随访，RMST 则包括恰到 `time` 的记录。零权重长随访或极端协变量值不能延长有效支持；描述人数仍可保留这些行。
+
+下例有 400 行合成记录。二分类候选 `b=1` 的治疗组没有正权重记录随访超过 5，唯一随访至 12 的记录权重为零。总体仍有支持，连续候选 `v` 也可估计，所以保留有效结果，将 `b` 的筛查投影标为 NA。
+
+```r
+library(causalR)
+set.seed(321)
+support_data28 <- data.frame(a = rep(0:1, 200), b = rep(c(0, 0, 1, 1), 100),
+  v = rnorm(400), time = runif(400, 1, 15), DSS = rbinom(400, 1, .7))
+support_missing28 <- support_data28[["a"]] == 1 & support_data28[["b"]] == 1
+support_data28[["time"]][support_missing28] <- runif(sum(support_missing28), 1, 4)
+support_zero28 <- which(support_missing28)[1]
+support_data28[["time"]][support_zero28] <- 12
+support_weights28 <- rep(1, 400); support_weights28[support_zero28] <- 0
+support_targets28 <- c("survival.probability", "RMST")
+support_fits28 <- lapply(support_targets28, function(target) {
+  get_hte_unihtee(support_data28, "a", tree_var = c("b", "v"), time = 5,
+    grf_args = list(num.trees = 100, num.threads = 1, seed = 7, target = target,
+      sample.weights = support_weights28, W.hat = .5))
+})
+support_table28 <- do.call(rbind, lapply(seq_along(support_fits28), function(i) {
+  v <- support_fits28[[i]][["vip"]]
+  data.frame(target = support_targets28[i], n = nrow(support_fits28[[i]][["data"]]),
+    positive_n = sum(support_weights28 > 0),
+    binary_VIP = v[["estimate"]][v[["variable"]] == "b"],
+    continuous_VIP = v[["estimate"]][v[["variable"]] == "v"])
+}))
+gt::gtsave(gt::fmt_number(gt::gt(support_table28), columns = "continuous_VIP", decimals = 5),
+  file.path(tempdir(), "20261028-update-hte-survival-support.html"))
+```
+
+![两种生存目标均保留有效连续候选，缺乏支持的二分类投影为 NA。](images/survival-estimands-guide/20261028-update-hte-survival-support.png){fig-alt="400 行合成记录中有 399 行正权重；生存概率与 RMST 两种目标的 b 投影均不可用，v 投影仍为有限值，二者单位不同。"}
+
+[原生 HTML](images/survival-estimands-guide/20261028-update-hte-survival-support.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(all(support_table28[["n"]] == 400L), all(support_table28[["positive_n"]] == 399L),
+  all(is.na(support_table28[["binary_VIP"]])), all(is.finite(support_table28[["continuous_VIP"]])))
+for (result in support_fits28) {
+  imp <- result[["hte"]][["importance"]]
+  stopifnot(is.na(imp[["p_het"]][imp[["variable"]] == "b"]),
+    is.finite(result[["hte"]][["stats"]][["estimate"]]))
+  plot <- plt_hte_unihtee(result, type = "dep", x_var = "b")
+  stopifnot(!any(vapply(plot[["layers"]], function(layer)
+    inherits(layer[["geom"]], "GeomPointrange"), logical(1))))
+}
+support_bad28 <- support_data28
+support_bad28[["time"]][support_bad28[["a"]] == 1 & support_weights28 > 0] <- 4
+support_global_errors28 <- vapply(support_targets28, function(target) {
+  message <- tryCatch(get_hte(support_bad28, "a", adj_var = "v", time = 5,
+    grf_args = list(num.trees = 100, num.threads = 1, seed = 7, target = target,
+      sample.weights = support_weights28)), error = conditionMessage)
+  is.character(message) && grepl("No positive-weight patient", message) && grepl("not identified", message)
+}, logical(1))
+stopifnot(all(support_global_errors28))
+validation_values <- list(n = c(400L, 399L), binary_unavailable = TRUE,
+  continuous_VIP = support_table28[["continuous_VIP"]], global_rejected = support_global_errors28)
+```
+:::
+
+如果整个治疗臂都缺乏有效随访支持，函数在拟合前停止，不能把接近零的返回值当成“没有效应”。局部候选不足时，依赖图也沿用同一支持检查。这里 S(t) 的概率差与 RMST 的时间差单位不同，不能直接比较两个 VIP 的数值大小；本例只验证支持判定，警告是刻意构造的结果。
+
+本节在 Windows R 4.4.3 执行；前面的历史生存模型保留原快照。
+
+<!-- /update-20261028: causal_survival -->
+
 ## 当前显示单位：概率差默认是百分点 {#percent-20261018}
 
 2026-10-18核对causalR `e4b86c66`：`plt_hte_sub(measure="diff")`绘制生存概率差时默认`axis_args$percent=TRUE`，例如原始差值0.075显示约7.5个百分点。2026-10-18 用该版本重新执行本页，上方生存概率差图已按百分点显示；复现旧比例显示时显式传`axis_args=list(percent=FALSE)`。
@@ -248,3 +320,10 @@ sessionInfo()
 下面显示单位的实际对照来自 [完整模拟例](clinical-workflow-guide.qmd#subgroup-20261018)，改变显示前后`attr(p,"subgroup")`保持一致。
 
 ![同一概率差的原始比例显示。](images/clinical-workflow-guide/20261018-hte-proportion.png){fig-alt="两年DSS概率差以原始比例显示，模型和亚组估计与百分点版本相同。"}
+
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：新增 [正权重随访支持](#followup-support-20261028)的 400 行例子，区分局部候选不可用与整体时点不可识别。
+:::

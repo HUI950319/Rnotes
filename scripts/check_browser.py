@@ -43,6 +43,7 @@ PAGES = [
     "regr/conditional-survival-guide.html",
     "updates.html",
     "causalr/hte-diagnostics-guide.html",
+    "causalr/survival-estimands-guide.html",
 ]
 
 
