@@ -184,6 +184,76 @@ bal$plt
 legend_position、legend_justification。`save_plt` 保存图，`save_tbl` 保存 Word 表。
 本页只运行绘图路径；方案的独立 halfmoon 平衡表与共同分母结果不应逐项要求相等。
 
+### 类别协方差奇异时，整体 SMD 不可用（2026-10-28） {#singular-balance-20261028}
+
+<!-- update-20261028: causal_balance -->
+
+已推送 causalR `9d26ba6` 修正 `get_bal(cat_smd="overall")`：多水平变量的 pooled 协方差若除固有冗余水平外仍缺秩，整体 SMD 会警告并返回 NA，不能把伪逆算出的零当成平衡。可以用 `cat_smd="level"` 查看各水平，但它不替代不可用的整体统计量。
+
+这个 120 行诊断例刻意让对照臂只有 A、治疗臂只有 B/C，权重方案固定使用人为给定的 `p=.5`，只用于复现计算路径；它不能修复明显的协变量不重叠，也不构成可识别的治疗效果分析。
+
+```r
+library(causalR)
+balance_data28 <- data.frame(z = rep(0:1, each = 60),
+  f = factor(c(rep("A", 60), rep("B", 30), rep("C", 30))), p = .5)
+balance_methods28 <- list(W = list(design = "weighting", estimand = "ATE", ps = "p"))
+balance_overall28 <- get_bal(balance_data28, "z", "f", methods = balance_methods28, var_names = NULL)
+balance_levels28 <- get_bal(balance_data28, "z", "f", methods = balance_methods28,
+  cat_smd = "level", var_names = NULL)
+balance_table28 <- rbind(transform(as.data.frame(balance_overall28[["balance"]]), display = "overall"),
+  transform(as.data.frame(balance_levels28[["balance"]]), display = "level"))
+gt::gtsave(gt::fmt_number(gt::gt(balance_table28[, c("display", "method", "variable", "smd")]),
+  columns = "smd", decimals = 4), file.path(tempdir(), "20261028-update-balance-singular-values.html"))
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-balance-unavailable.pdf"), balance_overall28[["plt"]],
+  width = 7, height = 4)
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-balance-levels.pdf"), balance_levels28[["plt"]],
+  width = 7, height = 4)
+```
+
+::: {.panel-tabset}
+
+#### 统计量的可用性 {.unnumbered}
+
+![整体 SMD 为 NA，逐水平结果仍可检视。](images/clinical-workflow-guide/20261028-update-balance-singular-values.png){fig-alt="120 行诊断数据的整体类别 SMD 在未调整与 W 方案中均为 NA，逐水平 SMD 仍显示明显差异，不能把不可用统计量解释成零。"}
+
+[原生 HTML](images/clinical-workflow-guide/20261028-update-balance-singular-values.html)
+
+#### 整体不可用的面板 {.unnumbered}
+
+![保留变量标签并明确提示不可用，不绘制零值点。](images/clinical-workflow-guide/20261028-update-balance-unavailable.png){fig-alt="整体 SMD 全部不可用时，Love plot 保留变量 f 的标签并显示奇异协方差提示，不伪造位于零的平衡点。"}
+
+[原生 PDF](images/clinical-workflow-guide/20261028-update-balance-unavailable.pdf)
+
+#### 逐水平检视 {.unnumbered}
+
+![逐水平 SMD 展示实际不平衡。](images/clinical-workflow-guide/20261028-update-balance-levels.png){fig-alt="同一诊断数据按 A、B、C 分别展示绝对 SMD，未调整与人为恒定权重方案均有明显不平衡。"}
+
+[原生 PDF](images/clinical-workflow-guide/20261028-update-balance-levels.pdf)
+
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(all(is.na(balance_overall28[["balance"]][["smd"]])),
+  max(abs(balance_levels28[["balance"]][["smd"]])) == 2)
+invisible(ggplot2::ggplot_build(balance_overall28[["plt"]]))
+balance_text28 <- capture.output(print(balance_overall28))
+stopifnot(any(grepl("NA", balance_text28)), !any(grepl("Inf", balance_text28)))
+balance_supported28 <- balance_data28
+balance_supported28[["f"]] <- factor(rep(c("A", "B", "C"), 40))
+balance_ok28 <- get_bal(balance_supported28, "z", "f", methods = balance_methods28, var_names = NULL)
+stopifnot(all(balance_ok28[["balance"]][["smd"]] == 0))
+validation_values <- list(n = 120L, overall_unavailable = TRUE,
+  level_smd = balance_levels28[["balance"]][["smd"]], supported_smd = balance_ok28[["balance"]][["smd"]],
+  no_infinite_print_summary = TRUE)
+```
+:::
+
+全部统计量不可用时，打印的最大 SMD 和超过阈值数也为 NA，不再出现负无穷。常规可估计数据仍正常报告零或非零 SMD。本节在 Windows R 4.4.3 对 `9d26ba6` 运行，前面的其他例子继续按各自注明的源码快照阅读。
+
+<!-- /update-20261028: causal_balance -->
+
 ## 设计后的效应估计：明确方差与人群 {#sec-workflow-estimate}
 
 ```{r}
@@ -612,5 +682,6 @@ validation_values <- list(balance_unchanged = TRUE, subgroup_unchanged = TRUE,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [类别整体 SMD 不可用](#singular-balance-20261028)的 120 行诊断例，避免将奇异协方差解释为平衡。
 - 2026-10-28：补充 [HTE 输入标签与缺失](#input-contract-20261028)的 240 行例子、完整结局分母及保留列约定。
 :::
