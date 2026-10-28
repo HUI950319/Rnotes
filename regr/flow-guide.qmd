@@ -95,7 +95,120 @@ attr(cohort, "flt")
 
 :::
 
-`get_flt()` 会打印历史，但打印出的 tibble 不是函数的返回对象。输入命名的数据框列表时，会返回逐个筛选后的列表；`plt_flo()` 接收其中一个数据框，不能直接把整个列表作为流程图数据。
+`get_flt()` 每次只打印本次新增的步骤，完整累计历史从 `attr(result,"flt")` 读取。打印表不是函数返回值；单数据框和数据框列表均不可见返回。列表各表按元素名或 `[[i]]` 标题区分；`plt_flo()` 接收其中一个数据框。
+
+### 累计历史、实际行数与排除标签（2026-10-28） {#history-rows-20261028b}
+
+<!-- update-20261028b: regr_filter_history -->
+
+已发布 RegR `245ed79` 增加人数一致性提醒：外部 `filter()`、`[`、join 或 `bind_rows()` 改变行数后，保留下来的 `flt` 历史可能仍记录旧人数。后续 `get_flt()`、`get_all()`，以及自动计算分组人数的 `plt_flo()` / `get_flo()` 会检查这个差别。**警告不会补回漏记的步骤，也不会自动修正流程图。** 检查只比较行数，无法发现同样行数下的记录替换，不能代替患者 ID 审计。
+
+下面从 6 行依次保留成年人和符合条件者，得到 6→5→4 的完整历史，最终 Arm A / B 各 2 行。程序化 `.data[[var]]` 条件能正确记录原列名；每次只打印新增步骤，但返回对象仍带完整历史。`name_map` 写的是排除原因，须与实际保留条件相反。
+
+```r
+library(RegR)
+history_data28 <- data.frame(Age = seq(10, 60, 10), Eligible = c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE),
+  Arm = factor(c("A", "A", "B", "B", "A", "B")))
+history_var28 <- "Age"
+history_first28 <- get_flt(history_data28, .data[[history_var28]] >= 18)
+history_output28 <- capture.output(history_kept28 <- get_flt(history_first28, Eligible))
+history_table28 <- attr(history_kept28, "flt")
+gt::gtsave(gt::gt(history_table28[, c("order", "var", "all_pat", "res_pat", "del_pat")]),
+  file.path(tempdir(), "20261028b-update-filter-cumulative-history.html"))
+history_plot28 <- plt_flo(history_kept28, inclu_row = 0, cohort = list(label = "Synthetic records"),
+  split_var = "Arm", name_map = c(Age = "Age below 18", Eligible = "Patients not eligible"))
+history_size28 <- attr(history_plot28, "flo_size")
+ggplot2::ggsave(file.path(tempdir(), "20261028b-update-filter-audited-flow.pdf"), history_plot28,
+  width = history_size28[[1]], height = history_size28[[2]])
+```
+
+::: {.panel-tabset}
+
+#### 完整累计历史 {.unnumbered}
+
+![两次调用保留完整的 6→5→4 行历史。](images/flow-guide/20261028b-update-filter-cumulative-history.png){fig-alt="筛选第一步记录 Age，从6行保留5行；第二步记录 Eligible，从5行保留4行，每步均排除1行。"}
+
+[原生 HTML](images/flow-guide/20261028b-update-filter-cumulative-history.html)
+
+#### 人数与标签一致的流程图 {.unnumbered}
+
+![历史末行与真实数据均为 4 行，两个分组各 2 行。](images/flow-guide/20261028b-update-filter-audited-flow.png){fig-alt="六行合成记录排除年龄不足与不符合条件者各一行，最终4行，Arm A和B各2行；排除原因已提供有意义的名称。"}
+
+[原生 PDF](images/flow-guide/20261028b-update-filter-audited-flow.pdf)
+
+#### 新步骤与列表标题 {.unnumbered}
+
+![接续调用只打印第 2 步；列表表头分别标明队列。](images/flow-guide/20261028b-update-filter-print-contract.png){fig-alt="原生控制台先显示续接调用新增的第二步，再显示 Development 与 Validation 两个列表元素各自的筛选表，列表本身为不可见返回。"}
+
+[原生 HTML](images/flow-guide/20261028b-update-filter-print-contract.html)
+
+:::
+
+缺少排除名称的步骤仍会显示 `"missing"`；`plt_flo()` 现在明确提醒步骤序号、变量名及 `name_map` 写法。它不是说该步骤删除了缺失数据；须先按真实筛选条件填写原因。手工 `split_N` 由调用者负责，不能把没有自动人数警告当成已验证。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(identical(history_table28[["var"]], c("Age", "Eligible")),
+  identical(as.integer(history_table28[["res_pat"]]), c(5L, 4L)),
+  nrow(history_kept28) == 4L, all(table(history_kept28[["Arm"]]) == 2L),
+  any(grepl("Eligible", history_output28, fixed = TRUE)), !any(grepl("Age", history_output28, fixed = TRUE)))
+history_list_output28 <- capture.output(history_list28 <- withVisible(get_flt(
+  list(Development = history_data28, Validation = history_data28), Age >= 18)))
+stopifnot(!history_list28[["visible"]], identical(names(history_list28[["value"]]), c("Development", "Validation")),
+  any(grepl("Filter steps: Development", history_list_output28, fixed = TRUE)),
+  any(grepl("Filter steps: Validation", history_list_output28, fixed = TRUE)))
+history_capture28 <- function(expr) {
+  notes <- character()
+  value <- withCallingHandlers(tryCatch(force(expr), error = conditionMessage), warning = function(w) {
+    notes <<- c(notes, conditionMessage(w)); invokeRestart("muffleWarning")
+  })
+  list(value = value, warnings = notes)
+}
+history_stale28 <- dplyr::filter(history_first28, Eligible)
+history_filter_warning28 <- history_capture28(get_flt(history_stale28, Age >= 30))
+history_plot_warning28 <- history_capture28(plt_flo(history_stale28, split_var = "Arm"))
+history_label_warning28 <- history_capture28(plt_flo(history_kept28))
+stopifnot(any(grepl("has 4 rows", history_filter_warning28[["warnings"]], fixed = TRUE)),
+  any(grepl("ends with 5 remaining", history_plot_warning28[["warnings"]], fixed = TRUE)),
+  any(grepl("Eligible", history_label_warning28[["warnings"]], fixed = TRUE)),
+  any(grepl("no exclusion reason", history_label_warning28[["warnings"]], fixed = TRUE)))
+history_bad28 <- history_data28
+attr(history_bad28, "flt") <- data.frame(foo = 1)
+history_bad_error28 <- tryCatch(get_flt(history_bad28, Age >= 18), error = conditionMessage)
+stopifnot(grepl("not a get_flt() filter history", history_bad_error28, fixed = TRUE))
+history_levels28 <- sprintf("level_%02d_with_a_long_label", 1:25)
+history_long28 <- get_flt(data.frame(x = history_levels28[1:3]), x %in% c(!!!history_levels28))
+history_long_text28 <- attr(history_long28, "flt")[["filter"]]
+stopifnot(nchar(history_long_text28) > 500, !grepl("\n", history_long_text28, fixed = TRUE),
+  !grepl(" {2,}", history_long_text28))
+save_console28 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  chars <- strsplit(body, "", fixed = TRUE)[[1]]; cp <- utf8ToInt(body)
+  for (i in which(cp > 127L & !(cp >= 0x2500L & cp <= 0x257fL))) {
+    w <- cli::ansi_nchar(chars[i], type = "width")
+    if (w %in% 1:2) chars[i] <- sprintf('<span class="w%d">%s</span>', w, chars[i])
+  }
+  html <- paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '.w1,.w2{display:inline-block}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', paste(chars, collapse = ""), '</pre>')
+  writeLines(html, file.path(tempdir(), paste0("20261028b-update-", name, ".html")), useBytes = TRUE)
+}
+
+save_console28(c(history_output28, "", history_list_output28), "filter-print-contract")
+validation_values <- list(n_input = 6L, n_kept = 4L, history = as.data.frame(history_table28),
+  groups = as.integer(table(history_kept28[["Arm"]])), list_invisible = TRUE,
+  stale_filter_warning = history_filter_warning28[["warnings"]], stale_plot_warning = history_plot_warning28[["warnings"]],
+  missing_label_warning = history_label_warning28[["warnings"]], bad_history_error = history_bad_error28,
+  long_condition = history_long_text28, source = "245ed79cc2f368732f3828eb622b6ae20347754d")
+```
+:::
+
+本节在 Windows / WSL R 4.4.3 使用 RegR `245ed79` 固定源码分别执行，不运行模型拟合。共享的 `get_flo()` / `get_all()` 检查按源码说明，没有在本节重跑它们的完整工作流。包帮助例已改用自带 `seer_thyroid_mtc_2026_raw`；本节继续用上述合成输入，不依赖 ToyData，也不重跑历史 SEER 图。
+
+<!-- /update-20261028b: regr_filter_history -->
 
 ### 返回类、种子与未完成分析（2026-10-27） {#dispatcher-20261027}
 
@@ -750,7 +863,7 @@ stopifnot(
 
 复现时先确认安装版本支持页面使用的命名 list 字段。常见核对点包括：
 
-- **历史是否连续：** 已有历史会继续追加，真实分析不要中途清除 `flt`。
+- **历史是否连续：** 同一流程连续通过 `get_flt()` 记录，不清除有效历史；外部增删行会触发人数不符提醒。确实重新定义起始队列时另建筛选链，明确新分母，不能用清除属性掩盖漏记步骤。
 - **标签是否准确：** `name_map` 按 `var` 映射；同一变量出现多次时会同步替换那些历史行的标签，不能把不同阈值都写成同一个移除原因。
 - **人数是否可追溯：** 手动分组人数要从相应数据计算；更改显示参数不会重新筛选或验证分析队列。
 - **内容与阶段是否有对应结构：** 研究内容依附于分组；阶段标签应对应实际存在的结构。
@@ -1352,6 +1465,7 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-28：追加 [累计历史与行数边界](#history-rows-20261028b)，复核程序化列名、列表不可见返回、新增步骤打印及缺失排除标签。
 - 2026-10-28：补充 [粗体标题闭合后自动断行](#bold-close-20261028)的单队列、多队列 PDF 与显式换行等价核对。
 - 2026-10-27：跟进已发布 RegR `79bb436` 的[顶层 content_lines 与五种阶段样式](#phase-styles-20261027)，新增三张原生 PDF。
 - 2026-10-27：补充[自适应研究内容与排除框](#adaptive-flow-20261027)的两张实际流程图，固定已推送参数位置。
