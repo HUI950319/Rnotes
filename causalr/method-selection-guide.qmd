@@ -298,6 +298,82 @@ validation_values <- list(n = c(400L, 200L), vip = uni_vip28[["estimate"]], se =
 
 <!-- /update-20261028: causal_unihtee -->
 
+### 特殊列名与拟合前的边界检查（2026-10-28） {#special-names-20261028b}
+
+<!-- update-20261028b: causal_special_names -->
+
+`get_hte()` 及 `get_hte_unihtee()` 会在公式求值前临时处理 `.`、`...`、`..1` 这类特殊列名，结果数据和候选变量仍使用原名。它解决的是公式将列名解释成特殊语法的问题；不会放宽重复列名、保留输出名或折内类别支持要求。
+
+下面用 180 行随机分配的连续结局数据，将两个数值列和一个 factor 分别命名为 `.`、`...`、`..1`。同一随机种子下，对照普通名称版本的森林、GLM 交叉拟合和森林版 unihtee，核对模型数值、分类编码及输出列名。100 棵树用于接口复核，不是正式分析的精度建议。
+
+```r
+library(causalR)
+set.seed(2821)
+name_data28 <- data.frame(z = rep(0:1, 90), x = rnorm(180), v = rnorm(180),
+  f = factor(rep(c("A", "A", "B", "B"), 45)))
+name_data28[["y"]] <- name_data28[["x"]] + .5 * (name_data28[["f"]] == "B") +
+  name_data28[["z"]] * (1 + name_data28[["v"]]) + rnorm(180)
+name_special28 <- name_data28
+names(name_special28)[2:4] <- c(".", "...", "..1")
+name_args28 <- list(num.trees = 100, num.threads = 1, seed = 28, W.hat = .5, Y.hat = 0)
+name_forest28 <- get_hte(name_special28, "z", adj_var = c(".", "...", "..1"), surv = "y",
+  grf_args = name_args28)
+name_glm28 <- get_hte_unihtee(name_special28, "z", tree_var = c(".", "..."), adj_var = "..1",
+  surv = "y", method = "glm", seed = 28)
+name_uni28 <- get_hte_unihtee(name_special28, "z", tree_var = c(".", "..."), adj_var = "..1",
+  surv = "y", method = "grf", seed = 28, grf_args = name_args28)
+```
+
+两条入口都要求暴露列与结局列分开。森林还要求每个暴露组至少有 **两条正权重且暴露、结局完整的记录**；原始人数足够、但权重为零或结局缺失，仍可能达不到要求。这个检查只保证基本输入支持，不代表两条记录足以获得可靠推断。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+name_ref_forest28 <- get_hte(name_data28, "z", adj_var = c("x", "v", "f"), surv = "y",
+  grf_args = name_args28)
+name_ref_glm28 <- get_hte_unihtee(name_data28, "z", tree_var = c("x", "v"), adj_var = "f",
+  surv = "y", method = "glm", seed = 28)
+name_ref_uni28 <- get_hte_unihtee(name_data28, "z", tree_var = c("x", "v"), adj_var = "f",
+  surv = "y", method = "grf", seed = 28, grf_args = name_args28)
+name_vip_equal28 <- function(a, b) isTRUE(all.equal(a[["vip"]][setdiff(names(a[["vip"]]), "variable")],
+  b[["vip"]][setdiff(names(b[["vip"]]), "variable")], tolerance = 1e-12))
+name_checks28 <- c(isTRUE(all.equal(name_forest28[["stats"]], name_ref_forest28[["stats"]], tolerance = 1e-12)),
+  name_vip_equal28(name_glm28, name_ref_glm28), name_vip_equal28(name_uni28, name_ref_uni28))
+stopifnot(all(name_checks28),
+  identical(as.numeric(name_forest28[["fit"]][["X.orig"]]), as.numeric(name_ref_forest28[["fit"]][["X.orig"]])),
+  all(c(".", "...") %in% colnames(name_forest28[["fit"]][["X.orig"]])),
+  any(startsWith(colnames(name_forest28[["fit"]][["X.orig"]]), "..1")),
+  all(c(".", "...", "..1") %in% names(name_forest28[["data"]])),
+  setequal(name_glm28[["vip"]][["variable"]], c(".", "...")))
+name_bad_outcome28 <- tryCatch(get_hte(name_data28, "z", adj_var = "x", surv = "z"), error = conditionMessage)
+name_bad_uni28 <- tryCatch(get_hte_unihtee(name_data28, "z", tree_var = "x", surv = "z", method = "glm"),
+  error = conditionMessage)
+name_weights28 <- as.numeric(name_data28[["z"]] == 0)
+name_weights28[which(name_data28[["z"]] == 1)[1]] <- 1
+name_bad_args28 <- name_args28
+name_bad_args28[["sample.weights"]] <- name_weights28
+name_bad_support28 <- tryCatch(get_hte(name_data28, "z", adj_var = "x", surv = "y", grf_args = name_bad_args28),
+  error = conditionMessage)
+stopifnot(grepl("must not be an outcome", name_bad_outcome28, fixed = TRUE),
+  grepl("must not be an outcome", name_bad_uni28, fixed = TRUE),
+  grepl("at least two positive-weight complete rows", name_bad_support28, fixed = TRUE))
+name_comparison28 <- data.frame(path = c("HTE forest", "unihtee GLM", "unihtee GRF"),
+  n = c(nrow(name_forest28[["data"]]), nrow(name_glm28[["data"]]), nrow(name_uni28[["data"]])),
+  matches_plain_names = name_checks28)
+gt::gtsave(gt::gt(name_comparison28), file.path(tempdir(), "20261028b-update-special-column-names.html"))
+validation_values <- list(comparison = name_comparison28, encoded_names = colnames(name_forest28[["fit"]][["X.orig"]]),
+  guards = c(name_bad_outcome28, name_bad_uni28, name_bad_support28), source = "6760092", R = R.version.string)
+```
+:::
+
+![三条分析路径保留 180 行，特殊名称与普通名称的数值结果一致。](images/method-selection-guide/20261028b-update-special-column-names.png){fig-alt="HTE 森林、unihtee GLM 和 unihtee GRF 各使用 180 行，特殊列名版本均与普通列名对照一致。"}
+
+[原生 HTML](images/method-selection-guide/20261028b-update-special-column-names.html)
+
+本节为 Windows R 4.4.3、causalR `6760092c8020fb3814bdb274ebba7a03e0703470` 的新增运行，种子 2821 / 28；原方法比较和图形保留原快照。[诊断页](hte-diagnostics-guide.qmd#sec-diagnostics-data)解释校准和支持不足时如何报告结果。
+
+<!-- /update-20261028b: causal_special_names -->
+
 ## iCF 与 tree：从连续异质性到规则 {#sec-methods-rules}
 
 | 参数 | iCF | tree |
@@ -388,5 +464,6 @@ method="grf"新增返回hte，即产生得分的get_hte()拟合，可直接传�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [公式特殊列名与拟合前检查](#special-names-20261028b)，逐项对照 180 行森林及 unihtee 的结果。
 - 2026-10-28：补充 [unihtee 投影与交叉拟合诊断](#unihtee-contract-20261028)，实际验证 p 值下溢和聚类删除支持。
 :::
