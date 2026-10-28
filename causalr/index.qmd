@@ -361,6 +361,175 @@ validation_values <- list(n_analysis = nrow(cate_result28[["data"]]), n_panel = 
 
 <!-- /update-20261028: causal_cate -->
 
+### 绘图分组：显式 NA 水平与 SPSS 缺失码（2026-10-28） {#subgroup-storage-20261028b}
+
+<!-- update-20261028b: causal_subgroup_missing -->
+
+`plt_hte_cate()` 和 `plt_hte_sub()` 规范化的是**已有拟合对象中用于绘图的分组列**，不会重拟合森林。普通 labelled 使用底层值；SPSS 的 `na_values` / `na_range` 先变为缺失，两种图按相同的实际人群分组。分组缺失不改变原森林及整体模型的人数。
+
+factor 中“编码指向显式 NA 水平”与“编码本身是 NA”不同：前者是已定义的一组，后者不进入该分组面板。下面先用 192 行随机分配数据拟合，再添加仅用于绘图的辅助列；每个有效组都有两种治疗，避免把单臂分组误当成可估计的亚组。
+
+```r
+library(causalR)
+set.seed(2823)
+group_data28 <- data.frame(z = rep(0:1, 96), x = rnorm(192), v = rnorm(192))
+group_data28[["y"]] <- group_data28[["x"]] + group_data28[["z"]] * (1 + group_data28[["v"]]) + rnorm(192)
+group_result28 <- get_hte(group_data28, "z", adj_var = c("x", "v"), surv = "y",
+  grf_args = list(num.trees = 100, num.threads = 1, seed = 28, W.hat = .5, Y.hat = 0))
+group_codes28 <- rep(c(1L, 1L, 2L, 2L, 3L, 3L, NA_integer_, NA_integer_), 24)
+group_result28[["data"]][["aux"]] <- structure(group_codes28, class = "factor", levels = c("A", "B", NA_character_))
+group_cate28 <- plt_hte_cate(group_result28, sub_var = "aux", type = "density")
+ggplot2::ggsave(file.path(tempdir(), "20261028b-update-subgroup-explicit-na.pdf"), group_cate28,
+  width = 7.5, height = 4.7)
+group_spss28 <- group_result28
+group_values28 <- rep(c(1, 1, 2, 2, 3, 3, 4, 4), 24)
+group_values28[1:8] <- c(999, 95:99, NA, 999)
+group_spss28[["data"]][["aux"]] <- structure(group_values28,
+  class = c("haven_labelled_spss", "haven_labelled"), na_values = 999, na_range = c(95, 99))
+group_spss_forest28 <- plt_hte_sub(group_spss28, sub_var = "aux")
+group_spss_cate28 <- plt_hte_cate(group_spss28, sub_var = "aux", type = "density")
+ggplot2::ggsave(file.path(tempdir(), "20261028b-update-subgroup-spss.pdf"), group_spss_forest28,
+  width = 9, height = 5.2)
+```
+
+::: {.panel-tabset}
+
+#### 显式 NA 水平保留为组 {.unnumbered}
+
+![A、B 和显式 NA 水平各 48 人，另 48 个缺失编码不进入面板。](images/index/20261028b-update-subgroup-explicit-na.png){fig-alt="192 行模型的 CATE 密度按 A、B、显式 NA 水平分组，各组 48 人；编码本身缺失的 48 行不进入此面板。"}
+
+[原生 PDF](images/index/20261028b-update-subgroup-explicit-na.pdf)
+
+#### SPSS 缺失码不成为亚组 {.unnumbered}
+
+![八行用户缺失从分组中排除，四个有效水平合计 184 人。](images/index/20261028b-update-subgroup-spss.png){fig-alt="SPSS 用户缺失值 999、95至99 及真正 NA 不作为有效亚组，剩余四个数值组各 46 人，共 184 人；总体行仍对应原 192 行森林。"}
+
+[原生 PDF](images/index/20261028b-update-subgroup-spss.pdf)
+
+:::
+
+上述“显式 NA 水平保留为绘图组”不能推到 PSM / PSW 的完整行选择：后者会将显式 NA 水平还原为缺失，详见[设计输入约定](clinical-workflow-guide.qmd#stored-design-20261028b)。同名缺失情况在不同阶段的用途必须分开。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+group_layer28 <- function(p, geom) {
+  found <- Filter(function(layer) inherits(layer[["geom"]], geom) && is.data.frame(layer[["data"]]), p[["layers"]])
+  found[[1]][["data"]]
+}
+group_pd28 <- group_layer28(group_cate28, "GeomDensity")
+group_sub28 <- attr(group_cate28, "subgroup")
+stopifnot(nrow(group_pd28) == 144L, identical(levels(group_pd28[["level"]]), c("A", "B", NA_character_)),
+  identical(as.integer(table(group_pd28[["level"]])), c(48L, 48L, 48L)),
+  identical(as.integer(group_sub28[["n"]]), c(48L, 48L, 48L)))
+group_original28 <- serialize(group_spss28, NULL)
+group_ref28 <- group_spss28
+group_values28[1:8] <- NA_real_
+group_ref28[["data"]][["aux"]] <- group_values28
+group_ref_plot28 <- plt_hte_sub(group_ref28, sub_var = "aux")
+stopifnot(identical(attr(group_spss_forest28, "subgroup"), attr(group_ref_plot28, "subgroup")),
+  identical(attr(group_spss_cate28, "subgroup"), attr(group_spss_forest28, "subgroup")),
+  sum(attr(group_spss_cate28, "subgroup")[["n"]]) == 184L,
+  identical(group_original28, serialize(group_spss28, NULL)))
+group_bad28 <- group_result28
+group_bad28[["data"]][["aux"]] <- cbind(group_codes28, group_codes28)
+group_error28 <- tryCatch(plt_hte_cate(group_bad28, sub_var = "aux"), error = conditionMessage)
+stopifnot(grepl("Unsupported subgroup column", group_error28, fixed = TRUE), grepl("aux", group_error28, fixed = TRUE))
+validation_values <- list(input_n = nrow(group_result28[["data"]]), factor_codes_plotted = nrow(group_pd28),
+  factor_groups = group_sub28, spss_groups = attr(group_spss_cate28, "subgroup"),
+  spss_matches_plain = TRUE, object_unchanged = TRUE, unsupported_column = group_error28,
+  source = "6760092c8020fb3814bdb274ebba7a03e0703470", R = R.version.string)
+```
+:::
+
+多列矩阵、list、data.frame 或 S4 分组列会给出带列名的诊断；单列矩阵仍有兼容处理，不能把模型入口的向量要求原样套到所有绘图分组上。本例在 Windows R 4.4.3、causalR `6760092` 固定源码实跑，种子 2823 / 28，只新增上述两个图的运行；原有 CATE 和其他模型结果保留历史来源。
+
+<!-- /update-20261028b: causal_subgroup_missing -->
+
+### RDS 重开后仍按原始分组值绘图（2026-10-28） {#subgroup-rds-20261028b}
+
+<!-- update-20261028b: causal_subgroup_rds -->
+
+保存后的对象可能在未手动调用 `library(haven)` / `library(bit64)` 的新会话中打开。两种亚组图使用普通 labelled 的底层值；遇到 `integer64` 分组时加载 bit64 方法，避免把位存储当成普通 double 而合并组别。下面的两个大整数相差 1，**只用于拟合后的分组标签**，不作为森林协变量；模型输入仍受[精确 double 范围](clinical-workflow-guide.qmd#input-contract-20261028)约束。
+
+```r
+library(causalR)
+set.seed(2824)
+rds_data28 <- data.frame(z = rep(0:1, 72), x = rnorm(144), v = rnorm(144))
+rds_data28[["y"]] <- rds_data28[["x"]] + rds_data28[["z"]] * (1 + rds_data28[["v"]]) + rnorm(144)
+rds_result28 <- get_hte(rds_data28, "z", adj_var = c("x", "v"), surv = "y",
+  grf_args = list(num.trees = 100, num.threads = 1, seed = 28, W.hat = .5, Y.hat = 0))
+rds_labels28 <- rep(c("9007199254740992", "9007199254740992", "9007199254740993", "9007199254740993", NA, NA), 24)
+rds_result28[["data"]][["big_group"]] <- bit64::as.integer64(rds_labels28)
+rds_values28 <- rep(c(1, 1, 2, 2, NA, NaN), 24)
+rds_values28[is.nan(rds_values28)] <- NA_real_
+rds_result28[["data"]][["label_num"]] <- structure(rds_values28,
+  labels = c(A = 1, B = 2), class = c("haven_labelled", "vctrs_vctr", "double"))
+rds_result28[["data"]][["label_chr"]] <- structure(ifelse(is.na(rds_values28), NA_character_, as.character(rds_values28)),
+  labels = c(A = "1", B = "2"), class = c("haven_labelled", "vctrs_vctr", "character"))
+rds_path28 <- file.path(tempdir(), "hte-subgroup-storage.rds")
+saveRDS(rds_result28, rds_path28)
+```
+
+复核用 callr 启动一个新的 R 会话，确认 bit64 尚未加载后读取 RDS。两个大整数仍是独立组，各 48 人，其余 48 个真正缺失的标签不进入分组。本环境的 UtilsR 通过 labelled 依赖加载了 haven，因此本次没有验证“haven 命名空间全程未加载”的场景；普通 labelled 的复核范围是两种图使用相同底层组值与人数。
+
+本例另外将数值 `NaN` 显式归为 `NA`。当前绘图的类别转换可能保留名为 `"NaN"` 的水平，不能假定它会与真正 NA 自动合并；若研究字典把二者都定义为缺失，应在分组前按上面代码处理。这与有意义的文字分类 `"NaN"` 要分开。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+新会话加载与主进程相同的 UtilsR / RegR / causalR 固定源码，记录 haven 的依赖加载状态，检查 bit64 在绘图时按需加载。若在已安装包环境复现，则按安装位置加载同一版本。
+
+```r
+rds_sources28 <- vapply(c("UtilsR", "RegR", "causalR"), function(p)
+  getNamespaceInfo(asNamespace(p), "path"), "")
+rds_check28 <- callr::r(function(paths, object_path) {
+  options(device = function(...) grDevices::pdf(NULL, ...), .RegR.view = FALSE)
+  for (p in paths) {
+    if (file.exists(file.path(p, "Meta", "package.rds")))
+      library(basename(p), lib.loc = dirname(p), character.only = TRUE)
+    else pkgload::load_all(p, quiet = TRUE, export_all = FALSE)
+  }
+  haven_at_start <- isNamespaceLoaded("haven")
+  stopifnot(!isNamespaceLoaded("bit64"))
+  x <- readRDS(object_path)
+  original <- serialize(x, NULL)
+  labelled <- lapply(c("plt_hte_cate", "plt_hte_sub"), function(fun) {
+    p <- getExportedValue("causalR", fun)(x, sub_var = c("label_num", "label_chr"))
+    if (inherits(p, "patchwork")) patchwork::patchworkGrob(p) else ggplot2::ggplotGrob(p)
+    attr(p, "subgroup")
+  })
+  stopifnot(!isNamespaceLoaded("bit64"),
+    identical(labelled[[1]], labelled[[2]]), identical(original, serialize(x, NULL)))
+  big <- lapply(c("plt_hte_cate", "plt_hte_sub"), function(fun) {
+    p <- getExportedValue("causalR", fun)(x, sub_var = "big_group")
+    ggplot2::ggplotGrob(p)
+    attr(p, "subgroup")
+  })
+  stopifnot(isNamespaceLoaded("bit64"), identical(big[[1]], big[[2]]),
+    identical(original, serialize(x, NULL)))
+  list(labelled = labelled[[1]], big = big[[1]], haven_namespace_at_start = haven_at_start,
+    haven_loaded = isNamespaceLoaded("haven"),
+    bit64_loaded = isNamespaceLoaded("bit64"), object_unchanged = TRUE)
+}, args = list(paths = rds_sources28, object_path = rds_path28))
+stopifnot(rds_check28[["bit64_loaded"]],
+  identical(rds_check28[["big"]][["level"]], c("9007199254740992", "9007199254740993")),
+  all(rds_check28[["big"]][["n"]] == 48),
+  all(rds_check28[["labelled"]][["level"]] %in% c("1", "2")),
+  all(rds_check28[["labelled"]][["n"]] == 48))
+rds_counts28 <- rds_check28[["big"]][, c("sub_var", "level", "n")]
+gt::gtsave(gt::gt(rds_counts28), file.path(tempdir(), "20261028b-update-subgroup-rds-groups.html"))
+validation_values <- c(rds_check28, list(input_n = 144L, source = "6760092", R = R.version.string))
+```
+:::
+
+![新会话中的两个大整数仍独立计数，各 48 人。](images/index/20261028b-update-subgroup-rds-groups.png){fig-alt="RDS 在未预加载 bit64 的新 R 会话打开后，9007199254740992 与 9007199254740993 两组仍分别为 48 人，没有因转 double 而合并。"}
+
+[原生 HTML](images/index/20261028b-update-subgroup-rds-groups.html)
+
+本例只用合成数据，在 Windows R 4.4.3、causalR `6760092` 固定源码执行；种子 2824 / 28。补充分组变量在这里是接口复核用标签，真实研究须满足函数对事后分组的调整与解释要求。
+
+<!-- /update-20261028b: causal_subgroup_rds -->
+
 ## 本轮接口更新 {#api-current}
 
 2026-10-28 按已推送 causalR `26af481`（24 项导出）补齐 [输入与缺失](clinical-workflow-guide.qmd#input-contract-20261028)、[正权重 HC3](hte-diagnostics-guide.qmd#positive-weights-20261028)、[生存支持](survival-estimands-guide.qmd#followup-support-20261028)、[unihtee 筛查](method-selection-guide.qmd#unihtee-contract-20261028)、[CATE 面板](#cate-panels-20261028)与[未缓存 OOB 复用](computation-reuse-guide.qmd#oob-reuse-20261028)。前六组新例使用 `26af481`；收尾另按 `9d26ba6` 追加 [整体类别 SMD](clinical-workflow-guide.qmd#singular-balance-20261028)与[有效曲线范围、聚类 HC3](hte-diagnostics-guide.qmd#spline-range-20261028)两组复核。八组例子仅在 Windows R 4.4.3 执行；原有模型、图和性能记录继续保留原快照。
@@ -408,5 +577,7 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [RDS 新会话的 labelled / integer64 分组](#subgroup-rds-20261028b)，验证底层值、精确大整数与原对象不变。
+- 2026-10-28：增加 [绘图分组的存储与缺失边界](#subgroup-storage-20261028b)，核对 192 行森林中的 144 / 184 行有效绘图人群。
 - 2026-10-28：补充 [CATE 面板与点态区间](#cate-panels-20261028)，复用 238 行拟合并核对 230 行有效面板。
 :::
