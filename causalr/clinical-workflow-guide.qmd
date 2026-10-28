@@ -325,6 +325,132 @@ validation_values <- list(n = 120L, overall_unavailable = TRUE,
 
 <!-- /update-20261028: causal_balance -->
 
+### 平衡阈值、方案排序与倾向评分复用（2026-10-28） {#balance-policy-20261028b}
+
+<!-- update-20261028b: causal_balance_policy -->
+
+`love_args$threshold` 同时控制 Love plot 参考线和控制台 `over ...` 的计数与高亮。下面显式用 **0.2 作演示**；研究报告应事先确定阈值，不应为得到“通过”而放宽。`love_args$var_order` 也可指定唯一调整方案的标签，例如只保留 `A` 方案时仍可按 `"A"` 排序。
+
+同一完整分析队列中的默认 GLM 倾向评分，可以在匹配比例不同的 PSM 和默认加权之间复用。复用的是相同的初始倾向概率，**不是同一套权重、同一 estimand 或匹配结果**；自定义 `ps_args`、不同模型及 trimming / refit 需求不能因此忽略。
+
+```r
+library(causalR)
+set.seed(20260927)
+policy_data28 <- data.frame(x1 = rnorm(120), x2 = rbinom(120, 1, .4), x3 = runif(120))
+policy_data28[["z"]] <- rbinom(120, 1, plogis(-.9 - 1.1 * policy_data28[["x1"]] +
+  .8 * policy_data28[["x2"]] - 1.2 * policy_data28[["x3"]]))
+policy_methods28 <- list(M1 = list(design = "matching", ratio = 1),
+  M2 = list(design = "matching", ratio = 2), A = list(design = "weighting", estimand = "ATE"))
+policy_result28 <- get_bal(policy_data28, "z", c("x1", "x2", "x3"), methods = policy_methods28,
+  var_names = NULL, love_args = list(threshold = .2, legend_position = "bottom"))
+print(policy_result28)
+ggplot2::ggsave(file.path(tempdir(), "20261028b-update-balance-threshold.pdf"), policy_result28[["plt"]],
+  width = 7.5, height = 4.7)
+```
+
+::: {.panel-tabset}
+
+#### 同一阈值的 Love plot {.unnumbered}
+
+![匹配和加权使用各自的权重，参考线统一为 0.2。](images/clinical-workflow-guide/20261028b-update-balance-threshold.png){fig-alt="120 行合成数据比较未调整、1比1匹配 M1、1比2匹配 M2 和 ATE 加权 A 的绝对 SMD，统一参考线为 0.2。"}
+
+[原生 PDF](images/clinical-workflow-guide/20261028b-update-balance-threshold.pdf)
+
+#### 实际控制台摘要 {.unnumbered}
+
+![控制台按 over 0.2 统计，而不是仍用默认 0.1。](images/clinical-workflow-guide/20261028b-update-balance-summary.png){fig-alt="get_bal 的原生打印显示四个方案的最大 SMD 与超过 0.2 的变量数，与图中阈值一致。"}
+
+[原生 HTML](images/clinical-workflow-guide/20261028b-update-balance-summary.html)
+
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+policy_m1_28 <- get_PSM(policy_data28, "z", c("x1", "x2", "x3"), ratio = 1, balance = FALSE)
+policy_m2_28 <- get_PSM(policy_data28, "z", c("x1", "x2", "x3"), ratio = 2, balance = FALSE)
+policy_a28 <- get_PSW(policy_data28, "z", c("x1", "x2", "x3"), estimand = "ATE", balance = FALSE)
+stopifnot(identical(policy_result28[["data"]][["M1"]], policy_m1_28[["data"]][["w_nearest"]]),
+  identical(policy_result28[["data"]][["M2"]], policy_m2_28[["data"]][["w_nearest"]]),
+  identical(policy_result28[["data"]][["A"]], policy_a28[["data"]][["w_ate"]]),
+  identical(attr(policy_result28, "threshold"), .2))
+policy_summary28 <- withr::with_options(list(cli.num_colors = 256), capture.output(print(policy_result28)))
+stopifnot(any(grepl("over 0.2", cli::ansi_strip(policy_summary28), fixed = TRUE)))
+policy_single28 <- get_bal(policy_data28, "z", c("x1", "x2", "x3"), methods = policy_methods28["A"],
+  var_names = NULL, love_args = list(var_order = "A"))
+stopifnot(inherits(ggplot2::ggplot_build(policy_single28[["plt"]]), "ggplot_built"))
+policy_errors28 <- list(
+  empty = tryCatch(get_bal(policy_data28, "z", character(), methods = "ATE"), error = conditionMessage),
+  cores = tryCatch(get_bal(policy_data28, "z", "x1", methods = "ATE", cores = Inf), error = conditionMessage),
+  threshold = tryCatch(get_bal(policy_data28, "z", "x1", methods = "ATE", love_args = list(threshold = Inf)), error = conditionMessage))
+stopifnot(all(vapply(policy_errors28, is.character, logical(1))))
+save_console28 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(lines)), collapse = "\n")
+  chars <- strsplit(body, "", fixed = TRUE)[[1]]; cp <- utf8ToInt(body)
+  for (i in which(cp > 127L & !(cp >= 0x2500L & cp <= 0x257fL))) {
+    w <- cli::ansi_nchar(chars[i], type = "width")
+    if (w %in% 1:2) chars[i] <- sprintf('<span class="w%d">%s</span>', w, chars[i])
+  }
+  html <- paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre}',
+    '.w1,.w2{display:inline-block}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', paste(chars, collapse = ""), '</pre>')
+  writeLines(html, file.path(tempdir(), paste0("20261028b-update-", name, ".html")), useBytes = TRUE)
+}
+
+save_console28(policy_summary28, "balance-summary")
+validation_values <- list(n = nrow(policy_result28[["data"]]), threshold = attr(policy_result28, "threshold"),
+  balance = policy_result28[["balance"]], separate_weights_match = TRUE, invalid_controls = policy_errors28,
+  source = "6760092", R = R.version.string)
+```
+:::
+
+本节用 Windows R 4.4.3、causalR `6760092c8020fb3814bdb274ebba7a03e0703470` 固定源码实跑 120 行。这里只验证结果等价和摘要阈值，没有测量提速倍数。保存 `$plt` 时绘图环境也避免携带无关分析列；这不表示整个 `$data` 或结果对象已删除这些列。
+
+<!-- /update-20261028b: causal_balance_policy -->
+
+### 小型基线表与未使用的治疗水平（2026-10-28） {#balance-table-20261028b}
+
+<!-- update-20261028b: causal_balance_table -->
+
+`get_bal(tbl=TRUE)` 的小表默认可直接串行构建：**只有一个调整方案、至多 1000 行、至多两个协变量**时不启动并行 worker；显式 `cores` 仍按用户设置处理。它减少小表的启动开销，不改变表中统计口径。更大或多方案表的自动策略另行决定。
+
+治疗 factor 若还保留没有观测的第三水平，制表副本会先去掉这个空水平；返回 `$data` 仍保留原水平信息。下面 48 行数据仅有 `0/1` 两组，用一个已知概率为 0.5 的 ATE 方案，避免把空的 `2` 当成第三组。
+
+```r
+library(causalR)
+set.seed(2822)
+small_bal28 <- data.frame(z = factor(rep(0:1, 24), levels = c(0, 1, 2)), x = rnorm(48), p = .5)
+small_method28 <- list(W = list(design = "weighting", estimand = "ATE", ps = "p"))
+small_auto28 <- get_bal(small_bal28, "z", "x", methods = small_method28, var_names = NULL, tbl = TRUE)
+small_gt28 <- gt::tab_options(gtsummary::as_gt(small_auto28[["tbl"]]), table.font.size = gt::px(13))
+gt::gtsave(small_gt28, file.path(tempdir(), "20261028b-update-balance-small-table.html"))
+```
+
+![未调整和 W 方案均显示实际存在的两组，空治疗水平不进入表头。](images/clinical-workflow-guide/20261028b-update-balance-small-table.png){fig-alt="48 行合成数据的 get_bal 合并基线表，未调整与 W 两个表区都只有 0 和 1 两组；保留但没有观测的治疗水平 2 不显示。"}
+
+[原生 HTML](images/clinical-workflow-guide/20261028b-update-balance-small-table.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+small_serial28 <- get_bal(droplevels(small_bal28), "z", "x", methods = small_method28,
+  var_names = NULL, tbl = TRUE, cores = 1)
+stopifnot(identical(small_auto28[["tbl"]][["table_body"]], small_serial28[["tbl"]][["table_body"]]),
+  identical(small_auto28[["balance"]], small_serial28[["balance"]]),
+  identical(levels(small_auto28[["data"]][["z"]]), c("0", "1", "2")),
+  nrow(small_auto28[["data"]]) == 48L)
+validation_values <- list(n = nrow(small_auto28[["data"]]), source_levels = levels(small_auto28[["data"]][["z"]]),
+  automatic_matches_explicit_serial = TRUE, table_body = small_auto28[["tbl"]][["table_body"]],
+  gtsummary = as.character(utils::packageVersion("gtsummary")), source = "6760092", R = R.version.string)
+```
+:::
+
+这次新增运行限定于 Windows R 4.4.3、上述 48 行和一协变量。基线表与 Love plot 的连续 SMD 方差分母有既有差别，不能要求两者逐位相同；p 值也不能代替预设的 SMD 判断。
+
+<!-- /update-20261028b: causal_balance_table -->
+
 ## 设计后的效应估计：明确方差与人群 {#sec-workflow-estimate}
 
 ```{r}
@@ -806,6 +932,7 @@ validation_values <- list(balance_unchanged = TRUE, subgroup_unchanged = TRUE,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [平衡阈值与评分复用](#balance-policy-20261028b)、[小表串行策略和空治疗水平](#balance-table-20261028b)的独立实跑。
 - 2026-10-28：补充 [get_sens 存储规范化](#stored-sens-20261028b)，实跑 lm 的 SPSS 缺失、integer64 与单列矩阵对照。
 - 2026-10-28：补充 [PSM / PSW 存储类型](#stored-design-20261028b)的 120 行实跑，区分输入、完整分析队列与匹配人数。
 - 2026-10-28：补充 [类别整体 SMD 不可用](#singular-balance-20261028)的 120 行诊断例，避免将奇异协方差解释为平衡。
