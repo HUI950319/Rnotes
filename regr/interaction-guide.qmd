@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、比值尺度与统一画布"
 description: "交互分析的数据准备、get_fit_ms 整体检验、get_inter 的比值尺度与模型组织、get_eff_inter 合并表，以及 get_int / get_all 的统一画布、H 统计量与随机种子；绝对风险与核对、表格导出见同组另外两页。"
 date: 2026-10-09
-date-modified: 2026-10-25
+date-modified: 2026-10-28
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：比值尺度、合并表与统一画布"
   topic: 回归与生存分析
-  updated: 2026-10-25
+  updated: 2026-10-28
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -220,6 +220,66 @@ get_inter(
 :::
 
 `multicat_model = "interaction"` 是当前默认值。二分类×二分类保持单个结果；二分类×多水平从一个包含所有联合水平的模型中提取对比，并保存总体 K−1 自由度 Wald 交互检验。`"separate"` 每次只保留参考水平与一个非参考水平，各模型的样本和估计值可能不同。
+
+### 逐对模型不再打印内部筛选步骤（2026-10-28） {#pairwise-filter-20261028b}
+
+<!-- update-20261028b: regr_pairwise_subset -->
+
+RegR `245ed79` 的 `multicat_model="separate"` 仍将每个非参考水平与同一个参考水平配对，但内部子集不再调用 `get_flt()`，不会为每一对模型打印 `Filter steps` 或新建无用筛选记录。`get_int()` 相应路径也不再为了隐藏这类表而捕获整个乘法交互调用的 stdout。
+
+这不会把 `"separate"` 变成完整多水平模型；前者仍是 K−1 个子集模型。研究队列的正式纳排继续在建模前通过 `get_flt()` 记录，内部比较子集不能当作新增患者纳排步骤。
+
+下面固定 180 行合成生存数据，A 为两水平、B 为三水平，分别在 120 行 B0/B1 与 120 行 B0/B2 中拟合 Cox 模型。B0 为共同参考，两份模型共享的参考患者不能在报告中重复相加。
+
+```r
+library(RegR)
+set.seed(20260822)
+pair_cells28 <- expand.grid(A = c("A0", "A1"), B = c("B0", "B1", "B2"),
+  replicate = seq_len(30), KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+pair_lp28 <- .8 * (pair_cells28[["A"]] == "A1") + .6 * (pair_cells28[["B"]] == "B1") +
+  .9 * (pair_cells28[["B"]] == "B2") + .4 * (pair_cells28[["A"]] == "A1" & pair_cells28[["B"]] == "B2")
+pair_data28 <- data.frame(time = rexp(180, rate = exp(pair_lp28)), DSS = rbinom(180, 1, .8),
+  A = factor(pair_cells28[["A"]], levels = c("A0", "A1")),
+  B = factor(pair_cells28[["B"]], levels = c("B0", "B1", "B2")), age = rnorm(180, 55, 8))
+pair_stdout28 <- capture.output(pair_result28 <- get_inter(pair_data28, c("A", "B"), adj_var = "age",
+  surv = TRUE, ref_idx = NULL, multicat_model = "separate"))
+pair_gt28 <- gt::tab_options(fmt_inter_gt(pair_result28, layout = "vertical",
+  table_names = c("B1 vs B0", "B2 vs B0")),
+  table.width = gt::px(900), table.font.size = gt::px(13))
+gt::gtsave(pair_gt28, file.path(tempdir(), "20261028b-update-pairwise-interaction-subsets.html"))
+```
+
+![同一参考组的两份实际逐对 Cox 交互结果。](images/interaction-guide/20261028b-update-pairwise-interaction-subsets.png){fig-alt="180 行合成数据分别在 B0/B1 和 B0/B2 的120行子集拟合，保留未调整和年龄调整结果；不把两份模型合并成完整多水平交互检验。"}
+
+[原生 HTML](images/interaction-guide/20261028b-update-pairwise-interaction-subsets.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+pair_before28 <- serialize(pair_data28, NULL)
+stopifnot(length(pair_result28) == 2L, identical(attr(pair_result28, "inter_type"), "mul"),
+  !any(grepl("Filter steps", pair_stdout28, fixed = TRUE)))
+pair_counts28 <- integer(2)
+for (j in 1:2) {
+  sub <- droplevels(pair_data28[pair_data28[["B"]] %in% c("B0", c("B1", "B2")[j]), , drop = FALSE])
+  pair_counts28[j] <- nrow(sub)
+  ref <- withr::with_options(list(RegR.inter.print = FALSE),
+    get_inter(sub, c("A", "B"), adj_var = "age", surv = TRUE, ref_idx = NULL))
+  for (model in c("Unadj", "Adjus"))
+    stopifnot(isTRUE(all.equal(pair_result28[[j]][[model]], ref[[model]], tolerance = 1e-8)))
+}
+stopifnot(identical(pair_counts28, c(120L, 120L)), identical(pair_before28, serialize(pair_data28, NULL)),
+  is.null(attr(pair_data28, "flt")))
+validation_values <- list(input_n = 180L, pair_n = pair_counts28, no_internal_filter_print = TRUE,
+  matches_manual_subsets = TRUE, input_unchanged = TRUE,
+  adjusted = lapply(pair_result28, function(x) as.data.frame(x[["Adjus"]])),
+  source = "245ed79cc2f368732f3828eb622b6ae20347754d")
+```
+:::
+
+新增例子在 Windows / WSL R 4.4.3、RegR `245ed79` 固定源码分别运行，种子 20260822；只复核上述 Cox 逐对入口及手工子集，没有重跑历史 SEER 模型或 `get_int()` 完整画布，也没有新测提速。建队列时的[历史人数与标签检查](flow-guide.qmd#history-rows-20261028b)另行处理。
+
+<!-- /update-20261028b: regr_pairwise_subset -->
 
 ### 五种设置对照
 
@@ -869,6 +929,7 @@ fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-28：补充 [逐对模型的内部子集](#pairwise-filter-20261028b)，核对 180 行输入、两份 120 行 Cox 模型与无筛选表输出。
 - 2026-10-25：[不合并开关与结果打印](#reference-print-20261025)
 - 2026-10-24：[参考组、连续变量与亚组表](#reference-subgroup-20261024)
 :::
