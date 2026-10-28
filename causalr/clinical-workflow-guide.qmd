@@ -99,6 +99,77 @@ stopifnot(all(c("w_ate", "w_att", "w_ato") %in% names(pw$data)),
           all(c("w_nearest", "s_nearest") %in% names(pm$data)))
 ```
 
+### PSM / PSW 先处理存储类型，再选完整行（2026-10-28） {#stored-design-20261028b}
+
+<!-- update-20261028b: causal_stored_design -->
+
+按已推送 causalR `6760092`，`get_PSM()`、`get_PSW()` 会先规范化参与分析的列：使用 labelled 的底层值，将 SPSS 用户缺失码及 factor 的显式 NA 水平还原为缺失，再选完整行。值标签名不作为分析水平；未参与分析的列不随之改写。研究字典和显示标签仍应独立保存，不以结果列属性代替。这样可避免把 `999` 当作真实年龄、把 NA 水平当作一个有效类别。
+
+下面固定 120 行、已知倾向概率 0.5，其中六行 `x` 是 SPSS 用户缺失码。两种设计均在规范化后使用 114 行；PSM 的 ATT 匹配人数还应另看 `stats`，不能直接拿输入人数代替。概率 0.5 来自本例的随机分配设计，不可照搬到观察性队列。
+
+```r
+library(causalR)
+stored_data28 <- data.frame(id = seq_len(120), z = rep(0:1, 60),
+  x = rep(c(-5, -4, 0, 1, 2, 3), each = 20), p = .5)
+stored_data28[["x"]][1:6] <- 999
+stored_data28[["x"]] <- haven::labelled_spss(stored_data28[["x"]],
+  na_values = 999, label = "Baseline score")
+stored_psm28 <- get_PSM(stored_data28, "z", adj_var = "x", ps = "p",
+  method = "nearest", estimand = "ATT", balance = FALSE)
+stored_psw28 <- get_PSW(stored_data28, "z", adj_var = "x", ps = "p",
+  estimand = "ATE", balance = FALSE)
+stored_counts28 <- data.frame(method = c("PSM: ATT", "PSW: ATE"),
+  input = nrow(stored_data28),
+  analyzed = c(attr(stored_psm28, "analysis")[["n"]], attr(stored_psw28, "analysis")[["n"]]),
+  control = c(sum(stored_psm28[["data"]][["z"]] == 0), sum(stored_psw28[["data"]][["z"]] == 0)),
+  treated = c(sum(stored_psm28[["data"]][["z"]] == 1), sum(stored_psw28[["data"]][["z"]] == 1)))
+gt::gtsave(gt::gt(stored_counts28), file.path(tempdir(), "20261028b-update-design-storage.html"))
+```
+
+![120 行输入中六行用户缺失码被剔除，两种设计均使用 114 行。](images/clinical-workflow-guide/20261028b-update-design-storage.png){fig-alt="PSM ATT 和 PSW ATE 的完整分析队列均为 114 行，每组 57 行；这是匹配前的分析分母。"}
+
+[原生 HTML](images/clinical-workflow-guide/20261028b-update-design-storage.html)
+
+`integer64` 分析列只有在正负 2 的 53 次方范围内才能精确转成 double；超范围会拒绝。多列矩阵、数组、list、S4、复数及无限值也会先报错。分组数据框会转成普通 data.frame 参与分析，不能把外部 `group_by()` 理解为分层拟合指令。[敏感性分析的同类约定](#stored-sens-20261028b)另有单列矩阵兼容范围。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stored_plain28 <- stored_data28[-(1:6), ]
+stored_plain28[["x"]] <- haven::zap_labels(stored_plain28[["x"]])
+stored_ref28 <- list(
+  get_PSM(stored_plain28, "z", adj_var = "x", ps = "p", method = "nearest", estimand = "ATT", balance = FALSE),
+  get_PSW(stored_plain28, "z", adj_var = "x", ps = "p", estimand = "ATE", balance = FALSE))
+stopifnot(all(stored_counts28[["analyzed"]] == 114), all(stored_counts28[["control"]] == 57),
+  all(stored_counts28[["treated"]] == 57),
+  isTRUE(all.equal(stored_psm28[["stats"]], stored_ref28[[1]][["stats"]])),
+  isTRUE(all.equal(stored_psw28[["stats"]], stored_ref28[[2]][["stats"]])))
+stored_int28 <- stored_plain28
+stored_int28[["x"]] <- bit64::as.integer64(stored_int28[["x"]])
+stored_i6428 <- get_PSW(stored_int28, "z", adj_var = "x", ps = "p", estimand = "ATE", balance = FALSE)
+stopifnot(isTRUE(all.equal(stored_i6428[["stats"]], stored_ref28[[2]][["stats"]])))
+stored_int28[["x"]][1] <- bit64::as.integer64("9007199254740993")
+stored_error28 <- tryCatch(get_PSW(stored_int28, "z", adj_var = "x", ps = "p", balance = FALSE),
+  error = conditionMessage)
+stopifnot(is.character(stored_error28), grepl("exact double range", stored_error28, fixed = TRUE))
+stored_factor28 <- stored_plain28
+stored_factor28[["x"]] <- factor(rep(c("A", "B", NA), length.out = nrow(stored_factor28)), exclude = NULL)
+stored_factor_ref28 <- stored_factor28
+stored_factor_ref28[["x"]] <- factor(as.character(stored_factor_ref28[["x"]]))
+stored_fac28 <- get_PSW(stored_factor28, "z", adj_var = "x", ps = "p", estimand = "ATE", balance = FALSE)
+stored_fac_ref28 <- get_PSW(stored_factor_ref28, "z", adj_var = "x", ps = "p", estimand = "ATE", balance = FALSE)
+stopifnot(isTRUE(all.equal(stored_fac28[["stats"]], stored_fac_ref28[["stats"]])))
+validation_values <- list(counts = stored_counts28, normalized_matches = TRUE,
+  exact_integer64_matches = TRUE, explicit_na_level_matches = TRUE,
+  out_of_range_error = stored_error28, R = R.version.string,
+  dependencies = vapply(c("MatchIt", "WeightIt", "haven", "bit64"), function(p) as.character(utils::packageVersion(p)), ""))
+```
+:::
+
+本节为 2026-10-28 在 Windows R 4.4.3、causalR `6760092c8020fb3814bdb274ebba7a03e0703470` 固定源码上的新增运行；本页其他模型和图片保留原执行快照。
+
+<!-- /update-20261028b: causal_stored_design -->
+
 ## PSW 的四种视图与匹配对照 {#sec-workflow-design-plots}
 
 `plt_PSW()` 的 `estimand=NULL` 画全部方案；`plt_PSM()` 用 `method=NULL` 选择方案。
@@ -405,6 +476,59 @@ plt_sens(sens, type = "contour", contour_args = list(sensitivity_of = "estimate"
 敏感性结果描述“多强的未测量混杂可改变这个模型结论”，不能证明不存在未测量混杂。
 年龄参照的合理性也需要研究背景；它不是自动生成的最坏情况上界。
 
+### get_sens 的标签、integer64 与单列矩阵（2026-10-28） {#stored-sens-20261028b}
+
+<!-- update-20261028b: causal_stored_sens -->
+
+`get_sens()` 也先规范化用到的列：labelled 使用底层值，SPSS 用户缺失先转 NA，精确范围内的 `integer64` 转 double。**单列矩阵**可以还原为向量；这项兼容不能推到 PSM / PSW 或 HTE 的模型输入。多列矩阵、数组、list、S4、复数、无限值及超范围整数仍应先处理。
+
+下面以 120 行连续结局的 `method="lm"` 为例；六个缺失协变量令模型实际使用 114 行。`attr(res, "analysis")[["n"]]` 是模型的实际分母；不是输入行数，也不继承上一阶段 PSM / PSW 的人群含义。DML / IV 同样先规范化其使用列，但本例只执行 lm 后端，不能据此声称其他模型已重跑。
+
+```r
+library(causalR)
+set.seed(2810)
+sens_store28 <- data.frame(z = rep(0:1, 60), x = rep(c(-5, -4, 0, 1, 2, 3), each = 20))
+sens_store28[["y"]] <- .8 * sens_store28[["z"]] + 1.3 * sens_store28[["x"]] + rnorm(120)
+sens_store28[["x"]][1:6] <- 999
+sens_store28[["x"]] <- haven::labelled_spss(sens_store28[["x"]], na_values = 999)
+sens_typed28 <- get_sens(sens_store28, "z", "y", adj_var = "x", method = "lm")
+sens_counts28 <- data.frame(input = nrow(sens_store28),
+  model_n = attr(sens_typed28, "analysis")[["n"]], user_missing = 6L)
+gt::gtsave(gt::gt(sens_counts28), file.path(tempdir(), "20261028b-update-sensitivity-storage.html"))
+```
+
+![输入 120 行，lm 敏感性模型使用 114 行。](images/clinical-workflow-guide/20261028b-update-sensitivity-storage.png){fig-alt="敏感性分析将六个 SPSS 用户缺失值转为 NA，lm 实际模型人数为 114。"}
+
+[原生 HTML](images/clinical-workflow-guide/20261028b-update-sensitivity-storage.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+sens_plain28 <- sens_store28[-(1:6), ]
+sens_plain28[["x"]] <- haven::zap_labels(sens_plain28[["x"]])
+sens_ref28 <- get_sens(sens_plain28, "z", "y", adj_var = "x", method = "lm")
+sens_matrix28 <- sens_plain28
+sens_matrix28[["x"]] <- matrix(sens_matrix28[["x"]], ncol = 1)
+sens_matrix28[["y"]] <- matrix(sens_matrix28[["y"]], ncol = 1)
+sens_matrix_fit28 <- get_sens(sens_matrix28, "z", "y", adj_var = "x", method = "lm")
+sens_integer28 <- sens_plain28
+sens_integer28[["x"]] <- bit64::as.integer64(sens_integer28[["x"]])
+sens_integer_fit28 <- get_sens(sens_integer28, "z", "y", adj_var = "x", method = "lm")
+stopifnot(sens_counts28[["model_n"]] == 114,
+  isTRUE(all.equal(sens_typed28[["stats"]], sens_ref28[["stats"]])),
+  isTRUE(all.equal(sens_matrix_fit28[["stats"]], sens_ref28[["stats"]])),
+  isTRUE(all.equal(sens_integer_fit28[["stats"]], sens_ref28[["stats"]])))
+validation_values <- list(n = sens_counts28, user_missing_matches = TRUE,
+  single_column_matrix_matches = TRUE, integer64_matches = TRUE,
+  source = "6760092c8020fb3814bdb274ebba7a03e0703470", R = R.version.string,
+  sensemakr = as.character(utils::packageVersion("sensemakr")))
+```
+:::
+
+本例为 Windows R 4.4.3 与 causalR `6760092` 固定源码上的新增运行，样本量 120，种子 2810。原页面中的 Cox / DML / IV 说明及历史输出继续保留各自来源。
+
+<!-- /update-20261028b: causal_stored_sens -->
+
 ## 报告与保存 {#sec-workflow-report}
 
 报告原始人数、缺失处理、两臂 PS 支持、设计目标、保留人数与 ESS、平衡、极端权重、
@@ -682,6 +806,8 @@ validation_values <- list(balance_unchanged = TRUE, subgroup_unchanged = TRUE,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [get_sens 存储规范化](#stored-sens-20261028b)，实跑 lm 的 SPSS 缺失、integer64 与单列矩阵对照。
+- 2026-10-28：补充 [PSM / PSW 存储类型](#stored-design-20261028b)的 120 行实跑，区分输入、完整分析队列与匹配人数。
 - 2026-10-28：补充 [类别整体 SMD 不可用](#singular-balance-20261028)的 120 行诊断例，避免将奇异协方差解释为平衡。
 - 2026-10-28：补充 [HTE 输入标签与缺失](#input-contract-20261028)的 240 行例子、完整结局分母及保留列约定。
 :::
