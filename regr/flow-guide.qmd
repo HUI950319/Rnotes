@@ -382,6 +382,93 @@ validation_values <- list(filtered_rows = nrow(filtered_summary26), history = as
 
 <!-- /update-20261026: regr_summary -->
 
+### get_flo：返回对象、节点分母与保存复核（2026-10-28） {#get-flo-backend-20261028c}
+
+<!-- update-20261028c: regr_get_flo_backend -->
+
+上一轮已说明 `get_flo()` 的历史人数检查，本节按相同已发布 RegR `245ed79` 补实际运行。这个入口使用 flowchart 后端：**当前源码默认 `return_data=FALSE`，返回 `fc` 对象**；显式 `TRUE` 返回传入的数据框及其历史。两条路径都会调用绘图。帮助文字中的“默认 TRUE / 返回 ggplot”与本次实跑不符，不能据此判断返回结构。
+
+`fc` 对象的 `fc` 分量是节点信息，`data` 分量是后端绘图占位数据；继续分析应使用 `return_data=TRUE` 的原队列。下面只有 6 行合成记录，筛选历史为 6→5→4，分组各 2 行；图中 SEER database 是此入口的固定模板文字，**本图不是 SEER 患者分析结果**。`Yea` 用于首框年份，须在输入中提供。
+
+```r
+library(RegR)
+flo_data28 <- data.frame(Yea = c(2010, 2010, 2011, 2011, 2012, 2012),
+  Age = seq(10, 60, 10), Eligible = c(TRUE, TRUE, TRUE, TRUE, TRUE, FALSE),
+  Arm = factor(c("A", "A", "B", "B", "A", "B")))
+flo_cohort28 <- get_flt(flo_data28, Age >= 18, Eligible)
+flo_history28 <- attr(flo_cohort28, "flt")
+flo_history28[["label"]] <- c("Age below 18", "Not eligible")
+attr(flo_cohort28, "flt") <- flo_history28
+flo_chart28 <- get_flo(flo_cohort28, inclu_row = 0, sel_his = "synthetic records",
+  split_var = "Arm", return_data = FALSE, save = list())
+flo_nodes28 <- as.data.frame(flo_chart28[["fc"]][, c("type", "n", "N", "perc")])
+flo_nodes28[["perc"]] <- as.numeric(flo_nodes28[["perc"]])
+gt::gtsave(gt::fmt_number(gt::gt(flo_nodes28), columns = "perc", decimals = 2),
+  file.path(tempdir(), "20261028c-update-get-flo-nodes.html"))
+save_plt(function() flowchart::fc_draw(flo_chart28),
+  filename = file.path(tempdir(), "20261028c-update-get-flo.pdf"), width = 8, height = 5)
+```
+
+::: {.panel-tabset}
+
+#### 实际流程图 {.unnumbered}
+
+![6 行合成数据的历史与两个分组一致。](images/flow-guide/20261028c-update-get-flo.png){fig-alt="接口复核用合成记录从6行筛选至4行，Arm A和B各2行；SEER database为get_flo固定模板文字，不代表真实SEER患者。"}
+
+[原生 PDF](images/flow-guide/20261028c-update-get-flo.pdf)
+
+#### 节点自己的百分比分母 {.unnumbered}
+
+![总体节点按 6 行计，分组节点按最终 4 行计。](images/flow-guide/20261028c-update-get-flo-nodes.png){fig-alt="get_flo返回的实际节点表：初始6/6，纳入4/6，排除2/6，两个分组分别2/4，各为50%。"}
+
+[原生 HTML](images/flow-guide/20261028c-update-get-flo-nodes.html)
+
+:::
+
+节点的百分比分母取自各自 `N`：纳入为 4/6，两个分组各为 2/4，不应把所有 `perc` 都解释成占初始队列的比例。Windows 的 flowchart 0.9.0 与 WSL 的 0.8.0 字段和百分比字符串格式不同；本例只比较共同的节点类型、人数与分母，不要求整个对象逐字节相同。
+
+::: {.callout-warning title="已复现的保存问题"}
+在本节的固定源码与两套后端中，`get_flo(save=list(...))` 会提示保存成功，但产物是一页空白 PDF。这是该快照的保存缺陷；文件存在、尺寸正确及页数为 1 都不足以证明有图。上例将 `flowchart::fc_draw()` 放入 `save_plt()` 的绘图函数回调，已核验生成有内容的 PDF。此处没有修改 RegR 源码。
+:::
+
+外部筛选漏记行数时，自动分组先发出历史人数不符警告，随后后端还可能因分组总数不匹配而停止。应从原始数据补齐真正的筛选链；手工填写 `split_N` 不能证明漏记的历史已修复。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+flo_before28 <- serialize(flo_cohort28, NULL)
+flo_returned28 <- get_flo(flo_cohort28, inclu_row = 0, sel_his = "synthetic records",
+  split_var = "Arm", return_data = TRUE, save = NULL)
+stopifnot(identical(formals(get_flo)[["return_data"]], FALSE), inherits(flo_chart28, "fc"),
+  !inherits(flo_chart28, "ggplot"), identical(flo_returned28, flo_cohort28),
+  identical(flo_before28, serialize(flo_cohort28, NULL)),
+  identical(as.integer(flo_nodes28[["n"]]), c(6L, 4L, 2L, 2L, 2L)),
+  identical(as.integer(flo_nodes28[["N"]]), c(6L, 6L, 6L, 4L, 4L)),
+  all(abs(flo_nodes28[["perc"]] - 100 * flo_nodes28[["n"]] / flo_nodes28[["N"]]) < .01))
+flo_first28 <- get_flt(flo_data28, Age >= 18)
+flo_stale28 <- dplyr::filter(flo_first28, Eligible)
+flo_notes28 <- character()
+flo_bad28 <- withCallingHandlers(tryCatch(get_flo(flo_stale28, inclu_row = 0, split_var = "Arm"),
+  error = conditionMessage), warning = function(w) {
+    flo_notes28 <<- c(flo_notes28, conditionMessage(w)); invokeRestart("muffleWarning")
+  })
+stopifnot(any(grepl("has 4 rows", flo_notes28, fixed = TRUE)),
+  any(grepl("ends with 5 remaining", flo_notes28, fixed = TRUE)), is.character(flo_bad28))
+flo_direct_path28 <- file.path(tempdir(), "get-flo-direct-save.pdf")
+flo_direct28 <- get_flo(flo_cohort28, inclu_row = 0, split_var = "Arm", sel_his = "synthetic records",
+  save = list(filename = flo_direct_path28, width = 8, height = 5))
+stopifnot(file.exists(flo_direct_path28))
+validation_values <- list(input_n = 6L, analyzed_n = nrow(flo_returned28), nodes = flo_nodes28,
+  data_return_matches = TRUE, input_unchanged = TRUE, stale_warning = flo_notes28,
+  stale_backend_stops = TRUE, direct_pdf_exists = TRUE,
+  source = "245ed79cc2f368732f3828eb622b6ae20347754d")
+```
+:::
+
+新增例子在 Windows / WSL R 4.4.3 的相同 RegR 固定源码上分别执行，未拟合模型。另对两套保存产物做 PDF 渲染与像素检查：直接保存为空白，绘图回调的 PDF 有实际节点与连线；空白诊断文件未作为本站下载附件。
+
+<!-- /update-20261028c: regr_get_flo_backend -->
+
 ## plt_flo()：共用设置与重要参数 {#plt-flo}
 
 完整签名及默认值可查看 `formals(RegR::plt_flo)` 或 `?RegR::plt_flo`。以下设置最常影响流程图：
@@ -988,6 +1075,113 @@ validation_values <- list(history = as.data.frame(history_all24), table = all24[
 
 <!-- /update-20261025: cohort_lists -->
 
+### get_all：结果人数正确，还要检查历史是否连续（2026-10-28） {#get-all-history-20261028c}
+
+<!-- update-20261028c: regr_get_all_history -->
+
+本节继续按 RegR `245ed79` 补充 `get_all()` 的真实分布模块运行。历史人数检查是告警，不会阻止所有后续分析，也不会补写外部漏记的筛选。**即使分析结果的人数正确，筛选历史仍可能不完整。** 应同时核对实际分析人数、相邻步骤衔接，以及累计移除人数。
+
+下面用 24 行合成数据：成年人筛选剩 20 行，合格性筛选剩 16 行，再剔除两行缺失结局，最终 14 行、两组各 7 行。只启用分布模块；结局用于完整病例选择，没有拟合 Logistic、Cox 或其他模型。
+
+```r
+library(RegR)
+workflow_data28 <- data.frame(Arm = factor(rep(c("No", "Yes"), 12)),
+  Age = rep(c(16, 25, 40, 65, 80, 55), 4),
+  Eligible = rep(c(TRUE, TRUE, TRUE, FALSE, TRUE, TRUE), 4),
+  Outcome = rep(c(0L, 1L, 1L, 0L), 6))
+workflow_data28[["Outcome"]][c(3, 14)] <- NA_integer_
+workflow_before28 <- serialize(workflow_data28, NULL)
+workflow_first28 <- get_flt(workflow_data28, Age >= 18)
+workflow_result28 <- get_all(com.args = list(data = workflow_first28, get_flt = Eligible,
+  fct_cat = list(c(Age_band = Age, breaks = c(30, 60), labels = c("Low", "Mid", "High"))),
+  surv = "Outcome"),
+  dis.args = list(dis_var = c("Arm", "Age_band"), type = "bar",
+    label_args = list(style = "count_percent_wrap", pct_accuracy = 1),
+    legend_args = list(position = "bottom", ncol = 3)))
+workflow_history28 <- attr(workflow_result28, "flt")
+gt::gtsave(gt::gt(as.data.frame(workflow_history28[, c("order", "filter", "all_pat", "res_pat", "del_pat")])),
+  file.path(tempdir(), "20261028c-update-get-all-history.html"))
+workflow_size28 <- attr(workflow_result28[["dis"]], "plot_size")
+ggplot2::ggsave(file.path(tempdir(), "20261028c-update-get-all-distribution.pdf"), workflow_result28[["dis"]],
+  width = workflow_size28[[1]], height = workflow_size28[[2]])
+```
+
+::: {.panel-tabset}
+
+#### 连续的筛选链 {.unnumbered}
+
+![24→20→16→14 行的完整历史。](images/flow-guide/20261028c-update-get-all-history.png){fig-alt="24行合成输入依次排除4名未成年、4名不合格记录和2名缺失结局记录，最终14行；每一步的开始人数承接上一步剩余人数。"}
+
+[原生 HTML](images/flow-guide/20261028c-update-get-all-history.html)
+
+#### 同一分析队列的分布 {.unnumbered}
+
+![分布图实际使用最终 14 行，两组各 7 行。](images/flow-guide/20261028c-update-get-all-distribution.png){fig-alt="仅启用分布模块的get_all结果中No与Yes各7行，年龄分箱计数来自最终14行完整结局队列，没有拟合回归模型。"}
+
+[原生 PDF](images/flow-guide/20261028c-update-get-all-distribution.pdf)
+
+:::
+
+顺序仍是公共筛选 → 重编码 → 所需结局的完整病例 → 启用模块。分析人数从 `attr(result,"analysis")[["n"]]` 读取，累计历史从 `attr(result,"flt")` 读取；对象能返回、存在 `dis` 分量，都不能单独证明历史连续。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+workflow_manual28 <- get_flt(workflow_first28, Eligible)
+workflow_manual28[["Age_band"]] <- UtilsR::fct_num(workflow_manual28[["Age"]],
+  breaks = c(30, 60), labels = c("Low", "Mid", "High"))
+workflow_manual28 <- get_flt(workflow_manual28, !is.na(Outcome))
+workflow_manual_plot28 <- UtilsR::plt_dist(workflow_manual28, dis_vars = c("Arm", "Age_band"), type = "bar",
+  label_args = list(style = "count_percent_wrap", pct_accuracy = 1),
+  legend_args = list(position = "bottom", ncol = 3))
+stopifnot(inherits(workflow_result28, "get_all"), identical(names(workflow_result28), "dis"),
+  is.null(attr(workflow_result28, "failures")), attr(workflow_result28, "analysis")[["n"]] == 14L,
+  identical(as.integer(workflow_history28[["res_pat"]]), c(20L, 16L, 14L)),
+  identical(workflow_history28[["filter"]], c("Age >= 18", "Eligible", "!is.na(Outcome)")),
+  identical(as.integer(table(workflow_manual28[["Arm"]])), c(7L, 7L)),
+  sum(workflow_result28[["dis"]][["data"]][["n"]]) == 14L,
+  isTRUE(all.equal(workflow_result28[["dis"]][["data"]], workflow_manual_plot28[["data"]], check.attributes = FALSE)),
+  identical(workflow_before28, serialize(workflow_data28, NULL)))
+workflow_stale28 <- dplyr::filter(workflow_first28, Eligible)
+workflow_warnings28 <- character()
+workflow_bad28 <- withCallingHandlers(get_all(com.args = list(data = workflow_stale28,
+  fct_cat = list(c(Age_band = Age, breaks = c(30, 60), labels = c("Low", "Mid", "High"))),
+  surv = "Outcome"),
+  dis.args = list(dis_var = c("Arm", "Age_band"), type = "bar",
+    label_args = list(style = "count_percent_wrap", pct_accuracy = 1),
+    legend_args = list(position = "bottom", ncol = 3))), warning = function(w) {
+      workflow_warnings28 <<- c(workflow_warnings28, conditionMessage(w)); invokeRestart("muffleWarning")
+    })
+workflow_check28 <- function(x, label) {
+  h <- attr(x, "flt")
+  data.frame(chain = label, analysis_n = attr(x, "analysis")[["n"]],
+    recorded_removed = sum(h[["del_pat"]]), expected_removed = h[["all_pat"]][1] - tail(h[["res_pat"]], 1),
+    continuous = all(head(h[["res_pat"]], -1) == tail(h[["all_pat"]], -1)))
+}
+workflow_audit28 <- rbind(workflow_check28(workflow_result28, "Recorded filters"),
+  workflow_check28(workflow_bad28, "External unrecorded filter"))
+stopifnot(all(workflow_audit28[["analysis_n"]] == 14L),
+  identical(workflow_audit28[["recorded_removed"]], c(10L, 6L)),
+  all(workflow_audit28[["expected_removed"]] == 10L),
+  identical(workflow_audit28[["continuous"]], c(TRUE, FALSE)),
+  any(grepl("get_all:", workflow_warnings28, fixed = TRUE)),
+  any(grepl("has 16 rows", workflow_warnings28, fixed = TRUE)))
+gt::gtsave(gt::gt(workflow_audit28), file.path(tempdir(), "20261028c-update-get-all-audit.html"))
+validation_values <- list(input_n = 24L, final_n = 14L, groups = as.integer(table(workflow_manual28[["Arm"]])),
+  history = as.data.frame(workflow_history28), audit = workflow_audit28,
+  stale_warnings = workflow_warnings28, matches_manual_distribution = TRUE, input_unchanged = TRUE,
+  source = "245ed79cc2f368732f3828eb622b6ae20347754d")
+```
+:::
+
+![两种输入都分析 14 行，但漏记步骤的历史只记录排除 6 行。](images/flow-guide/20261028c-update-get-all-audit.png){fig-alt="正常链与外部漏记链都分析14行，预期排除10行；正常链记录10行且连续，漏记链只记录6行且不连续。"}
+
+[原生 HTML](images/flow-guide/20261028c-update-get-all-audit.html)
+
+本例的外部筛选故意漏记 4 行以触发告警，不应作为研究报告的纳排流程。两个平台均按 Windows / WSL R 4.4.3、RegR `245ed79` 与 UtilsR `be1ff96` 固定源码执行；只完成分布模块和手工对照，未运行整套建模工作流。历史 SEER 图与其他模块保留原快照。
+
+<!-- /update-20261028c: regr_get_all_history -->
+
 ## plt_flo2()：彩色研究流程 {#plt-flo2}
 
 `plt_flo2()` 的左侧是彩色阶段框，右侧是自动编号的说明框；还可以在顶部增加队列筛选，在左边增加旋转的阶段标签。输入是**阶段文字和队列人数**，`get_flt()` 的历史需要转换成 `cohorts` 后再传入。
@@ -1465,6 +1659,8 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-28：补充 [get_all 历史连续性](#get-all-history-20261028c)的 24→14 行实跑，区分结果人数正确与纳排历史完整。
+- 2026-10-28：补充 [get_flo 后端实跑](#get-flo-backend-20261028c)，明确实际返回、节点分母、漏记行警告与已复现保存问题。
 - 2026-10-28：追加 [累计历史与行数边界](#history-rows-20261028b)，复核程序化列名、列表不可见返回、新增步骤打印及缺失排除标签。
 - 2026-10-28：补充 [粗体标题闭合后自动断行](#bold-close-20261028)的单队列、多队列 PDF 与显式换行等价核对。
 - 2026-10-27：跟进已发布 RegR `79bb436` 的[顶层 content_lines 与五种阶段样式](#phase-styles-20261027)，新增三张原生 PDF。
