@@ -170,6 +170,77 @@ validation_values <- list(counts = stored_counts28, normalized_matches = TRUE,
 
 <!-- /update-20261028b: causal_stored_design -->
 
+### 极端权重：数值稳定不等于共同支持良好（2026-10-28） {#extreme-weights-20261028b}
+
+<!-- update-20261028b: causal_extreme_weights -->
+
+收尾按已推送 causalR `475d200` 复核：极端但有限的权重使用缩放计算 ESS、标准差和变异系数，避免平方上溢 / 下溢。若保留行产生非有限权重，`get_PSW()` 直接报错并指出 estimand；不会删除这些行后继续给出一个看似正常的 ESS。
+
+下面是刻意触发数值边界的 120 行人工输入，所有概率都设为 `1e-200`，并不代表可接受的临床设计。ATE 与 ATT 的总体 ESS 均为 60、每臂 ESS 各为 60；总体 ESS 不是两臂 ESS 相加。有限且可计算的摘要也不能证明共同支持足够。
+
+```r
+library(causalR)
+extreme_ps28 <- data.frame(z = rep(0:1, 60), p = 1e-200)
+extreme_weights28 <- get_PSW(extreme_ps28, "z", ps = "p", estimand = c("ATE", "ATT"), balance = FALSE)
+extreme_stats28 <- extreme_weights28[["stats"]][, c("estimand", "n", "ess", "ess_treat", "ess_ctrl", "w_sd", "w_cv")]
+extreme_gt28 <- gt::fmt_scientific(gt::gt(extreme_stats28), columns = "w_sd", decimals = 3)
+gt::gtsave(gt::fmt_number(extreme_gt28, columns = "w_cv", decimals = 4),
+  file.path(tempdir(), "20261028b-update-extreme-weight-summaries.html"))
+extreme_ess_plot28 <- plt_PSW(extreme_weights28, type = "ess")
+ggplot2::ggsave(file.path(tempdir(), "20261028b-update-extreme-weight-ess.pdf"), extreme_ess_plot28,
+  width = 7, height = 4.5)
+```
+
+::: {.panel-tabset}
+
+#### 有限的 ESS 与离散度 {.unnumbered}
+
+![两种目标的权重摘要均可计算，但不代表设计可用。](images/clinical-workflow-guide/20261028b-update-extreme-weight-summaries.png){fig-alt="120 行极端概率诊断输入，ATE 与 ATT 的总体 ESS 都为 60，两臂 ESS 各为 60，权重标准差与变异系数保持有限。"}
+
+[原生 HTML](images/clinical-workflow-guide/20261028b-update-extreme-weight-summaries.html)
+
+#### ESS 视图 {.unnumbered}
+
+![图中显示总体 ESS，而非输入人数或两臂 ESS 之和。](images/clinical-workflow-guide/20261028b-update-extreme-weight-ess.png){fig-alt="ATE 与 ATT 的 ESS 诊断图都显示 60，相对于输入 120 行为一半；这个算术结果不能替代共同支持判断。"}
+
+[原生 PDF](images/clinical-workflow-guide/20261028b-update-extreme-weight-ess.pdf)
+
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(all(extreme_stats28[["ess"]] == 60), all(extreme_stats28[["ess_treat"]] == 60),
+  all(extreme_stats28[["ess_ctrl"]] == 60), all(is.finite(extreme_stats28[["w_sd"]])),
+  all(is.finite(extreme_stats28[["w_cv"]])))
+for (i in seq_len(nrow(extreme_stats28))) {
+  w <- extreme_weights28[["data"]][[paste0("w_", tolower(extreme_stats28[["estimand"]][i]))]]
+  normalized <- w / max(w)
+  stopifnot(isTRUE(all.equal(extreme_stats28[["w_sd"]][i] / max(w), sd(normalized))),
+    isTRUE(all.equal(extreme_stats28[["w_cv"]][i], sd(normalized) / mean(normalized))))
+}
+extreme_bad28 <- transform(extreme_ps28, p = 1e-320)
+extreme_error28 <- tryCatch(get_PSW(extreme_bad28, "z", ps = "p", estimand = "ATE", balance = FALSE),
+  error = conditionMessage)
+stopifnot(grepl("Non-finite weights", extreme_error28, fixed = TRUE), grepl("ATE", extreme_error28, fixed = TRUE))
+extreme_ato28 <- get_PSW(extreme_bad28, "z", ps = "p", estimand = "ATO", balance = FALSE)
+stopifnot(all(is.finite(extreme_ato28[["data"]][["w_ato"]])), extreme_ato28[["stats"]][["ess_ctrl"]] == 60)
+extreme_plot_path28 <- file.path(tempdir(), "psw-ess-plot.rds")
+saveRDS(extreme_ess_plot28, extreme_plot_path28)
+stopifnot(identical(ggplot2::ggplot_build(readRDS(extreme_plot_path28))[["data"]],
+  ggplot2::ggplot_build(extreme_ess_plot28)[["data"]]))
+validation_values <- list(n = 120L, summaries = extreme_stats28, nonfinite_error = extreme_error28,
+  alternate_ato = extreme_ato28[["stats"]], plot_rds_layers_match = TRUE,
+  source = "475d200c71bceb0b5e5cda327ddb39d8752e90eb", R = R.version.string)
+```
+:::
+
+`p=1e-320` 的 ATE 权重已溢出，本例确认其停止；ATO 虽可得到有限权重，却改变目标人群，不能把它当作修复 ATE 的开关。实际分析应按研究方案处理 trimming / truncation 与共同支持，并重新报告人群。
+
+这批源码也令 `plt_PSW()` / `plt_PSM()` 的图环境只持有所选视图的数据：ESS 用摘要、Love plot 用平衡表，权重 / PS 视图用所需列。上述实跑仅核对 PSW ESS 图及其 RDS 图层；没有新测内存降幅，也没有将图对象视为匿名化数据。本例在 Windows R 4.4.3 执行，其他小节保留其固定源码快照。
+
+<!-- /update-20261028b: causal_extreme_weights -->
+
 ## PSW 的四种视图与匹配对照 {#sec-workflow-design-plots}
 
 `plt_PSW()` 的 `estimand=NULL` 画全部方案；`plt_PSM()` 用 `method=NULL` 选择方案。
@@ -447,7 +518,7 @@ validation_values <- list(n = nrow(small_auto28[["data"]]), source_levels = leve
 ```
 :::
 
-这次新增运行限定于 Windows R 4.4.3、上述 48 行和一协变量。基线表与 Love plot 的连续 SMD 方差分母有既有差别，不能要求两者逐位相同；p 值也不能代替预设的 SMD 判断。
+这次新增运行限定于 Windows R 4.4.3、上述 48 行和一协变量。图中 W 的表头每组 `N=48` 是权重之和；原始患者每组仍为 24 人，不能据此把队列写成 96 人。基线表与 Love plot 的连续 SMD 方差分母有既有差别，不能要求两者逐位相同；p 值也不能代替预设的 SMD 判断。
 
 <!-- /update-20261028b: causal_balance_table -->
 
@@ -654,6 +725,51 @@ validation_values <- list(n = sens_counts28, user_missing_matches = TRUE,
 本例为 Windows R 4.4.3 与 causalR `6760092` 固定源码上的新增运行，样本量 120，种子 2810。原页面中的 Cox / DML / IV 说明及历史输出继续保留各自来源。
 
 <!-- /update-20261028b: causal_stored_sens -->
+
+### 手工敏感性界限必须是有限的两个 R²（2026-10-28） {#manual-bounds-20261028b}
+
+<!-- update-20261028b: causal_manual_bounds -->
+
+`bench_args$bound` 表示一个手工设定的敏感性情景，顺序是治疗侧、结局侧 R²；两项都必须是 **有限数值且严格在 (0,1) 内**。`NULL` 表示不指定该手工情景。NA、NaN、无限值、0 / 1 边界、错误长度与字符串都会在拟合前拒绝；不将它们静默换成默认值。
+
+```r
+library(causalR)
+set.seed(2810)
+bound_data28 <- data.frame(z = rep(0:1, 60), y = rnorm(120))
+bound_result28 <- get_sens(bound_data28, "z", "y", method = "lm", bench_args = list(bound = c(.1, .2)))
+bound_table28 <- bound_result28[["bounds"]]
+bound_display28 <- bound_table28[, c("bound_label", "r2_treat", "r2_out", "adj_estimate", "adj_se", "adj_conf.low", "adj_conf.high")]
+bound_gt28 <- gt::cols_label(gt::gt(bound_display28), bound_label = "Scenario", r2_treat = "Treatment R²",
+  r2_out = "Outcome R²", adj_estimate = "Adjusted beta", adj_se = "SE", adj_conf.low = "Lower 95%", adj_conf.high = "Upper 95%")
+gt::gtsave(gt::fmt_number(bound_gt28, columns = tidyselect::where(is.numeric), decimals = 4),
+  file.path(tempdir(), "20261028b-update-manual-sensitivity-bound.html"))
+```
+
+![手工界限保留治疗侧 R² 为 0.1、结局侧 R² 为 0.2。](images/clinical-workflow-guide/20261028b-update-manual-sensitivity-bound.png){fig-alt="120 行连续结局 lm 敏感性分析的手工情景，治疗侧 R平方0.1、结局侧R平方0.2，与调用的顺序一致。"}
+
+[原生 HTML](images/clinical-workflow-guide/20261028b-update-manual-sensitivity-bound.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+bound_none28 <- get_sens(bound_data28, "z", "y", method = "lm", bench_args = list(bound = NULL))
+stopifnot(nrow(bound_table28) == 1L, bound_table28[["r2_treat"]] == .1,
+  bound_table28[["r2_out"]] == .2, is.null(bound_none28[["bounds"]]))
+bound_bad28 <- list(c(NA_real_, .1), c(.1, NA_real_), c(NaN, .1), c(.1, NaN),
+  c(Inf, .1), c(.1, Inf), c(-Inf, .1), numeric(), .1, c(0, .1), c(.1, 1), c(.1, .2, .3), "0.1")
+bound_errors28 <- vapply(bound_bad28, function(b) {
+  message <- tryCatch(get_sens(bound_data28, "z", "y", method = "lm", bench_args = list(bound = b)), error = conditionMessage)
+  is.character(message) && grepl("bench_args$bound", message, fixed = TRUE)
+}, logical(1))
+stopifnot(all(bound_errors28))
+validation_values <- list(n = attr(bound_result28, "analysis")[["n"]], bounds = bound_table28,
+  invalid_scenarios_rejected = bound_errors28, source = "475d200", R = R.version.string)
+```
+:::
+
+本例用 Windows R 4.4.3、causalR `475d200` 固定源码执行 120 行、种子 2810，仅复核 lm。手工参数校验属于共享入口，但本例不代表 DML / IV 后端已执行；Cox 使用其自身的敏感性框架，不能把两个 R² 原样解释成风险比偏倚。
+
+<!-- /update-20261028b: causal_manual_bounds -->
 
 ## 报告与保存 {#sec-workflow-report}
 
@@ -932,6 +1048,8 @@ validation_values <- list(balance_unchanged = TRUE, subgroup_unchanged = TRUE,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：追加 [手工敏感性界限](#manual-bounds-20261028b)的有效情景与 13 类无效输入复核。
+- 2026-10-28：追加 [极端权重的有限摘要与溢出拒绝](#extreme-weights-20261028b)，并说明加权表头 N 与实际患者数的差别。
 - 2026-10-28：补充 [平衡阈值与评分复用](#balance-policy-20261028b)、[小表串行策略和空治疗水平](#balance-table-20261028b)的独立实跑。
 - 2026-10-28：补充 [get_sens 存储规范化](#stored-sens-20261028b)，实跑 lm 的 SPSS 缺失、integer64 与单列矩阵对照。
 - 2026-10-28：补充 [PSM / PSW 存储类型](#stored-design-20261028b)的 120 行实跑，区分输入、完整分析队列与匹配人数。
