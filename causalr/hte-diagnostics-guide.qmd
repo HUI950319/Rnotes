@@ -161,6 +161,92 @@ ATO 估计与区间也只将正权重记录传给 grf 的 overlap 推断。零�
 
 <!-- /update-20261028: causal_weights -->
 
+### 曲线只覆盖实际拟合行，HC3 保持同一合同（2026-10-28） {#spline-range-20261028}
+
+<!-- update-20261028: causal_spline -->
+
+追加核对 causalR `9d26ba6`：`plt_hte_dep()` 与 `plt_hte_unihtee()` 的共享样条网格只使用实际拟合行的协变量范围。零权重极端值不再拉长曲线、挤压有效区域；原有支持筛选及异质性检验不因此改变。聚类 HC3 也改为低秩线性代数，避免按聚类人数构造大矩阵，仍须与相同权重、聚类及有限聚类修正的协方差核对，不能据此假定统计定义变化。
+
+下面 240 行合成记录中，前 20 行权重为零，并刻意将它们的 `x` 设为正负百万。其余 220 行、11 个正权重聚类用于拟合投影与推断；两张曲线均只覆盖这些有效记录的范围。
+
+```r
+library(causalR)
+set.seed(2803)
+spline_data28 <- data.frame(a = rep(0:1, 120), x = rnorm(240), v = rnorm(240))
+spline_data28[["y"]] <- spline_data28[["v"]] + spline_data28[["a"]] *
+  (1 + spline_data28[["x"]]) + rnorm(240)
+spline_weights28 <- c(rep(0, 20), rep(1, 220))
+spline_clusters28 <- rep(seq_len(12), each = 20)
+spline_data28[["x"]][1:20] <- rep(c(-1e6, 1e6), 10)
+spline_result28 <- get_hte_unihtee(spline_data28, "a", tree_var = "x", adj_var = "v", surv = "y",
+  grf_args = list(num.trees = 100, num.threads = 1, seed = 28, W.hat = .5, Y.hat = 0,
+    sample.weights = spline_weights28, clusters = spline_clusters28))
+spline_hte_plot28 <- plt_hte_dep(spline_result28[["hte"]], x_var = "x", display = "dr")
+spline_uni_plot28 <- plt_hte_unihtee(spline_result28, type = "dep", x_var = "x")
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-hte-supported-grid.pdf"), spline_hte_plot28,
+  width = 7, height = 4.8)
+ggplot2::ggsave(file.path(tempdir(), "20261028-update-unihtee-supported-grid.pdf"), spline_uni_plot28,
+  width = 7, height = 4.8)
+```
+
+::: {.panel-tabset}
+
+#### HTE 样条 {.unnumbered}
+
+![HTE 曲线不延伸到零权重极端值。](images/hte-diagnostics-guide/20261028-update-hte-supported-grid.png){fig-alt="240 行合成数据的 HTE 样条及置信区间，仅覆盖 220 行正权重记录的 x 范围，正负百万的零权重值不拉长曲线。"}
+
+[原生 PDF](images/hte-diagnostics-guide/20261028-update-hte-supported-grid.pdf)
+
+#### unihtee 投影与样条 {.unnumbered}
+
+![unihtee 使用相同的有效样条范围。](images/hte-diagnostics-guide/20261028-update-unihtee-supported-grid.png){fig-alt="同一拟合对象的 unihtee 线性投影与样条，仅在正权重拟合行的 x 范围显示，原始零权重极端值不压缩有效区域。"}
+
+[原生 PDF](images/hte-diagnostics-guide/20261028-update-unihtee-supported-grid.pdf)
+
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+spline_layer28 <- function(p, column) Filter(function(layer)
+  inherits(layer[["geom"]], "GeomLine") && column %in% names(layer[["data"]]), p[["layers"]])[[1]][["data"]]
+spline_line28 <- spline_layer28(spline_hte_plot28, "estimate")
+spline_comparison28 <- spline_layer28(spline_uni_plot28, "spline")
+spline_active28 <- spline_weights28 > 0
+spline_range28 <- range(spline_data28[["x"]][spline_active28])
+stopifnot(isTRUE(all.equal(range(spline_line28[["x"]]), spline_range28)),
+  isTRUE(all.equal(range(spline_comparison28[["x"]]), spline_range28)),
+  isTRUE(all.equal(spline_line28[["estimate"]], spline_comparison28[["spline"]])))
+spline_f28 <- spline_result28[["hte"]][["fit"]]
+spline_tau28 <- as.numeric(predict(spline_f28)[["predictions"]])
+spline_mu28 <- weighted.mean(spline_tau28, spline_weights28)
+spline_w28 <- spline_f28[["W.orig"]] - spline_f28[["W.hat"]]
+spline_cal_data28 <- data.frame(y = spline_f28[["Y.orig"]] - spline_f28[["Y.hat"]],
+  mean.forest.prediction = spline_w28 * spline_mu28,
+  differential.forest.prediction = spline_w28 * (spline_tau28 - spline_mu28), wt = spline_weights28)
+spline_cal28 <- lm(y ~ 0 + mean.forest.prediction + differential.forest.prediction,
+  data = spline_cal_data28[spline_active28, ], weights = wt)
+spline_cov28 <- sandwich::vcovCL(spline_cal28, cluster = spline_f28[["clusters"]][spline_active28], type = "HC3")
+spline_cal_table28 <- data.frame(term = spline_result28[["hte"]][["calibration"]][["term"]],
+  package_SE = spline_result28[["hte"]][["calibration"]][["std.error"]],
+  sandwich_SE = unname(sqrt(diag(spline_cov28))))
+stopifnot(max(abs(spline_cal_table28[["package_SE"]] - spline_cal_table28[["sandwich_SE"]])) < 1e-10)
+gt::gtsave(gt::fmt_number(gt::gt(spline_cal_table28), columns = c("package_SE", "sandwich_SE"), decimals = 6),
+  file.path(tempdir(), "20261028-update-hte-lowrank-hc3.html"))
+validation_values <- list(n = c(240L, 220L, 11L), supported_range = spline_range28,
+  hte_range = range(spline_line28[["x"]]), uni_range = range(spline_comparison28[["x"]]),
+  package_SE = spline_cal_table28[["package_SE"]], sandwich_SE = spline_cal_table28[["sandwich_SE"]])
+```
+:::
+
+![新 HC3 路径与同一正权重样本的 sandwich 结果一致。](images/hte-diagnostics-guide/20261028-update-hte-lowrank-hc3.png){fig-alt="11 个正权重聚类的两个校准项，低秩 HC3 路径的标准误与 sandwich cluster-HC3 逐项一致，未新测内存倍数。"}
+
+[原生 HTML](images/hte-diagnostics-guide/20261028-update-hte-lowrank-hc3.html)
+
+本例在 Windows R 4.4.3 运行，仅复核网格范围与协方差数值；没有用小样本估计速度或内存降幅。显示范围缩小也不能替代检查因果支持、模型设定或外部验证。
+
+<!-- /update-20261028: causal_spline -->
+
 ## plt_hte_rate：重要参数 {#sec-diagnostics-args}
 
 | 参数 | 默认 | 作用与条件 |
@@ -303,5 +389,6 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：追加 [有效曲线范围与低秩 HC3](#spline-range-20261028)的 240 行实跑对照。
 - 2026-10-28：新增 [零权重与有效推断](#positive-weights-20261028)，核对 240 行描述人数、220 行正权重和 22 个有效聚类。
 :::

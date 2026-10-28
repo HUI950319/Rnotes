@@ -1372,6 +1372,104 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>本例使用 Windows R 4.4.3；零权重亚组的警告是刻意展示的结果，不是已经通过的可用亚组。</p>
 <!-- /update-20261028: causal_weights -->
 </section>
+<section id="spline-range-20261028" class="level3">
+<h3 class="anchored" data-anchor-id="spline-range-20261028">曲线只覆盖实际拟合行，HC3 保持同一合同（2026-10-28）</h3>
+<!-- update-20261028: causal_spline -->
+<p>追加核对 causalR <code>9d26ba6</code>：<code>plt_hte_dep()</code> 与 <code>plt_hte_unihtee()</code> 的共享样条网格只使用实际拟合行的协变量范围。零权重极端值不再拉长曲线、挤压有效区域；原有支持筛选及异质性检验不因此改变。聚类 HC3 也改为低秩线性代数，避免按聚类人数构造大矩阵，仍须与相同权重、聚类及有限聚类修正的协方差核对，不能据此假定统计定义变化。</p>
+<p>下面 240 行合成记录中，前 20 行权重为零，并刻意将它们的 <code>x</code> 设为正负百万。其余 220 行、11 个正权重聚类用于拟合投影与推断；两张曲线均只覆盖这些有效记录的范围。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(causalR)</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2803</span>)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>spline_data28 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">a =</span> <span class="fu">rep</span>(<span class="dv">0</span><span class="sc">:</span><span class="dv">1</span>, <span class="dv">120</span>), <span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">240</span>), <span class="at">v =</span> <span class="fu">rnorm</span>(<span class="dv">240</span>))</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>spline_data28[[<span class="st">"y"</span>]] <span class="ot">&lt;-</span> spline_data28[[<span class="st">"v"</span>]] <span class="sc">+</span> spline_data28[[<span class="st">"a"</span>]] <span class="sc">*</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  (<span class="dv">1</span> <span class="sc">+</span> spline_data28[[<span class="st">"x"</span>]]) <span class="sc">+</span> <span class="fu">rnorm</span>(<span class="dv">240</span>)</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>spline_weights28 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fu">rep</span>(<span class="dv">0</span>, <span class="dv">20</span>), <span class="fu">rep</span>(<span class="dv">1</span>, <span class="dv">220</span>))</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>spline_clusters28 <span class="ot">&lt;-</span> <span class="fu">rep</span>(<span class="fu">seq_len</span>(<span class="dv">12</span>), <span class="at">each =</span> <span class="dv">20</span>)</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>spline_data28[[<span class="st">"x"</span>]][<span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>] <span class="ot">&lt;-</span> <span class="fu">rep</span>(<span class="fu">c</span>(<span class="sc">-</span><span class="fl">1e6</span>, <span class="fl">1e6</span>), <span class="dv">10</span>)</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>spline_result28 <span class="ot">&lt;-</span> <span class="fu">get_hte_unihtee</span>(spline_data28, <span class="st">"a"</span>, <span class="at">tree_var =</span> <span class="st">"x"</span>, <span class="at">adj_var =</span> <span class="st">"v"</span>, <span class="at">surv =</span> <span class="st">"y"</span>,</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">grf_args =</span> <span class="fu">list</span>(<span class="at">num.trees =</span> <span class="dv">100</span>, <span class="at">num.threads =</span> <span class="dv">1</span>, <span class="at">seed =</span> <span class="dv">28</span>, <span class="at">W.hat =</span> .<span class="dv">5</span>, <span class="at">Y.hat =</span> <span class="dv">0</span>,</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">sample.weights =</span> spline_weights28, <span class="at">clusters =</span> spline_clusters28))</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>spline_hte_plot28 <span class="ot">&lt;-</span> <span class="fu">plt_hte_dep</span>(spline_result28[[<span class="st">"hte"</span>]], <span class="at">x_var =</span> <span class="st">"x"</span>, <span class="at">display =</span> <span class="st">"dr"</span>)</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>spline_uni_plot28 <span class="ot">&lt;-</span> <span class="fu">plt_hte_unihtee</span>(spline_result28, <span class="at">type =</span> <span class="st">"dep"</span>, <span class="at">x_var =</span> <span class="st">"x"</span>)</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261028-update-hte-supported-grid.pdf"</span>), spline_hte_plot28,</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">width =</span> <span class="dv">7</span>, <span class="at">height =</span> <span class="fl">4.8</span>)</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261028-update-unihtee-supported-grid.pdf"</span>), spline_uni_plot28,</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">width =</span> <span class="dv">7</span>, <span class="at">height =</span> <span class="fl">4.8</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">HTE 样条</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">unihtee 投影与样条</a></li></ul>
+<div class="tab-content">
+<div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/hte-diagnostics-guide/20261028-update-hte-supported-grid.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="HTE 曲线不延伸到零权重极端值。"><img src="images/hte-diagnostics-guide/20261028-update-hte-supported-grid.png" class="img-fluid figure-img" alt="240 行合成数据的 HTE 样条及置信区间，仅覆盖 220 行正权重记录的 x 范围，正负百万的零权重值不拉长曲线。" loading="lazy" decoding="async" width="1015" height="695" srcset="../assets/figure-previews/7f03c9d0a03982569a8da21c7587de23.webp"></a></p>
+<figcaption>HTE 曲线不延伸到零权重极端值。</figcaption>
+</figure>
+</div>
+<p><a href="images/hte-diagnostics-guide/20261028-update-hte-supported-grid.pdf">原生 PDF</a></p>
+</div>
+<div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/hte-diagnostics-guide/20261028-update-unihtee-supported-grid.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="unihtee 使用相同的有效样条范围。"><img src="images/hte-diagnostics-guide/20261028-update-unihtee-supported-grid.png" class="img-fluid figure-img" alt="同一拟合对象的 unihtee 线性投影与样条，仅在正权重拟合行的 x 范围显示，原始零权重极端值不压缩有效区域。" loading="lazy" decoding="async" width="1015" height="695" srcset="../assets/figure-previews/535d87bd448d21b3d1915680beca76ae.webp"></a></p>
+<figcaption>unihtee 使用相同的有效样条范围。</figcaption>
+</figure>
+</div>
+<p><a href="images/hte-diagnostics-guide/20261028-update-unihtee-supported-grid.pdf">原生 PDF</a></p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>spline_layer28 <span class="ot">&lt;-</span> <span class="cf">function</span>(p, column) <span class="fu">Filter</span>(<span class="cf">function</span>(layer)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">inherits</span>(layer[[<span class="st">"geom"</span>]], <span class="st">"GeomLine"</span>) <span class="sc">&amp;&amp;</span> column <span class="sc">%in%</span> <span class="fu">names</span>(layer[[<span class="st">"data"</span>]]), p[[<span class="st">"layers"</span>]])[[<span class="dv">1</span>]][[<span class="st">"data"</span>]]</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>spline_line28 <span class="ot">&lt;-</span> <span class="fu">spline_layer28</span>(spline_hte_plot28, <span class="st">"estimate"</span>)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>spline_comparison28 <span class="ot">&lt;-</span> <span class="fu">spline_layer28</span>(spline_uni_plot28, <span class="st">"spline"</span>)</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>spline_active28 <span class="ot">&lt;-</span> spline_weights28 <span class="sc">&gt;</span> <span class="dv">0</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>spline_range28 <span class="ot">&lt;-</span> <span class="fu">range</span>(spline_data28[[<span class="st">"x"</span>]][spline_active28])</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(<span class="fu">range</span>(spline_line28[[<span class="st">"x"</span>]]), spline_range28)),</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(<span class="fu">range</span>(spline_comparison28[[<span class="st">"x"</span>]]), spline_range28)),</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(spline_line28[[<span class="st">"estimate"</span>]], spline_comparison28[[<span class="st">"spline"</span>]])))</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>spline_f28 <span class="ot">&lt;-</span> spline_result28[[<span class="st">"hte"</span>]][[<span class="st">"fit"</span>]]</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>spline_tau28 <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">predict</span>(spline_f28)[[<span class="st">"predictions"</span>]])</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>spline_mu28 <span class="ot">&lt;-</span> <span class="fu">weighted.mean</span>(spline_tau28, spline_weights28)</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>spline_w28 <span class="ot">&lt;-</span> spline_f28[[<span class="st">"W.orig"</span>]] <span class="sc">-</span> spline_f28[[<span class="st">"W.hat"</span>]]</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>spline_cal_data28 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">y =</span> spline_f28[[<span class="st">"Y.orig"</span>]] <span class="sc">-</span> spline_f28[[<span class="st">"Y.hat"</span>]],</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">mean.forest.prediction =</span> spline_w28 <span class="sc">*</span> spline_mu28,</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">differential.forest.prediction =</span> spline_w28 <span class="sc">*</span> (spline_tau28 <span class="sc">-</span> spline_mu28), <span class="at">wt =</span> spline_weights28)</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>spline_cal28 <span class="ot">&lt;-</span> <span class="fu">lm</span>(y <span class="sc">~</span> <span class="dv">0</span> <span class="sc">+</span> mean.forest.prediction <span class="sc">+</span> differential.forest.prediction,</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> spline_cal_data28[spline_active28, ], <span class="at">weights =</span> wt)</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>spline_cov28 <span class="ot">&lt;-</span> sandwich<span class="sc">::</span><span class="fu">vcovCL</span>(spline_cal28, <span class="at">cluster =</span> spline_f28[[<span class="st">"clusters"</span>]][spline_active28], <span class="at">type =</span> <span class="st">"HC3"</span>)</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>spline_cal_table28 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">term =</span> spline_result28[[<span class="st">"hte"</span>]][[<span class="st">"calibration"</span>]][[<span class="st">"term"</span>]],</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">package_SE =</span> spline_result28[[<span class="st">"hte"</span>]][[<span class="st">"calibration"</span>]][[<span class="st">"std.error"</span>]],</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">sandwich_SE =</span> <span class="fu">unname</span>(<span class="fu">sqrt</span>(<span class="fu">diag</span>(spline_cov28))))</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">max</span>(<span class="fu">abs</span>(spline_cal_table28[[<span class="st">"package_SE"</span>]] <span class="sc">-</span> spline_cal_table28[[<span class="st">"sandwich_SE"</span>]])) <span class="sc">&lt;</span> <span class="fl">1e-10</span>)</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">fmt_number</span>(gt<span class="sc">::</span><span class="fu">gt</span>(spline_cal_table28), <span class="at">columns =</span> <span class="fu">c</span>(<span class="st">"package_SE"</span>, <span class="st">"sandwich_SE"</span>), <span class="at">decimals =</span> <span class="dv">6</span>),</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261028-update-hte-lowrank-hc3.html"</span>))</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> <span class="fu">c</span>(<span class="dv">240</span>L, <span class="dv">220</span>L, <span class="dv">11</span>L), <span class="at">supported_range =</span> spline_range28,</span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>  <span class="at">hte_range =</span> <span class="fu">range</span>(spline_line28[[<span class="st">"x"</span>]]), <span class="at">uni_range =</span> <span class="fu">range</span>(spline_comparison28[[<span class="st">"x"</span>]]),</span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>  <span class="at">package_SE =</span> spline_cal_table28[[<span class="st">"package_SE"</span>]], <span class="at">sandwich_SE =</span> spline_cal_table28[[<span class="st">"sandwich_SE"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/hte-diagnostics-guide/20261028-update-hte-lowrank-hc3.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="新 HC3 路径与同一正权重样本的 sandwich 结果一致。"><img src="images/hte-diagnostics-guide/20261028-update-hte-lowrank-hc3.png" class="img-fluid figure-img" alt="11 个正权重聚类的两个校准项，低秩 HC3 路径的标准误与 sandwich cluster-HC3 逐项一致，未新测内存倍数。" loading="lazy" decoding="async" width="642" height="165" srcset="../assets/figure-previews/c74649f56fe10b7404bc21a8d94605d7.webp"></a></p>
+<figcaption>新 HC3 路径与同一正权重样本的 sandwich 结果一致。</figcaption>
+</figure>
+</div>
+<p><a href="images/hte-diagnostics-guide/20261028-update-hte-lowrank-hc3.html">原生 HTML</a></p>
+<p>本例在 Windows R 4.4.3 运行，仅复核网格范围与协方差数值；没有用小样本估计速度或内存降幅。显示范围缩小也不能替代检查因果支持、模型设定或外部验证。</p>
+<!-- /update-20261028: causal_spline -->
+</section>
 </section>
 <section id="sec-diagnostics-args" class="level2">
 <h2 class="anchored" data-anchor-id="sec-diagnostics-args">plt_hte_rate：重要参数</h2>
@@ -1451,35 +1549,35 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="sec-diagnostics-curves" class="level2">
 <h2 class="anchored" data-anchor-id="sec-diagnostics-curves">曲线与平滑：数值不变、显示改变</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>p_raw <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">priority =</span> <span class="fu">c</span>(<span class="st">"cate"</span>, <span class="st">"marker"</span>),</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>                      <span class="at">type =</span> <span class="fu">c</span>(<span class="st">"toc"</span>, <span class="st">"qini"</span>), <span class="at">train_frac =</span> <span class="fl">0.5</span>,</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>                      <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>p_smooth <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">priority =</span> <span class="fu">c</span>(<span class="st">"cate"</span>, <span class="st">"marker"</span>),</span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>                         <span class="at">type =</span> <span class="fu">c</span>(<span class="st">"toc"</span>, <span class="st">"qini"</span>), <span class="at">smooth =</span> <span class="fl">0.2</span>,</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>                         <span class="at">train_frac =</span> <span class="fl">0.5</span>, <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_raw, <span class="st">"rate"</span>)</span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 6 × 8</span></span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   rule          target estimate std.error conf.low conf.high  p.value     n</span></span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   &lt;chr&gt;         &lt;chr&gt;     &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt; &lt;int&gt;</span></span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 cate          AUTOC   1.84      0.0949    1.65    2.02     2.83e-83   700</span></span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 marker        AUTOC   1.89      0.0963    1.70    2.08     5.75e-86   700</span></span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3 cate - marker AUTOC  -0.0573    0.0419   -0.140   0.0249   1.72e- 1   700</span></span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4 cate          QINI    0.569     0.0290    0.513   0.626    4.60e-86   700</span></span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5 marker        QINI    0.575     0.0296    0.517   0.633    3.14e-84   700</span></span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6 cate - marker QINI   -0.00588   0.00270  -0.0112 -0.000589 2.94e- 2   700</span></span>
-<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(<span class="fu">attr</span>(p_raw, <span class="st">"rate"</span>), <span class="fu">attr</span>(p_smooth, <span class="st">"rate"</span>))))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>p_raw <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">priority =</span> <span class="fu">c</span>(<span class="st">"cate"</span>, <span class="st">"marker"</span>),</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>                      <span class="at">type =</span> <span class="fu">c</span>(<span class="st">"toc"</span>, <span class="st">"qini"</span>), <span class="at">train_frac =</span> <span class="fl">0.5</span>,</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>                      <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>p_smooth <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">priority =</span> <span class="fu">c</span>(<span class="st">"cate"</span>, <span class="st">"marker"</span>),</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>                         <span class="at">type =</span> <span class="fu">c</span>(<span class="st">"toc"</span>, <span class="st">"qini"</span>), <span class="at">smooth =</span> <span class="fl">0.2</span>,</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>                         <span class="at">train_frac =</span> <span class="fl">0.5</span>, <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_raw, <span class="st">"rate"</span>)</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 6 × 8</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   rule          target estimate std.error conf.low conf.high  p.value     n</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   &lt;chr&gt;         &lt;chr&gt;     &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt; &lt;int&gt;</span></span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 cate          AUTOC   1.84      0.0949    1.65    2.02     2.83e-83   700</span></span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 marker        AUTOC   1.89      0.0963    1.70    2.08     5.75e-86   700</span></span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3 cate - marker AUTOC  -0.0573    0.0419   -0.140   0.0249   1.72e- 1   700</span></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4 cate          QINI    0.569     0.0290    0.513   0.626    4.60e-86   700</span></span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5 marker        QINI    0.575     0.0296    0.517   0.633    3.14e-84   700</span></span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6 cate - marker QINI   -0.00588   0.00270  -0.0112 -0.000589 2.94e- 2   700</span></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(<span class="fu">attr</span>(p_raw, <span class="st">"rate"</span>), <span class="fu">attr</span>(p_smooth, <span class="st">"rate"</span>))))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">smooth = 0</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">smooth = 0.2</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">smooth = 0</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">smooth = 0.2</a></li></ul>
 <div class="tab-content">
-<div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>p_raw</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>p_raw</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div id="fig-diagnostics-raw" class="quarto-float quarto-figure quarto-figure-center anchored" alt="同一评估半上的 CATE 与预设 marker 排序。纵轴沿用连续结局的效应单位。">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-diagnostics-raw-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-raw-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="图&nbsp;69.2: 同一评估半上的 CATE 与预设 marker 排序。纵轴沿用连续结局的效应单位。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-raw-1.png" class="img-fluid figure-img" alt="同一评估半上的 CATE 与预设 marker 排序。纵轴沿用连续结局的效应单位。" width="960" loading="lazy" decoding="async" height="921" srcset="../assets/figure-previews/3c2ce7120ae59d90636ad00ea50bf005.webp"></a>
+<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-raw-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="图&nbsp;69.2: 同一评估半上的 CATE 与预设 marker 排序。纵轴沿用连续结局的效应单位。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-raw-1.png" class="img-fluid figure-img" alt="同一评估半上的 CATE 与预设 marker 排序。纵轴沿用连续结局的效应单位。" width="960" loading="lazy" decoding="async" height="921" srcset="../assets/figure-previews/3c2ce7120ae59d90636ad00ea50bf005.webp"></a>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-diagnostics-raw-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 图&nbsp;69.2: 同一评估半上的 CATE 与预设 marker 排序。纵轴沿用连续结局的效应单位。
@@ -1489,14 +1587,14 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 </div>
-<div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>p_smooth</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>p_smooth</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div id="fig-diagnostics-smooth" class="quarto-float quarto-figure quarto-figure-center anchored" alt="仅平滑曲线与带；上方的实际断言核对 RATE 表未变。平滑不能改善统计证据。">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-diagnostics-smooth-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-smooth-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="图&nbsp;69.3: 仅平滑曲线与带；上方的实际断言核对 RATE 表未变。平滑不能改善统计证据。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-smooth-1.png" class="img-fluid figure-img" alt="仅平滑曲线与带；上方的实际断言核对 RATE 表未变。平滑不能改善统计证据。" width="960" loading="lazy" decoding="async" height="921" srcset="../assets/figure-previews/56bb418dfbaf2844d0a5e76941d6fe77.webp"></a>
+<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-smooth-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="图&nbsp;69.3: 仅平滑曲线与带；上方的实际断言核对 RATE 表未变。平滑不能改善统计证据。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-smooth-1.png" class="img-fluid figure-img" alt="仅平滑曲线与带；上方的实际断言核对 RATE 表未变。平滑不能改善统计证据。" width="960" loading="lazy" decoding="async" height="921" srcset="../assets/figure-previews/56bb418dfbaf2844d0a5e76941d6fe77.webp"></a>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-diagnostics-smooth-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 图&nbsp;69.3: 仅平滑曲线与带；上方的实际断言核对 RATE 表未变。平滑不能改善统计证据。
@@ -1513,18 +1611,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="sec-diagnostics-gates" class="level2">
 <h2 class="anchored" data-anchor-id="sec-diagnostics-gates">GATES：n_groups 的参数对照</h2>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">三组</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">五组</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">三组</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">五组</a></li></ul>
 <div class="tab-content">
-<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>p_g3 <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">type =</span> <span class="st">"gates"</span>, <span class="at">gates_args =</span> <span class="fu">list</span>(<span class="at">n_groups =</span> <span class="dv">3</span>),</span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>p_g3</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>p_g3 <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">type =</span> <span class="st">"gates"</span>, <span class="at">gates_args =</span> <span class="fu">list</span>(<span class="at">n_groups =</span> <span class="dv">3</span>),</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>p_g3</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div id="fig-diagnostics-gates3" class="quarto-float quarto-figure quarto-figure-center anchored" alt="gates_args=list(n_groups=3)：排序切成较粗的组，通常每组信息量更大。">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-diagnostics-gates3-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-gates3-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="图&nbsp;69.4: gates_args=list(n_groups=3)：排序切成较粗的组，通常每组信息量更大。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-gates3-1.png" class="img-fluid figure-img" alt="gates_args=list(n_groups=3)：排序切成较粗的组，通常每组信息量更大。" width="672" loading="lazy" decoding="async" height="864" srcset="../assets/figure-previews/e1cf58f840e594ff13102935f9ad7b23.webp"></a>
+<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-gates3-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="图&nbsp;69.4: gates_args=list(n_groups=3)：排序切成较粗的组，通常每组信息量更大。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-gates3-1.png" class="img-fluid figure-img" alt="gates_args=list(n_groups=3)：排序切成较粗的组，通常每组信息量更大。" width="672" loading="lazy" decoding="async" height="864" srcset="../assets/figure-previews/e1cf58f840e594ff13102935f9ad7b23.webp"></a>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-diagnostics-gates3-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 图&nbsp;69.4: gates_args=list(n_groups=3)：排序切成较粗的组，通常每组信息量更大。
@@ -1534,16 +1632,16 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 </div>
-<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>p_g5 <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">type =</span> <span class="st">"gates"</span>, <span class="at">gates_args =</span> <span class="fu">list</span>(<span class="at">n_groups =</span> <span class="dv">5</span>),</span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>p_g5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>p_g5 <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">type =</span> <span class="st">"gates"</span>, <span class="at">gates_args =</span> <span class="fu">list</span>(<span class="at">n_groups =</span> <span class="dv">5</span>),</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>p_g5</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div id="fig-diagnostics-gates5" class="quarto-float quarto-figure quarto-figure-center anchored" alt="默认五组：展现更细的效应梯度，也有更小的每组样本量。菱形是组内平均森林 CATE。">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-diagnostics-gates5-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-gates5-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="图&nbsp;69.5: 默认五组：展现更细的效应梯度，也有更小的每组样本量。菱形是组内平均森林 CATE。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-gates5-1.png" class="img-fluid figure-img" alt="默认五组：展现更细的效应梯度，也有更小的每组样本量。菱形是组内平均森林 CATE。" width="672" loading="lazy" decoding="async" height="864" srcset="../assets/figure-previews/104c4b54a07fe87b799f2e2ffb68fb03.webp"></a>
+<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-gates5-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="图&nbsp;69.5: 默认五组：展现更细的效应梯度，也有更小的每组样本量。菱形是组内平均森林 CATE。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-gates5-1.png" class="img-fluid figure-img" alt="默认五组：展现更细的效应梯度，也有更小的每组样本量。菱形是组内平均森林 CATE。" width="672" loading="lazy" decoding="async" height="864" srcset="../assets/figure-previews/104c4b54a07fe87b799f2e2ffb68fb03.webp"></a>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-diagnostics-gates5-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 图&nbsp;69.5: 默认五组：展现更细的效应梯度，也有更小的每组样本量。菱形是组内平均森林 CATE。
@@ -1556,32 +1654,32 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_g5, <span class="st">"gates"</span>)</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 6 × 11</span></span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   rule  group q_from  q_to     n estimate std.error conf.low conf.high  p.value</span></span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   &lt;chr&gt; &lt;chr&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;int&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;</span></span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 cate  1        0     0.2   140    3.89      0.218    3.47      4.32  2.50e-71</span></span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 cate  2        0.2   0.4   140    1.88      0.176    1.53      2.22  1.62e-26</span></span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3 cate  3        0.4   0.6   140    0.929     0.177    0.581     1.28  1.59e- 7</span></span>
-<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4 cate  4        0.6   0.8   140   -0.166     0.193   -0.545     0.213 3.90e- 1</span></span>
-<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5 cate  5        0.8   1     140   -1.81      0.214   -2.23     -1.39  3.00e-17</span></span>
-<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6 cate  1 - 5   NA    NA     280    5.70      0.306    5.10      6.30  1.09e-77</span></span>
-<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # ℹ 1 more variable: cate_mean &lt;dbl&gt;</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(p_g5, <span class="st">"gates"</span>)</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # A tibble: 6 × 11</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   rule  group q_from  q_to     n estimate std.error conf.low conf.high  p.value</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;   &lt;chr&gt; &lt;chr&gt;  &lt;dbl&gt; &lt;dbl&gt; &lt;int&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 1 cate  1        0     0.2   140    3.89      0.218    3.47      4.32  2.50e-71</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 2 cate  2        0.2   0.4   140    1.88      0.176    1.53      2.22  1.62e-26</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 3 cate  3        0.4   0.6   140    0.929     0.177    0.581     1.28  1.59e- 7</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 4 cate  4        0.6   0.8   140   -0.166     0.193   -0.545     0.213 3.90e- 1</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 5 cate  5        0.8   1     140   -1.81      0.214   -2.23     -1.39  3.00e-17</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; 6 cate  1 - 5   NA    NA     280    5.70      0.306    5.10      6.30  1.09e-77</span></span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; # ℹ 1 more variable: cate_mean &lt;dbl&gt;</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>分组平均森林 CATE 与双稳健效应可不同。不能把第 1 组的显著性和第 5 组的不显著性当成 组间差异显著，应读组间对比及其区间。试多个组数后挑最显著的图，也属于选择。</p>
 </section>
 <section id="sec-diagnostics-direction" class="level2">
 <h2 class="anchored" data-anchor-id="sec-diagnostics-direction">排序方向与预设评分</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>res<span class="sc">$</span>data<span class="sc">$</span>reverse_marker <span class="ot">&lt;-</span> <span class="sc">-</span>res<span class="sc">$</span>data<span class="sc">$</span>marker</span>
-<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>p_direction <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">priority =</span> <span class="fu">c</span>(<span class="st">"marker"</span>, <span class="st">"reverse_marker"</span>),</span>
-<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>                            <span class="at">type =</span> <span class="st">"toc"</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
-<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>p_direction</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>res<span class="sc">$</span>data<span class="sc">$</span>reverse_marker <span class="ot">&lt;-</span> <span class="sc">-</span>res<span class="sc">$</span>data<span class="sc">$</span>marker</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>p_direction <span class="ot">&lt;-</span> <span class="fu">plt_hte_rate</span>(res, <span class="at">priority =</span> <span class="fu">c</span>(<span class="st">"marker"</span>, <span class="st">"reverse_marker"</span>),</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>                            <span class="at">type =</span> <span class="st">"toc"</span>, <span class="at">seed =</span> <span class="dv">77</span>)</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>p_direction</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="cell-output-display">
 <div id="fig-diagnostics-direction" class="quarto-float quarto-figure quarto-figure-center anchored" alt="预设 marker 与反向 marker 在全部分析患者上比较，因而评估人群与含 cate 的图不同。">
 <figure class="quarto-float quarto-float-fig figure">
 <div aria-describedby="fig-diagnostics-direction-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
-<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-direction-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="图&nbsp;69.6: 预设 marker 与反向 marker 在全部分析患者上比较，因而评估人群与含 cate 的图不同。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-direction-1.png" class="img-fluid figure-img" alt="预设 marker 与反向 marker 在全部分析患者上比较，因而评估人群与含 cate 的图不同。" width="672" loading="lazy" decoding="async" height="864" srcset="../assets/figure-previews/55c41845ed135805aa69632c38a19837.webp"></a>
+<a href="hte-diagnostics-guide_files/figure-html/fig-diagnostics-direction-1.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="图&nbsp;69.6: 预设 marker 与反向 marker 在全部分析患者上比较，因而评估人群与含 cate 的图不同。"><img src="hte-diagnostics-guide_files/figure-html/fig-diagnostics-direction-1.png" class="img-fluid figure-img" alt="预设 marker 与反向 marker 在全部分析患者上比较，因而评估人群与含 cate 的图不同。" width="672" loading="lazy" decoding="async" height="864" srcset="../assets/figure-previews/55c41845ed135805aa69632c38a19837.webp"></a>
 </div>
 <figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-diagnostics-direction-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
 图&nbsp;69.6: 预设 marker 与反向 marker 在全部分析患者上比较，因而评估人群与含 cate 的图不同。
@@ -1595,60 +1693,60 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="sec-diagnostics-report" class="level2">
 <h2 class="anchored" data-anchor-id="sec-diagnostics-report">保存、复现与报告</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_hte_rate</span>(res, <span class="at">priority =</span> <span class="st">"cate"</span>, <span class="at">type =</span> <span class="fu">c</span>(<span class="st">"toc"</span>, <span class="st">"qini"</span>, <span class="st">"gates"</span>),</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>             <span class="at">gates_args =</span> <span class="fu">list</span>(<span class="at">n_groups =</span> <span class="dv">4</span>), <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>,</span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>             <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="st">"hte_diagnostics.pdf"</span>, <span class="at">width =</span> <span class="dv">14</span>, <span class="at">height =</span> <span class="dv">5</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_hte_rate</span>(res, <span class="at">priority =</span> <span class="st">"cate"</span>, <span class="at">type =</span> <span class="fu">c</span>(<span class="st">"toc"</span>, <span class="st">"qini"</span>, <span class="st">"gates"</span>),</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>             <span class="at">gates_args =</span> <span class="fu">list</span>(<span class="at">n_groups =</span> <span class="dv">4</span>), <span class="at">max_n =</span> <span class="cn">Inf</span>, <span class="at">seed =</span> <span class="dv">77</span>,</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>             <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="st">"hte_diagnostics.pdf"</span>, <span class="at">width =</span> <span class="dv">14</span>, <span class="at">height =</span> <span class="dv">5</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>报告目标效应的单位、排序来源、训练/评估人数、种子、抽样上限、置信水平、分组数与并列值处理。 生存结局同时报告 horizon 和每片两臂的随访支持；独立测试或外层重抽样用于评价完整的调参流程。</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">args</span>(plt_hte_rate)</span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; function (x, priority = "cate", type = c("toc", "qini"), smooth = 0, </span></span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;     gates_args = list(n_groups = 5), conf_level = 0.95, train_frac = 0.5, </span></span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;     max_n = 10000, seed = NULL, title = NULL, save = list()) </span></span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; NULL</span></span>
-<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span>
-<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; R version 4.4.3 (2025-02-28 ucrt)</span></span>
-<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Platform: x86_64-w64-mingw32/x64</span></span>
-<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Running under: Windows 11 x64 (build 26200)</span></span>
-<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Matrix products: default</span></span>
-<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; locale:</span></span>
-<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] LC_COLLATE=Chinese (Simplified)_China.utf8 </span></span>
-<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [2] LC_CTYPE=Chinese (Simplified)_China.utf8   </span></span>
-<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [3] LC_MONETARY=Chinese (Simplified)_China.utf8</span></span>
-<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [4] LC_NUMERIC=C                               </span></span>
-<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [5] LC_TIME=Chinese (Simplified)_China.utf8    </span></span>
-<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; time zone: Asia/Shanghai</span></span>
-<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; tzcode source: internal</span></span>
-<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-24"><a href="#cb13-24" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; attached base packages:</span></span>
-<span id="cb13-25"><a href="#cb13-25" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     </span></span>
-<span id="cb13-26"><a href="#cb13-26" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-27"><a href="#cb13-27" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; other attached packages:</span></span>
-<span id="cb13-28"><a href="#cb13-28" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] ggplot2_4.0.3      causalR_0.0.0.9000</span></span>
-<span id="cb13-29"><a href="#cb13-29" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-30"><a href="#cb13-30" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; loaded via a namespace (and not attached):</span></span>
-<span id="cb13-31"><a href="#cb13-31" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [1] Matrix_1.7-6       gtable_0.3.6       jsonlite_2.0.0     dplyr_1.2.1       </span></span>
-<span id="cb13-32"><a href="#cb13-32" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [5] compiler_4.4.3     tidyselect_1.2.1   Rcpp_1.1.2         grf_2.6.1         </span></span>
-<span id="cb13-33"><a href="#cb13-33" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [9] dichromat_2.0-0.1  splines_4.4.3      scales_1.4.0       yaml_2.3.12       </span></span>
-<span id="cb13-34"><a href="#cb13-34" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [13] fastmap_1.2.0      lattice_0.23-1     R6_2.6.1           patchwork_1.3.2   </span></span>
-<span id="cb13-35"><a href="#cb13-35" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [17] labeling_0.4.3     generics_0.1.4     knitr_1.52         htmlwidgets_1.6.4 </span></span>
-<span id="cb13-36"><a href="#cb13-36" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [21] ggrepel_0.9.6      tibble_3.3.1       pillar_1.11.1      RColorBrewer_1.1-3</span></span>
-<span id="cb13-37"><a href="#cb13-37" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [25] rlang_1.3.0        utf8_1.2.6         UtilsR_0.6.8       xfun_0.61         </span></span>
-<span id="cb13-38"><a href="#cb13-38" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [29] S7_0.2.2           otel_0.2.0         cli_3.6.6          withr_3.0.3       </span></span>
-<span id="cb13-39"><a href="#cb13-39" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [33] magrittr_2.0.5     digest_0.6.39      grid_4.4.3         sandwich_3.1-3    </span></span>
-<span id="cb13-40"><a href="#cb13-40" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [37] lifecycle_1.0.5    vctrs_0.7.3        ggprism_1.0.7      evaluate_1.0.5    </span></span>
-<span id="cb13-41"><a href="#cb13-41" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [41] glue_1.8.1         farver_2.1.2       zoo_1.9-1          rmarkdown_2.32    </span></span>
-<span id="cb13-42"><a href="#cb13-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [45] tools_4.4.3        pkgconfig_2.0.3    htmltools_0.5.9</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">args</span>(plt_hte_rate)</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; function (x, priority = "cate", type = c("toc", "qini"), smooth = 0, </span></span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;     gates_args = list(n_groups = 5), conf_level = 0.95, train_frac = 0.5, </span></span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;     max_n = 10000, seed = NULL, title = NULL, save = list()) </span></span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; NULL</span></span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; R version 4.4.3 (2025-02-28 ucrt)</span></span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Platform: x86_64-w64-mingw32/x64</span></span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Running under: Windows 11 x64 (build 26200)</span></span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Matrix products: default</span></span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; locale:</span></span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] LC_COLLATE=Chinese (Simplified)_China.utf8 </span></span>
+<span id="cb15-16"><a href="#cb15-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [2] LC_CTYPE=Chinese (Simplified)_China.utf8   </span></span>
+<span id="cb15-17"><a href="#cb15-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [3] LC_MONETARY=Chinese (Simplified)_China.utf8</span></span>
+<span id="cb15-18"><a href="#cb15-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [4] LC_NUMERIC=C                               </span></span>
+<span id="cb15-19"><a href="#cb15-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [5] LC_TIME=Chinese (Simplified)_China.utf8    </span></span>
+<span id="cb15-20"><a href="#cb15-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb15-21"><a href="#cb15-21" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; time zone: Asia/Shanghai</span></span>
+<span id="cb15-22"><a href="#cb15-22" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; tzcode source: internal</span></span>
+<span id="cb15-23"><a href="#cb15-23" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb15-24"><a href="#cb15-24" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; attached base packages:</span></span>
+<span id="cb15-25"><a href="#cb15-25" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     </span></span>
+<span id="cb15-26"><a href="#cb15-26" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb15-27"><a href="#cb15-27" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; other attached packages:</span></span>
+<span id="cb15-28"><a href="#cb15-28" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] ggplot2_4.0.3      causalR_0.0.0.9000</span></span>
+<span id="cb15-29"><a href="#cb15-29" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb15-30"><a href="#cb15-30" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; loaded via a namespace (and not attached):</span></span>
+<span id="cb15-31"><a href="#cb15-31" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [1] Matrix_1.7-6       gtable_0.3.6       jsonlite_2.0.0     dplyr_1.2.1       </span></span>
+<span id="cb15-32"><a href="#cb15-32" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [5] compiler_4.4.3     tidyselect_1.2.1   Rcpp_1.1.2         grf_2.6.1         </span></span>
+<span id="cb15-33"><a href="#cb15-33" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [9] dichromat_2.0-0.1  splines_4.4.3      scales_1.4.0       yaml_2.3.12       </span></span>
+<span id="cb15-34"><a href="#cb15-34" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [13] fastmap_1.2.0      lattice_0.23-1     R6_2.6.1           patchwork_1.3.2   </span></span>
+<span id="cb15-35"><a href="#cb15-35" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [17] labeling_0.4.3     generics_0.1.4     knitr_1.52         htmlwidgets_1.6.4 </span></span>
+<span id="cb15-36"><a href="#cb15-36" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [21] ggrepel_0.9.6      tibble_3.3.1       pillar_1.11.1      RColorBrewer_1.1-3</span></span>
+<span id="cb15-37"><a href="#cb15-37" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [25] rlang_1.3.0        utf8_1.2.6         UtilsR_0.6.8       xfun_0.61         </span></span>
+<span id="cb15-38"><a href="#cb15-38" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [29] S7_0.2.2           otel_0.2.0         cli_3.6.6          withr_3.0.3       </span></span>
+<span id="cb15-39"><a href="#cb15-39" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [33] magrittr_2.0.5     digest_0.6.39      grid_4.4.3         sandwich_3.1-3    </span></span>
+<span id="cb15-40"><a href="#cb15-40" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [37] lifecycle_1.0.5    vctrs_0.7.3        ggprism_1.0.7      evaluate_1.0.5    </span></span>
+<span id="cb15-41"><a href="#cb15-41" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [41] glue_1.8.1         farver_2.1.2       zoo_1.9-1          rmarkdown_2.32    </span></span>
+<span id="cb15-42"><a href="#cb15-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [45] tools_4.4.3        pkgconfig_2.0.3    htmltools_0.5.9</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </section>
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1657,9 +1755,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li>2026-10-28：追加 <a href="#spline-range-20261028">有效曲线范围与低秩 HC3</a>的 240 行实跑对照。</li>
 <li>2026-10-28：新增 <a href="#positive-weights-20261028">零权重与有效推断</a>，核对 240 行描述人数、220 行正权重和 22 个有效聚类。</li>
 </ul>
 </div>
