@@ -247,6 +247,70 @@ validation_values <- list(n = c(240L, 220L, 11L), supported_range = spline_range
 
 <!-- /update-20261028: causal_spline -->
 
+### 校准不可用时，保留其他结果并核对各自分母（2026-10-28） {#calibration-missing-20261028b}
+
+<!-- update-20261028b: causal_calibration_missing -->
+
+按 causalR `6760092`，正权重行上的 OOB 预测或残差含非有限值、或校准回归失败时，函数发出 `Calibration inference is unavailable` 警告，保留两个校准项，数值列设为 NA。这样能继续检查其他返回结果，同时明确校准推断缺失；不能把 NA 写成零、无异质性或校准良好。
+
+下面刻意只长 **10 棵树**，复现小森林的 OOB 支持不足。这是 400 行合成数据上的诊断例，不是建议的训练参数。`data` 保留 400 行，其中 11 行伪结局非有限，VIP 在剩余 389 行上投影。本例的总体 ATE 和森林异质性推断也会警告为 NA，不能因为 VIP 有有限估计就称整体推断可用。返回行数、可用得分人数及各推断项的状态须分别报告。
+
+```r
+library(causalR)
+set.seed(1028)
+cal_data28 <- data.frame(w1 = rnorm(400), w2 = rnorm(400), w3 = rnorm(400, 0, 2),
+  w4 = rnorm(400), sex = factor(sample(c("F", "M"), 400, replace = TRUE)))
+cal_data28[["a"]] <- rbinom(400, 1, plogis(.5 * cal_data28[["w1"]]))
+cal_data28[["y"]] <- cal_data28[["w1"]] + cal_data28[["w2"]] + cal_data28[["a"]] *
+  (cal_data28[["w3"]] + (cal_data28[["sex"]] == "M")) + rnorm(400)
+cal_args28 <- list(num.trees = 10, seed = 7, num.threads = 1, W.hat = .5, Y.hat = 0)
+cal_result28 <- get_hte_unihtee(cal_data28, "a", tree_var = c("w3", "w1"), surv = "y",
+  grf_args = cal_args28)
+cal_table28 <- cal_result28[["hte"]][["calibration"]]
+gt::gtsave(gt::sub_missing(gt::gt(cal_table28), missing_text = "Unavailable"),
+  file.path(tempdir(), "20261028b-update-calibration-unavailable.html"))
+cal_counts28 <- data.frame(input = nrow(cal_data28), retained = nrow(cal_result28[["data"]]),
+  finite_scores = sum(is.finite(cal_result28[["data"]][[".score_diff"]])),
+  VIP_n_w3 = cal_result28[["vip"]][["n"]][cal_result28[["vip"]][["variable"]] == "w3"])
+gt::gtsave(gt::gt(cal_counts28), file.path(tempdir(), "20261028b-update-calibration-denominators.html"))
+```
+
+::: {.panel-tabset}
+
+#### 校准项的可用性 {.unnumbered}
+
+![两个校准项均明确显示不可用。](images/hte-diagnostics-guide/20261028b-update-calibration-unavailable.png){fig-alt="mean.forest.prediction 和 differential.forest.prediction 两个校准项保留，估计、标准误、统计量和 p 值均为 Unavailable。"}
+
+[原生 HTML](images/hte-diagnostics-guide/20261028b-update-calibration-unavailable.html)
+
+#### 返回行与可用得分 {.unnumbered}
+
+![保留的数据行数与可用得分人数分开列示。](images/hte-diagnostics-guide/20261028b-update-calibration-denominators.png){fig-alt="400 行输入和返回数据人数，与有限 AIPW 得分人数、w3 的 VIP 人数并列；VIP 使用其实际可用得分分母。"}
+
+[原生 HTML](images/hte-diagnostics-guide/20261028b-update-calibration-denominators.html)
+
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+cal_direct28 <- get_hte(cal_data28, "a", adj_var = c("w3", "w1"), surv = "y", grf_args = cal_args28)
+stopifnot(any(!is.finite(cal_result28[["hte"]][["fit"]][["predictions"]])),
+  identical(cal_table28[["term"]], c("mean.forest.prediction", "differential.forest.prediction")),
+  all(is.na(as.matrix(cal_table28[-1]))), nrow(cal_result28[["data"]]) == 400,
+  all(cal_result28[["vip"]][["n"]] == cal_counts28[["finite_scores"]]),
+  all(is.finite(cal_result28[["vip"]][["estimate"]])),
+  identical(cal_direct28[["calibration"]], cal_table28))
+validation_values <- list(n = cal_counts28, calibration = cal_table28, vip = cal_result28[["vip"]],
+  source = "6760092c8020fb3814bdb274ebba7a03e0703470", grf = as.character(utils::packageVersion("grf")),
+  R = R.version.string)
+```
+:::
+
+本节在 Windows R 4.4.3、causalR `6760092` 固定源码实跑，种子 1028 / 7；只复核连续结局的这条失败路径。原有零权重、聚类 HC3 与生存诊断示例保留其执行快照。对暴露结局重叠及正权重组人数不足的检查，见[拟合前的边界检查](method-selection-guide.qmd#special-names-20261028b)。
+
+<!-- /update-20261028b: causal_calibration_missing -->
+
 ## plt_hte_rate：重要参数 {#sec-diagnostics-args}
 
 | 参数 | 默认 | 作用与条件 |
@@ -389,6 +453,7 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：增加 [校准推断不可用](#calibration-missing-20261028b)的 400 行诊断例，区分返回行数与 VIP 有限得分人数。
 - 2026-10-28：追加 [有效曲线范围与低秩 HC3](#spline-range-20261028)的 240 行实跑对照。
 - 2026-10-28：新增 [零权重与有效推断](#positive-weights-20261028)，核对 240 行描述人数、220 行正权重和 22 个有效聚类。
 :::
