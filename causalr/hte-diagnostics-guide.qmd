@@ -311,6 +311,111 @@ validation_values <- list(n = cal_counts28, calibration = cal_table28, vip = cal
 
 <!-- /update-20261028b: causal_calibration_missing -->
 
+### 极端单位与独立类别的等价诊断（2026-10-28） {#extreme-units-20261028b}
+
+<!-- update-20261028b: causal_extreme_units -->
+
+causalR `475d200` 对极端单位的连续候选先在内部缩放，再计算 SD、边际投影与样条诊断；报告的 VIP 仍为每 1 SD，曲线横轴仍用原单位。仅换计量单位不应令可用候选失效；若投影确实失败，则仅该候选不可用，保留其他候选并警告。
+
+下面用 200 行固定合成数据，把 `w3` 分别乘以 `1e-200` 和 `1e200`。这两种极端倍率只用于数值诊断，不是实际变量推荐单位。100 棵树、已知倾向概率 0.5 和固定种子用来比较相同模型路径。
+
+```r
+library(causalR)
+set.seed(510)
+unit_data28 <- data.frame(w1 = rnorm(200), w2 = rnorm(200), w3 = rnorm(200, 0, 2),
+  w4 = rnorm(200), sex = factor(sample(c("F", "M"), 200, replace = TRUE)))
+unit_data28[["a"]] <- rbinom(200, 1, plogis(.5 * unit_data28[["w1"]]))
+unit_data28[["y"]] <- unit_data28[["w1"]] + unit_data28[["w2"]] + unit_data28[["a"]] *
+  (unit_data28[["w3"]] + (unit_data28[["sex"]] == "M")) + rnorm(200)
+unit_args28 <- list(num.trees = 100, num.threads = 1, seed = 7, W.hat = .5, Y.hat = 0)
+unit_fits28 <- lapply(c(1, 1e-200, 1e200), function(multiplier) {
+  d <- unit_data28
+  d[["w3"]] <- d[["w3"]] * multiplier
+  get_hte_unihtee(d, "a", tree_var = c("w3", "w1"), surv = "y", grf_args = unit_args28)
+})
+unit_table28 <- do.call(rbind, lapply(seq_along(unit_fits28), function(i) {
+  r <- unit_fits28[[i]][["vip"]]
+  r <- r[r[["variable"]] == "w3", ]
+  data.frame(multiplier = c(1, 1e-200, 1e200)[i], SD_original_unit = r[["sd"]],
+    VIP_per_SD = r[["estimate"]], SE = r[["std.error"]])
+}))
+unit_gt28 <- gt::fmt_scientific(gt::gt(unit_table28), columns = c("multiplier", "SD_original_unit"), decimals = 3)
+gt::gtsave(gt::fmt_number(unit_gt28, columns = c("VIP_per_SD", "SE"), decimals = 6),
+  file.path(tempdir(), "20261028b-update-extreme-covariate-units.html"))
+unit_big_plot28 <- plt_hte_unihtee(unit_fits28[[3]], type = "dep", x_var = "w3") +
+  ggplot2::scale_x_continuous(breaks = c(-4, -2, 0, 2, 4) * 1e200,
+    labels = scales::label_scientific(digits = 1)) +
+  ggplot2::theme(plot.margin = ggplot2::margin(6, 24, 6, 6))
+ggplot2::ggsave(file.path(tempdir(), "20261028b-update-extreme-unit-original-axis.pdf"), unit_big_plot28,
+  width = 7.5, height = 4.7)
+```
+
+::: {.panel-tabset}
+
+#### 每 SD 的投影保持相同 {.unnumbered}
+
+![单位相差 400 个数量级，VIP 与标准误保持相同。](images/hte-diagnostics-guide/20261028b-update-extreme-covariate-units.png){fig-alt="200 行合成数据的 w3 分别乘 1、10的负200次方、10的200次方，原单位 SD 随倍率变化，每SD的VIP及标准误保持相同。"}
+
+[原生 HTML](images/hte-diagnostics-guide/20261028b-update-extreme-covariate-units.html)
+
+#### 曲线仍用原始单位 {.unnumbered}
+
+![横轴保留乘以 1e200 后的数值，不显示内部标准化轴。](images/hte-diagnostics-guide/20261028b-update-extreme-unit-original-axis.png){fig-alt="w3 乘以10的200次方后的实际依赖图，横轴仍是极大原单位，投影和样条估计与普通单位版本一致。"}
+
+[原生 PDF](images/hte-diagnostics-guide/20261028b-update-extreme-unit-original-axis.pdf)
+
+:::
+
+对互不重叠、观测独立的类别组，函数还可直接计算对角协方差，再做等价 Wald 检验；存在共享聚类或不满足条件时保留一般协方差路径。下面用额外 160 行、8 组数据，将分类异质性 p 值与分组加权均值的独立 sandwich 协方差手工结果核对。未测性能或内存倍数。
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+unit_columns28 <- c("estimate", "std.error", "conf.low", "conf.high", "p.value")
+unit_ref_plot28 <- plt_hte_unihtee(unit_fits28[[1]], type = "dep", x_var = "w3")
+unit_line28 <- function(p, field) {
+  Filter(function(l) inherits(l[["geom"]], "GeomLine") && is.data.frame(l[["data"]]) &&
+    field %in% names(l[["data"]]), p[["layers"]])[[1]][["data"]]
+}
+for (i in 2:3) {
+  multiplier <- c(1, 1e-200, 1e200)[i]
+  stopifnot(isTRUE(all.equal(unit_fits28[[i]][["vip"]][unit_columns28], unit_fits28[[1]][["vip"]][unit_columns28], tolerance = 1e-10)),
+    isTRUE(all.equal(unit_fits28[[i]][["hte"]][["importance"]][["p_het"]], unit_fits28[[1]][["hte"]][["importance"]][["p_het"]], tolerance = 1e-10)))
+  p <- plt_hte_unihtee(unit_fits28[[i]], type = "dep", x_var = "w3")
+  for (field in c("estimate", "spline")) {
+    line <- unit_line28(p, field)
+    ref <- unit_line28(unit_ref_plot28, field)
+    stopifnot(isTRUE(all.equal(line[[field]], ref[[field]], tolerance = 1e-10)),
+      isTRUE(all.equal(line[["x"]] / multiplier, ref[["x"]], tolerance = 1e-10)))
+  }
+}
+set.seed(914)
+diag_cat28 <- data.frame(a = rep(0:1, 80), x = rnorm(160), g = factor(rep(seq_len(8), each = 20)))
+diag_cat28[["y"]] <- diag_cat28[["a"]] * (1 + diag_cat28[["x"]]) + rnorm(160)
+diag_w28 <- runif(160, .5, 2)
+diag_args28 <- unit_args28
+diag_args28[["sample.weights"]] <- diag_w28
+diag_cat_result28 <- get_hte_unihtee(diag_cat28, "a", tree_var = "x", adj_var = "g", surv = "y", grf_args = diag_args28)
+diag_means28 <- lapply(split(seq_len(160), diag_cat28[["g"]]), function(i)
+  lm(p ~ 1, weights = w, data = data.frame(p = diag_cat_result28[["data"]][[".dr_score"]][i], w = diag_w28[i])))
+diag_mu28 <- vapply(diag_means28, function(f) unname(coef(f)[1]), numeric(1))
+diag_V28 <- diag(vapply(diag_means28, function(f) sandwich::vcovCL(f, type = "HC0")[1, 1], numeric(1)))
+diag_C28 <- cbind(-1, diag(length(diag_mu28) - 1))
+diag_b28 <- drop(diag_C28 %*% diag_mu28)
+diag_manual_p28 <- pchisq(drop(crossprod(diag_b28, solve(diag_C28 %*% diag_V28 %*% t(diag_C28), diag_b28))),
+  length(diag_mu28) - 1, lower.tail = FALSE)
+diag_package_p28 <- diag_cat_result28[["hte"]][["importance"]][["p_het"]][diag_cat_result28[["hte"]][["importance"]][["variable"]] == "g"]
+stopifnot(isTRUE(all.equal(diag_package_p28, diag_manual_p28, tolerance = 1e-12)))
+validation_values <- list(n = c(200L, 160L), units = unit_table28, scaled_curves_match = TRUE,
+  categorical_p = c(package = diag_package_p28, manual = diag_manual_p28),
+  source = "475d200c71bceb0b5e5cda327ddb39d8752e90eb", R = R.version.string)
+```
+:::
+
+本节在 Windows R 4.4.3、causalR `475d200` 固定源码运行；连续例种子 510 / 7，独立类别例种子 914 / 7。保留原单位只是数值计算与展示合同，不改变混杂调整、估计目标或因果解释。
+
+<!-- /update-20261028b: causal_extreme_units -->
+
 ## plt_hte_rate：重要参数 {#sec-diagnostics-args}
 
 | 参数 | 默认 | 作用与条件 |
@@ -453,6 +558,7 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：追加 [极端协变量单位与独立类别诊断](#extreme-units-20261028b)，复核每 SD 投影、原始横轴及手工 Wald 结果。
 - 2026-10-28：增加 [校准推断不可用](#calibration-missing-20261028b)的 400 行诊断例，区分返回行数与 VIP 有限得分人数。
 - 2026-10-28：追加 [有效曲线范围与低秩 HC3](#spline-range-20261028)的 240 行实跑对照。
 - 2026-10-28：新增 [零权重与有效推断](#positive-weights-20261028)，核对 240 行描述人数、220 行正权重和 22 个有效聚类。
