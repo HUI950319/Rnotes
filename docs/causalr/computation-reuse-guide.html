@@ -1653,80 +1653,180 @@ window.Quarto = {
 <p>新的 <a href="../causalr/hte-diagnostics-guide.html#spline-range-20261028">240 行、11 个有效聚类例子</a>直接比较包返回标准误与同一正权重样本的 <code>sandwich::vcovCL(type="HC3")</code>，并核对零权重极端值不拉长曲线。这里只给出源码策略和真实数值复核，没有把它写成新的耗时或内存倍数。</p>
 <!-- /update-20261028: hc3_reuse_notes -->
 </section>
+<section id="oob-consumers-20261028b" class="level3">
+<h3 class="anchored" data-anchor-id="oob-consumers-20261028b">unihtee 与 CATE 绘图继续复用 OOB 结果（2026-10-28）</h3>
+<!-- update-20261028b: causal_oob_consumers -->
+<p><code>get_hte_unihtee(method="grf")</code> 在 <code>get_hte()</code> 已获得 OOB CATE 后，计算 arm scores 时继续复用这些预测；不因森林关闭缓存而再重复计算。后续单次 <code>plt_hte_cate()</code> 调用也在局部副本中为亚组 / 总体参考线共用所需预测，返回的原森林仍保留 <code>compute.oob.predictions=FALSE</code>。请求 <code>show_ci=TRUE</code> 的方差预测是另一个任务，不能把它算成重复的点预测。</p>
+<p>下面用 180 行固定合成数据，只切换森林 OOB 缓存。核对 VIP、分析数据、总体统计量、校准及实际 CATE 图层；此处没有测量提速或内存倍数。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(causalR)</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2825</span>)</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>consumer_data28 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">z =</span> <span class="fu">rep</span>(<span class="dv">0</span><span class="sc">:</span><span class="dv">1</span>, <span class="dv">90</span>), <span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>), <span class="at">v =</span> <span class="fu">rnorm</span>(<span class="dv">180</span>),</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">band =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"B"</span>), <span class="dv">45</span>)))</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>consumer_data28[[<span class="st">"y"</span>]] <span class="ot">&lt;-</span> consumer_data28[[<span class="st">"x"</span>]] <span class="sc">+</span> consumer_data28[[<span class="st">"z"</span>]] <span class="sc">*</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  (<span class="dv">1</span> <span class="sc">+</span> consumer_data28[[<span class="st">"v"</span>]]) <span class="sc">+</span> <span class="fu">rnorm</span>(<span class="dv">180</span>)</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>consumer_args28 <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">num.trees =</span> <span class="dv">100</span>, <span class="at">num.threads =</span> <span class="dv">1</span>, <span class="at">seed =</span> <span class="dv">28</span>,</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">W.hat =</span> .<span class="dv">5</span>, <span class="at">Y.hat =</span> <span class="dv">0</span>, <span class="at">compute.oob.predictions =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>consumer_cached28 <span class="ot">&lt;-</span> <span class="fu">get_hte_unihtee</span>(consumer_data28, <span class="st">"z"</span>, <span class="at">tree_var =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"v"</span>), <span class="at">adj_var =</span> <span class="st">"band"</span>,</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="st">"y"</span>, <span class="at">grf_args =</span> consumer_args28)</span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>consumer_args28[[<span class="st">"compute.oob.predictions"</span>]] <span class="ot">&lt;-</span> <span class="cn">FALSE</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>consumer_uncached28 <span class="ot">&lt;-</span> <span class="fu">get_hte_unihtee</span>(consumer_data28, <span class="st">"z"</span>, <span class="at">tree_var =</span> <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"v"</span>), <span class="at">adj_var =</span> <span class="st">"band"</span>,</span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="st">"y"</span>, <span class="at">grf_args =</span> consumer_args28)</span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>consumer_plot28 <span class="ot">&lt;-</span> <span class="fu">plt_hte_cate</span>(consumer_uncached28[[<span class="st">"hte"</span>]], <span class="at">sub_var =</span> <span class="st">"band"</span>, <span class="at">type =</span> <span class="st">"density"</span>)</span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>consumer_table28 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">cache_requested =</span> <span class="fu">c</span>(<span class="cn">TRUE</span>, <span class="cn">FALSE</span>), <span class="at">n =</span> <span class="fu">nrow</span>(consumer_data28),</span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>  <span class="at">estimate =</span> <span class="fu">c</span>(consumer_cached28[[<span class="st">"hte"</span>]][[<span class="st">"stats"</span>]][[<span class="st">"estimate"</span>]], consumer_uncached28[[<span class="st">"hte"</span>]][[<span class="st">"stats"</span>]][[<span class="st">"estimate"</span>]]),</span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">SE =</span> <span class="fu">c</span>(consumer_cached28[[<span class="st">"hte"</span>]][[<span class="st">"stats"</span>]][[<span class="st">"std.error"</span>]], consumer_uncached28[[<span class="st">"hte"</span>]][[<span class="st">"stats"</span>]][[<span class="st">"std.error"</span>]]))</span>
+<span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">fmt_number</span>(gt<span class="sc">::</span><span class="fu">gt</span>(consumer_table28), <span class="at">columns =</span> <span class="fu">c</span>(<span class="st">"estimate"</span>, <span class="st">"SE"</span>), <span class="at">decimals =</span> <span class="dv">6</span>),</span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261028b-update-unihtee-cache-equivalence.html"</span>))</span>
+<span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261028b-update-cate-local-reuse.pdf"</span>), consumer_plot28,</span>
+<span id="cb12-21"><a href="#cb12-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">width =</span> <span class="fl">7.5</span>, <span class="at">height =</span> <span class="fl">4.7</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">同一数据的缓存对照</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">未缓存对象上的 CATE 图</a></li></ul>
+<div class="tab-content">
+<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/computation-reuse-guide/20261028b-update-unihtee-cache-equivalence.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="OOB 缓存开关下，180 行的总体估计和标准误一致。"><img src="images/computation-reuse-guide/20261028b-update-unihtee-cache-equivalence.png" class="img-fluid figure-img" alt="180 行合成数据的 unihtee GRF 路径，OOB 缓存开关下总体估计与标准误相同，原 FALSE 设置保留。" loading="lazy" decoding="async" width="504" height="165" srcset="../assets/figure-previews/9b7899980440c0c4eb033bbda1cbe675.webp"></a></p>
+<figcaption>OOB 缓存开关下，180 行的总体估计和标准误一致。</figcaption>
+</figure>
+</div>
+<p><a href="images/computation-reuse-guide/20261028b-update-unihtee-cache-equivalence.html">原生 HTML</a></p>
+</div>
+<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/computation-reuse-guide/20261028b-update-cate-local-reuse.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="亚组密度与参考线使用局部复用的预测。"><img src="images/computation-reuse-guide/20261028b-update-cate-local-reuse.png" class="img-fluid figure-img" alt="未缓存森林绘制 band 两个亚组的 CATE 密度，亚组及总体参考线与缓存版图层逐项相同。" loading="lazy" decoding="async" width="1088" height="681" srcset="../assets/figure-previews/bcbe92e5fc7df7b05b8e0de8c3d4da74.webp"></a></p>
+<figcaption>亚组密度与参考线使用局部复用的预测。</figcaption>
+</figure>
+</div>
+<p><a href="images/computation-reuse-guide/20261028b-update-cate-local-reuse.pdf">原生 PDF</a></p>
+</div>
+</div>
+</div>
+<p>再构造一个<strong>专门测试绘图容错</strong>的分组：两组分别只有对照或治疗，因此组内因果效应不可估计。现在 CATE 分布面板仍能显示，缺失的亚组效应参考线不画；可用的总体参考线独立保留。这种按实际治疗划组的方式只用于触发边界，不是临床亚组分析方案。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>consumer_single_arm28 <span class="ot">&lt;-</span> consumer_uncached28[[<span class="st">"hte"</span>]]</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>consumer_single_arm28[[<span class="st">"data"</span>]][[<span class="st">"aux"</span>]] <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(consumer_single_arm28[[<span class="st">"data"</span>]][[<span class="st">"z"</span>]] <span class="sc">==</span> <span class="dv">0</span>,</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Control only"</span>, <span class="st">"Treated only"</span>))</span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>consumer_no_refs28 <span class="ot">&lt;-</span> <span class="fu">plt_hte_cate</span>(consumer_single_arm28, <span class="at">sub_var =</span> <span class="st">"aux"</span>, <span class="at">type =</span> <span class="st">"density"</span>)</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>ggplot2<span class="sc">::</span><span class="fu">ggsave</span>(<span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261028b-update-cate-unavailable-references.pdf"</span>), consumer_no_refs28,</span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">width =</span> <span class="fl">7.5</span>, <span class="at">height =</span> <span class="fl">4.7</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/computation-reuse-guide/20261028b-update-cate-unavailable-references.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="组内效应不可用时仍保留 CATE 分布，不生成假的亚组参考线。"><img src="images/computation-reuse-guide/20261028b-update-cate-unavailable-references.png" class="img-fluid figure-img" alt="仅用于容错复核的两个单臂分组仍显示各自 CATE 分布；亚组效应均为 NA，只有可用的总体参考线保留。" loading="lazy" decoding="async" width="1088" height="681" srcset="../assets/figure-previews/d2a4a38958224355dd6fd76be779dd7f.webp"></a></p>
+<figcaption>组内效应不可用时仍保留 CATE 分布，不生成假的亚组参考线。</figcaption>
+</figure>
+</div>
+<p><a href="images/computation-reuse-guide/20261028b-update-cate-unavailable-references.pdf">原生 PDF</a></p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>consumer_before28 <span class="ot">&lt;-</span> <span class="fu">serialize</span>(consumer_uncached28, <span class="cn">NULL</span>)</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>consumer_fresh_plot28 <span class="ot">&lt;-</span> <span class="fu">plt_hte_cate</span>(consumer_uncached28[[<span class="st">"hte"</span>]], <span class="at">sub_var =</span> <span class="st">"band"</span>, <span class="at">type =</span> <span class="st">"density"</span>)</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>consumer_ref_plot28 <span class="ot">&lt;-</span> <span class="fu">plt_hte_cate</span>(consumer_cached28[[<span class="st">"hte"</span>]], <span class="at">sub_var =</span> <span class="st">"band"</span>, <span class="at">type =</span> <span class="st">"density"</span>)</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(consumer_uncached28[[<span class="st">"vip"</span>]], consumer_cached28[[<span class="st">"vip"</span>]], <span class="at">tolerance =</span> <span class="fl">1e-12</span>)),</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(consumer_uncached28[[<span class="st">"data"</span>]], consumer_cached28[[<span class="st">"data"</span>]], <span class="at">tolerance =</span> <span class="fl">1e-12</span>)),</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(consumer_uncached28[[<span class="st">"hte"</span>]][[<span class="st">"stats"</span>]], consumer_cached28[[<span class="st">"hte"</span>]][[<span class="st">"stats"</span>]], <span class="at">tolerance =</span> <span class="fl">1e-12</span>)),</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(consumer_uncached28[[<span class="st">"hte"</span>]][[<span class="st">"calibration"</span>]], consumer_cached28[[<span class="st">"hte"</span>]][[<span class="st">"calibration"</span>]], <span class="at">tolerance =</span> <span class="fl">1e-12</span>)),</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">attr</span>(consumer_fresh_plot28, <span class="st">"subgroup"</span>), <span class="fu">attr</span>(consumer_ref_plot28, <span class="st">"subgroup"</span>)),</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(ggplot2<span class="sc">::</span><span class="fu">ggplot_build</span>(consumer_fresh_plot28)[[<span class="st">"data"</span>]], ggplot2<span class="sc">::</span><span class="fu">ggplot_build</span>(consumer_ref_plot28)[[<span class="st">"data"</span>]]),</span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">is.null</span>(consumer_uncached28[[<span class="st">"hte"</span>]][[<span class="st">"fit"</span>]][[<span class="st">"predictions"</span>]]),</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(consumer_before28, <span class="fu">serialize</span>(consumer_uncached28, <span class="cn">NULL</span>)))</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>consumer_density28 <span class="ot">&lt;-</span> <span class="fu">Filter</span>(<span class="cf">function</span>(l) <span class="fu">inherits</span>(l[[<span class="st">"geom"</span>]], <span class="st">"GeomDensity"</span>), consumer_no_refs28[[<span class="st">"layers"</span>]])[[<span class="dv">1</span>]][[<span class="st">"data"</span>]]</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>consumer_lines28 <span class="ot">&lt;-</span> <span class="fu">Filter</span>(<span class="cf">function</span>(l) <span class="fu">inherits</span>(l[[<span class="st">"geom"</span>]], <span class="st">"GeomVline"</span>) <span class="sc">&amp;&amp;</span> <span class="fu">is.data.frame</span>(l[[<span class="st">"data"</span>]]), consumer_no_refs28[[<span class="st">"layers"</span>]])</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(consumer_density28) <span class="sc">==</span> <span class="dv">180</span>L, <span class="fu">all</span>(<span class="fu">is.na</span>(<span class="fu">attr</span>(consumer_no_refs28, <span class="st">"subgroup"</span>)[[<span class="st">"estimate"</span>]])),</span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!</span><span class="fu">any</span>(<span class="fu">vapply</span>(consumer_lines28, <span class="cf">function</span>(l) <span class="st">"estimate"</span> <span class="sc">%in%</span> <span class="fu">names</span>(l[[<span class="st">"data"</span>]]), <span class="fu">logical</span>(<span class="dv">1</span>))),</span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">vapply</span>(consumer_lines28, <span class="cf">function</span>(l) <span class="st">"ate"</span> <span class="sc">%in%</span> <span class="fu">names</span>(l[[<span class="st">"data"</span>]]), <span class="fu">logical</span>(<span class="dv">1</span>))))</span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> <span class="dv">180</span>L, <span class="at">cache =</span> consumer_table28, <span class="at">vip_matches =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_layers_match =</span> <span class="cn">TRUE</span>, <span class="at">original_unchanged =</span> <span class="cn">TRUE</span>, <span class="at">uncached_return =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">unavailable_subgroups =</span> <span class="fu">attr</span>(consumer_no_refs28, <span class="st">"subgroup"</span>), <span class="at">source =</span> <span class="st">"6760092"</span>, <span class="at">R =</span> R.version.string)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<p>本节为 Windows R 4.4.3、causalR <code>6760092c8020fb3814bdb274ebba7a03e0703470</code> 固定源码上的新增运行，种子 2825 / 28，只验证连续结局的上述路径；原森林复用基准和生存模型保留各自历史快照。校准本身不可用时的报告方式见<a href="../causalr/hte-diagnostics-guide.html#calibration-missing-20261028b">诊断页</a>。</p>
+<!-- /update-20261028b: causal_oob_consumers -->
+</section>
 </section>
 <section id="sec-reuse-save" class="level2">
 <h2 class="anchored" data-anchor-id="sec-reuse-save">保存背景与复现</h2>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(base, <span class="st">"hte_tree_context.rds"</span>)</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>base <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="st">"hte_tree_context.rds"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">saveRDS</span>(base, <span class="st">"hte_tree_context.rds"</span>)</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>base <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(<span class="st">"hte_tree_context.rds"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 <p>缓存包含原患者数据，不应公开真实研究的原始对象。记录源码版本、R/grf 版本、 完整参数、编码和患者顺序；从保存对象继续分析仍需通过当前版本的复用一致性检查。</p>
 <div class="cell">
-<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"causalR"</span>)</span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] '0.0.0.9000'</span></span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"grf"</span>)</span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] '2.6.1'</span></span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span>
-<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; R version 4.4.3 (2025-02-28 ucrt)</span></span>
-<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Platform: x86_64-w64-mingw32/x64</span></span>
-<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Running under: Windows 11 x64 (build 26200)</span></span>
-<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Matrix products: default</span></span>
-<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; locale:</span></span>
-<span id="cb13-14"><a href="#cb13-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] LC_COLLATE=Chinese (Simplified)_China.utf8 </span></span>
-<span id="cb13-15"><a href="#cb13-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [2] LC_CTYPE=Chinese (Simplified)_China.utf8   </span></span>
-<span id="cb13-16"><a href="#cb13-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [3] LC_MONETARY=Chinese (Simplified)_China.utf8</span></span>
-<span id="cb13-17"><a href="#cb13-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [4] LC_NUMERIC=C                               </span></span>
-<span id="cb13-18"><a href="#cb13-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [5] LC_TIME=Chinese (Simplified)_China.utf8    </span></span>
-<span id="cb13-19"><a href="#cb13-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-20"><a href="#cb13-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; time zone: Asia/Shanghai</span></span>
-<span id="cb13-21"><a href="#cb13-21" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; tzcode source: internal</span></span>
-<span id="cb13-22"><a href="#cb13-22" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-23"><a href="#cb13-23" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; attached base packages:</span></span>
-<span id="cb13-24"><a href="#cb13-24" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     </span></span>
-<span id="cb13-25"><a href="#cb13-25" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-26"><a href="#cb13-26" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; other attached packages:</span></span>
-<span id="cb13-27"><a href="#cb13-27" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] ggplot2_4.0.3      causalR_0.0.0.9000</span></span>
-<span id="cb13-28"><a href="#cb13-28" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
-<span id="cb13-29"><a href="#cb13-29" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; loaded via a namespace (and not attached):</span></span>
-<span id="cb13-30"><a href="#cb13-30" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [1] sandwich_3.1-3     utf8_1.2.6         generics_0.1.4     ggprism_1.0.7     </span></span>
-<span id="cb13-31"><a href="#cb13-31" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [5] lattice_0.23-1     inum_1.0-5         digest_0.6.39      magrittr_2.0.5    </span></span>
-<span id="cb13-32"><a href="#cb13-32" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [9] grf_2.6.1          evaluate_1.0.5     grid_4.4.3         RColorBrewer_1.1-3</span></span>
-<span id="cb13-33"><a href="#cb13-33" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [13] mvtnorm_1.4-2      fastmap_1.2.0      jsonlite_2.0.0     Matrix_1.7-6      </span></span>
-<span id="cb13-34"><a href="#cb13-34" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [17] ggrepel_0.9.6      backports_1.5.1    Formula_1.2-6      survival_3.8-12   </span></span>
-<span id="cb13-35"><a href="#cb13-35" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [21] scales_1.4.0       cli_3.6.6          rlang_1.3.0        splines_4.4.3     </span></span>
-<span id="cb13-36"><a href="#cb13-36" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [25] withr_3.0.3        yaml_2.3.12        otel_0.2.0         tools_4.4.3       </span></span>
-<span id="cb13-37"><a href="#cb13-37" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [29] checkmate_2.3.4    dplyr_1.2.1        vctrs_0.7.3        R6_2.6.1          </span></span>
-<span id="cb13-38"><a href="#cb13-38" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [33] rpart_4.1.27       strucchange_1.6-0  zoo_1.9-1          lifecycle_1.0.5   </span></span>
-<span id="cb13-39"><a href="#cb13-39" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [37] htmlwidgets_1.6.4  libcoin_1.0-13     ggparty_1.0.0.1    pkgconfig_2.0.3   </span></span>
-<span id="cb13-40"><a href="#cb13-40" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [41] partykit_1.3-1     pillar_1.11.1      gtable_0.3.6       glue_1.8.1        </span></span>
-<span id="cb13-41"><a href="#cb13-41" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [45] Rcpp_1.1.2         xfun_0.61          tibble_3.3.1       tidyselect_1.2.1  </span></span>
-<span id="cb13-42"><a href="#cb13-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [49] knitr_1.52         dichromat_2.0-0.1  farver_2.1.2       patchwork_1.3.2   </span></span>
-<span id="cb13-43"><a href="#cb13-43" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [53] UtilsR_0.6.8       htmltools_0.5.9    labeling_0.4.3     rmarkdown_2.32    </span></span>
-<span id="cb13-44"><a href="#cb13-44" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [57] compiler_4.4.3     S7_0.2.2</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"causalR"</span>)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] '0.0.0.9000'</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"grf"</span>)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] '2.6.1'</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; R version 4.4.3 (2025-02-28 ucrt)</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Platform: x86_64-w64-mingw32/x64</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Running under: Windows 11 x64 (build 26200)</span></span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; Matrix products: default</span></span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; locale:</span></span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] LC_COLLATE=Chinese (Simplified)_China.utf8 </span></span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [2] LC_CTYPE=Chinese (Simplified)_China.utf8   </span></span>
+<span id="cb16-16"><a href="#cb16-16" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [3] LC_MONETARY=Chinese (Simplified)_China.utf8</span></span>
+<span id="cb16-17"><a href="#cb16-17" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [4] LC_NUMERIC=C                               </span></span>
+<span id="cb16-18"><a href="#cb16-18" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [5] LC_TIME=Chinese (Simplified)_China.utf8    </span></span>
+<span id="cb16-19"><a href="#cb16-19" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb16-20"><a href="#cb16-20" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; time zone: Asia/Shanghai</span></span>
+<span id="cb16-21"><a href="#cb16-21" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; tzcode source: internal</span></span>
+<span id="cb16-22"><a href="#cb16-22" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb16-23"><a href="#cb16-23" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; attached base packages:</span></span>
+<span id="cb16-24"><a href="#cb16-24" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] stats     graphics  grDevices utils     datasets  methods   base     </span></span>
+<span id="cb16-25"><a href="#cb16-25" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb16-26"><a href="#cb16-26" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; other attached packages:</span></span>
+<span id="cb16-27"><a href="#cb16-27" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [1] ggplot2_4.0.3      causalR_0.0.0.9000</span></span>
+<span id="cb16-28"><a href="#cb16-28" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; </span></span>
+<span id="cb16-29"><a href="#cb16-29" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; loaded via a namespace (and not attached):</span></span>
+<span id="cb16-30"><a href="#cb16-30" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [1] sandwich_3.1-3     utf8_1.2.6         generics_0.1.4     ggprism_1.0.7     </span></span>
+<span id="cb16-31"><a href="#cb16-31" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [5] lattice_0.23-1     inum_1.0-5         digest_0.6.39      magrittr_2.0.5    </span></span>
+<span id="cb16-32"><a href="#cb16-32" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt;  [9] grf_2.6.1          evaluate_1.0.5     grid_4.4.3         RColorBrewer_1.1-3</span></span>
+<span id="cb16-33"><a href="#cb16-33" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [13] mvtnorm_1.4-2      fastmap_1.2.0      jsonlite_2.0.0     Matrix_1.7-6      </span></span>
+<span id="cb16-34"><a href="#cb16-34" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [17] ggrepel_0.9.6      backports_1.5.1    Formula_1.2-6      survival_3.8-12   </span></span>
+<span id="cb16-35"><a href="#cb16-35" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [21] scales_1.4.0       cli_3.6.6          rlang_1.3.0        splines_4.4.3     </span></span>
+<span id="cb16-36"><a href="#cb16-36" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [25] withr_3.0.3        yaml_2.3.12        otel_0.2.0         tools_4.4.3       </span></span>
+<span id="cb16-37"><a href="#cb16-37" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [29] checkmate_2.3.4    dplyr_1.2.1        vctrs_0.7.3        R6_2.6.1          </span></span>
+<span id="cb16-38"><a href="#cb16-38" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [33] rpart_4.1.27       strucchange_1.6-0  zoo_1.9-1          lifecycle_1.0.5   </span></span>
+<span id="cb16-39"><a href="#cb16-39" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [37] htmlwidgets_1.6.4  libcoin_1.0-13     ggparty_1.0.0.1    pkgconfig_2.0.3   </span></span>
+<span id="cb16-40"><a href="#cb16-40" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [41] partykit_1.3-1     pillar_1.11.1      gtable_0.3.6       glue_1.8.1        </span></span>
+<span id="cb16-41"><a href="#cb16-41" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [45] Rcpp_1.1.2         xfun_0.61          tibble_3.3.1       tidyselect_1.2.1  </span></span>
+<span id="cb16-42"><a href="#cb16-42" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [49] knitr_1.52         dichromat_2.0-0.1  farver_2.1.2       patchwork_1.3.2   </span></span>
+<span id="cb16-43"><a href="#cb16-43" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [53] UtilsR_0.6.8       htmltools_0.5.9    labeling_0.4.3     rmarkdown_2.32    </span></span>
+<span id="cb16-44"><a href="#cb16-44" aria-hidden="true" tabindex="-1"></a><span class="co">#&gt; [57] compiler_4.4.3     S7_0.2.2</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </section>
 <section id="unihtee-reuse-current" class="level2">
 <h2 class="anchored" data-anchor-id="unihtee-reuse-current">筛查结果中的森林对象复用</h2>
 <p>2026-10-15在Windows R 4.4.3、UTF-8环境中按本机causalR <code>f39631a</code> 实际运行本节新例。2026-10-16复核：远端 <code>f3f7ecc</code> 已包含unihtee的hte字段、row_height及右角树边、结点/叶子配色；本节图片保留原 <code>f39631a</code> 执行快照。原代码块保留为原有完整流程，本轮不重新执行其历史分析。新例使用600人的固定种子连续结局模拟数据，与前面数据和结果分开。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">筛查后直接使用返回的HTE拟合</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">筛查后直接使用返回的HTE拟合</a></li></ul>
 <div class="tab-content">
-<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
+<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
 <p>method=“grf”返回hte字段，可直接传给plt_hte_sub()；这不是再训练森林。method=“glm”没有森林，hte为NULL。原先vip/data等字段继续保留。不要把普通hte_res当成get_hte_tree()的reuse对象，两套合同不同。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261015</span>)</span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>d_hte_new <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">b =</span> <span class="fu">rbinom</span>(<span class="dv">600</span>, <span class="dv">1</span>, <span class="fl">0.5</span>), <span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">600</span>))</span>
-<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>d_hte_new<span class="sc">$</span>z <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">600</span>, <span class="dv">1</span>, <span class="fl">0.5</span>)</span>
-<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>d_hte_new<span class="sc">$</span>y <span class="ot">&lt;-</span> <span class="fl">0.5</span> <span class="sc">*</span> d_hte_new<span class="sc">$</span>x <span class="sc">+</span> d_hte_new<span class="sc">$</span>z <span class="sc">*</span> (<span class="sc">-</span><span class="dv">2</span> <span class="sc">+</span> <span class="dv">5</span> <span class="sc">*</span> d_hte_new<span class="sc">$</span>b) <span class="sc">+</span> <span class="fu">rnorm</span>(<span class="dv">600</span>)</span>
-<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>uni_new <span class="ot">&lt;-</span> <span class="fu">get_hte_unihtee</span>(d_hte_new, <span class="st">"z"</span>, <span class="at">tree_var =</span> <span class="fu">c</span>(<span class="st">"b"</span>, <span class="st">"x"</span>),</span>
-<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"b"</span>, <span class="st">"x"</span>), <span class="at">surv =</span> <span class="st">"y"</span>, <span class="at">grf_args =</span> <span class="fu">list</span>(<span class="at">num.trees =</span> <span class="dv">200</span>, <span class="at">num.threads =</span> <span class="dv">1</span>), <span class="at">seed =</span> <span class="dv">123</span>)</span>
-<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>p_uni_sub <span class="ot">&lt;-</span> <span class="fu">plt_hte_sub</span>(uni_new<span class="sc">$</span>hte, <span class="at">sub_var =</span> <span class="st">"b"</span>, <span class="at">show_pinter =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>p_uni_sub</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261015</span>)</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>d_hte_new <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">b =</span> <span class="fu">rbinom</span>(<span class="dv">600</span>, <span class="dv">1</span>, <span class="fl">0.5</span>), <span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">600</span>))</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>d_hte_new<span class="sc">$</span>z <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">600</span>, <span class="dv">1</span>, <span class="fl">0.5</span>)</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>d_hte_new<span class="sc">$</span>y <span class="ot">&lt;-</span> <span class="fl">0.5</span> <span class="sc">*</span> d_hte_new<span class="sc">$</span>x <span class="sc">+</span> d_hte_new<span class="sc">$</span>z <span class="sc">*</span> (<span class="sc">-</span><span class="dv">2</span> <span class="sc">+</span> <span class="dv">5</span> <span class="sc">*</span> d_hte_new<span class="sc">$</span>b) <span class="sc">+</span> <span class="fu">rnorm</span>(<span class="dv">600</span>)</span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>uni_new <span class="ot">&lt;-</span> <span class="fu">get_hte_unihtee</span>(d_hte_new, <span class="st">"z"</span>, <span class="at">tree_var =</span> <span class="fu">c</span>(<span class="st">"b"</span>, <span class="st">"x"</span>),</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"b"</span>, <span class="st">"x"</span>), <span class="at">surv =</span> <span class="st">"y"</span>, <span class="at">grf_args =</span> <span class="fu">list</span>(<span class="at">num.trees =</span> <span class="dv">200</span>, <span class="at">num.threads =</span> <span class="dv">1</span>), <span class="at">seed =</span> <span class="dv">123</span>)</span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>p_uni_sub <span class="ot">&lt;-</span> <span class="fu">plt_hte_sub</span>(uni_new<span class="sc">$</span>hte, <span class="at">sub_var =</span> <span class="st">"b"</span>, <span class="at">show_pinter =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a>p_uni_sub</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/computation-reuse-guide/20261015-unihtee-fit-reuse.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="筛查后直接使用返回的HTE拟合。"><img src="images/computation-reuse-guide/20261015-unihtee-fit-reuse.png" class="img-fluid figure-img" alt="筛查后直接使用返回的HTE拟合的固定输入参数对照实图。" loading="lazy" decoding="async" width="1140" height="390" srcset="../assets/figure-previews/8fef8aa250d76a917236984642e624d0.webp"></a></p>
+<p><a href="images/computation-reuse-guide/20261015-unihtee-fit-reuse.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="筛查后直接使用返回的HTE拟合。"><img src="images/computation-reuse-guide/20261015-unihtee-fit-reuse.png" class="img-fluid figure-img" alt="筛查后直接使用返回的HTE拟合的固定输入参数对照实图。" loading="lazy" decoding="async" width="1140" height="390" srcset="../assets/figure-previews/8fef8aa250d76a917236984642e624d0.webp"></a></p>
 <figcaption>筛查后直接使用返回的HTE拟合。</figcaption>
 </figure>
 </div>
@@ -1744,19 +1844,19 @@ window.Quarto = {
 <p>已推送f3f7ecc把默认tree_args<span class="math inline">\(n_boot改为NULL：在完整发现样本确定后，使用 `as.integer(min(1000, max(250, round(5e7 / n_disc))))`，并在减少时给出消息。这里n_disc是进入规则发现的有效人数，不是整个队列人数；实际次数记录在 `attr(res,"analysis")\)</span>tree_args$n_boot`。</p>
 <p>由公式得到：5万人为1000次、10万人为500次、20万及30万人为250次。这是预算公式示意，本轮没有运行这些大样本来测量耗时。更少抽样使P值分辨率变粗，最小P值为1/(n_boot+1)；不能把这一变化称为统计精度完全相同的加速。需要固定次数时显式传 <code>tree_args=list(n_boot=1000L)</code>。</p>
 <p>下面600人例子按本机e389a75在Windows R 4.4.3、UTF-8中实际运行：默认解析为1000，再复用同一森林显式设250。改变次数可能改变分裂P值和树，因此不宣称两棵树结果相同。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261016</span>)</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>d_boot <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">b=</span><span class="fu">rbinom</span>(<span class="dv">600</span>,<span class="dv">1</span>,<span class="fl">0.5</span>),<span class="at">x=</span><span class="fu">rnorm</span>(<span class="dv">600</span>))</span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>d_boot<span class="sc">$</span>z <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">600</span>,<span class="dv">1</span>,<span class="fl">0.5</span>)</span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>d_boot<span class="sc">$</span>y <span class="ot">&lt;-</span> d_boot<span class="sc">$</span>x<span class="sc">+</span>d_boot<span class="sc">$</span>z<span class="sc">*</span>(<span class="sc">-</span><span class="dv">2</span><span class="sc">+</span><span class="dv">5</span><span class="sc">*</span>d_boot<span class="sc">$</span>b)<span class="sc">+</span><span class="fu">rnorm</span>(<span class="dv">600</span>)</span>
-<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>boot_common <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">data=</span>d_boot,<span class="at">cat_var=</span><span class="st">"z"</span>,<span class="at">adj_var=</span><span class="fu">c</span>(<span class="st">"b"</span>,<span class="st">"x"</span>),<span class="at">tree_var=</span><span class="fu">c</span>(<span class="st">"b"</span>,<span class="st">"x"</span>),</span>
-<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv=</span><span class="st">"y"</span>,<span class="at">method=</span><span class="st">"maxt"</span>,<span class="at">max_depth=</span><span class="dv">1</span>,<span class="at">min_leaf=</span><span class="fl">0.1</span>,<span class="at">split_frac=</span><span class="fl">0.5</span>,<span class="at">seed=</span><span class="dv">123</span>,</span>
-<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">grf_args=</span><span class="fu">list</span>(<span class="at">num.trees=</span><span class="dv">100</span>,<span class="at">num.threads=</span><span class="dv">1</span>))</span>
-<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>boot_default <span class="ot">&lt;-</span> <span class="fu">do.call</span>(get_hte_tree,boot_common)</span>
-<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>boot_fixed <span class="ot">&lt;-</span> <span class="fu">do.call</span>(get_hte_tree,<span class="fu">c</span>(boot_common,</span>
-<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">reuse=</span>boot_default,<span class="at">tree_args=</span><span class="fu">list</span>(<span class="at">n_boot=</span><span class="dv">250</span>L))))</span>
-<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(boot_default,<span class="st">"analysis"</span>)<span class="sc">$</span>tree_args</span>
-<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(boot_fixed,<span class="st">"analysis"</span>)<span class="sc">$</span>tree_args</span>
-<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(boot_fixed,<span class="st">"analysis"</span>)<span class="sc">$</span>forests_reused</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261016</span>)</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>d_boot <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">b=</span><span class="fu">rbinom</span>(<span class="dv">600</span>,<span class="dv">1</span>,<span class="fl">0.5</span>),<span class="at">x=</span><span class="fu">rnorm</span>(<span class="dv">600</span>))</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>d_boot<span class="sc">$</span>z <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">600</span>,<span class="dv">1</span>,<span class="fl">0.5</span>)</span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>d_boot<span class="sc">$</span>y <span class="ot">&lt;-</span> d_boot<span class="sc">$</span>x<span class="sc">+</span>d_boot<span class="sc">$</span>z<span class="sc">*</span>(<span class="sc">-</span><span class="dv">2</span><span class="sc">+</span><span class="dv">5</span><span class="sc">*</span>d_boot<span class="sc">$</span>b)<span class="sc">+</span><span class="fu">rnorm</span>(<span class="dv">600</span>)</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>boot_common <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">data=</span>d_boot,<span class="at">cat_var=</span><span class="st">"z"</span>,<span class="at">adj_var=</span><span class="fu">c</span>(<span class="st">"b"</span>,<span class="st">"x"</span>),<span class="at">tree_var=</span><span class="fu">c</span>(<span class="st">"b"</span>,<span class="st">"x"</span>),</span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv=</span><span class="st">"y"</span>,<span class="at">method=</span><span class="st">"maxt"</span>,<span class="at">max_depth=</span><span class="dv">1</span>,<span class="at">min_leaf=</span><span class="fl">0.1</span>,<span class="at">split_frac=</span><span class="fl">0.5</span>,<span class="at">seed=</span><span class="dv">123</span>,</span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">grf_args=</span><span class="fu">list</span>(<span class="at">num.trees=</span><span class="dv">100</span>,<span class="at">num.threads=</span><span class="dv">1</span>))</span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>boot_default <span class="ot">&lt;-</span> <span class="fu">do.call</span>(get_hte_tree,boot_common)</span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a>boot_fixed <span class="ot">&lt;-</span> <span class="fu">do.call</span>(get_hte_tree,<span class="fu">c</span>(boot_common,</span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">reuse=</span>boot_default,<span class="at">tree_args=</span><span class="fu">list</span>(<span class="at">n_boot=</span><span class="dv">250</span>L))))</span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(boot_default,<span class="st">"analysis"</span>)<span class="sc">$</span>tree_args</span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(boot_fixed,<span class="st">"analysis"</span>)<span class="sc">$</span>tree_args</span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(boot_fixed,<span class="st">"analysis"</span>)<span class="sc">$</span>forests_reused</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>Rademacher符号生成也已优化；本轮Windows检查固定种子下500个符号及之后的RNG状态与原sample写法一致。这与减少n_boot是两项不同变化。</p>
 </section>
 <section id="icf-voting-current" class="level2">
@@ -1767,7 +1867,7 @@ window.Quarto = {
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1776,9 +1876,10 @@ window.Quarto = {
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-3" class="callout-3-contents callout-collapse collapse">
+<div id="callout-4" class="callout-4-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li>2026-10-28：补充 <a href="#oob-consumers-20261028b">unihtee / CATE 的 OOB 复用</a>，以及亚组参考线全不可用时保留分布的 180 行对照。</li>
 <li>2026-10-28：追加 <a href="#hc3-lowrank-20261028">聚类 HC3 的等价低秩计算</a>，链接独立数值复核。</li>
 <li>2026-10-28：新增 <a href="#oob-reuse-20261028">未缓存 OOB 的复用</a>，保持返回森林缓存设置并核对四组摘要。</li>
 </ul>

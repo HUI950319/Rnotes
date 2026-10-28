@@ -297,6 +297,98 @@ causalR `9d26ba6` 将 unihtee 投影及共享 HTE 诊断中的聚类 HC3 调整�
 
 <!-- /update-20261028: hc3_reuse_notes -->
 
+### unihtee 与 CATE 绘图继续复用 OOB 结果（2026-10-28） {#oob-consumers-20261028b}
+
+<!-- update-20261028b: causal_oob_consumers -->
+
+`get_hte_unihtee(method="grf")` 在 `get_hte()` 已获得 OOB CATE 后，计算 arm scores 时继续复用这些预测；不因森林关闭缓存而再重复计算。后续单次 `plt_hte_cate()` 调用也在局部副本中为亚组 / 总体参考线共用所需预测，返回的原森林仍保留 `compute.oob.predictions=FALSE`。请求 `show_ci=TRUE` 的方差预测是另一个任务，不能把它算成重复的点预测。
+
+下面用 180 行固定合成数据，只切换森林 OOB 缓存。核对 VIP、分析数据、总体统计量、校准及实际 CATE 图层；此处没有测量提速或内存倍数。
+
+```r
+library(causalR)
+set.seed(2825)
+consumer_data28 <- data.frame(z = rep(0:1, 90), x = rnorm(180), v = rnorm(180),
+  band = factor(rep(c("A", "A", "B", "B"), 45)))
+consumer_data28[["y"]] <- consumer_data28[["x"]] + consumer_data28[["z"]] *
+  (1 + consumer_data28[["v"]]) + rnorm(180)
+consumer_args28 <- list(num.trees = 100, num.threads = 1, seed = 28,
+  W.hat = .5, Y.hat = 0, compute.oob.predictions = TRUE)
+consumer_cached28 <- get_hte_unihtee(consumer_data28, "z", tree_var = c("x", "v"), adj_var = "band",
+  surv = "y", grf_args = consumer_args28)
+consumer_args28[["compute.oob.predictions"]] <- FALSE
+consumer_uncached28 <- get_hte_unihtee(consumer_data28, "z", tree_var = c("x", "v"), adj_var = "band",
+  surv = "y", grf_args = consumer_args28)
+consumer_plot28 <- plt_hte_cate(consumer_uncached28[["hte"]], sub_var = "band", type = "density")
+consumer_table28 <- data.frame(cache_requested = c(TRUE, FALSE), n = nrow(consumer_data28),
+  estimate = c(consumer_cached28[["hte"]][["stats"]][["estimate"]], consumer_uncached28[["hte"]][["stats"]][["estimate"]]),
+  SE = c(consumer_cached28[["hte"]][["stats"]][["std.error"]], consumer_uncached28[["hte"]][["stats"]][["std.error"]]))
+gt::gtsave(gt::fmt_number(gt::gt(consumer_table28), columns = c("estimate", "SE"), decimals = 6),
+  file.path(tempdir(), "20261028b-update-unihtee-cache-equivalence.html"))
+ggplot2::ggsave(file.path(tempdir(), "20261028b-update-cate-local-reuse.pdf"), consumer_plot28,
+  width = 7.5, height = 4.7)
+```
+
+::: {.panel-tabset}
+
+#### 同一数据的缓存对照 {.unnumbered}
+
+![OOB 缓存开关下，180 行的总体估计和标准误一致。](images/computation-reuse-guide/20261028b-update-unihtee-cache-equivalence.png){fig-alt="180 行合成数据的 unihtee GRF 路径，OOB 缓存开关下总体估计与标准误相同，原 FALSE 设置保留。"}
+
+[原生 HTML](images/computation-reuse-guide/20261028b-update-unihtee-cache-equivalence.html)
+
+#### 未缓存对象上的 CATE 图 {.unnumbered}
+
+![亚组密度与参考线使用局部复用的预测。](images/computation-reuse-guide/20261028b-update-cate-local-reuse.png){fig-alt="未缓存森林绘制 band 两个亚组的 CATE 密度，亚组及总体参考线与缓存版图层逐项相同。"}
+
+[原生 PDF](images/computation-reuse-guide/20261028b-update-cate-local-reuse.pdf)
+
+:::
+
+再构造一个**专门测试绘图容错**的分组：两组分别只有对照或治疗，因此组内因果效应不可估计。现在 CATE 分布面板仍能显示，缺失的亚组效应参考线不画；可用的总体参考线独立保留。这种按实际治疗划组的方式只用于触发边界，不是临床亚组分析方案。
+
+```r
+consumer_single_arm28 <- consumer_uncached28[["hte"]]
+consumer_single_arm28[["data"]][["aux"]] <- factor(ifelse(consumer_single_arm28[["data"]][["z"]] == 0,
+  "Control only", "Treated only"))
+consumer_no_refs28 <- plt_hte_cate(consumer_single_arm28, sub_var = "aux", type = "density")
+ggplot2::ggsave(file.path(tempdir(), "20261028b-update-cate-unavailable-references.pdf"), consumer_no_refs28,
+  width = 7.5, height = 4.7)
+```
+
+![组内效应不可用时仍保留 CATE 分布，不生成假的亚组参考线。](images/computation-reuse-guide/20261028b-update-cate-unavailable-references.png){fig-alt="仅用于容错复核的两个单臂分组仍显示各自 CATE 分布；亚组效应均为 NA，只有可用的总体参考线保留。"}
+
+[原生 PDF](images/computation-reuse-guide/20261028b-update-cate-unavailable-references.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+consumer_before28 <- serialize(consumer_uncached28, NULL)
+consumer_fresh_plot28 <- plt_hte_cate(consumer_uncached28[["hte"]], sub_var = "band", type = "density")
+consumer_ref_plot28 <- plt_hte_cate(consumer_cached28[["hte"]], sub_var = "band", type = "density")
+stopifnot(isTRUE(all.equal(consumer_uncached28[["vip"]], consumer_cached28[["vip"]], tolerance = 1e-12)),
+  isTRUE(all.equal(consumer_uncached28[["data"]], consumer_cached28[["data"]], tolerance = 1e-12)),
+  isTRUE(all.equal(consumer_uncached28[["hte"]][["stats"]], consumer_cached28[["hte"]][["stats"]], tolerance = 1e-12)),
+  isTRUE(all.equal(consumer_uncached28[["hte"]][["calibration"]], consumer_cached28[["hte"]][["calibration"]], tolerance = 1e-12)),
+  identical(attr(consumer_fresh_plot28, "subgroup"), attr(consumer_ref_plot28, "subgroup")),
+  identical(ggplot2::ggplot_build(consumer_fresh_plot28)[["data"]], ggplot2::ggplot_build(consumer_ref_plot28)[["data"]]),
+  is.null(consumer_uncached28[["hte"]][["fit"]][["predictions"]]),
+  identical(consumer_before28, serialize(consumer_uncached28, NULL)))
+consumer_density28 <- Filter(function(l) inherits(l[["geom"]], "GeomDensity"), consumer_no_refs28[["layers"]])[[1]][["data"]]
+consumer_lines28 <- Filter(function(l) inherits(l[["geom"]], "GeomVline") && is.data.frame(l[["data"]]), consumer_no_refs28[["layers"]])
+stopifnot(nrow(consumer_density28) == 180L, all(is.na(attr(consumer_no_refs28, "subgroup")[["estimate"]])),
+  !any(vapply(consumer_lines28, function(l) "estimate" %in% names(l[["data"]]), logical(1))),
+  any(vapply(consumer_lines28, function(l) "ate" %in% names(l[["data"]]), logical(1))))
+validation_values <- list(n = 180L, cache = consumer_table28, vip_matches = TRUE,
+  plot_layers_match = TRUE, original_unchanged = TRUE, uncached_return = TRUE,
+  unavailable_subgroups = attr(consumer_no_refs28, "subgroup"), source = "6760092", R = R.version.string)
+```
+:::
+
+本节为 Windows R 4.4.3、causalR `6760092c8020fb3814bdb274ebba7a03e0703470` 固定源码上的新增运行，种子 2825 / 28，只验证连续结局的上述路径；原森林复用基准和生存模型保留各自历史快照。校准本身不可用时的报告方式见[诊断页](hte-diagnostics-guide.qmd#calibration-missing-20261028b)。
+
+<!-- /update-20261028b: causal_oob_consumers -->
+
 ## 保存背景与复现 {#sec-reuse-save}
 
 ```{r}
@@ -394,6 +486,7 @@ Rademacher符号生成也已优化；本轮Windows检查固定种子下500个符
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-28：补充 [unihtee / CATE 的 OOB 复用](#oob-consumers-20261028b)，以及亚组参考线全不可用时保留分布的 180 行对照。
 - 2026-10-28：追加 [聚类 HC3 的等价低秩计算](#hc3-lowrank-20261028)，链接独立数值复核。
 - 2026-10-28：新增 [未缓存 OOB 的复用](#oob-reuse-20261028)，保持返回森林缓存设置并核对四组摘要。
 :::
