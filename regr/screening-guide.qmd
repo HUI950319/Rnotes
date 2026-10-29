@@ -139,6 +139,89 @@ gt::gtsave(screen_gt29, file.path(tempdir(), "20261029-update-screening-table.ht
 [查看完整原生表格](images/screening-guide/20261029-update-screening-table.html)。表格展示 counted 的检验；all 中的 alias、不适用条目仍保留供追溯。层内 HR 的色彩方向是实际 alt 对 ref，其他治疗比较不能一律写成“未治疗对治疗”。不可估计版本可能保留原始估计供诊断，表格会取消其星号和方向底色并附原因。
 
 
+
+<!-- update-20261029d: regr_screen_reuse -->
+
+### 常量调整项的复用与组合 ID（2026-10-29） {#reuse-ids-20261029d}
+
+RegR `e5e2a4d` 根据删除常量后的**有效调整集**复用主队列的 A0–A3 模型，同时逐版本记录 `adj_used`、`adj_dropped` 和 `reused_from`。这不会改变先按 A3 完整病例筛选的规则；swap 若需要不同完整病例，仍必须在自己的行上拟合。
+
+下面240行合成 Cox 数据的 K1 前7行缺失，因此四个主版本均使用233行；K1、K2、K3在主队列都为常量，四个版本只拟合一次。Replacement另有7个缺失，swap实际使用226行，另拟合一次。这是拟合次数与数据行的核验，没有测量速度倍数。
+
+```r
+set.seed(20261102)
+reuse_data29d <- expand.grid(Tx = c("Yes", "No"), Marker = c("Low", "High"),
+  replicate = seq_len(60), KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+reuse_data29d$Tx <- factor(reuse_data29d$Tx, c("Yes", "No"))
+reuse_data29d$Marker <- factor(reuse_data29d$Marker, c("Low", "High"))
+reuse_lp29d <- .5 * (reuse_data29d$Tx == "No") + .3 * (reuse_data29d$Marker == "High") +
+  .6 * (reuse_data29d$Tx == "No" & reuse_data29d$Marker == "High")
+reuse_event29d <- rexp(240, exp(reuse_lp29d) / 30)
+reuse_censor29d <- rexp(240, 1 / 80)
+reuse_data29d$time <- pmin(reuse_event29d, reuse_censor29d)
+reuse_data29d$DSS <- as.integer(reuse_event29d <= reuse_censor29d)
+reuse_data29d$K1 <- 1
+reuse_data29d$K1[1:7] <- NA
+reuse_data29d$K2 <- factor(rep("Constant", 240))
+reuse_data29d$K3 <- 2
+reuse_data29d$Replacement <- 4
+reuse_data29d$Replacement[8:14] <- NA
+reuse_card29d <- list(data = reuse_data29d, trt = "T", mod = "Marker",
+  adj = list(demo = "K1", tumor = "K2", trt = "K3"), adj_swap = c(K3 = "Replacement"))
+reuse_trts29d <- list(T = list(var = "Tx", ref = "Yes", alt = "No", type = "both"))
+reuse_mods29d <- list(Marker = list(class = "tumor"))
+reuse_screen29d <- get_screens(list(Main = reuse_card29d), reuse_trts29d, reuse_mods29d, n_cores = 1)
+reuse_audit29d <- subset(reuse_screen29d$specs, version %in% c("A0", "A1", "A2", "A3", "swap"),
+  select = c(version, n, reused_from, adj_used, adj_dropped))
+reuse_gt29d <- gt::tab_header(gt::gt(reuse_audit29d), title = "Synthetic adjustment reuse audit")
+gt::gtsave(reuse_gt29d, file.path(tempdir(), "20261029d-update-reuse-audit.html"))
+```
+
+![实际逐版本记录：主模型233行，swap226行，删除项按各版本分别保留。](images/screening-guide/20261029d-update-reuse-audit.png){fig-alt="五个版本的实际调整集复用审计表，A0 A1 A2复用A3，四个主版本233行，swap226行且独立拟合。"}
+
+[原生审计表](images/screening-guide/20261029d-update-reuse-audit.html)
+
+组合 ID 仍按 `人群__治疗__修饰变量` 生成。重复选择同一治疗或修饰变量会报重复选择；不同名称三元组连接后同名，会报 **Combination id collision** 并列出冲突三元组。修复名称后重新运行，不要删掉一条分析或把碰撞误当重复检验。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+reuse_main29d <- subset(reuse_screen29d$specs, version %in% c("A0", "A1", "A2", "A3"))
+reuse_swap29d <- subset(reuse_screen29d$specs, version == "swap")
+reuse_fit29d <- survival::coxph(survival::Surv(time, DSS) ~ Tx * Marker,
+  data = reuse_data29d[!is.na(reuse_data29d$K1), ], ties = "efron")
+stopifnot(all(reuse_main29d$n == 233L), reuse_swap29d$n == 226L,
+  attr(reuse_screen29d, "fits") == 2L,
+  identical(reuse_main29d$reused_from, c("A3", "A3", "A3", "")),
+  identical(reuse_main29d$adj_dropped, c("", "K1", "K1;K2", "K1;K2;K3")),
+  reuse_swap29d$reused_from == "",
+  isTRUE(all.equal(subset(reuse_screen29d$all, counted)$mult,
+    unname(exp(coef(reuse_fit29d)["TxNo:MarkerHigh"])), tolerance = 1e-8)))
+collision_pops29d <- list(`P__A` = reuse_card29d, P = reuse_card29d)
+collision_pops29d[[1]]$trt <- "B"
+collision_pops29d[[2]]$trt <- "A__B"
+collision_trts29d <- list(B = reuse_trts29d$T, `A__B` = reuse_trts29d$T)
+collision_error29d <- tryCatch(get_screens(collision_pops29d, collision_trts29d,
+  reuse_mods29d, n_cores = 1), error = conditionMessage)
+duplicate_pops29d <- list(Main = reuse_card29d)
+duplicate_pops29d$Main$trt <- c("T", "T")
+duplicate_error29d <- tryCatch(get_screens(duplicate_pops29d, reuse_trts29d,
+  reuse_mods29d, n_cores = 1), error = conditionMessage)
+names(collision_pops29d)[1] <- "P_A"
+collision_fixed29d <- get_screens(collision_pops29d, collision_trts29d, reuse_mods29d, n_cores = 1)
+stopifnot(is.character(collision_error29d), grepl("Combination id collision", collision_error29d, fixed = TRUE),
+  grepl('("P__A", "B", "Marker")', collision_error29d, fixed = TRUE),
+  grepl('("P", "A__B", "Marker")', collision_error29d, fixed = TRUE),
+  is.character(duplicate_error29d), grepl("same treatment or modifier twice", duplicate_error29d, fixed = TRUE),
+  !anyDuplicated(collision_fixed29d$all$id))
+validation_values <- list(fits = attr(reuse_screen29d, "fits"), versions = reuse_audit29d,
+  independent_mult = unname(exp(coef(reuse_fit29d)["TxNo:MarkerHigh"])),
+  collision_error = collision_error29d, duplicate_error = duplicate_error29d,
+  repaired_ids = collision_fixed29d$all$id)
+```
+:::
+
+<!-- /update-20261029d: regr_screen_reuse -->
+
 <!-- update-20261029c: regr_screen_binary -->
 
 ## 二分类结局：Logistic 与 OR（2026-10-29） {#binary-20261029c}
@@ -242,6 +325,104 @@ validation_values <- list(input_n = 480, model_n = binary_row29c$n,
 
 
 <!-- update-20261029c: regr_screen_inputs -->
+
+
+<!-- update-20261029d: regr_screen_levels -->
+
+### 把事件定义随结果一起保存（2026-10-29） {#outcome-levels-20261029d}
+
+RegR `e5e2a4d` 在 `attr(x, "settings")$outcome_levels` 按人群记录原始 `non_event` / `event`；重新分级、RDS 保存回读及别名人群都保留这份记录。因子记录实际观测到的事件名称，不把空的中间水平误写成事件；logical 记录 FALSE / TRUE，数值记录 0 / 1。`fmt_screens_gt()` 为当前显示的人群写明结局定义。反转参考会改变事件，不能把两个 OR 的方向按同一临床含义合并解释。
+
+以下独立生成240行合成数据。Main、Reverse、Alias保留240行，Logical取200行，Numeric取160行；Alias是Main的重复组合。Main的因子故意保留一个未观测的中间水平。
+
+```r
+library(RegR)
+options(RegR.screens.print = FALSE)
+set.seed(20261101)
+level_data29d <- expand.grid(Tx = c("Yes", "No"), Marker = c("Low", "High"),
+  replicate = seq_len(60), KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+level_data29d$Tx <- factor(level_data29d$Tx, c("Yes", "No"))
+level_data29d$Marker <- factor(level_data29d$Marker, c("Low", "High"))
+level_probability29d <- plogis(-.4 + .5 * (level_data29d$Tx == "No") +
+  .4 * (level_data29d$Marker == "High") +
+  .7 * (level_data29d$Tx == "No" & level_data29d$Marker == "High"))
+level_data29d$Status <- factor(ifelse(runif(240) < level_probability29d, "Recovered", "Not recovered"),
+  c("Not recovered", "Unused event", "Recovered"))
+level_main29d <- list(data = level_data29d, trt = "T", mod = "Marker")
+level_reverse29d <- level_main29d
+level_reverse29d$data$Status <- factor(level_data29d$Status, c("Recovered", "Not recovered"))
+level_logical29d <- level_main29d
+level_logical29d$data <- level_data29d[level_data29d$replicate <= 50, ]
+level_logical29d$data$Status <- level_logical29d$data$Status == "Recovered"
+level_numeric29d <- level_main29d
+level_numeric29d$data <- level_data29d[level_data29d$replicate <= 40, ]
+level_numeric29d$data$Status <- as.integer(level_numeric29d$data$Status == "Recovered")
+level_pops29d <- list(Main = level_main29d, Reverse = level_reverse29d,
+  Logical = level_logical29d, Numeric = level_numeric29d, Alias = level_main29d)
+level_trts29d <- list(T = list(var = "Tx", ref = "Yes", alt = "No", type = "both"))
+level_mods29d <- list(Marker = list(class = "tumor"))
+level_screen29d <- get_screens(level_pops29d, level_trts29d, level_mods29d,
+  surv = "Status", n_cores = 1)
+level_gt29d <- fmt_screens_gt(level_screen29d)
+gt::gtsave(level_gt29d, file.path(tempdir(), "20261029d-update-outcome-levels.html"))
+level_legacy29d <- level_screen29d
+attr(level_legacy29d, "settings")$outcome_levels <- NULL
+level_legacy_gt29d <- fmt_screens_gt(level_legacy29d)
+gt::gtsave(level_legacy_gt29d, file.path(tempdir(), "20261029d-update-outcome-legacy.html"))
+```
+
+::: {.panel-tabset}
+#### 已记录的事件 {.unnumbered}
+
+![原生筛查表的脚注分别列出四个实际显示人群的事件与非事件。](images/screening-guide/20261029d-update-outcome-levels.png){fig-alt="Main以康复为事件，Reverse以未康复为事件，Logical和Numeric分别显示TRUE FALSE及1 0定义；别名不当成新增检验。"}
+
+[原生表格](images/screening-guide/20261029d-update-outcome-levels.html)
+
+#### 模拟旧对象缺记录 {.unnumbered}
+
+![仅移除编码元数据后，表格明确提示事件和非事件未记录，估计不变。](images/screening-guide/20261029d-update-outcome-legacy.png){fig-alt="模拟旧保存对象缺失结局定义，原生表格保留估计并明确提示未记录事件与非事件，不自动猜测。"}
+
+[原生表格](images/screening-guide/20261029d-update-outcome-legacy.html)
+:::
+
+旧对象若没有这项记录，只能结合原数据字典和当时调用核实；不能从内部0/1或图题猜测原事件。上图的旧对象是为展示提示而复制后移除元数据的合成例子，没有改动拟合结果。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+level_expected29d <- list(
+  Main = list(non_event = "Not recovered", event = "Recovered"),
+  Reverse = list(non_event = "Recovered", event = "Not recovered"),
+  Logical = list(non_event = "FALSE", event = "TRUE"),
+  Numeric = list(non_event = "0", event = "1"),
+  Alias = list(non_event = "Not recovered", event = "Recovered"))
+level_coding29d <- attr(level_screen29d, "settings")$outcome_levels
+level_regraded29d <- get_screens_grade(level_screen29d, grade_args = list(alpha = .1))
+level_rds29d <- file.path(tempdir(), "outcome-metadata-check.rds")
+saveRDS(level_screen29d, level_rds29d)
+level_main_row29d <- subset(level_screen29d$all, pop == "Main")
+level_reverse_row29d <- subset(level_screen29d$all, pop == "Reverse")
+level_manual29d <- glm(I(Status == "Recovered") ~ Tx * Marker,
+  data = level_data29d, family = binomial())
+level_notes29d <- paste(unlist(level_gt29d[["_source_notes"]]), collapse = " ")
+level_legacy_notes29d <- paste(unlist(level_legacy_gt29d[["_source_notes"]]), collapse = " ")
+stopifnot(identical(level_coding29d, level_expected29d),
+  identical(attr(level_regraded29d, "settings")$outcome_levels, level_expected29d),
+  identical(attr(readRDS(level_rds29d), "settings")$outcome_levels, level_expected29d),
+  sum(level_screen29d$all$counted) == 4L,
+  all(subset(level_screen29d$all, pop == "Alias")$planned == "alias"),
+  isTRUE(all.equal(level_main_row29d$mult, unname(exp(coef(level_manual29d)["TxNo:MarkerHigh"])), tolerance = 1e-8)),
+  isTRUE(all.equal(level_main_row29d$mult, 1 / level_reverse_row29d$mult, tolerance = 1e-8)),
+  grepl('event = "Recovered"; non-event = "Not recovered"', level_notes29d, fixed = TRUE),
+  grepl('event = "Not recovered"; non-event = "Recovered"', level_notes29d, fixed = TRUE),
+  grepl("Binary outcome event and non-event levels were not recorded.", level_legacy_notes29d, fixed = TRUE),
+  identical(level_legacy_gt29d[["_data"]], level_gt29d[["_data"]]))
+validation_values <- list(coding = level_coding29d, counted = sum(level_screen29d$all$counted),
+  results = level_screen29d$all[c("pop", "n", "events", "mult", "reri", "planned")],
+  current_notes = level_notes29d, legacy_notes = level_legacy_notes29d)
+```
+:::
+
+<!-- /update-20261029d: regr_screen_levels -->
 
 ### 先检查列名、单位与真正触发的版本（2026-10-29） {#inputs-20261029c}
 
@@ -633,6 +814,7 @@ validation_values[["late_checks"]] <- list(factor_error = bad_factor_error29,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- **2026-10-29**：[事件定义](#outcome-levels-20261029d)和[常量复用 / ID 冲突](#reuse-ids-20261029d)同步 e5e2a4d，附三张实际 gt 输出。
 - **2026-10-29**：[长标签与 HTML 画布](#layout-20261029c)补充深浅和透明条带、多行标签及 fmt_page 设备尺寸。
 - **2026-10-29**：[表格脚注与重名分组](#table-notes-20261029c)补充 X 原因、小单元阈值和等级筛选后的实际标签。
 - **2026-10-29**：[输入和按需版本](#inputs-20261029c)补充重复列、随访单位、公式、事件参考与负对照、cap 预检。
