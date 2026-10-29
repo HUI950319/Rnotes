@@ -306,6 +306,121 @@ validation_values[["warnings"]] <- warning_records29
 
 <!-- /update-20261029: regr_binary_wald -->
 
+
+<!-- update-20261029c: regr_ordered_full -->
+
+### 完整多水平模型保留有序编码（2026-10-29） {#ordered-full-20261029c}
+
+RegR `847d71d` 在完整多水平交互模型构造对比行时，保留拟合数据的 ordered 属性。即使底层采用 `contr.poly`，仍以**原声明参考水平**计算联合效应、层内效应、逐水平交互与总体 Wald 检验；不能直接把 `.L` / `.Q` 的系数指数化，当作 High 对 Low 的交互。此修订也用于 `get_screens()` 的多水平修饰变量。
+
+以下独立生成 360 行合成数据，治疗两水平、修饰变量三水平。分别比较有序与普通因子下的 Cox、Fine–Gray、Logistic 结果，未改变参考水平、模型类型或调整项。
+
+```r
+library(RegR)
+options(RegR.inter.print = FALSE, RegR.screens.print = FALSE)
+set.seed(20261031)
+ordered_data29c <- expand.grid(Tx = c("Yes", "No"), Marker = c("Low", "Mid", "High"),
+  replicate = seq_len(60), KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+ordered_data29c$Tx <- factor(ordered_data29c$Tx, c("Yes", "No"))
+ordered_data29c$Marker <- factor(ordered_data29c$Marker, c("Low", "Mid", "High"))
+ordered_data29c$Age <- rnorm(360, 60, 8)
+ordered_lp29c <- .5 * (ordered_data29c$Tx == "No") +
+  .3 * (ordered_data29c$Marker == "Mid") + .6 * (ordered_data29c$Marker == "High") +
+  .3 * (ordered_data29c$Tx == "No" & ordered_data29c$Marker == "Mid") +
+  .8 * (ordered_data29c$Tx == "No" & ordered_data29c$Marker == "High") +
+  .02 * (ordered_data29c$Age - 60)
+ordered_event29c <- rexp(360, exp(ordered_lp29c) / 40)
+ordered_other29c <- rexp(360, 1 / 150)
+ordered_censor29c <- rexp(360, 1 / 70)
+ordered_data29c$time <- pmin(ordered_event29c, ordered_other29c, ordered_censor29c)
+ordered_data29c$DSS <- as.integer(ordered_event29c <= ordered_other29c & ordered_event29c <= ordered_censor29c)
+ordered_data29c$status <- factor(ifelse(ordered_data29c$DSS == 1, "Disease",
+  ifelse(ordered_other29c <= ordered_censor29c, "Other", "Alive")), c("Alive", "Disease", "Other"))
+ordered_data29c$Outcome <- as.integer(runif(360) < plogis(-1 + ordered_lp29c))
+ordinary_data29c <- ordered_data29c
+ordered_data29c$Tx <- ordered(ordered_data29c$Tx, c("Yes", "No"))
+ordered_data29c$Marker <- ordered(ordered_data29c$Marker, c("Low", "Mid", "High"))
+ordered_models29c <- list(Cox = TRUE, FineGray = FALSE, Logistic = "Outcome")
+ordinary_result29c <- get_inter(ordinary_data29c, c("Tx", "Marker"), adj_var = "Age",
+  surv = ordered_models29c, multicat_model = "interaction")
+ordered_result29c <- get_inter(ordered_data29c, c("Tx", "Marker"), adj_var = "Age",
+  surv = ordered_models29c, multicat_model = "interaction")
+ordered_gt29c <- fmt_inter_gt(ordered_result29c$Cox)
+gt::gtsave(ordered_gt29c, file.path(tempdir(), "20261029c-update-ordered-full.html"))
+```
+
+![有序治疗和三水平修饰变量的完整 Cox 交互表。](images/interaction-guide/20261029c-update-ordered-full.png){fig-alt="360行合成数据的有序因子完整Cox交互表，保留Yes和Low参考，分别展示Mid与High，含未调整和年龄调整结果。"}
+
+[查看原生表格](images/interaction-guide/20261029c-update-ordered-full.html)。未舍入结果仍在各表的 `estimates` 属性，总体检验在 `global_interaction`。下方独立 `coxph()` 的设计矩阵核对两个逐水平乘法交互及总体二自由度 Wald P；另将有序修饰变量送入批量筛查，核对其 A3 来自同一完整模型。此例在两端实际运行，不用旧截图代表新结果。
+
+Cox 和 Logistic 的两种编码以 `1e-7` 容差核对。Fine–Gray 使用默认 FGR 后端，本例未调整模型有轻微数值差异，未宣称逐位相同：单独检查各数值字段按 `max(1, abs(原值))` 缩放后的最大差异低于 `1e-4`、总体 P 的绝对差低于 `1e-6`，并保留差异记录。参考水平、对比标签和估计尺度仍必须完全一致。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+ordered_fg_differences29c <- list()
+for (model29c in names(ordered_models29c)) for (adjustment29c in c("Unadj", "Adjus")) {
+  ordered_table29c <- ordered_result29c[[model29c]][[adjustment29c]]
+  ordinary_table29c <- ordinary_result29c[[model29c]][[adjustment29c]]
+  if (model29c != "FineGray") {
+    stopifnot(isTRUE(all.equal(attr(ordered_table29c, "estimates"),
+        attr(ordinary_table29c, "estimates"), tolerance = 1e-7)),
+      isTRUE(all.equal(attr(ordered_table29c, "global_interaction")$p.value,
+        attr(ordinary_table29c, "global_interaction")$p.value, tolerance = 1e-7)))
+  } else {
+    a29c <- attr(ordered_table29c, "estimates")
+    b29c <- attr(ordinary_table29c, "estimates")
+    numeric29c <- c("estimate", "conf.low", "conf.high", "p.value_0.95")
+    delta29c <- max(abs(as.matrix(a29c[numeric29c]) - as.matrix(b29c[numeric29c])) /
+      pmax(1, abs(as.matrix(b29c[numeric29c]))), na.rm = TRUE)
+    delta_p29c <- abs(attr(ordered_table29c, "global_interaction")$p.value -
+      attr(ordinary_table29c, "global_interaction")$p.value)
+    stopifnot(identical(a29c[c("row", "level", "scale")], b29c[c("row", "level", "scale")]),
+      identical(is.na(a29c[numeric29c]), is.na(b29c[numeric29c])),
+      delta29c < 1e-4, delta_p29c < 1e-6)
+    ordered_fg_differences29c[[adjustment29c]] <- c(max_scaled_difference = delta29c,
+      global_p_absolute_difference = delta_p29c)
+  }
+}
+ordered_fit29c <- survival::coxph(survival::Surv(time, DSS) ~ Tx * Marker + Age,
+  data = ordered_data29c, ties = "efron")
+ordered_cells29c <- expand.grid(Tx = c("Yes", "No"), Marker = c("Low", "Mid", "High"),
+  KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+ordered_new29c <- ordered_data29c[rep(1L, 6L), ]
+ordered_new29c$Tx <- ordered(ordered_cells29c$Tx, levels = levels(ordered_data29c$Tx))
+ordered_new29c$Marker <- ordered(ordered_cells29c$Marker, levels = levels(ordered_data29c$Marker))
+ordered_design29c <- model.matrix(stats::delete.response(terms(ordered_fit29c)), ordered_new29c)
+ordered_design29c <- ordered_design29c[, names(coef(ordered_fit29c)), drop = FALSE]
+ordered_contrasts29c <- rbind(Mid = ordered_design29c[4, ] - ordered_design29c[3, ] -
+    ordered_design29c[2, ] + ordered_design29c[1, ],
+  High = ordered_design29c[6, ] - ordered_design29c[5, ] -
+    ordered_design29c[2, ] + ordered_design29c[1, ])
+ordered_beta29c <- drop(ordered_contrasts29c %*% coef(ordered_fit29c))
+ordered_cov29c <- ordered_contrasts29c %*% vcov(ordered_fit29c) %*% t(ordered_contrasts29c)
+ordered_p29c <- pchisq(drop(t(ordered_beta29c) %*% solve(ordered_cov29c, ordered_beta29c)),
+  df = 2, lower.tail = FALSE)
+ordered_estimates29c <- subset(attr(ordered_result29c$Cox$Adjus, "estimates"), row == "multiplicative")
+ordered_estimates29c <- ordered_estimates29c[match(c("Mid", "High"), ordered_estimates29c$level), ]
+ordered_screen29c <- get_screens(
+  list(All = list(data = ordered_data29c, trt = "T", mod = "Marker", adj = list(demo = "Age"))),
+  list(T = list(var = "Tx", ref = "Yes", alt = "No", type = "both")),
+  list(Marker = list(class = "tumor")), n_cores = 1)
+stopifnot(nrow(ordered_data29c) == 360L,
+  identical(levels(ordered_data29c$Marker), c("Low", "Mid", "High")),
+  isTRUE(all.equal(as.numeric(ordered_estimates29c$estimate), unname(exp(ordered_beta29c)), tolerance = 1e-7)),
+  isTRUE(all.equal(attr(ordered_result29c$Cox$Adjus, "global_interaction")$p.value,
+    ordered_p29c, tolerance = 1e-7)),
+  all(ordered_screen29c$all$n == 360L),
+  isTRUE(all.equal(ordered_screen29c$all$mult,
+    ordered_estimates29c$estimate[match(ordered_screen29c$all$mod_alt, ordered_estimates29c$level)], tolerance = 1e-7)))
+validation_values <- list(n = 360, models = names(ordered_models29c),
+  independent_mult = unname(exp(ordered_beta29c)), independent_global_p = ordered_p29c,
+  estimates = ordered_estimates29c, fine_gray_differences = ordered_fg_differences29c,
+  screening = ordered_screen29c$all[c("mod_ref", "mod_alt", "n", "mult", "p_mult", "reri")])
+```
+:::
+
+<!-- /update-20261029c: regr_ordered_full -->
+
 ### 逐对模型不再打印内部筛选步骤（2026-10-28） {#pairwise-filter-20261028b}
 
 <!-- update-20261028b: regr_pairwise_subset -->
@@ -1091,6 +1206,7 @@ fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- **2026-10-29**：[完整模型的有序编码](#ordered-full-20261029c)核对 Cox、Fine–Gray、Logistic 及批量筛查，保留原参考与总体检验。
 - **2026-10-29**：[固定画布的设备尺寸](#fmt-page-device-20261029c)同步 fmt_page 的 PNG 字体测量与扩展规则。
 - 2026-10-29：[二分类参考编码、精确 Wald P、Fine–Gray 状态水平与可追溯警告](#binary-wald-20261029)。
 - 2026-10-29：[合并表总体行、缺失值与原始交互来源](#eff-merge-20261029)，移除无效的 inter_adjust 并核对分组输入。
