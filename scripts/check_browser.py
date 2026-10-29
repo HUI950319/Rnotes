@@ -47,6 +47,7 @@ PAGES = [
     "causalr/method-selection-guide.html",
     "causalr/index.html",
     "causalr/computation-reuse-guide.html",
+    "regr/screening-guide.html",
 ]
 
 
