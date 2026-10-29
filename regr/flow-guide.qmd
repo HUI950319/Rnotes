@@ -1000,6 +1000,82 @@ ggsave(file.path(tempdir(), "cohort-flow.png"), p,
        units = "in", dpi = 300, bg = "white")
 ```
 
+### 只写图号时自动补全 PDF 文件名（2026-10-29） {#filename-20261029b}
+
+<!-- update-20261029: regr_flow_filename -->
+
+RegR `2abf776` 的三个流程入口会为只含图号的 `save$filename` 补上各自默认图题；目录仍保留，缺少扩展名时写为 PDF，已经包含自定图题的文件名照原样使用。没有改变推荐尺寸或筛选人数。下面在 Windows / WSL R4.4.3 用同一份120行合成筛选及其汇总计数保存三张图；后两图使用相同汇总，并非新的患者队列。
+
+::: {.table-responsive tabindex="0" role="region" aria-label="图号与实际保存名称，可横向滚动"}
+| 调用 | filename 的 basename | 实际文件名 |
+|:--|:--|:--|
+| `plt_flo()` | `Figure S1` | `Figure S1. Flow diagram of study patients.pdf` |
+| `plt_flo2()` | `Figure 2` | `Figure 2. Overview of the study workflow.pdf` |
+| `plt_flo3()` | `Supplementary Figure 3.pdf` | `Supplementary Figure 3. Flow diagram of the study.pdf` |
+:::
+
+```r
+library(RegR)
+file_data29 <- data.frame(Age = rep(1:60, 2),
+  Eligible = rep(c(TRUE, TRUE, TRUE, FALSE), 30),
+  Arm = factor(rep(c("A", "B"), each = 60)))
+file_selected29 <- get_flt(file_data29, Age >= 18, Eligible == TRUE)
+file_history29 <- attr(file_selected29, "flt")
+file_cohort29 <- list(label = "Synthetic cohort", N = 120,
+  exclude = stats::setNames(file_history29[["del_pat"]], c("Age below 18", "Not eligible")))
+file_plot129 <- plt_flo(file_selected29, inclu_row = 1,
+  cohort = list(label = "Synthetic cohort"), split_var = "Arm",
+  name_map = c(Eligible = "Not eligible"),
+  save = list(filename = file.path(tempdir(), "Figure S1")))
+file_plot229 <- plt_flo2(stages = list(Prepare = "Check data and define the outcome",
+  Analyse = "Fit and validate the prespecified model"), cohorts = file_cohort29,
+  save = list(filename = file.path(tempdir(), "Figure 2")))
+file_cohort329 <- file_cohort29
+file_cohort329[["split"]] <- stats::setNames(as.integer(table(file_selected29[["Arm"]])), c("A", "B"))
+file_plot329 <- plt_flo3(file_cohort329, content_labels = c("Describe", "Compare"),
+  save = list(filename = file.path(tempdir(), "Supplementary Figure 3.pdf")))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+actual_names29 <- c("Figure S1. Flow diagram of study patients.pdf",
+  "Figure 2. Overview of the study workflow.pdf",
+  "Supplementary Figure 3. Flow diagram of the study.pdf")
+actual_paths29 <- file.path(tempdir(), actual_names29)
+stopifnot(all(file.exists(actual_paths29)), all(file.info(actual_paths29)[["size"]] > 1000),
+  nrow(file_selected29) == 64L, sum(file_cohort29[["exclude"]]) == 56L,
+  identical(as.integer(table(file_selected29[["Arm"]])), c(32L, 32L)))
+# 本站附件采用统一的资源名；这里复制函数实际保存的原生文件，不重绘。
+public_names29 <- paste0("20261029-update-flow-filename-", 1:3, ".pdf")
+stopifnot(all(file.copy(actual_paths29, file.path(tempdir(), public_names29), overwrite = TRUE)))
+validation_values <- list(n_start = 120L, n_final = 64L,
+  excluded = as.integer(file_history29[["del_pat"]]),
+  group_n = as.integer(table(file_selected29[["Arm"]])), actual_names = actual_names29)
+```
+:::
+
+::: {.panel-tabset}
+#### plt_flo {.unnumbered}
+
+![由 Figure S1 自动补全图题的实际保存结果。](images/flow-guide/20261029-update-flow-filename-1.png){fig-alt="120行合成记录筛选为64行后按A B各32行绘制的plt_flo原生PDF预览。"}
+
+[原生 PDF](images/flow-guide/20261029-update-flow-filename-1.pdf)
+
+#### plt_flo2 {.unnumbered}
+
+![由 Figure 2 自动补全工作流图题的实际保存结果。](images/flow-guide/20261029-update-flow-filename-2.png){fig-alt="同一120减56等于64的汇总计数与Prepare Analyse两阶段的工作流PDF预览。"}
+
+[原生 PDF](images/flow-guide/20261029-update-flow-filename-2.pdf)
+
+#### plt_flo3 {.unnumbered}
+
+![保留 Supplementary Figure 3 图号并补全图题。](images/flow-guide/20261029-update-flow-filename-3.png){fig-alt="同一合成队列汇总按两组各32行连接到Describe Compare内容框的plt_flo3 PDF预览。"}
+
+[原生 PDF](images/flow-guide/20261029-update-flow-filename-3.pdf)
+:::
+
+<!-- /update-20261029: regr_flow_filename -->
+
 ## 管道返回与复现检查 {#return-checks}
 
 如果后续步骤还需要筛选后的数据，可使用 `return_data = TRUE`。保存功能仍然可以使用；默认的 `FALSE` 则返回 ggplot 对象供排版或保存。
@@ -1735,6 +1811,7 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-29：[三个流程入口的图号文件名补全](#filename-20261029b)，核对真实文件名、推荐尺寸及非空的一页PDF。
 - 2026-10-29：[box1 / box2 / box3 分组与纳排样式](#box-styles-20261029)，核对相同筛选队列与三个原生 PDF。
 - 2026-10-28：补充 [get_all 历史连续性](#get-all-history-20261028c)的 24→14 行实跑，区分结果人数正确与纳排历史完整。
 - 2026-10-28：补充 [get_flo 后端实跑](#get-flo-backend-20261028c)，明确实际返回、节点分母、漏记行警告与已复现保存问题。
