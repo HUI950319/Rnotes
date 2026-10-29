@@ -7,10 +7,15 @@ execute:
 directory:
   title: "结构树、摘要框与分布：pr_tree / pr_box / pr_spark"
   topic: 打印信息
-  updated: 2026-10-25
+  updated: 2026-10-30
 ---
 
 这三个函数不是每个 print 方法都要用：`pr_tree()` 看清一个嵌套结果里有什么，`pr_box()` 把模型设定这类短摘要框起来，`pr_spark()` 在建模前快速看一眼各列分布。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+本轮补充按已推送 UtilsR `5a9d8eb`（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。
+
+:::
 
 ## 示例 {#example}
 
@@ -109,9 +114,64 @@ pr_spark(df)
 
 分布条只用于快速浏览，不能代替正式的分布图；画分布图见 UtilsR 的[连续变量分布](../utilsr/continuous-guide.qmd)与[分类变量](../utilsr/categorical-guide.qmd)。
 
+
+<!-- update-20261030: utils_print_spark -->
+
+### SPSS 用户缺失、空列与显式 NA 水平（2026-10-30） {#missing-20261030}
+
+UtilsR 0.6.14 的 `pr_spark()` 在计算分布、均值和标准差前排除 SPSS 用户缺失码及缺失范围，最右缺失比例也使用同一掩码。下例 **4 行**数据中，两种 SPSS 编码的有效值都只有 1 与 3，因此均值为 2、缺失为 50%；99、8、9 不会混入分布。
+
+空列、全部缺失和没有有限值是三种状态：分别显示 `empty / NA n/a`、`all missing / NA 100.0%` 和 `no finite values`。没有有限值不意味着都是 NA；本例无穷值列显示 NA 0.0%。显式 NA 因子水平仍是一种分类水平：下面四行中的三个 NA 水平显示 `top <NA> (75.0%)`，普通缺失比例为 0%，不能据显示名称把它与真正缺失合并。
+
+```r
+library(UtilsR)
+options(cli.num_colors = 1, cli.width = 100)
+spark_data30 <- data.frame(
+  missing_code = haven::labelled_spss(c(1, 3, 99, NA), na_values = 99),
+  missing_range = haven::labelled_spss(c(1, 3, 8, 9), na_range = c(8, 9)),
+  all_missing = rep(NA_real_, 4),
+  no_finite = c(Inf, -Inf, Inf, -Inf),
+  explicit_level = factor(c(NA, NA, NA, "a"), exclude = NULL))
+pr_spark(spark_data30)
+empty_spark30 <- data.frame(empty = numeric())
+pr_spark(empty_spark30)
+```
+
+![4行合成数据与零行空输入的真实迷你分布摘要。](images/structure-summary/20261030-update-spark-missing.png){fig-alt="两种SPSS用户缺失编码都显示均值2与缺失50%，全缺失与无有限值另行标明，显式NA因子水平的最多比例为75%，空列缺失比例不可用。"}
+
+[原生 HTML](images/structure-summary/20261030-update-spark-missing.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+重建 HTML 预览时，先运行[表格页复核代码](table-pvalue.qmd#storage-pvalues-20261030)中的 `save_console30()`；打印和数值检查只需本页数据。
+
+```r
+spark_lines30 <- capture.output(pr_spark(spark_data30))
+empty_lines30 <- capture.output(pr_spark(empty_spark30))
+stopifnot(length(spark_lines30) == 5L, length(empty_lines30) == 1L,
+  all(grepl("mean 2.00  sd 1.41", spark_lines30[1:2], fixed = TRUE)),
+  all(grepl("NA 50.0%", spark_lines30[1:2], fixed = TRUE)),
+  grepl("all missing", spark_lines30[3], fixed = TRUE),
+  grepl("NA 100.0%", spark_lines30[3], fixed = TRUE),
+  grepl("no finite values", spark_lines30[4], fixed = TRUE),
+  grepl("NA 0.0%", spark_lines30[4], fixed = TRUE),
+  grepl("top <NA> (75.0%)", spark_lines30[5], fixed = TRUE),
+  grepl("NA 0.0%", spark_lines30[5], fixed = TRUE),
+  grepl("empty", empty_lines30, fixed = TRUE),
+  grepl("NA n/a", empty_lines30, fixed = TRUE),
+  !any(grepl("NaN", c(spark_lines30, empty_lines30))),
+  mean(as.numeric(spark_data30$missing_code)[!is.na(spark_data30$missing_code)]) == 2,
+  mean(is.na(spark_data30$missing_range)) == .5)
+save_console30(c(spark_lines30, "", "Empty input: 0 rows", empty_lines30), "spark-missing")
+validation_values <- list(rows = nrow(spark_data30), output = spark_lines30, empty = empty_lines30)
+```
+:::
+
+<!-- /update-20261030: utils_print_spark -->
+
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-30：[SPSS与空列](#missing-20261030)：统一缺失掩码，区分空、全缺失、非有限及显式NA水平。
 - 2026-10-25：按 UtilsR 0.6.12 补充 [pr_tree()](#pr-tree) 截断提速、[pr_box()](#pr-box) 空输入与 [pr_spark()](#pr-spark) 标识列。
 - 2026-10-25：按 UtilsR 0.6.12（`0b59c82`）重写 [pr_tree()](#pr-tree) 的说明；示例加入属性与缺失值，重做截图。
 :::
