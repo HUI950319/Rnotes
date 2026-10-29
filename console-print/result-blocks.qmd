@@ -7,10 +7,15 @@ execute:
 directory:
   title: "标题、设定与注释：pr_head / pr_kv / pr_section / pr_note / pr_badge"
   topic: 打印信息
-  updated: 2026-10-25
+  updated: 2026-10-30
 ---
 
 一个 print 方法通常由这五个函数拼成：`pr_head()` 写首行，`pr_kv()` 列设定，`pr_section()` 把结果分节，`pr_note()` 在末尾写注意事项和下一步，`pr_badge()` 在同一行并排显示几个状态。除 `pr_badge()` 外，它们都直接写到标准输出，并不可见地返回所打印的行。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+本轮补充按已推送 UtilsR `5a9d8eb`（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。
+
+:::
 
 ## 示例 {#example}
 
@@ -101,6 +106,69 @@ cat(pr_badge("model", "cox"), pr_badge("PH", "violated", bg = "red"),
 
 它**只返回字符串，不打印**，这样几个徽标可以并排放在一行，要自己用 `cat()` 输出。`key` 与 `value` 等长或长度为 1 时会循环补齐，返回同样多个徽标。无色时写成 `[key: value]`。
 
+
+<!-- update-20261030: utils_print_controls -->
+
+### 单行字段转义，注释和值保留换行（2026-10-30） {#controls-20261030}
+
+UtilsR 0.6.14 把单行字段里的换行、回车、制表、退格、换页和纵向制表符显示为可见转义文本。适用字段包括 `pr_head()` 的首行片段、`pr_section()` 标题、表格单元格／列名、树组件名和分布标签；文字中的真实控制字符不再引入额外表格行。原来就写成两个字符的反斜杠加 n 仍照常保留。
+
+`pr_kv()` 的键会转义，但它的值和 `pr_note()` 的内容允许有意分行。需要多行解释时使用这些位置，不要把多行文字塞入表头或组件名。以下 **2 行表格**演示的是显示行为，不会改写输入字符串。
+
+```r
+library(UtilsR)
+options(cli.num_colors = 1, cli.width = 80)
+control_table30 <- data.frame(term = c("a\nb", "c\td"), P = c(.1, .2))
+names(control_table30)[1] <- "te\rrm"
+pr_head("demo", "Cox\nmodel")
+pr_section("Results\tand checks")
+pr_table(control_table30, p_col = "P")
+pr_tree(setNames(list("value"), "fit\npart"))
+pr_kv(setNames(list("first line\nsecond line"), "key\tname"))
+pr_note("First note\nSecond note")
+```
+
+![真实单行字段显示可见转义符；键值内容和注释仍能另起一行。](images/result-blocks/20261030-update-layout-controls.png){fig-alt="标题和表格中的控制字符显示为反斜杠n、r或t，树名不产生额外节点，键值正文与注释中的两行按原意分开。"}
+
+[原生 HTML](images/result-blocks/20261030-update-layout-controls.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+重建预览复用[表格页](table-pvalue.qmd#storage-pvalues-20261030)的 `save_console30()`。
+
+```r
+control_original30 <- control_table30
+control_lines30 <- capture.output({
+  pr_head("demo", "Cox\nmodel"); pr_section("Results\tand checks")
+  pr_table(control_table30, p_col = "P")
+  pr_tree(setNames(list("value"), "fit\npart"))
+  pr_kv(setNames(list("first line\nsecond line"), "key\tname"))
+  pr_note("First note\nSecond note")
+})
+table_control_lines30 <- capture.output(pr_table(control_table30, p_col = "P"))
+key_value_lines30 <- capture.output(pr_kv(setNames(list("first line\nsecond line"), "key\tname")))
+note_lines30 <- capture.output(pr_note("First note\nSecond note"))
+all_controls30 <- data.frame(value = paste0("a", c("\n", "\r", "\t", "\b", "\f", "\v"), "b"))
+all_control_lines30 <- capture.output(pr_table(all_controls30))
+expected_controls30 <- paste0("a\\", c("n", "r", "t", "b", "f", "v"), "b")
+stopifnot(identical(control_original30, control_table30),
+  length(table_control_lines30) == 4L, length(note_lines30) == 2L,
+  length(key_value_lines30) == 2L,
+  grepl("te\\rrm", table_control_lines30[1], fixed = TRUE),
+  grepl("a\\nb", table_control_lines30[3], fixed = TRUE),
+  grepl("c\\td", table_control_lines30[4], fixed = TRUE),
+  identical(trimws(all_control_lines30[-(1:2)]), expected_controls30),
+  any(grepl("key\\tname", key_value_lines30, fixed = TRUE)),
+  any(grepl("first line", key_value_lines30, fixed = TRUE)),
+  any(grepl("second line", key_value_lines30, fixed = TRUE)))
+save_console30(control_lines30, "layout-controls")
+validation_values <- list(table_rows = nrow(control_table30), output = control_lines30,
+  table_lines = length(table_control_lines30), note_lines = length(note_lines30),
+  key_value_lines = length(key_value_lines30), escaped = expected_controls30)
+```
+:::
+
+<!-- /update-20261030: utils_print_controls -->
+
 ## 返回值 {#return}
 
 除 `pr_badge()` 外，这几个函数都不可见地返回所打印的行（无色时已去掉颜色代码），在测试里可以直接检查，也可以拼进别的输出。
@@ -108,5 +176,6 @@ cat(pr_badge("model", "cox"), pr_badge("PH", "violated", bg = "red"),
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-30：[单行字段转义](#controls-20261030)：核对六种控制字符，并保留键值内容与注释的有意换行。
 - 2026-10-25：按 UtilsR 0.6.12 说明 [pr_head()](#pr-head) 与 [pr_kv()](#pr-kv) 的数字位数、[pr_note()](#pr-note) 的换行。
 :::
