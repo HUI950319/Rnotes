@@ -221,6 +221,91 @@ get_inter(
 
 `multicat_model = "interaction"` 是当前默认值。二分类×二分类保持单个结果；二分类×多水平从一个包含所有联合水平的模型中提取对比，并保存总体 K−1 自由度 Wald 交互检验。`"separate"` 每次只保留参考水平与一个非参考水平，各模型的样本和估计值可能不同。
 
+### 二分类编码、精确 Wald P 与警告来源（2026-10-29） {#binary-wald-20261029}
+
+<!-- update-20261029: regr_binary_wald -->
+
+按 RegR 0.1.3 `ba6e4ce`、UtilsR 0.6.13 `ce17def`，在 Windows / WSL R 4.4.3 运行下列 **320 行合成 Cox 数据**。A0、B0 是参考水平，简单效应在另一变量的固定层内比较 A1 对 A0、B1 对 B0。有序因子、列自带的 contrasts 或全局 `contr.sum` 不再悄悄改变二分类对比，调用结束也会恢复原 contrasts 选项。
+
+```r
+library(RegR)
+set.seed(20261029)
+ratio_data29 <- expand.grid(A = c("A0", "A1"), B = c("B0", "B1"),
+  replicate = seq_len(80), KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+ratio_data29[["A"]] <- factor(ratio_data29[["A"]], c("A0", "A1"))
+ratio_data29[["B"]] <- factor(ratio_data29[["B"]], c("B0", "B1"))
+ratio_data29[["Age"]] <- rnorm(320, 60, 8)
+ratio_lp29 <- .5 * (ratio_data29[["A"]] == "A1") + .6 * (ratio_data29[["B"]] == "B1") +
+  .4 * (ratio_data29[["A"]] == "A1" & ratio_data29[["B"]] == "B1") +
+  .015 * (ratio_data29[["Age"]] - 60)
+ratio_data29[["time"]] <- rexp(320, exp(ratio_lp29) / 40) + .1
+ratio_data29[["DSS"]] <- rbinom(320, 1, .8)
+ratio29 <- get_inter(ratio_data29, c("A", "B"), adj_var = "Age", surv = TRUE)
+gt::gtsave(fmt_inter_gt(ratio29),
+  file.path(tempdir(), "20261029-update-binary-wald.html"))
+simple29 <- attr(ratio29[["Adjus"]], "simple_effects")
+```
+
+![固定参考编码后的二分类交互表。](images/interaction-guide/20261029-update-binary-wald.png){fig-alt="320行合成Cox数据的四个联合状态、简单效应、乘法交互与RERI表，A0和B0为参考。"}
+
+[查看原生交互表](images/interaction-guide/20261029-update-binary-wald.html)。95% 区间下，联合及简单效应现在使用其标准误的**精确双侧正态 Wald P**，取代原来的 Altman–Bland 近似；点估计和区间不因这个修复改变，但接近 0.05、0.01 或 0.001 的星号可能改变。不能从四舍五入后的区间反推星号。本节只核对默认 95% 水平；其他置信水平仍按该接口既有的区间转 P 合同处理。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+# 独立 Cox 模型的四个简单对比：B|A0、B|A1、A|B0、A|B1。
+manual29 <- survival::coxph(survival::Surv(time, DSS) ~ A * B + Age,
+  data = ratio_data29, ties = "efron", x = TRUE)
+L29 <- matrix(0, 4, length(stats::coef(manual29)),
+  dimnames = list(NULL, names(stats::coef(manual29))))
+L29[c(1, 2), "BB1"] <- 1
+L29[c(3, 4), "AA1"] <- 1
+L29[c(2, 4), "AA1:BB1"] <- 1
+log_hr29 <- drop(L29 %*% stats::coef(manual29))
+se29 <- sqrt(rowSums((L29 %*% stats::vcov(manual29)) * L29))
+exact_p29 <- 2 * stats::pnorm(-abs(log_hr29 / se29))
+stopifnot(isTRUE(all.equal(simple29[["estimate"]], exp(log_hr29), tolerance = 1e-8)),
+  isTRUE(all.equal(simple29[["p.value_0.95"]], exact_p29, tolerance = 1e-8)))
+ordered_data29 <- ratio_data29
+ordered_data29[["A"]] <- ordered(ordered_data29[["A"]], c("A0", "A1"))
+contrasts_before29 <- getOption("contrasts")
+ordered_ratio29 <- withr::with_options(list(contrasts = c("contr.sum", "contr.poly")),
+  get_inter(ordered_data29, c("A", "B"), adj_var = "Age"))
+stopifnot(isTRUE(all.equal(ratio29, ordered_ratio29)),
+  identical(getOption("contrasts"), contrasts_before29))
+validation_values <- list(n = nrow(ratio_data29), simple = simple29,
+  independent_p = exact_p29, independent_hr = exp(log_hr29))
+```
+:::
+
+#### Fine–Gray 与警告记录
+
+`surv=FALSE` 根据 `status` 的声明水平选择竞争风险路径，即使这个子集中没有观测到竞争事件，只要保留 Alive / DSS / Other 三个水平，也不会误送到 Cox 多状态拟合。没有目标事件的完整病例会明确报错。缺少 time、DSS、status 或 Logistic 结局列，结局有三类，或者一对暴露只剩单水平，也会在拟合前指出问题。
+
+SI 需要可用的非保护性参考；不满足定义时显示 `NA (NA, NA)` 并警告说明原因。不能把 NA 改成零，也不能为了得到 SI 而不说明地反转研究对比。`attr(result,"warnings")` 保存 `where` / `message`，分层时也会指明对比、层和未调整或调整模型；有数值输出不代表可以忽略拟合警告。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+status_data29 <- ratio_data29
+status_data29[["status"]] <- factor(ifelse(status_data29[["DSS"]] == 1, "DSS", "Alive"),
+  levels = c("Alive", "DSS", "Other"))
+status_ratio29 <- get_inter(status_data29, c("A", "B"), adj_var = "Age", surv = FALSE)
+stopifnot(nlevels(status_data29[["status"]]) == 3L,
+  length(unique(status_data29[["status"]])) == 2L,
+  is.finite(attr(status_ratio29[["Adjus"]], "interaction_effect")[["estimate"]]))
+preventive_data29 <- ratio_data29
+preventive_data29[["A"]] <- stats::relevel(preventive_data29[["A"]], "A1")
+preventive_data29[["B"]] <- stats::relevel(preventive_data29[["B"]], "B1")
+preventive29 <- get_inter(preventive_data29, c("A", "B"), adj_var = "Age")
+warning_records29 <- attr(preventive29, "warnings")
+stopifnot(any(grepl("SI is undefined", warning_records29[["message"]], fixed = TRUE)),
+  identical(trimws(preventive29[["Adjus"]][8, 2]), "NA (NA, NA)"))
+validation_values[["fine_gray"]] <- attr(status_ratio29[["Adjus"]], "interaction_effect")
+validation_values[["warnings"]] <- warning_records29
+```
+:::
+
+<!-- /update-20261029: regr_binary_wald -->
+
 ### 逐对模型不再打印内部筛选步骤（2026-10-28） {#pairwise-filter-20261028b}
 
 <!-- update-20261028b: regr_pairwise_subset -->
@@ -1002,6 +1087,7 @@ fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-29：[二分类参考编码、精确 Wald P、Fine–Gray 状态水平与可追溯警告](#binary-wald-20261029)。
 - 2026-10-29：[合并表总体行、缺失值与原始交互来源](#eff-merge-20261029)，移除无效的 inter_adjust 并核对分组输入。
 - 2026-10-28：补充 [逐对模型的内部子集](#pairwise-filter-20261028b)，核对 180 行输入、两份 120 行 Cox 模型与无筛选表输出。
 - 2026-10-25：[不合并开关与结果打印](#reference-print-20261025)
