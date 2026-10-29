@@ -14,6 +14,8 @@ directory:
 用 `get_screens()` 一次组织多个人群、治疗对比和修饰变量，再用 `get_screens_grade()` 调整分级、`fmt_screens_gt()` 生成表格、`plt_screens()` 绘制热图。默认 `surv=TRUE` 用 Cox；`surv="Recovery"` 等列名用 Logistic，输出 OR。单个交互模型及 HR / RERI 的解释见[交互分析](interaction-guide.qmd#binary-wald-20261029)。本页独立构造数据，无需先运行其他教程。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+本轮补充按已推送 RegR `6d15ecd`（0.1.3）及 UtilsR `ce17def`（0.6.13）导出源码，使用 Windows / WSL R 4.4.3 独立运行；合成数据与新增输出在对应小节说明，既有图表保留原执行快照。
+
 原有 720 行 Cox 示例依据已推送 RegR 0.1.3 `2abf7761c8afbec915b6285bf9c948b2e364f6fb`，以及 UtilsR 0.6.13 `ce17defcc47c2f8a8d5b5ae0cce240414f463caa`，在 Windows / WSL R 4.4.3 执行。固定种子 20261029，720 行合成数据，串行 `n_cores=1`；展示实际生成的 gt 表格、两份原生 PDF 及预览。没有使用真实患者记录，没有运行论文队列、并行性能基准或整个站点的历史模型。
 
 新增 [Logistic 示例](#binary-20261029c)依据已推送 RegR `847d71d6bc5504ce88abbb6adc96785cdc44af5f`，同样使用 UtilsR `ce17def`；原有图和统计量保留各自的执行快照。
@@ -498,6 +500,115 @@ validation_values <- list(cox_n = input_screen29c$all$n,
 
 <!-- /update-20261029c: regr_screen_inputs -->
 
+
+<!-- update-20261029e: regr_screen_contracts -->
+
+### 无可拟合组合时，仍保留可合并的字段（2026-10-29） {#input-plan-20261029e}
+
+`6d15ecd` 将负对照校验放在主队列计划之后：治疗类型为 do_vs_not / add_on，或修饰变量为 social，只是触发条件；还必须存在可拟合的主队列。由治疗派生的修饰变量、声明参考水平缺失、筛选后为空等 n/a 组合，不要求无用的负对照列。可拟合组合仍检查列是否存在、原始存储类型和显式 NA 因子水平；“其他原因事件至少出现一次”的检查只汇总实际适用人群，不能靠另一个 n/a 人群补足。
+
+下例使用 **240 行合成数据**。先运行一个可拟合的人群，再构造三个没有 `status` 列的 n/a 人群；不补造负对照结果。`all` 中仍保留这些组合，五项 `stab_*` 均为 `"n/a"`，整数人数、数值估计和字符标签的类型与正常结果一致，便于后续 `bind_rows()` 或存盘。n/a 不等于效应为零，也不是“已通过负对照”。
+
+```r
+library(RegR)
+options(RegR.screens.print = FALSE)
+set.seed(20261029)
+n29e <- 240L
+plan_data29e <- data.frame(
+  time = sample(6:100, n29e, TRUE), DSS = rbinom(n29e, 1, .65),
+  Tx = factor(rep(c("No", "Yes"), each = n29e / 2), c("No", "Yes")),
+  Marker = factor(rep(c("Low", "High"), n29e / 2), c("Low", "High")),
+  Age = rnorm(n29e, 60, 9))
+plan_data29e$status <- ifelse(plan_data29e$DSS == 1, "Disease",
+  rep(c("Alive", "Other"), length.out = n29e))
+plan_trts29e <- list(T = list(var = "Tx", ref = "No", alt = "Yes", type = "do_vs_not"),
+  Empty = list(var = "Tx", ref = "No", alt = "Yes", type = "do_vs_not",
+    filter = ~ time < 0))
+plan_mods29e <- list(Marker = list(class = "demographic"),
+  Derived = list(class = "treatment", parent = "Tx"))
+plan_card29e <- list(data = plan_data29e, trt = "T", mod = "Marker",
+  adj = list(demo = "Age"), neg_control = TRUE)
+plan_fit29e <- get_screens(list(All = plan_card29e), plan_trts29e, plan_mods29e,
+  n_cores = 1)
+
+no_control29e <- plan_card29e
+no_control29e$data$status <- NULL
+derived29e <- no_control29e
+derived29e$mod <- "Derived"
+derived29e$data$Derived <- derived29e$data$Tx
+missing_ref29e <- no_control29e
+missing_ref29e$data$Marker <- factor(missing_ref29e$data$Marker,
+  levels = c("Absent", "Low", "High"))
+empty29e <- no_control29e
+empty29e$trt <- "Empty"
+plan_na29e <- get_screens(list(Derived = derived29e,
+  MissingRef = missing_ref29e, Empty = empty29e), plan_trts29e, plan_mods29e,
+  n_cores = 1)
+
+schema_columns29e <- c("n", "events", "small_cell", "A0_mult",
+  "A0_status", "stab_negative", "layer_pattern")
+schema_audit29e <- data.frame(column = schema_columns29e,
+  fitted = vapply(plan_fit29e$all[schema_columns29e], typeof, ""),
+  not_applicable = vapply(plan_na29e$all[schema_columns29e], typeof, ""))
+schema_gt29e <- gt::gt(schema_audit29e)
+gt::gtsave(schema_gt29e, file.path(tempdir(), "20261029e-update-screen-schema.html"))
+```
+
+![真实返回对象的字段类型核对表：可拟合和全 n/a 结果保留相同存储类型。](images/screening-guide/20261029e-update-screen-schema.png){fig-alt="由实际筛查对象提取的字段类型表，人数为integer，效应为double，状态和标签为character，small_cell为logical。"}
+
+[查看字段类型核对表](images/screening-guide/20261029e-update-screen-schema.html)。这是从真实对象提取的结构核对表，不是效应估计表；未拟合组合没有伪造的 HR 或 P 值。
+
+二分类结局也必须在编码前通过原始存储检查。矩阵、list、complex、raw、`integer64` 和带真正 NA 水平的因子会报错；不能先 `as.numeric()` 再猜测取值含义。应根据变量字典显式转换为普通向量，确认缺失、参考及事件后再运行。普通因子的空文本水平与真正的 NA 水平不同，事件元数据的含义见[事件定义](#outcome-levels-20261029d)。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stability29e <- paste0("stab_", c("landmark", "era", "negative", "magnitude", "stepwise"))
+stopifnot(identical(names(plan_na29e$all), names(plan_fit29e$all)),
+  identical(vapply(plan_na29e$all, typeof, ""), vapply(plan_fit29e$all, typeof, "")),
+  all(plan_na29e$all$planned == "n/a"), attr(plan_na29e, "fits") == 0L,
+  all(as.matrix(plan_na29e$all[stability29e]) == "n/a"),
+  identical(get_screens_grade(plan_na29e)$all, plan_na29e$all))
+
+binary_card29e <- no_control29e
+binary_card29e$neg_control <- FALSE
+binary_values29e <- list(matrix(plan_data29e$DSS, ncol = 1),
+  as.list(plan_data29e$DSS), as.complex(plan_data29e$DSS),
+  as.raw(plan_data29e$DSS),
+  structure(as.double(plan_data29e$DSS), class = "integer64"),
+  factor(ifelse(plan_data29e$DSS == 1, "Yes", "No"),
+    levels = c("No", "Yes", NA), exclude = NULL))
+binary_errors29e <- vapply(binary_values29e, function(y) {
+  card <- binary_card29e
+  card$data$Outcome <- y
+  tryCatch({get_screens(list(All = card), plan_trts29e, plan_mods29e,
+    surv = "Outcome", n_cores = 1); ""}, error = conditionMessage)
+}, "")
+stopifnot(all(grepl("unsupported outcome storage", binary_errors29e[1:5])),
+  grepl("explicit NA factor level", binary_errors29e[6]))
+
+missing_control_error29e <- tryCatch({
+  get_screens(list(All = no_control29e), plan_trts29e, plan_mods29e, n_cores = 1)
+  ""}, error = conditionMessage)
+invalid_pool29e <- plan_card29e
+invalid_pool29e$data$status[] <- "Alive"
+unused_pool29e <- derived29e
+unused_pool29e$data$status <- "Other"
+pooled_control_error29e <- tryCatch({
+  get_screens(list(All = invalid_pool29e, Derived = unused_pool29e),
+    plan_trts29e, plan_mods29e, n_cores = 1)
+  ""}, error = conditionMessage)
+stopifnot(grepl("lacks.*status", missing_control_error29e),
+  grepl("no.*Other", pooled_control_error29e))
+validation_values <- list(input_n = n29e, fitted_n = plan_fit29e$all$n,
+  fitted_fits = attr(plan_fit29e, "fits"), not_applicable = plan_na29e$all,
+  schema = schema_audit29e, binary_errors = binary_errors29e,
+  missing_control_error = missing_control_error29e,
+  pooled_control_error = pooled_control_error29e)
+```
+:::
+
+<!-- /update-20261029e: regr_screen_contracts -->
+
 ## 重新分级与保留人工排除 {#regrade}
 
 分级使用未经舍入的 P 值，默认 `alpha=.05`、`null_p=.1`。A 表示 A0 与 A3 至少各有一个尺度显著，B 为仅 A3，C 为仅 A0；N 为 A3 两个 P 都不小于 null_p，其他情形为 `-`。显著尺度冲突，或 A0 与 A3 在同一比较尺度上方向冲突，可判 X；不能把乘法比值直接与 RERI 的数值比较方向。
@@ -814,6 +925,7 @@ validation_values[["late_checks"]] <- list(factor_error = bad_factor_error29,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-29：[输入与主队列计划](#input-plan-20261029e)：补充原始二分类存储检查、适用负对照与全 n/a 结果的字段类型。
 - **2026-10-29**：[事件定义](#outcome-levels-20261029d)和[常量复用 / ID 冲突](#reuse-ids-20261029d)同步 e5e2a4d，附三张实际 gt 输出。
 - **2026-10-29**：[长标签与 HTML 画布](#layout-20261029c)补充深浅和透明条带、多行标签及 fmt_page 设备尺寸。
 - **2026-10-29**：[表格脚注与重名分组](#table-notes-20261029c)补充 X 原因、小单元阈值和等级筛选后的实际标签。
