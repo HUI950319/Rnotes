@@ -2,13 +2,13 @@
 title: "队列筛选与流程图：get_flt 与三个绘图入口"
 description: "get_flt 的筛选历史与返回对象；用 RegR 自带 MTC 数据展示 plt_flo 的 12 个参数示例和 plt_flo2 的 8 个研究流程示例，并补充 plt_flo3 的多队列分组、阶段与 PDF 保存。"
 date: 2026-10-01
-date-modified: 2026-10-28
+date-modified: 2026-10-29
 lightbox: true
 toc-depth: 2
 directory:
   title: "队列流程图：粗体标题、筛选标签与多队列"
   topic: 数据准备与筛选
-  updated: 2026-10-28
+  updated: 2026-10-29
 ---
 
 `get_flt()` 执行筛选并记录每一步人数，`plt_flo()` 把这些记录画成流程图，`plt_flo2()` 用阶段说明和队列人数绘制彩色研究流程。本页沿用 [MLR 的 SHAP 页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，重要参数放在标签页中比较，点击图片可以放大**。
@@ -488,7 +488,7 @@ validation_values <- list(input_n = 6L, analyzed_n = nrow(flo_returned28), nodes
 | `split2` | `list(label = NULL, N = NULL, merge = NULL)` | 一一对应的第二级分组与汇合框 |
 | `content_labels` | `NULL` | 分组之后的研究内容框 |
 | `gap_args` | `list(group = NULL, content = 0.3)` | 分组 / 内容框间的横向间距，单位英寸 |
-| `phase_labels, phase_style` | 无阶段标签；`"box"` | 当前 `79bb436` 支持 box / bracket / fill / band / arrow，见[阶段样式](#phase-styles-20261027) |
+| `phase_labels, phase_style` | 无阶段标签；`"box"` | 当前 `ba6e4ce` 另有 box1 / box2 / box3，默认仍为 box，见[分组与纳排样式](#box-styles-20261029) |
 | `content_lines` | `"auto"` | 当前为顶层参数；NULL 保留手工换行 |
 | `fixed_size` | `TRUE` | 保持推荐物理尺寸；`FALSE` 适配绘图区；正数指定宽度，单位英寸 |
 | `return_data` | `FALSE` 返回 ggplot | `TRUE` 保留原数据用于管道 |
@@ -865,6 +865,82 @@ validation_values <- list(n_start = 1200L, n_final = nrow(phase_selected27),
 本例实际导出默认框、分区底色与箭头；`fill` 和 `bracket` 的选项按源码核对，旧方括号图保留原快照。保存继续使用 `attr(p,"flo_size")`，阶段标签过长时先用换行控制尺寸。配色、行数和阶段标签不重新建队列，也没有新的统计或速度结论。
 
 <!-- /update-20261027: regr_latest_flow -->
+
+### 分组配色与纳排底色：box1 / box2 / box3（2026-10-29） {#box-styles-20261029}
+
+<!-- update-20261029: regr_flow_styles -->
+
+RegR `ba6e4ce` 新增三种 `phase_style`：`"box1"` 为每个分组框及指向它的箭头配色，主连接线改为较细的深灰、开放箭头和圆角转折；`"box2"` 再给纳入条件、排除条件分别加浅蓝和浅沙底色；`"box3"` 用两种浅灰区分它们。默认 `"box"` 没变，这些设置即使没有 `phase_labels` 也能使用，不新增 `style=` 或其他开关。
+
+下面在 Windows / WSL R 4.4.3 用同一份 **120 行合成数据**运行，只切换三种样式。先纳入 Age 不小于 18 的 86 行，再排除 22 行不满足 Eligible 的记录，最后 64 行分为 A/B 各 32 行。`inclu_row=1` 决定第一条条件归入纳入块，`name_map` 给出真实原因，不能把不满足条件写成“missing”。
+
+```r
+library(RegR)
+styled_data29 <- data.frame(Age = rep(1:60, 2),
+  Eligible = rep(c(TRUE, TRUE, TRUE, FALSE), 30),
+  Arm = factor(rep(c("A", "B"), each = 60)))
+styled_selected29 <- get_flt(styled_data29, Age >= 18, Eligible == TRUE)
+styled_before29 <- styled_selected29
+styled_args29 <- list(data = styled_selected29, inclu_row = 1,
+  cohort = list(label = "Synthetic cohort"), split_var = "Arm",
+  name_map = c(Eligible = "Not eligible"),
+  content_labels = c("**Development**\nClinical model", "**Validation**\nSensitivity analysis"),
+  content_lines = NULL, phase_labels = c("Selection", "Groups", "Study contents"))
+styled_plots29 <- lapply(c("box1", "box2", "box3"), function(style) {
+  do.call(plt_flo, c(styled_args29, list(phase_style = style)))
+})
+names(styled_plots29) <- c("box1", "box2", "box3")
+for (style in names(styled_plots29)) {
+  chart29 <- styled_plots29[[style]]
+  chart_size29 <- attr(chart29, "flo_size")
+  ggplot2::ggsave(file.path(tempdir(), paste0("20261029-update-flow-", style, ".pdf")),
+    chart29, width = chart_size29[["width"]], height = chart_size29[["height"]],
+    device = grDevices::cairo_pdf)
+}
+```
+
+::: {.panel-tabset}
+#### 分组配色 {.unnumbered}
+
+![box1 的分组框与入组箭头沿用同组颜色。](images/flow-guide/20261029-update-flow-box1.png){fig-alt="120行合成队列的box1流程图，两个最终分组各32行，分组框与箭头分别为蓝色和橙色。"}
+
+[原生 PDF](images/flow-guide/20261029-update-flow-box1.pdf)
+
+#### 彩色纳排块 {.unnumbered}
+
+![box2 给纳入、排除条件加不同底色。](images/flow-guide/20261029-update-flow-box2.png){fig-alt="同一筛选队列的box2流程图，纳入条件为浅蓝底色，排除条件为浅沙底色，不改人数。"}
+
+[原生 PDF](images/flow-guide/20261029-update-flow-box2.pdf)
+
+#### 灰色纳排块 {.unnumbered}
+
+![box3 用两种浅灰区分纳排条件。](images/flow-guide/20261029-update-flow-box3.png){fig-alt="同一筛选队列的box3流程图，纳入和排除条件分别用两种浅灰底色，保留分组颜色。"}
+
+[原生 PDF](images/flow-guide/20261029-update-flow-box3.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+style_labels29 <- lapply(styled_plots29, function(p) {
+  unlist(lapply(ggplot2::ggplot_build(p)[["data"]], function(x) {
+    if ("label" %in% names(x)) as.character(x[["label"]])
+  }))
+})
+stopifnot(identical(styled_selected29, styled_before29), nrow(styled_selected29) == 64L,
+  identical(as.integer(table(styled_selected29[["Arm"]])), c(32L, 32L)),
+  all(c("box1", "box2", "box3") %in% eval(formals(plt_flo)[["phase_style"]])),
+  eval(formals(plt_flo)[["phase_style"]])[[1]] == "box")
+for (labels in style_labels29) stopifnot(any(grepl("Not eligible", labels, fixed = TRUE)),
+  all(c("Selection", "Groups", "Study contents") %in% labels))
+validation_values <- list(n_start = 120L, n_final = 64L,
+  group_n = as.integer(table(styled_selected29[["Arm"]])), history = attr(styled_selected29, "flt"),
+  labels = style_labels29)
+```
+:::
+
+三张 PDF 均按 `attr(p,"flo_size")` 的推荐尺寸保存并核对一页完整内容；这轮只更新样式示例，旧图仍保留各自的执行快照。
+
+<!-- /update-20261029: regr_flow_styles -->
 
 ## 字号、框形、间距与 PDF 保存 {#layout-save}
 
@@ -1659,6 +1735,7 @@ stopifnot(nrow(kept) == 20001L, identical(levels(kept[["flag"]]), c("common", "l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-29：[box1 / box2 / box3 分组与纳排样式](#box-styles-20261029)，核对相同筛选队列与三个原生 PDF。
 - 2026-10-28：补充 [get_all 历史连续性](#get-all-history-20261028c)的 24→14 行实跑，区分结果人数正确与纳排历史完整。
 - 2026-10-28：补充 [get_flo 后端实跑](#get-flo-backend-20261028c)，明确实际返回、节点分母、漏记行警告与已复现保存问题。
 - 2026-10-28：追加 [累计历史与行数边界](#history-rows-20261028b)，复核程序化列名、列表不可见返回、新增步骤打印及缺失排除标签。
