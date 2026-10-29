@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、比值尺度与统一画布"
 description: "交互分析的数据准备、get_fit_ms 整体检验、get_inter 的比值尺度与模型组织、get_eff_inter 合并表，以及 get_int / get_all 的统一画布、H 统计量与随机种子；绝对风险与核对、表格导出见同组另外两页。"
 date: 2026-10-09
-date-modified: 2026-10-28
+date-modified: 2026-10-29
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：比值尺度、合并表与统一画布"
   topic: 回归与生存分析
-  updated: 2026-10-28
+  updated: 2026-10-29
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -588,9 +588,9 @@ validation_values <- list(ratio = lapply(ratio_zero25, function(x) lapply(x, as.
 
 cat_var 必须是单个二分类暴露，sub_var 指定一个或多个分类修饰变量。默认 subgroup_model="separate" 的亚组效应分别拟合；本节显式设为 "interaction"，从同一完整交互模型提取简单效应和交互指标。Age_group 的每行 HR 均表示该年龄层内 Male 对 Female 的效应，不能读成该年龄层本身的 HR。
 
-返回 data.frame，带 attr(...,"eff") 和 attr(...,"inter") 保存原始结果；split_var 非空时返回按外层层级命名的 list，每层独立分析。函数会自动打印 gt 表，run_quiet 仅抑制打印；再次调用 fmt_eff_inter_gt 不拟合模型。
+返回 data.frame，`attr(...,"eff")` 保存原始效应表；只有 `subgroup_model="interaction"` 额外保留 `attr(...,"inter")`。`split_var` 非空时返回 `eff_inter_split` 命名 list，每层独立分析。交互式会话默认自动显示 gt；Rscript 默认不打印，knitr 中展示对象会渲染为 gt。`options(RegR.inter.print=FALSE/TRUE)` 可禁止或强制打印；再次调用 `fmt_eff_inter_gt()` 不拟合模型。
 
-当前比值模式支持 Cox、Fine–Gray、Logistic；Fine–Gray 表格底层字段仍以 HR 命名，但格式化显示 sHR。这里实际执行 Cox，RERI 基于 HR 组合，不能直接称为绝对风险交互。inter_adjust 在当前源码中是保留但未使用的参数，不能通过它切换调整策略；选择 interaction 时交互与简单效应来自所选完整模型。
+当前比值模式支持 Cox、Fine–Gray、Logistic；Fine–Gray 表格底层字段仍以 HR 命名，但格式化显示 sHR。这里实际执行 Cox，RERI 基于 HR 组合，不能直接称为绝对风险交互。RegR `ba6e4ce` 已移除原本无效的 `inter_adjust`，继续传入会报 unused argument，应从调用中删除。调整项由 `adj_var` 指定；选择 `interaction` 时交互与简单效应来自所选完整模型。
 
 默认 all="Age" 需要 Age 列；event_by_group=TRUE 将事件数按 cat_var 两组分列，FALSE 则显示合并的事件/总人数。
 
@@ -649,6 +649,79 @@ fmt_eff_inter_gt(eff_inter_split, show_color = FALSE, event_by_group = FALSE)
 :::
 
 :::
+
+### 合并表的总体行、缺失值与来源（2026-10-29） {#eff-merge-20261029}
+
+<!-- update-20261029: regr_eff_merge -->
+
+本节按已推送 RegR 0.1.3 `ba6e4ce`、UtilsR 0.6.13 `ce17def`，在 Windows / WSL R 4.4.3 执行。下面是固定种子的 **240 行合成记录**，不使用真实患者数据。`Tx` 是 No / Yes，效应方向为 Yes 对 No；`Married` 的首水平也叫 Married，用来展示变量名与水平名相同的情况。
+
+`all` 只是开启总体行的**现有列名**，不是调整变量列表。默认 `"Age"` 要求 Age 列；这里没有 Age，明确用 `all="ID"`。只有 `adj_var="Baseline"` 被调整，ID 不进入模型；`all=NULL` 省略总体行。已移除的 `inter_adjust` 不能再传入。
+
+```r
+library(RegR)
+set.seed(20261029)
+merged_data29 <- expand.grid(Tx = c("No", "Yes"),
+  Married = c("Married", "Other"), replicate = seq_len(60),
+  KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+merged_data29[["ID"]] <- seq_len(nrow(merged_data29))
+merged_data29[["Baseline"]] <- rnorm(nrow(merged_data29))
+lp29 <- .5 * (merged_data29[["Tx"]] == "Yes") +
+  .4 * (merged_data29[["Married"]] == "Other") + .2 * merged_data29[["Baseline"]]
+event_time29 <- rexp(nrow(merged_data29), exp(lp29) / 30)
+censor_time29 <- rexp(nrow(merged_data29), 1 / 70)
+merged_data29[["time"]] <- pmin(event_time29, censor_time29) + .01
+merged_data29[["DSS"]] <- as.integer(event_time29 <= censor_time29)
+merged_data29[["Tx"]] <- ordered(merged_data29[["Tx"]], c("No", "Yes"))
+merged_data29[["Married"]] <- ordered(merged_data29[["Married"]],
+  c("Married", "Other", "Unused"))
+merged_data29[["Married"]][1:4] <- NA
+
+merged29 <- get_eff_inter(dplyr::group_by(merged_data29, Married),
+  cat_var = "Tx", sub_var = "Married", adj_var = "Baseline",
+  surv = TRUE, all = "ID", subgroup_model = "separate")
+merged_gt29 <- fmt_eff_inter_gt(merged29, event_by_group = FALSE)
+gt::gtsave(merged_gt29,
+  file.path(tempdir(), "20261029-update-eff-merged.html"))
+```
+
+![240 行总体与修饰变量有值的 236 行分别报告，名为 Married 的参考水平保留。](images/interaction-guide/20261029-update-eff-merged.png){fig-alt="合成 Cox 亚组表，总体行使用全部240行，Married和Other两层各118行，参考水平的交互列为Reference。"}
+
+[查看完整原生表格](images/interaction-guide/20261029-update-eff-merged.html)。四行修饰变量缺失仅从该变量的亚组块排除，整体行仍保留；不能把各模型的人数都写成 240。未观测的 Unused 不会制造空行，有序因子按首水平作参考的分类处理，不拟合多项式趋势。
+
+`separate` 的 Multiplicative / RERI 直接读取同次 `get_eff()` 的 `MS` / `RERI` 列，不再额外重拟合。它们仍是 Cox HR 尺度上的逐对交互，不是固定时点的绝对风险差，也没有额外承诺一列总体 P for interaction。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+plain29 <- as.data.frame(merged_data29)
+plain29[["Tx"]] <- factor(plain29[["Tx"]], c("No", "Yes"))
+plain29[["Married"]] <- factor(plain29[["Married"]], c("Married", "Other", "Unused"))
+plain_merged29 <- get_eff_inter(plain29, "Tx", "Married", adj_var = "Baseline",
+  all = "ID", subgroup_model = "separate")
+without_all29 <- get_eff_inter(plain29, "Tx", "Married", adj_var = "Baseline",
+  all = NULL, subgroup_model = "separate")
+raw29 <- attr(merged29, "eff")[["haz_direct"]]
+level29 <- !is.na(raw29[["variable"]]) & raw29[["row_type"]] == "level" & raw29[["label"]] != "Married"
+overall29 <- is.na(merged29[["variable"]])
+stopifnot(isTRUE(all.equal(as.data.frame(merged29), as.data.frame(plain_merged29),
+    check.attributes = FALSE)),
+  isTRUE(all.equal(lapply(merged29[!overall29, ], function(x) if (is.character(x)) trimws(x) else x),
+    lapply(without_all29, function(x) if (is.character(x)) trimws(x) else x), check.attributes = FALSE)),
+  identical(attr(merged29, "adj_var"), "Baseline"),
+  is.null(attr(merged29, "inter")),
+  !"inter_adjust" %in% names(formals(get_eff_inter)),
+  all(merged29[["Multiplicative_multivariable"]][level29] == raw29[["MS"]][level29]),
+  all(merged29[["RERI_multivariable"]][level29] == raw29[["RERI"]][level29]),
+  sum(overall29) == 1L, nrow(without_all29) == 3L,
+  all(c("Married", "Other") %in% merged29[["subgroup"]]),
+  !"Unused" %in% merged29[["subgroup"]])
+validation_values <- list(total_n = nrow(merged_data29), subgroup_n = sum(!is.na(merged_data29[["Married"]])),
+  counts = as.integer(table(merged_data29[["Married"]]))[1:2],
+  table = as.data.frame(merged29), estimate = raw29[["estimate"]])
+```
+:::
+
+<!-- /update-20261029: regr_eff_merge -->
 
 ## 合并表的阅读顺序
 
@@ -929,6 +1002,7 @@ fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-29：[合并表总体行、缺失值与原始交互来源](#eff-merge-20261029)，移除无效的 inter_adjust 并核对分组输入。
 - 2026-10-28：补充 [逐对模型的内部子集](#pairwise-filter-20261028b)，核对 180 行输入、两份 120 行 Cox 模型与无筛选表输出。
 - 2026-10-25：[不合并开关与结果打印](#reference-print-20261025)
 - 2026-10-24：[参考组、连续变量与亚组表](#reference-subgroup-20261024)
