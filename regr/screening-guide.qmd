@@ -240,6 +240,83 @@ validation_values <- list(input_n = 480, model_n = binary_row29c$n,
 
 <!-- /update-20261029c: regr_screen_binary -->
 
+
+<!-- update-20261029c: regr_screen_inputs -->
+
+### 先检查列名、单位与真正触发的版本（2026-10-29） {#inputs-20261029c}
+
+以下继续使用[上节](#binary-20261029c)的合成数据，转成 Cox 输入来检查按需规则；实际运行快照为 RegR `847d71d`。生存随访必须先转换为明确的**数值月数**，不能把 `difftime` 的秒或天当成月。按研究定义完成换算后，再把普通数值放入 `time`。二分类路径不使用随访，但其 filter 仍可引用原始列。
+
+列名必须唯一；`time`、`DSS` 不允许放入 `adj` 或 `adj_swap` 的替换值；治疗公式筛选只接受单侧公式。`AsIs` 等字符类会规范为普通字符串，不应影响卡片类型、参考水平或版本触发。
+
+```r
+input_data29c <- binary_data29c
+input_data29c$DSS <- as.integer(input_data29c$Recovery == "Recovered")
+input_pops29c <- list(All = list(data = input_data29c, trt = "T", mod = "Marker",
+  adj = list(demo = "Age"), neg_control = TRUE))
+input_trts29c <- list(T = list(var = "Tx", ref = "Yes", alt = "No", type = "both"))
+input_mods29c <- list(Marker = list(class = "tumor"))
+input_screen29c <- get_screens(input_pops29c, input_trts29c, input_mods29c, n_cores = 1)
+```
+
+这组 Cox 模型使用全部 **480 行**。虽然人群卡设置 `neg_control=TRUE`，但 `type="both"` 且修饰变量不是 social，没有触发负对照，所以不要求无用的 `status` 列。若改成 `do_vs_not` / `add_on` 或 social，才检查负对照列与其他原因事件。触发 cap 时要求 `cap` **严格晚于主 landmark**，不是与长 landmark 比较；未触发的 cap 以及二分类结局均为 n/a。
+
+组合去重还会考虑有效 `adj_swap` 替换项的 parent 排除规则：主队列相同而 swap 不同，不能共用同一个拟合结果。切点方向也按人群、治疗、cut_group 三列分别分组；显示名含空格不能把不相关分析合在一起。这两项按本轮源码与对应测试核对，没有新增性能倍数。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+input_error29c <- function(expr) tryCatch({ force(expr); NA_character_ }, error = conditionMessage)
+input_errors29c <- character()
+input_bad29c <- input_pops29c
+input_bad29c$All$data$copy <- input_bad29c$All$data$Age
+names(input_bad29c$All$data)[ncol(input_bad29c$All$data)] <- "Age"
+input_errors29c["duplicate"] <- input_error29c(get_screens(input_bad29c,
+  input_trts29c, input_mods29c, n_cores = 1))
+input_bad29c <- input_pops29c
+input_bad29c$All$adj$demo <- c("Age", "time")
+input_errors29c["reserved"] <- input_error29c(get_screens(input_bad29c,
+  input_trts29c, input_mods29c, n_cores = 1))
+input_bad29c <- input_pops29c
+input_bad29c$All$data$time <- as.difftime(input_bad29c$All$data$time, units = "days")
+input_errors29c["units"] <- input_error29c(get_screens(input_bad29c,
+  input_trts29c, input_mods29c, n_cores = 1))
+input_bad_trts29c <- input_trts29c
+input_bad_trts29c$T$filter <- Recovery ~ Age >= 60
+input_errors29c["formula"] <- input_error29c(get_screens(input_pops29c,
+  input_bad_trts29c, input_mods29c, n_cores = 1))
+input_bad_trts29c <- input_trts29c
+input_bad_trts29c$T$type <- "do_vs_not"
+input_errors29c["negative"] <- input_error29c(get_screens(input_pops29c,
+  input_bad_trts29c, input_mods29c, n_cores = 1))
+input_bad_trts29c <- input_trts29c
+input_bad_trts29c$T$survive <- TRUE
+input_cap_mods29c <- list(Marker = list(class = "era"))
+input_errors29c["cap"] <- input_error29c(get_screens(input_pops29c,
+  input_bad_trts29c, input_cap_mods29c,
+  version_args = list(landmark = 6, landmark_long = 9, cap = 6), n_cores = 1))
+input_binary_bad29c <- binary_pops29c
+input_binary_bad29c$Recovery$data$Recovery <- factor(
+  as.character(binary_data29c$Recovery),
+  levels = c("Unused non-event", "Not recovered", "Recovered"))
+input_errors29c["event_reference"] <- input_error29c(get_screens(input_binary_bad29c,
+  binary_trts29c, binary_mods29c, surv = "Recovery", n_cores = 1))
+input_negative29c <- subset(input_screen29c$specs, version == "negative")
+stopifnot(input_screen29c$all$n == 480L,
+  all(input_negative29c$fit_status == "n/a"), !anyNA(input_errors29c),
+  grepl("duplicate column names", input_errors29c["duplicate"], fixed = TRUE),
+  grepl("cannot be adjustment", input_errors29c["reserved"], fixed = TRUE),
+  grepl("numeric follow-up in months", input_errors29c["units"], fixed = TRUE),
+  grepl("one-sided formula", input_errors29c["formula"], fixed = TRUE),
+  grepl("status", input_errors29c["negative"], fixed = TRUE),
+  grepl("greater than", input_errors29c["cap"], fixed = TRUE),
+  grepl("observed events and non-events", input_errors29c["event_reference"], fixed = TRUE))
+validation_values <- list(cox_n = input_screen29c$all$n,
+  negative_status = input_negative29c$fit_status, rejected = as.list(input_errors29c))
+```
+:::
+
+<!-- /update-20261029c: regr_screen_inputs -->
+
 ## 重新分级与保留人工排除 {#regrade}
 
 分级使用未经舍入的 P 值，默认 `alpha=.05`、`null_p=.1`。A 表示 A0 与 A3 至少各有一个尺度显著，B 为仅 A3，C 为仅 A0；N 为 A3 两个 P 都不小于 null_p，其他情形为 `-`。显著尺度冲突，或 A0 与 A3 在同一比较尺度上方向冲突，可判 X；不能把乘法比值直接与 RERI 的数值比较方向。
@@ -389,6 +466,7 @@ validation_values[["late_checks"]] <- list(factor_error = bad_factor_error29,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- **2026-10-29**：[输入和按需版本](#inputs-20261029c)补充重复列、随访单位、公式、事件参考与负对照、cap 预检。
 - **2026-10-29**：[二分类筛查](#binary-20261029c)补充 Logistic、康复事件方向、原始列筛选与独立 glm 核对。
 - 2026-10-29：新增[卡片和对比方向](#cards)、[版本与重复组合](#versions)、[重新分级](#regrade)及[热图保存](#heatmap)，并与独立 Cox 模型核对。
 :::
