@@ -7,10 +7,15 @@ execute:
 directory:
   title: "结果表与 P 值：pr_table 的着色、位数、高亮与省略"
   topic: 打印信息
-  updated: 2026-10-25
+  updated: 2026-10-30
 ---
 
 `pr_table(data, p_col = NULL, highlight = NULL, n = 20, align = NULL, digits = 2, width = NULL, indent = 2)` 把数据框打印成对齐的纯文本表：粗体表头、一条灰线，然后每行一条。它不修改数据，屏幕上省略的行列仍在对象里。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+本轮补充按已推送 UtilsR `5a9d8eb`（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。
+
+:::
 
 ## 示例 {#example}
 
@@ -80,6 +85,130 @@ pr_table(wide, p_col = "P", n = 5)
 
 位数规则只管显示。需要论文格式的数字时，先用 UtilsR 的 `fmt_*` 函数把列转成文本再传入。
 
+
+<!-- update-20261030: utils_print_table -->
+
+### 带类数值、完整单元格与临界 P 值（2026-10-30） {#storage-pvalues-20261030}
+
+UtilsR 0.6.14（`5a9d8eb`）按原类的格式化方法显示 `integer64`、`difftime` 和 lubridate 时间跨度，不再把底层 double 存储当作实际数值。大整数应从字符串构造：先写成普通 double 再转 integer64，已丢失的末位无法靠打印恢复。这些类分别需要 bit64、haven 或 lubridate 的可选方法；RDS 回读时也按存储类加载对应命名空间。
+
+矩阵／数组列按数据行描述所有分量；重复或空列名仍按列位置读取。小到六位小数仍会显示为零的非零数，以及宽度容纳不下的巨大数，改用科学计数法。下例只有 **1–10 行人工显示样本**，用于核对打印，不是统计模型结果。
+
+```r
+library(UtilsR)
+options(cli.num_colors = 1, cli.width = 80, width = 80)
+stored30 <- data.frame(
+  id64 = bit64::as.integer64(c("2314", "9007199254740993", NA)),
+  period = lubridate::days(c(1, 2, NA)),
+  elapsed = as.difftime(c(1, 2, NA), units = "days"))
+pr_table(stored30)
+repeated30 <- data.frame(first = "left value", second = "right value")
+names(repeated30) <- c("same", "same")
+pr_table(repeated30)
+array30 <- data.frame(id = c("a", "b"))
+array30$components <- array(1:8, dim = c(2, 2, 2))
+pr_table(array30)
+tiny30 <- data.frame(value = c(1e-10, -1e-10, 1e-7, .1))
+huge30 <- data.frame(value = c(1e100, -1e100, 2))
+pr_table(tiny30)
+pr_table(huge30)
+
+p_numeric30 <- data.frame(P = c(.049999999, .0099999999, .0009999999, .05, .01, .001))
+p_text30 <- data.frame(P = c(">0.001", ">=0.001", "<=0.05", "\u22640.05",
+  "<0.05", "\u22640.01", "0.0001", "-0.1", "Inf", "not available"))
+pr_table(p_numeric30, p_col = "P")
+pr_table(p_text30, p_col = "P")
+```
+
+文本范围只有在能保证低于阈值时才带相应星号或颜色。例如 `<0.05` 带一颗星，`<=0.05` 和 `≤0.05` 不能排除恰等于 0.05，因而不带星；`≤0.01` 只能保证低于 0.05，带一颗星。`>0.001`、`>=0.001` 没有显著性保证；无效数值文本也不赋星。数值型 P 值按未舍入值判断，必要时多显示小数；这项修复没有改写 `stat_pval()` 的通用接口。打印不能替代上游对 P 值有效性的检查。
+
+::: {.panel-tabset}
+#### 类型、重复列与数组 {.unnumbered}
+
+![保留大整数、时间单位、重复列内容和每行数组分量的真实控制台输出。](images/table-pvalue/20261030-update-table-storage.png){fig-alt="实际pr_table输出包含9007199254740993的完整位数、时间跨度、两个同名列的不同内容，以及数组各行的四个分量和科学计数法。"}
+
+[原生 HTML](images/table-pvalue/20261030-update-table-storage.html)
+
+#### 无色 P 值边界 {.unnumbered}
+
+![无色输出按原数值和文本范围的保证程度赋星。](images/table-pvalue/20261030-update-table-pvalues-plain.png){fig-alt="临界数值保留足够小数，小于阈值的上界可赋星，含等号的0.05及下界与无效文本不带星号。"}
+
+[原生 HTML](images/table-pvalue/20261030-update-table-pvalues-plain.html)
+
+#### ANSI P 值边界 {.unnumbered}
+
+![强制256色终端模式下的同一组 P 值，内容与无色输出一致。](images/table-pvalue/20261030-update-table-pvalues-colour.png){fig-alt="同一组实际P值输出模拟ANSI终端，符合阈值的范围标红，其余保持灰色。"}
+
+[原生 HTML](images/table-pvalue/20261030-update-table-pvalues-colour.html)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+仅重建网页预览时需要后半段的 HTML 保存函数；终端里直接运行上面的调用即可。
+
+```r
+storage_lines30 <- capture.output({
+  pr_table(stored30); pr_table(repeated30); pr_table(array30)
+  pr_table(tiny30); pr_table(huge30)
+})
+plain_p30 <- capture.output({
+  pr_table(p_numeric30, p_col = "P"); pr_table(p_text30, p_col = "P")
+})
+colour_p30 <- withr::with_options(list(cli.num_colors = 256),
+  capture.output({pr_table(p_numeric30, p_col = "P"); pr_table(p_text30, p_col = "P")}))
+numeric_cells30 <- trimws(capture.output(pr_table(p_numeric30, p_col = "P")))[-(1:2)]
+text_cells30 <- trimws(capture.output(pr_table(p_text30, p_col = "P")))[-(1:2)]
+empty_names30 <- repeated30
+names(empty_names30) <- c("", "")
+empty_names_lines30 <- capture.output(pr_table(empty_names30))
+stopifnot(any(grepl("9007199254740993", storage_lines30, fixed = TRUE)),
+  any(grepl("1d 0H 0M 0S", storage_lines30, fixed = TRUE)),
+  any(grepl("1 days", storage_lines30, fixed = TRUE)),
+  any(grepl("left value +right value", storage_lines30)),
+  any(grepl("left value +right value", empty_names_lines30)),
+  any(grepl("<int 4> 1, 3, 5, 7", storage_lines30, fixed = TRUE)),
+  any(grepl("<int 4> 2, 4, 6, 8", storage_lines30, fixed = TRUE)),
+  any(grepl("1.00e-10", storage_lines30, fixed = TRUE)),
+  any(grepl("1.00e+100", storage_lines30, fixed = TRUE)),
+  identical(numeric_cells30, c("0.049999999*", "0.0099999999**", "<0.001***",
+    "0.050", "0.010*", "0.001**")),
+  identical(text_cells30, c(">0.001", ">=0.001", "<=0.05", "\u22640.05",
+    "<0.05*", "\u22640.01*", "0.0001***", "-0.1", "Inf", "not available")),
+  max(cli::ansi_nchar(storage_lines30, type = "width")) <= 80L,
+  any(grepl("\033[", colour_p30, fixed = TRUE)))
+
+# 复用本站预览方法：保留真实ANSI，将非制表线的非ASCII字符固定到终端显示宽度。
+pin_console30 <- function(line) {
+  ch <- strsplit(line, "")[[1]]
+  for (k in which(vapply(ch, function(z) {
+    u <- utf8ToInt(z)[1]
+    u > 127L && !(u >= 0x2500L && u <= 0x257FL)
+  }, logical(1)))) {
+    w <- cli::ansi_nchar(ch[k], type = "width")
+    if (w %in% 1:2) ch[k] <- sprintf('<span class="w%d">%s</span>', w, ch[k])
+  }
+  paste(ch, collapse = "")
+}
+save_console30 <- function(lines, name) {
+  body <- paste(fansi::sgr_to_html(vapply(htmltools::htmlEscape(lines),
+    pin_console30, "", USE.NAMES = FALSE)), collapse = "\n")
+  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre;display:inline-block}',
+    '.w1,.w2{display:inline-block;vertical-align:top}.w1{width:1ch}.w2{width:2ch}',
+    '</style><pre data-native-console>', body, '</pre>'),
+    file.path(tempdir(), paste0("20261030-update-", name, ".html")), useBytes = TRUE)
+}
+save_console30(storage_lines30, "table-storage")
+save_console30(plain_p30, "table-pvalues-plain")
+save_console30(colour_p30, "table-pvalues-colour")
+validation_values <- list(rows = c(stored = nrow(stored30), repeated = nrow(repeated30),
+  array = nrow(array30), numeric_p = nrow(p_numeric30), text_p = nrow(p_text30)),
+  storage_lines = storage_lines30, numeric_p = numeric_cells30, text_p = text_cells30)
+```
+:::
+
+<!-- /update-20261030: utils_print_table -->
+
 ## 高亮行 {#highlight}
 
 `highlight` 接受行号或逻辑向量。高亮行整行浅黄底、黑字，**行内其他颜色去掉**，所以示例第一行的 `<0.001` 不是红色。无色时高亮行行首写 `>`，表格整体靠两格缩进对齐。
@@ -117,5 +246,6 @@ tibble 自带的打印会显示列类型，列多时把放不下的列名列在�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-30：[0.6.14显示合同](#storage-pvalues-20261030)：保留存储类型、重复列和数组分量，核对极端数值与P值边界。
 - 2026-10-25：按 UtilsR 0.6.12 补充[临界 P 值](#p-values)、[列表列](#numbers)与[首列截短、rownames](#width)。
 :::

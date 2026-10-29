@@ -1137,7 +1137,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <ul>
   <li><a href="#example" id="toc-example" class="nav-link active" data-scroll-target="#example">示例</a></li>
   <li><a href="#p-values" id="toc-p-values" class="nav-link" data-scroll-target="#p-values">P 值列</a></li>
-  <li><a href="#numbers" id="toc-numbers" class="nav-link" data-scroll-target="#numbers">数值位数</a></li>
+  <li><a href="#numbers" id="toc-numbers" class="nav-link" data-scroll-target="#numbers">数值位数</a>
+  <ul class="collapse">
+  <li><a href="#storage-pvalues-20261030" id="toc-storage-pvalues-20261030" class="nav-link" data-scroll-target="#storage-pvalues-20261030">带类数值、完整单元格与临界 P 值（2026-10-30）</a></li>
+  </ul></li>
   <li><a href="#highlight" id="toc-highlight" class="nav-link" data-scroll-target="#highlight">高亮行</a></li>
   <li><a href="#width" id="toc-width" class="nav-link" data-scroll-target="#width">行数、宽度与省略</a></li>
   <li><a href="#align" id="toc-align" class="nav-link" data-scroll-target="#align">对齐</a></li>
@@ -1176,6 +1179,22 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 
 
 <p><code>pr_table(data, p_col = NULL, highlight = NULL, n = 20, align = NULL, digits = 2, width = NULL, indent = 2)</code> 把数据框打印成对齐的纯文本表：粗体表头、一条灰线，然后每行一条。它不修改数据，屏幕上省略的行列仍在对象里。</p>
+<div class="callout callout-style-default callout-note callout-titled" title="版本与复现记录">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>版本与复现记录
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-1" class="callout-1-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>本轮补充按已推送 UtilsR <code>5a9d8eb</code>（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。</p>
+</div>
+</div>
+</div>
 <section id="example" class="level2">
 <h2 class="anchored" data-anchor-id="example">示例</h2>
 <p>第一张表演示 P 值、位数、高亮和缺失值；第二张是 30 行、8 列的宽表，只显示前 5 行。</p>
@@ -1252,6 +1271,143 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>列表列的每格按 <code>pr_tree()</code> 的写法描述，例如 <code>&lt;dbl 2&gt; 1.1, 2.2</code>，不再显示 <code>c(1.1, 2.2)</code> 这样的反解析文字（0.6.12 起）。</li>
 </ul>
 <p>位数规则只管显示。需要论文格式的数字时，先用 UtilsR 的 <code>fmt_*</code> 函数把列转成文本再传入。</p>
+<!-- update-20261030: utils_print_table -->
+<section id="storage-pvalues-20261030" class="level3">
+<h3 class="anchored" data-anchor-id="storage-pvalues-20261030">带类数值、完整单元格与临界 P 值（2026-10-30）</h3>
+<p>UtilsR 0.6.14（<code>5a9d8eb</code>）按原类的格式化方法显示 <code>integer64</code>、<code>difftime</code> 和 lubridate 时间跨度，不再把底层 double 存储当作实际数值。大整数应从字符串构造：先写成普通 double 再转 integer64，已丢失的末位无法靠打印恢复。这些类分别需要 bit64、haven 或 lubridate 的可选方法；RDS 回读时也按存储类加载对应命名空间。</p>
+<p>矩阵／数组列按数据行描述所有分量；重复或空列名仍按列位置读取。小到六位小数仍会显示为零的非零数，以及宽度容纳不下的巨大数，改用科学计数法。下例只有 <strong>1–10 行人工显示样本</strong>，用于核对打印，不是统计模型结果。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(UtilsR)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">cli.num_colors =</span> <span class="dv">1</span>, <span class="at">cli.width =</span> <span class="dv">80</span>, <span class="at">width =</span> <span class="dv">80</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>stored30 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">id64 =</span> bit64<span class="sc">::</span><span class="fu">as.integer64</span>(<span class="fu">c</span>(<span class="st">"2314"</span>, <span class="st">"9007199254740993"</span>, <span class="cn">NA</span>)),</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">period =</span> lubridate<span class="sc">::</span><span class="fu">days</span>(<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>, <span class="cn">NA</span>)),</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">elapsed =</span> <span class="fu">as.difftime</span>(<span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>, <span class="cn">NA</span>), <span class="at">units =</span> <span class="st">"days"</span>))</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(stored30)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>repeated30 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">first =</span> <span class="st">"left value"</span>, <span class="at">second =</span> <span class="st">"right value"</span>)</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(repeated30) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"same"</span>, <span class="st">"same"</span>)</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(repeated30)</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>array30 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">id =</span> <span class="fu">c</span>(<span class="st">"a"</span>, <span class="st">"b"</span>))</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>array30<span class="sc">$</span>components <span class="ot">&lt;-</span> <span class="fu">array</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">8</span>, <span class="at">dim =</span> <span class="fu">c</span>(<span class="dv">2</span>, <span class="dv">2</span>, <span class="dv">2</span>))</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(array30)</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>tiny30 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">value =</span> <span class="fu">c</span>(<span class="fl">1e-10</span>, <span class="sc">-</span><span class="fl">1e-10</span>, <span class="fl">1e-7</span>, .<span class="dv">1</span>))</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>huge30 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">value =</span> <span class="fu">c</span>(<span class="fl">1e100</span>, <span class="sc">-</span><span class="fl">1e100</span>, <span class="dv">2</span>))</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(tiny30)</span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(huge30)</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>p_numeric30 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">P =</span> <span class="fu">c</span>(.<span class="dv">049999999</span>, .<span class="dv">0099999999</span>, .<span class="dv">0009999999</span>, .<span class="dv">05</span>, .<span class="dv">01</span>, .<span class="dv">001</span>))</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a>p_text30 <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">P =</span> <span class="fu">c</span>(<span class="st">"&gt;0.001"</span>, <span class="st">"&gt;=0.001"</span>, <span class="st">"&lt;=0.05"</span>, <span class="st">"\u22640.05"</span>,</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>  <span class="st">"&lt;0.05"</span>, <span class="st">"\u22640.01"</span>, <span class="st">"0.0001"</span>, <span class="st">"-0.1"</span>, <span class="st">"Inf"</span>, <span class="st">"not available"</span>))</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(p_numeric30, <span class="at">p_col =</span> <span class="st">"P"</span>)</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(p_text30, <span class="at">p_col =</span> <span class="st">"P"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<p>文本范围只有在能保证低于阈值时才带相应星号或颜色。例如 <code>&lt;0.05</code> 带一颗星，<code>&lt;=0.05</code> 和 <code>≤0.05</code> 不能排除恰等于 0.05，因而不带星；<code>≤0.01</code> 只能保证低于 0.05，带一颗星。<code>&gt;0.001</code>、<code>&gt;=0.001</code> 没有显著性保证；无效数值文本也不赋星。数值型 P 值按未舍入值判断，必要时多显示小数；这项修复没有改写 <code>stat_pval()</code> 的通用接口。打印不能替代上游对 P 值有效性的检查。</p>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">类型、重复列与数组</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">无色 P 值边界</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-3" role="tab" aria-controls="tabset-2-3" aria-selected="false" href="">ANSI P 值边界</a></li></ul>
+<div class="tab-content">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/table-pvalue/20261030-update-table-storage.png" class="img-fluid figure-img" alt="实际pr_table输出包含9007199254740993的完整位数、时间跨度、两个同名列的不同内容，以及数组各行的四个分量和科学计数法。" loading="lazy" decoding="async" width="555" height="888" srcset="../assets/figure-previews/2d8608dbd8da261ba933e6c86b435e54.webp"></p>
+<figcaption>保留大整数、时间单位、重复列内容和每行数组分量的真实控制台输出。</figcaption>
+</figure>
+</div>
+<p><a href="images/table-pvalue/20261030-update-table-storage.html">原生 HTML</a></p>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/table-pvalue/20261030-update-table-pvalues-plain.png" class="img-fluid figure-img" alt="临界数值保留足够小数，小于阈值的上界可赋星，含等号的0.05及下界与无效文本不带星号。" loading="lazy" decoding="async" width="258" height="780" srcset="../assets/figure-previews/2e3aa04f4b134c53cec4c69f7623a91a.webp"></p>
+<figcaption>无色输出按原数值和文本范围的保证程度赋星。</figcaption>
+</figure>
+</div>
+<p><a href="images/table-pvalue/20261030-update-table-pvalues-plain.html">原生 HTML</a></p>
+</div>
+<div id="tabset-2-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-3-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="images/table-pvalue/20261030-update-table-pvalues-colour.png" class="img-fluid figure-img" alt="同一组实际P值输出模拟ANSI终端，符合阈值的范围标红，其余保持灰色。" loading="lazy" decoding="async" width="246" height="780" srcset="../assets/figure-previews/cb07cdd5bb22e460a2f6f4179b52ab87.webp"></p>
+<figcaption>强制256色终端模式下的同一组 P 值，内容与无色输出一致。</figcaption>
+</figure>
+</div>
+<p><a href="images/table-pvalue/20261030-update-table-pvalues-colour.html">原生 HTML</a></p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>仅重建网页预览时需要后半段的 HTML 保存函数；终端里直接运行上面的调用即可。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>storage_lines30 <span class="ot">&lt;-</span> <span class="fu">capture.output</span>({</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pr_table</span>(stored30); <span class="fu">pr_table</span>(repeated30); <span class="fu">pr_table</span>(array30)</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pr_table</span>(tiny30); <span class="fu">pr_table</span>(huge30)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>plain_p30 <span class="ot">&lt;-</span> <span class="fu">capture.output</span>({</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pr_table</span>(p_numeric30, <span class="at">p_col =</span> <span class="st">"P"</span>); <span class="fu">pr_table</span>(p_text30, <span class="at">p_col =</span> <span class="st">"P"</span>)</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>colour_p30 <span class="ot">&lt;-</span> withr<span class="sc">::</span><span class="fu">with_options</span>(<span class="fu">list</span>(<span class="at">cli.num_colors =</span> <span class="dv">256</span>),</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">capture.output</span>({<span class="fu">pr_table</span>(p_numeric30, <span class="at">p_col =</span> <span class="st">"P"</span>); <span class="fu">pr_table</span>(p_text30, <span class="at">p_col =</span> <span class="st">"P"</span>)}))</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>numeric_cells30 <span class="ot">&lt;-</span> <span class="fu">trimws</span>(<span class="fu">capture.output</span>(<span class="fu">pr_table</span>(p_numeric30, <span class="at">p_col =</span> <span class="st">"P"</span>)))[<span class="sc">-</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>)]</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>text_cells30 <span class="ot">&lt;-</span> <span class="fu">trimws</span>(<span class="fu">capture.output</span>(<span class="fu">pr_table</span>(p_text30, <span class="at">p_col =</span> <span class="st">"P"</span>)))[<span class="sc">-</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>)]</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>empty_names30 <span class="ot">&lt;-</span> repeated30</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(empty_names30) <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">""</span>, <span class="st">""</span>)</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>empty_names_lines30 <span class="ot">&lt;-</span> <span class="fu">capture.output</span>(<span class="fu">pr_table</span>(empty_names30))</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"9007199254740993"</span>, storage_lines30, <span class="at">fixed =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"1d 0H 0M 0S"</span>, storage_lines30, <span class="at">fixed =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"1 days"</span>, storage_lines30, <span class="at">fixed =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"left value +right value"</span>, storage_lines30)),</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"left value +right value"</span>, empty_names_lines30)),</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"&lt;int 4&gt; 1, 3, 5, 7"</span>, storage_lines30, <span class="at">fixed =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"&lt;int 4&gt; 2, 4, 6, 8"</span>, storage_lines30, <span class="at">fixed =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"1.00e-10"</span>, storage_lines30, <span class="at">fixed =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"1.00e+100"</span>, storage_lines30, <span class="at">fixed =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(numeric_cells30, <span class="fu">c</span>(<span class="st">"0.049999999*"</span>, <span class="st">"0.0099999999**"</span>, <span class="st">"&lt;0.001***"</span>,</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"0.050"</span>, <span class="st">"0.010*"</span>, <span class="st">"0.001**"</span>)),</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(text_cells30, <span class="fu">c</span>(<span class="st">"&gt;0.001"</span>, <span class="st">"&gt;=0.001"</span>, <span class="st">"&lt;=0.05"</span>, <span class="st">"\u22640.05"</span>,</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>    <span class="st">"&lt;0.05*"</span>, <span class="st">"\u22640.01*"</span>, <span class="st">"0.0001***"</span>, <span class="st">"-0.1"</span>, <span class="st">"Inf"</span>, <span class="st">"not available"</span>)),</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>  <span class="fu">max</span>(cli<span class="sc">::</span><span class="fu">ansi_nchar</span>(storage_lines30, <span class="at">type =</span> <span class="st">"width"</span>)) <span class="sc">&lt;=</span> <span class="dv">80</span>L,</span>
+<span id="cb3-29"><a href="#cb3-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(<span class="fu">grepl</span>(<span class="st">"</span><span class="sc">\033</span><span class="st">["</span>, colour_p30, <span class="at">fixed =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb3-30"><a href="#cb3-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-31"><a href="#cb3-31" aria-hidden="true" tabindex="-1"></a><span class="co"># 复用本站预览方法：保留真实ANSI，将非制表线的非ASCII字符固定到终端显示宽度。</span></span>
+<span id="cb3-32"><a href="#cb3-32" aria-hidden="true" tabindex="-1"></a>pin_console30 <span class="ot">&lt;-</span> <span class="cf">function</span>(line) {</span>
+<span id="cb3-33"><a href="#cb3-33" aria-hidden="true" tabindex="-1"></a>  ch <span class="ot">&lt;-</span> <span class="fu">strsplit</span>(line, <span class="st">""</span>)[[<span class="dv">1</span>]]</span>
+<span id="cb3-34"><a href="#cb3-34" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (k <span class="cf">in</span> <span class="fu">which</span>(<span class="fu">vapply</span>(ch, <span class="cf">function</span>(z) {</span>
+<span id="cb3-35"><a href="#cb3-35" aria-hidden="true" tabindex="-1"></a>    u <span class="ot">&lt;-</span> <span class="fu">utf8ToInt</span>(z)[<span class="dv">1</span>]</span>
+<span id="cb3-36"><a href="#cb3-36" aria-hidden="true" tabindex="-1"></a>    u <span class="sc">&gt;</span> <span class="dv">127</span>L <span class="sc">&amp;&amp;</span> <span class="sc">!</span>(u <span class="sc">&gt;=</span> <span class="dv">0x2500</span>L <span class="sc">&amp;&amp;</span> u <span class="sc">&lt;=</span> <span class="dv">0x257F</span>L)</span>
+<span id="cb3-37"><a href="#cb3-37" aria-hidden="true" tabindex="-1"></a>  }, <span class="fu">logical</span>(<span class="dv">1</span>)))) {</span>
+<span id="cb3-38"><a href="#cb3-38" aria-hidden="true" tabindex="-1"></a>    w <span class="ot">&lt;-</span> cli<span class="sc">::</span><span class="fu">ansi_nchar</span>(ch[k], <span class="at">type =</span> <span class="st">"width"</span>)</span>
+<span id="cb3-39"><a href="#cb3-39" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (w <span class="sc">%in%</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>) ch[k] <span class="ot">&lt;-</span> <span class="fu">sprintf</span>(<span class="st">'&lt;span class="w%d"&gt;%s&lt;/span&gt;'</span>, w, ch[k])</span>
+<span id="cb3-40"><a href="#cb3-40" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb3-41"><a href="#cb3-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste</span>(ch, <span class="at">collapse =</span> <span class="st">""</span>)</span>
+<span id="cb3-42"><a href="#cb3-42" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-43"><a href="#cb3-43" aria-hidden="true" tabindex="-1"></a>save_console30 <span class="ot">&lt;-</span> <span class="cf">function</span>(lines, name) {</span>
+<span id="cb3-44"><a href="#cb3-44" aria-hidden="true" tabindex="-1"></a>  body <span class="ot">&lt;-</span> <span class="fu">paste</span>(fansi<span class="sc">::</span><span class="fu">sgr_to_html</span>(<span class="fu">vapply</span>(htmltools<span class="sc">::</span><span class="fu">htmlEscape</span>(lines),</span>
+<span id="cb3-45"><a href="#cb3-45" aria-hidden="true" tabindex="-1"></a>    pin_console30, <span class="st">""</span>, <span class="at">USE.NAMES =</span> <span class="cn">FALSE</span>)), <span class="at">collapse =</span> <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb3-46"><a href="#cb3-46" aria-hidden="true" tabindex="-1"></a>  <span class="fu">writeLines</span>(<span class="fu">paste0</span>(<span class="st">'&lt;!doctype html&gt;&lt;meta charset="utf-8"&gt;&lt;style&gt;'</span>,</span>
+<span id="cb3-47"><a href="#cb3-47" aria-hidden="true" tabindex="-1"></a>    <span class="st">'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;'</span>,</span>
+<span id="cb3-48"><a href="#cb3-48" aria-hidden="true" tabindex="-1"></a>    <span class="st">'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre;display:inline-block}'</span>,</span>
+<span id="cb3-49"><a href="#cb3-49" aria-hidden="true" tabindex="-1"></a>    <span class="st">'.w1,.w2{display:inline-block;vertical-align:top}.w1{width:1ch}.w2{width:2ch}'</span>,</span>
+<span id="cb3-50"><a href="#cb3-50" aria-hidden="true" tabindex="-1"></a>    <span class="st">'&lt;/style&gt;&lt;pre data-native-console&gt;'</span>, body, <span class="st">'&lt;/pre&gt;'</span>),</span>
+<span id="cb3-51"><a href="#cb3-51" aria-hidden="true" tabindex="-1"></a>    <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="fu">paste0</span>(<span class="st">"20261030-update-"</span>, name, <span class="st">".html"</span>)), <span class="at">useBytes =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb3-52"><a href="#cb3-52" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb3-53"><a href="#cb3-53" aria-hidden="true" tabindex="-1"></a><span class="fu">save_console30</span>(storage_lines30, <span class="st">"table-storage"</span>)</span>
+<span id="cb3-54"><a href="#cb3-54" aria-hidden="true" tabindex="-1"></a><span class="fu">save_console30</span>(plain_p30, <span class="st">"table-pvalues-plain"</span>)</span>
+<span id="cb3-55"><a href="#cb3-55" aria-hidden="true" tabindex="-1"></a><span class="fu">save_console30</span>(colour_p30, <span class="st">"table-pvalues-colour"</span>)</span>
+<span id="cb3-56"><a href="#cb3-56" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">rows =</span> <span class="fu">c</span>(<span class="at">stored =</span> <span class="fu">nrow</span>(stored30), <span class="at">repeated =</span> <span class="fu">nrow</span>(repeated30),</span>
+<span id="cb3-57"><a href="#cb3-57" aria-hidden="true" tabindex="-1"></a>  <span class="at">array =</span> <span class="fu">nrow</span>(array30), <span class="at">numeric_p =</span> <span class="fu">nrow</span>(p_numeric30), <span class="at">text_p =</span> <span class="fu">nrow</span>(p_text30)),</span>
+<span id="cb3-58"><a href="#cb3-58" aria-hidden="true" tabindex="-1"></a>  <span class="at">storage_lines =</span> storage_lines30, <span class="at">numeric_p =</span> numeric_cells30, <span class="at">text_p =</span> text_cells30)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<!-- /update-20261030: utils_print_table -->
+</section>
 </section>
 <section id="highlight" class="level2">
 <h2 class="anchored" data-anchor-id="highlight">高亮行</h2>
@@ -1270,10 +1426,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="align" class="level2">
 <h2 class="anchored" data-anchor-id="align">对齐</h2>
 <p><code>align</code> 默认把数值列和 P 值列右对齐、其余列左对齐，也可以给 <code>"left"</code>、<code>"right"</code>、<code>"center"</code>，按列循环使用。列宽按显示宽度计算，中文占两列，中文表头和内容同样对齐：</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(<span class="fu">data.frame</span>(变量 <span class="ot">=</span> <span class="fu">c</span>(<span class="st">"年龄 55 岁及以上"</span>, <span class="st">"男性"</span>, <span class="st">"多灶"</span>),</span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>                    例数 <span class="ot">=</span> <span class="fu">c</span>(<span class="dv">1203</span>L, <span class="dv">987</span>L, <span class="dv">455</span>L),</span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>                    <span class="at">HR =</span> <span class="fu">c</span>(<span class="fl">1.85</span>, <span class="fl">1.25</span>, <span class="fl">1.08</span>),</span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>                    <span class="at">P =</span> <span class="fu">c</span>(<span class="fl">0.0003</span>, <span class="fl">0.012</span>, <span class="fl">0.21</span>)), <span class="at">p_col =</span> <span class="st">"P"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">pr_table</span>(<span class="fu">data.frame</span>(变量 <span class="ot">=</span> <span class="fu">c</span>(<span class="st">"年龄 55 岁及以上"</span>, <span class="st">"男性"</span>, <span class="st">"多灶"</span>),</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>                    例数 <span class="ot">=</span> <span class="fu">c</span>(<span class="dv">1203</span>L, <span class="dv">987</span>L, <span class="dv">455</span>L),</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>                    <span class="at">HR =</span> <span class="fu">c</span>(<span class="fl">1.85</span>, <span class="fl">1.25</span>, <span class="fl">1.08</span>),</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>                    <span class="at">P =</span> <span class="fu">c</span>(<span class="fl">0.0003</span>, <span class="fl">0.012</span>, <span class="fl">0.21</span>)), <span class="at">p_col =</span> <span class="st">"P"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
 <p><img src="images/table-cjk-color.png" class="img-fluid figure-img" alt="中文表头变量、例数、HR、P 的彩色表，年龄 55 岁及以上、男性、多灶三行，数字列右对齐，P 值 小于 0.001 粗红、0.012 红、0.210 灰。" loading="lazy" decoding="async" width="676" height="300" srcset="../assets/figure-previews/a0308deb07509313330c46f2c0c597e1.webp"></p>
@@ -1290,7 +1446,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="本页更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1299,9 +1455,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-1" class="callout-1-contents callout-collapse collapse">
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li>2026-10-30：<a href="#storage-pvalues-20261030">0.6.14显示合同</a>：保留存储类型、重复列和数组分量，核对极端数值与P值边界。</li>
 <li>2026-10-25：按 UtilsR 0.6.12 补充<a href="#p-values">临界 P 值</a>、<a href="#numbers">列表列</a>与<a href="#width">首列截短、rownames</a>。</li>
 </ul>
 </div>
