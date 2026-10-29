@@ -2,13 +2,13 @@
 title: "效应估计：get_eff、结果表与 set_eff"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解，set_eff 改写结果与区间，数值同步核对、累计调整路线和筛选后的空水平；使用 598 人 M1 PTC 队列，森林图绘制见下一页。"
 date: 2026-10-09
-date-modified: 2026-10-25
+date-modified: 2026-10-29
 lightbox: true
 toc-depth: 2
 directory:
   title: "效应估计：get_eff、set_eff 与数值核对"
   topic: 回归与生存分析
-  updated: 2026-10-25
+  updated: 2026-10-29
 ---
 
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
@@ -162,9 +162,9 @@ str(info, max.level = 2)
 fit_records <- lapply(eff_um, attr, which = "fit_info")
 ```
 
-当前输入检查按 `surv` 明确选择 Cox、竞争风险或 Logistic；结局编码、目标事件、正时间点、方法名称和 `conf_level` 必须有效。无目标事件的分析层，以及无非事件的 Logistic 分析层，会明确报错。非标准列名应先整理为合法列名再调用。
+当前输入检查按 `surv` 明确选择 Cox、竞争风险或 Logistic；结局编码、目标事件、正时间点、方法名称和 `conf_level` 必须有效。整个分析没有目标事件，或 Logistic 整个分析没有非事件时，仍会明确报错；`separate` 中某个亚组只有一组暴露或没有事件的处理见[亚组边界实跑](#subgroup-boundaries-20261029)。非标准列名应先整理为合法列名再调用。
 
-HR/OR 为 0 或无限大等不可估计结果显示为 `Not estimable`，对应数值字段置为 `NA`；图上缺少点或区间不应解释为“没有效应”。生存表的原始 Wald P 值保存在 `p.value_0.95`，非 95% 显示区间下的 `p_value` 仍沿用本页下方解释的兼容合同。
+HR/OR 的估计或任一置信限超出 `1e-10` 至 `1e10` 时，当前实现将其显示为 `Not estimable`，对应估计、区间和 P 值字段置为 `NA`；图上缺少点或区间不应解释为“没有效应”。生存表的原始 Wald P 值保存在 `p.value_0.95`，非 95% 显示区间下的 `p_value` 仍沿用本页下方解释的兼容合同。
 
 倾向评分模型只在同一次调用内复用；对比不同数据、调整项或分析设计时仍会分别拟合。性能复用不改变 ATE/ATT 的定义，也不能代替平衡与重叠诊断。
 
@@ -188,6 +188,95 @@ HR/OR 为 0 或无限大等不可估计结果显示为 `Not estimable`，对应�
 `split_var` 与 `sub_var` 有不同含义：前者让模型在各外层数据子集中分别拟合，后者定义某个分析中的效应修饰变量。缺失的分层值不进入该层分析，层内不变的调整变量会被去除。
 
 另有两个针对特定任务的参数：`cat_var_combine` 将多列组合为联合分类变量，联合类别本身不等于交互检验；`direct_replace` 为单因素 / 多因素比值路径指定目标变量的调整组合，不同步改变概率表。
+
+### 亚组缺失、单臂与无事件的报告（2026-10-29） {#subgroup-boundaries-20261029}
+
+<!-- update-20261029: regr_eff_boundaries -->
+
+本节按 RegR 0.1.3 `ba6e4ce`、UtilsR 0.6.13 `ce17def`，在 Windows / WSL R 4.4.3 执行两组独立的合成示例。先用 **480 行 Cox 数据**：总体行保留全部记录，修饰变量缺失的 4 行从自己的亚组块排除；单臂的 Sparse 和无事件的 Silent 显示 `Not estimable`，并警告指出具体亚组，另外两层仍可估计。不可估计不能读成“效应等于零”或“不显著”。
+
+```r
+library(RegR)
+set.seed(20261029)
+boundary_data29 <- expand.grid(Tx = c("No", "Yes"),
+  Group = c("G0", "G1", "Sparse", "Silent"), replicate = seq_len(60),
+  KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+boundary_data29[["Age"]] <- rnorm(nrow(boundary_data29), 60, 8)
+boundary_lp29 <- .5 * (boundary_data29[["Tx"]] == "Yes") +
+  .015 * (boundary_data29[["Age"]] - 60)
+boundary_data29[["time"]] <- rexp(nrow(boundary_data29), exp(boundary_lp29) / 40) + .1
+boundary_data29[["DSS"]] <- rbinom(nrow(boundary_data29), 1, .7)
+boundary_data29[["Tx"]][boundary_data29[["Group"]] == "Sparse"] <- "No"
+boundary_data29[["DSS"]][boundary_data29[["Group"]] == "Silent"] <- 0L
+boundary_data29[["Tx"]] <- ordered(boundary_data29[["Tx"]], c("No", "Yes"))
+boundary_data29[["Group"]] <- ordered(boundary_data29[["Group"]],
+  c("G0", "G1", "Sparse", "Silent"))
+boundary_data29[["Group"]][1:4] <- NA
+
+boundary29 <- get_eff(dplyr::group_by(boundary_data29, Group),
+  cat_var = "Tx", sub_var = "Group", surv = TRUE,
+  methods = "unadj", show_sur = FALSE, all = "Age", subgroup_model = "separate")
+boundary_table29 <- as.data.frame(boundary29[["haz_unadj"]])[
+  , c("label", "num1", "eve1_1", "eve1_2", "effect")]
+gt::gtsave(gt::tab_header(gt::gt(boundary_table29),
+  title = "Synthetic subgroup counts and estimability"),
+  file.path(tempdir(), "20261029-update-eff-boundaries.html"))
+```
+
+![分组输入的总体、有效亚组人数与不可估计状态。](images/forest-guide/20261029-update-eff-boundaries.png){fig-alt="合成Cox表，总体480行，G0与G1各118行，Sparse与Silent各120行，后两层显示Not estimable。"}
+
+[查看完整表格](images/forest-guide/20261029-update-eff-boundaries.html)。`eve1_1` / `eve1_2` 分别是 No / Yes 的事件数与人数。grouped / rowwise 输入先解除 dplyr 分组再统计；有序的暴露、修饰变量按其水平顺序作普通分类处理，首水平为参考。显式 NA 水平也按缺失值处理，不创建“NA 亚组”。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+boundary_plain29 <- as.data.frame(boundary_data29)
+boundary_plain29[["Tx"]] <- factor(boundary_plain29[["Tx"]], c("No", "Yes"))
+boundary_plain29[["Group"]] <- factor(boundary_plain29[["Group"]], c("G0", "G1", "Sparse", "Silent"))
+boundary_expected29 <- get_eff(boundary_plain29, "Tx", "Group", methods = "unadj",
+  all = "Age", show_sur = FALSE)[["haz_unadj"]]
+boundary_rowwise29 <- get_eff(dplyr::rowwise(boundary_plain29), "Tx", "Group",
+  methods = "unadj", all = "Age", show_sur = FALSE)[["haz_unadj"]]
+bad_boundary29 <- boundary_expected29[["label"]] %in% c("Sparse", "Silent")
+stopifnot(isTRUE(all.equal(as.data.frame(boundary29[["haz_unadj"]]),
+    as.data.frame(boundary_expected29), check.attributes = FALSE)),
+  isTRUE(all.equal(as.data.frame(boundary_rowwise29), as.data.frame(boundary_expected29),
+    check.attributes = FALSE)),
+  all(boundary_expected29[["effect"]][bad_boundary29] == "Not estimable"),
+  all(is.na(boundary_expected29[["estimate"]][bad_boundary29])),
+  sum(!is.na(boundary_data29[["Group"]])) == 476L,
+  identical(as.integer(table(boundary_data29[["Group"]])), c(118L, 118L, 120L, 120L)))
+validation_values <- list(total_n = 480L, subgroup_n = 476L,
+  group_n = as.integer(table(boundary_data29[["Group"]])),
+  table = boundary_table29, estimate = boundary_expected29[["estimate"]])
+```
+:::
+
+有限但极端的 Wald 区间也需单独检查。下面 **3,000 行 Logistic 数据**中，Race=C 的 20 行全部发生结局，构成完全分离；当前实现将其估计和区间标为不可估计，避免一条极长区间把森林图画布拉宽。这里不是按 P 值删除结果，其他可估计水平照常报告。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+set.seed(2026)
+separated29 <- data.frame(Age = rnorm(3000, 60, 10),
+  Race = factor(sample(c("A", "B"), 3000, TRUE), levels = c("A", "B", "C")),
+  DSS = rbinom(3000, 1, .3))
+separated29[["Race"]][1:20] <- "C"
+separated29[["DSS"]][separated29[["Race"]] == "C"] <- 1L
+separated_result29 <- get_eff(separated29, cat_var = "Race", adj_var = "Age",
+  surv = "DSS", methods = c("unadj", "direct"), show_sur = FALSE)
+for (table29 in separated_result29[c("haz_unadj", "haz_direct")]) {
+  separated_row29 <- table29[table29[["label"]] == "C", ]
+  stopifnot(identical(separated_row29[["effect"]], "Not estimable"),
+    all(is.na(unlist(separated_row29[c("estimate", "conf.low", "conf.high", "p_value")]))),
+    max(attr(table29, "ci_range")) < 100)
+}
+validation_values[["separation"]] <- lapply(separated_result29[c("haz_unadj", "haz_direct")],
+  function(x) as.data.frame(x)[, c("label", "estimate", "conf.low", "conf.high", "effect")])
+```
+:::
+
+两例只执行了 Cox 亚组路径和 Logistic 分离例；没有重新运行本页的历史 CIF、匹配、加权或概率差结果。
+
+<!-- /update-20261029: regr_eff_boundaries -->
 
 ### 多个分期方案分别调整 {#cat-var-rpa}
 
@@ -736,6 +825,7 @@ tryCatch(
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-29：[亚组缺失、单臂、无事件及有限极端区间](#subgroup-boundaries-20261029)，核对 grouped / rowwise 与普通数据输入。
 - 2026-10-21：[Fine–Gray：完整病例中的常量与奇异诊断](#fg-design-20261021)
 - 2026-10-19：[概率开关与自动森林坐标](#defaults-auto-20261019)
 - 2026-10-18：[数据标签与年龄归属](#labels-20261018)
