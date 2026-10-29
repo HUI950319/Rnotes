@@ -2,13 +2,13 @@
 title: "ggplot 格式化：主题、坐标、图例、条带与面板标签"
 description: "fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化；实际参数对照与嵌套布局示例。"
 date: 2026-10-09
-date-modified: 2026-10-27
+date-modified: 2026-10-29
 lightbox: true
 toc-depth: 2
 directory:
   title: "ggplot格式化：参考线、坐标、分布与箱线"
   topic: 绘图与格式化
-  updated: 2026-10-27
+  updated: 2026-10-29
 ---
 
 fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -561,6 +561,72 @@ p_collected_tile
 同一类别与颜色映射才能收集为同一 guide；不同配色保留各自颜色条。重复调用会更新已有格式，切换 tile / text 不会不断嵌套新条带。两种模式都保留输入类型：单个 ggplot 返回 ggplot，tile 模式不再包成 patchwork；拼图保留原布局，命名列表仍返回列表，其中的 ggplot 逐项返回 ggplot；固定图形与插图不参与可编辑数据图的格式化。
 
 源码：[轴格式化与颜色条](https://github.com/HUI950319/UtilsR/blob/237b839/R/fmt_plot.R)。四张 `fmt_axisTile()` 图于 2026-10-18 按该提交在 WSL R 4.4.3 重绘，富文本旋转图保留 `f909d90` 的执行快照。上述五图均使用同一份模拟数据，格式化不改变分组值或分析数据。
+
+### 固定面板时保留轴色条比例（2026-10-29） {#axis-pins-20261029}
+
+<!-- update-20261029: utils_axis_pins -->
+
+UtilsR **0.6.13 `ce17def`** 修复了 `fmt_axisTile(mode="tile")` 与 ggplot2 4.0 起的 `theme(panel.widths, panel.heights)` 配合使用时，轴色条被误当成面板而放大的问题。色条现在保持相对相邻面板的尺寸：高 2 英寸的面板配 `tile_height=.1` 得到 0.2 英寸色条；宽 3 英寸的面板配 `tile_width=.1` 得到 0.3 英寸色条。这也是 RegR `plt_screens()` 要求 UtilsR 0.6.13 的原因。
+
+下面在 Windows / WSL R 4.4.3 使用同一份 **3 行合成计数**，固定面板为 3 × 2 英寸，分别为横轴、纵轴加色条。ggplot2 需支持上述固定面板主题设置。
+
+```r
+library(UtilsR)
+library(ggplot2)
+tile_data29 <- data.frame(Category = factor(c("A", "B", "C")), Count = c(3, 5, 4))
+tile_colors29 <- c(A = "#2F5597", B = "#C9541E", C = "#5B9A3B")
+pin_theme29 <- theme(panel.widths = grid::unit(3, "in"),
+  panel.heights = grid::unit(2, "in"))
+tile_x_base29 <- ggplot(tile_data29, aes(Category, Count)) + geom_col(fill = "grey75") +
+  theme_minimal(base_size = 11) + pin_theme29
+tile_y_base29 <- ggplot(tile_data29, aes(Count, Category)) +
+  geom_col(fill = "grey75", orientation = "y") + theme_minimal(base_size = 11) + pin_theme29
+tile_x29 <- fmt_axisTile(tile_x_base29, tile_colors29, tile_height = .1)
+tile_y29 <- fmt_axisTile(tile_y_base29, tile_colors29, axis = "y", tile_width = .1)
+ggsave(file.path(tempdir(), "20261029-update-axis-pin-x.pdf"), tile_x29,
+  width = 4.5, height = 3.3, device = grDevices::cairo_pdf)
+ggsave(file.path(tempdir(), "20261029-update-axis-pin-y.pdf"), tile_y29,
+  width = 4.5, height = 3.3, device = grDevices::cairo_pdf)
+```
+
+::: {.panel-tabset}
+#### 横轴色条 {.unnumbered}
+
+![固定 2 英寸高的面板下方，色条高 0.2 英寸。](images/format-guide/20261029-update-axis-pin-x.png){fig-alt="3行合成计数柱状图，面板3乘2英寸，A B C横轴色条保持面板高度十分之一。"}
+
+[原生 PDF](images/format-guide/20261029-update-axis-pin-x.pdf)
+
+#### 纵轴色条 {.unnumbered}
+
+![固定 3 英寸宽的面板左侧，色条宽 0.3 英寸。](images/format-guide/20261029-update-axis-pin-y.png){fig-alt="同一计数的水平柱状图，A B C纵轴色条保持3英寸面板宽度的十分之一。"}
+
+[原生 PDF](images/format-guide/20261029-update-axis-pin-y.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(utils::packageVersion("ggplot2") >= "4.0.0")
+gx29 <- ggplotGrob(tile_x29)
+gy29 <- ggplotGrob(tile_y29)
+panel_x29 <- gx29[["layout"]][gx29[["layout"]][["name"]] == "panel", ]
+strip_x29 <- gx29[["layout"]][gx29[["layout"]][["name"]] == "panel-axis-tile-b", ]
+panel_y29 <- gy29[["layout"]][gy29[["layout"]][["name"]] == "panel", ]
+strip_y29 <- gy29[["layout"]][gy29[["layout"]][["name"]] == "panel-axis-tile-l", ]
+measured29 <- c(panel_height = grid::convertHeight(gx29[["heights"]][panel_x29[["t"]]], "in", TRUE),
+  strip_height = grid::convertHeight(gx29[["heights"]][strip_x29[["t"]]], "in", TRUE),
+  panel_width = grid::convertWidth(gy29[["widths"]][panel_y29[["l"]]], "in", TRUE),
+  strip_width = grid::convertWidth(gy29[["widths"]][strip_y29[["l"]]], "in", TRUE))
+stopifnot(isTRUE(all.equal(unname(measured29), c(2, .2, 3, .3), tolerance = 1e-10)),
+  inherits(tile_x29, "ggplot"), !inherits(tile_x29, "patchwork"),
+  isTRUE(all.equal(ggplot_build(tile_x29)[["data"]], ggplot_build(tile_x_base29)[["data"]])),
+  isTRUE(all.equal(ggplot_build(tile_y29)[["data"]], ggplot_build(tile_y_base29)[["data"]])))
+validation_values <- list(n = nrow(tile_data29), count = tile_data29[["Count"]], dimensions_in = measured29)
+```
+:::
+
+这里调整色条布局，不改变柱的计数、类别顺序或原图类型。面板固定尺寸与整个 PDF 画布尺寸是两回事；保存的宽高还需容纳轴标题、色条和留白。
+
+<!-- /update-20261029: utils_axis_pins -->
 
 ## 统计比较：配对、方向与校正 {#statistical-comparisons}
 
@@ -1278,5 +1344,6 @@ width_auto
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-29：[固定面板下的轴色条尺寸](#axis-pins-20261029)，核对横纵方向的英寸比例及图层数据不变。
 - 2026-10-27：补充[多面板标签对象隔离](#tag-isolation-20261027)的源码边界，保留原图与参数。
 :::
