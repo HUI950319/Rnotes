@@ -2,19 +2,21 @@
 title: "同一暴露的效应比较：调整模型、结局与分层"
 description: "get_eff_cat 的多调整模型、多结局、60 月绝对效应、sub_var/split_var、dat_adj_ps 独立队列场景及联合暴露；plt_eff 实际参数对照。"
 date: 2026-10-09
-date-modified: 2026-10-22
+date-modified: 2026-10-29
 lightbox: true
 toc-depth: 2
 directory:
   title: "同一暴露的效应比较：亚组模型、调整与多结局"
   topic: 回归与生存分析
-  updated: 2026-10-22
+  updated: 2026-10-29
 ---
 
 
 get_eff_cat() 把同一个分类暴露在不同模型下的估计排成行，便于检查调整集合、结局定义和分层怎样改变结果。它与逐个预测变量的 get_eff()/get_um() 表格组织方式不同。页面提供同一数据的模型表、森林图和绝对效应。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+本轮补充按已推送 RegR `6d15ecd`（0.1.3）及 UtilsR `ce17def`（0.6.13）导出源码，使用 Windows / WSL R 4.4.3 独立运行；合成数据与新增输出在对应小节说明，既有图表保留原执行快照。
+
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
 :::
 
@@ -911,6 +913,71 @@ stopifnot(setequal(unique(collect_rows(ps_multi)[["model_label"]]), c("Unadjuste
 
 本例完整模型有 4 行，自动预设有未调整 + 5 种 PS 共 6 行，明确关闭后仅有未调整行。新增默认会增加拟合工作量，也会改变输出行；旧脚本若曾只给 `ps_var` 却未计划加权，需现在显式传 `list()`。本节只核对接口，不以五种结果接近证明无混杂；匹配/权重、平衡、有效样本量及 ATE / ATT / ATO / EW 的目标人群仍须分别报告。此处 OR 仅指模拟二分类结局，不解释成固定时间生存风险比。
 
+
+<!-- update-20261029e: regr_cat_data -->
+
+### 数据列表与 dat_adj_ps 的区别（2026-10-29） {#data-list-20261029e}
+
+本节复用[效应估计页的数据构造](forest-guide.qmd#data-list-20261029e)得到的 `cohorts29e`：N1a 与 N0、N1b 与 N0 两份各 160 行的合成子集，共享 80 行 N0。`get_eff_cat(data=list(...))` 对每份数据运行同一套调整模型，返回外层 `eff_data_list`；其中每个元素仍是原来的 `eff_res`，模型比较表继续按行组织。
+
+这与[独立敏感性场景](#dat-adj-ps)不同：`data` 的列表决定重复运行分析的数据框；`dat_adj_ps` 是每次调用共享的场景配置，不会按外层子集名称自动逐项取值。需要每个子集使用不同场景时，应分别调用，不能把两层列表的位置关系当成配对规则。
+
+```r
+options(RegR.eff_cat.plot = FALSE)
+cat_runs29e <- run_quiet(get_eff_cat(cohorts29e, cat_var = "Node",
+  adj_var = list(Age = "Age"), surv = TRUE))
+cat_runs29e$N1a
+
+cat_pdf29e <- file.path(tempdir(),
+  c("20261029e-update-cat-list-N1a.pdf", "20261029e-update-cat-list-N1b.pdf"))
+names(cat_pdf29e) <- names(cohorts29e)
+cat_plots29e <- plt_eff(cat_runs29e,
+  title = c(N1a = "Synthetic N1a: adjustment models",
+            N1b = "Synthetic N1b: adjustment models"),
+  show_pinter = "none", save = list(filename = cat_pdf29e))
+```
+
+::: {.panel-tabset}
+#### N1a 与 N0 {.unnumbered}
+
+![第一个160行子集中的未调整与年龄调整模型。](images/eff-cat-guide/20261029e-update-cat-list-N1a.png){fig-alt="N1a与N0的get_eff_cat结果，未调整与年龄调整的模型按行组织，保持N0参考组。"}
+
+[下载 PDF](images/eff-cat-guide/20261029e-update-cat-list-N1a.pdf)
+
+#### N1b 与 N0 {.unnumbered}
+
+![第二个160行子集单独拟合的调整模型比较。](images/eff-cat-guide/20261029e-update-cat-list-N1b.png){fig-alt="N1b与N0子集的独立模型比较图，外层数据列表的第二个元素单独保存。"}
+
+[下载 PDF](images/eff-cat-guide/20261029e-update-cat-list-N1b.pdf)
+:::
+
+若同时传多个 `surv` 结局，每个子集里面仍是按结局组织的 `eff_res`；这与 `get_eff()` 里每个子集再嵌套 `surv_models` 不同。普通单数据框调用的返回结构不变。外层名称、自动补名及错误检查沿用[数据列表规则](forest-guide.qmd#data-list-20261029e)，绘图设置及普通命名列表的区别见[森林图页](forest-plot-guide.qmd#data-list-20261029e)。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(inherits(cat_runs29e, "eff_data_list"),
+  identical(names(cat_runs29e), names(cohorts29e)),
+  inherits(cat_plots29e, "eff_data_list"), all(file.exists(cat_pdf29e)))
+for (i in names(cohorts29e)) {
+  one <- run_quiet(get_eff_cat(cohorts29e[[i]], cat_var = "Node",
+    adj_var = list(Age = "Age"), surv = TRUE))
+  stopifnot(inherits(cat_runs29e[[i]], "eff_res"), identical(cat_runs29e[[i]], one))
+}
+cat_nested29e <- run_quiet(get_eff_cat(cohorts29e, cat_var = "Node",
+  surv = list(sur = TRUE, log = "DSS")))
+stopifnot(inherits(cat_nested29e, "eff_data_list"),
+  all(vapply(cat_nested29e, inherits, TRUE, "eff_res")),
+  !any(vapply(cat_nested29e, inherits, TRUE, "surv_models")),
+  all(lengths(cat_nested29e) == 2L))
+validation_values <- list(input_n = 240L, subset_n = vapply(cohorts29e, nrow, 0L),
+  table_names = lapply(cat_runs29e, names),
+  table_rows = lapply(cat_runs29e, function(x) vapply(x, nrow, 0L)),
+  nested_names = lapply(cat_nested29e, names), plot_names = names(cat_plots29e))
+```
+:::
+
+<!-- /update-20261029e: regr_cat_data -->
+
 ## 使用边界、保存与复现记录
 
 
@@ -1048,6 +1115,7 @@ p_step_vertical
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-29：[数据列表与场景](#data-list-20261029e)：逐数据框比较调整模型，核对多结局结构并提供两份实际PDF。
 - 2026-10-22：[sub_inter 模型行的交叉核对](#sub-inter-check-20261022)
 - 2026-10-21：[多个亚组变量：逐列分层](#sub-columns-20261021)
 - 2026-10-21：[Fine–Gray 并列时间：保持调用者行序](#fg-ties-20261021)
