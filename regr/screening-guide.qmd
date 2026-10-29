@@ -837,6 +837,113 @@ validation_values <- list(counted = sum(layout_screen29c$all$counted),
 
 <!-- /update-20261029c: regr_screen_layout -->
 
+
+<!-- update-20261029e: regr_strip_text -->
+
+### 旋转长标签与隐藏条带文字（2026-10-29） {#strip-text-20261029e}
+
+`6d15ecd` 测量人口条带文字的旋转角度、字体和行高，再选择断行。固定尺寸仍保持格宽；如果旋转后没有任何可容纳的断行方式，会提示增加 `fixed_size` 或调整 `strip.text.x.top`，不能靠裁掉文字假装容纳。`fixed_size=FALSE` 让画布适配设备，不能用它证明固定格宽下已放得下。
+
+以下复用[输入示例](#input-plan-20261029e)的 `plan_data29e`，组成 240 / 180 / 120 行的三个合成人群。两份子集均从两个治疗组等量取样；它们有重叠，不是三项独立研究。模型只拟合一次，三张图复用同一个筛查结果。
+
+```r
+strip_rows29e <- list(
+  "All synthetic patients with complete baseline records" = seq_len(240),
+  "Balanced synthetic subset with one hundred eighty rows" = c(1:90, 121:210),
+  "Balanced synthetic subset with one hundred twenty rows" = c(1:60, 121:180))
+strip_pops29e <- lapply(strip_rows29e, function(i) list(
+  data = plan_data29e[i, ], trt = "T", mod = "Marker",
+  adj = list(demo = "Age"), neg_control = FALSE))
+strip_trts29e <- list(T = list(var = "Tx", ref = "No", alt = "Yes", type = "both"))
+strip_screen29e <- get_screens(strip_pops29e, strip_trts29e, plan_mods29e, n_cores = 1)
+strip_theme29e <- ggplot2::theme_minimal(base_size = 9)
+strip_45_29e <- plt_screens(strip_screen29e, version = "A3",
+  fixed_size = 12, theme_use = strip_theme29e + ggplot2::theme(
+    strip.text.x.top = ggplot2::element_text(angle = 45, size = 10,
+      family = "serif", lineheight = 1.6)),
+  save = list(filename = file.path(tempdir(), "20261029e-update-strip-45.pdf")))
+strip_90_29e <- plt_screens(strip_screen29e, version = "A3",
+  fixed_size = TRUE, theme_use = strip_theme29e + ggplot2::theme(
+    strip.text.x.top = ggplot2::element_text(angle = 90, size = 10,
+      family = "serif", lineheight = 1.6)),
+  save = list(filename = file.path(tempdir(), "20261029e-update-strip-90.pdf")))
+strip_blank29e <- plt_screens(strip_screen29e, version = c("A0", "A3"),
+  version_layout = "stack", fixed_size = 12,
+  theme_use = strip_theme29e + ggplot2::theme(strip.text = ggplot2::element_blank()),
+  save = list(filename = file.path(tempdir(), "20261029e-update-strip-blank.pdf")))
+```
+
+::: {.panel-tabset}
+#### 45 度与较宽画布 {.unnumbered}
+
+![45 度长标签使用真实旋转尺寸选择断行。](images/screening-guide/20261029e-update-strip-45.png){fig-alt="三个合成人群的筛查热图，顶部45度文字完整显示，使用相同A3模型结果。"}
+
+[下载 PDF](images/screening-guide/20261029e-update-strip-45.pdf)
+
+#### 90 度与固定格宽 {.unnumbered}
+
+![90 度标签保留固定的每格宽度。](images/screening-guide/20261029e-update-strip-90.png){fig-alt="同一筛查结果的90度完整人口标签，格宽保持0.46英寸，文字没有静默裁切。"}
+
+[下载 PDF](images/screening-guide/20261029e-update-strip-90.pdf)
+
+#### 隐藏条带文字 {.unnumbered}
+
+![element_blank 隐藏条带文字，堆叠 A0 与 A3 的热图仍正常构建。](images/screening-guide/20261029e-update-strip-blank.png){fig-alt="同一筛查结果隐藏条带文字后，A0和A3在每格逐层堆叠，数据和估计保持不变。"}
+
+[下载 PDF](images/screening-guide/20261029e-update-strip-blank.pdf)
+:::
+
+`strip.text = element_blank()` 会尊重继承到各方向的隐藏设置，包括 ggh4x 条带；需要局部隐藏时，按方向设置相应条带元素。隐藏后必须在图注或正文另交代人群和对比顺序，不能让读者失去定位。图中的 n/a、NA、等级和星号仍按[读图规则](#heatmap)解释。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+strip_text29e <- function(g) {
+  if (inherits(g, "text")) return(as.character(g$label))
+  children <- if (!is.null(g$grobs)) g$grobs else g$children
+  unlist(lapply(children, strip_text29e), use.names = FALSE)
+}
+strip_titles29e <- function(g) {
+  if (inherits(g, "titleGrob")) return(list(g))
+  children <- if (!is.null(g$grobs)) g$grobs else g$children
+  unlist(lapply(children, strip_titles29e), recursive = FALSE)
+}
+strip_g90_29e <- ggplot2::ggplotGrob(strip_90_29e)
+strip_panels29e <- sort(unique(strip_g90_29e$layout$l[
+  grepl("^panel", strip_g90_29e$layout$name)]))
+stopifnot(all(strip_screen29e$all$planned == "fit"),
+  identical(sort(strip_screen29e$all$n), c(120L, 180L, 240L)),
+  all(abs(grid::convertWidth(strip_g90_29e$widths[strip_panels29e], "in", TRUE) - .46) < 1e-6))
+for (plot in list(strip_45_29e, strip_90_29e)) {
+  grob <- ggplot2::ggplotGrob(plot)
+  strips <- which(grepl("^strip-t", grob$layout$name))
+  stopifnot(length(strips) == 3L)
+  for (j in seq_along(strips)) {
+    i <- strips[j]
+    title <- strip_titles29e(grob$grobs[[i]])[[1]]
+    text <- title$children[[1]]
+    stopifnot(identical(gsub("[[:space:]]", "", text$label),
+      gsub("[[:space:]]", "", names(strip_rows29e)[j])),
+      grid::convertWidth(grid::grobWidth(title), "in", TRUE) <=
+        sum(grid::convertWidth(grob$widths[grob$layout$l[i]:grob$layout$r[i]], "in", TRUE)) + .01)
+  }
+}
+for (style in c("panel", "stack")) for (fixed in c(FALSE, TRUE)) {
+  p <- plt_screens(strip_screen29e, version = c("A0", "A3"), version_layout = style,
+    fixed_size = fixed, theme_use = strip_theme29e +
+      ggplot2::theme(strip.text = ggplot2::element_blank()))
+  g <- ggplot2::ggplotGrob(p)
+  labels <- unlist(lapply(g$grobs[grepl("^strip-", g$layout$name)], strip_text29e))
+  stopifnot(length(labels) == 0L)
+}
+validation_values <- list(input_n = 240L, population_n = strip_screen29e$all$n,
+  counted = sum(strip_screen29e$all$counted),
+  sizes = lapply(list(degree45 = strip_45_29e, degree90 = strip_90_29e,
+    blank = strip_blank29e), function(p) attr(p, "plot_size")))
+```
+:::
+
+<!-- /update-20261029e: regr_strip_text -->
+
 ::: {.callout-note collapse="true" title="复核代码"}
 ```r
 screen_all29 <- screens29[["all"]]
@@ -925,6 +1032,7 @@ validation_values[["late_checks"]] <- list(factor_error = bad_factor_error29,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-29：[旋转标签与隐藏文字](#strip-text-20261029e)：补充45度、90度和空条带的真实PDF与格宽核验。
 - 2026-10-29：[输入与主队列计划](#input-plan-20261029e)：补充原始二分类存储检查、适用负对照与全 n/a 结果的字段类型。
 - **2026-10-29**：[事件定义](#outcome-levels-20261029d)和[常量复用 / ID 冲突](#reuse-ids-20261029d)同步 e5e2a4d，附三张实际 gt 输出。
 - **2026-10-29**：[长标签与 HTML 画布](#layout-20261029c)补充深浅和透明条带、多行标签及 fmt_page 设备尺寸。
