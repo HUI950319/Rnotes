@@ -342,6 +342,84 @@ gt::gtsave(empty_gt29, file.path(tempdir(), "20261029-update-screening-empty.htm
 
 这些等级用于整理探索性模型结果，不是证据质量评级；这里没有额外做多重检验校正，也不能由“某亚组显著、另一亚组不显著”推断有交互或治疗因果效应。
 
+
+<!-- update-20261029c: regr_screen_table -->
+
+### 让脚注和重名分组可追溯（2026-10-29） {#table-notes-20261029c}
+
+RegR `847d71d` 的表格会把 `x_reason` 写进 X 等级的脚注，并在最小单元事件数旁标出 `grade_args$small_cell` 阈值。`show_color=FALSE` 仍保留这些提示；**小单元警告不等于自动改成 X**。先审阅计数和原因，再决定人工排除，不能把缺色当成没有警告。
+
+下面复用[二分类例子](#binary-20261029c)的 136 行数据，独立重拟合三个组合，特意保留包含 `|` 和 `:` 的名称。表格会给冲突的组名或修饰变量名加引号，区分 `"P" | "A | B"` 与 `"P | A" | "B"`，以及 `"A: B": "C"` 与 `"A": "B: C"`。卡片顺序、各组人数和原估计仍分别保留。
+
+```r
+table_data29c <- binary_manual_data29c
+table_data29c[["A: B"]] <- factor(ifelse(table_data29c$Marker == "High", "C", "D"), c("D", "C"))
+table_data29c$A <- factor(ifelse(table_data29c$Age >= median(table_data29c$Age), "B: C", "D"),
+  c("D", "B: C"))
+table_pops29c <- list(
+  P = list(data = table_data29c, trt = "A | B", mod = c("A: B", "A"), adj = list(demo = "Age")),
+  `P | A` = list(data = table_data29c[-1, ], trt = "B", mod = "Marker", adj = list(demo = "Age")))
+table_card29c <- list(var = "Tx", ref = "Yes", alt = "No", type = "both")
+table_screen29c <- get_screens(table_pops29c, list(`A | B` = table_card29c, B = table_card29c),
+  list(`A: B` = list(class = "tumor"), A = list(class = "tumor"), Marker = list(class = "tumor")),
+  surv = "Recovery", n_cores = 1)
+table_manual_id29c <- table_screen29c$all$id[table_screen29c$all$pop == "P" &
+  table_screen29c$all$mod == "A"]
+table_review29c <- get_screens_grade(table_screen29c,
+  grade_args = list(small_cell = 20),
+  x_list = setNames("Illustrative manual exclusion", table_manual_id29c))
+table_gt29c <- fmt_screens_gt(table_review29c, show_color = FALSE)
+table_x_gt29c <- fmt_screens_gt(table_review29c, grade = "X", show_color = FALSE)
+gt::gtsave(table_gt29c, file.path(tempdir(), "20261029c-update-screening-notes.html"))
+gt::gtsave(table_x_gt29c, file.path(tempdir(), "20261029c-update-screening-x.html"))
+```
+
+::: {.panel-tabset}
+### 三个实际拟合的组合 {.unnumbered}
+
+![三条检验分属两个明确分组，保留小单元及人工 X 的脚注。](images/screening-guide/20261029c-update-screening-notes.png){fig-alt="三个合成Logistic交互检验，人数136 136 135，带引号的冲突名称分别显示，小单元和人工排除原因保留脚注。"}
+
+[完整原生表格](images/screening-guide/20261029c-update-screening-notes.html)
+
+### 仅显示 X {.unnumbered}
+
+![按等级筛选后的原生表格继续显示人工排除原因。](images/screening-guide/20261029c-update-screening-x.png){fig-alt="筛选X等级后的交互表，脚注明确人工排除原因，并保留实际事件数及小单元提示。"}
+
+[完整 X 表格](images/screening-guide/20261029c-update-screening-x.html)
+:::
+
+`grade=NULL` 显示所有已计数的检验；`grade=character()` 选择空集；拼写错误、NA 或非字符值会报错。重名检查在等级筛选后进行，只剩一个标签时可以恢复普通写法。不可估计脚注按 A0 / A3 及修饰水平匹配，连续相同原因会合并以减少重复格式化调用；旧保存结果中的 NA 水平仍应保留原失败原因。这些展示操作不会重新拟合模型。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+table_rows29c <- table_gt29c[["_data"]]
+table_html29c <- gt::as_raw_html(table_gt29c)
+table_x_html29c <- gt::as_raw_html(table_x_gt29c)
+table_labels29c <- vapply(table_gt29c[["_stub_df"]]$group_label, as.character, character(1))
+table_stubs29c <- c('"A: B": "C" vs "D"', '"A": "B: C" vs "D"', "Marker: High vs Low")
+stopifnot(sum(table_review29c$all$counted) == 3L,
+  identical(as.numeric(table_rows29c$n), c(136, 136, 135)),
+  length(unique(table_rows29c$.group)) == 2L,
+  identical(table_rows29c$.stub, table_stubs29c),
+  grepl('"P" | "A | B":', table_labels29c[1], fixed = TRUE),
+  grepl('"P | A" | "B":', table_labels29c[3], fixed = TRUE),
+  grepl("Small cell: minimum cell events &lt; 20", table_html29c, fixed = TRUE),
+  grepl("Grade X: Illustrative manual exclusion", table_html29c, fixed = TRUE),
+  grepl("Grade X: Illustrative manual exclusion", table_x_html29c, fixed = TRUE),
+  nrow(fmt_screens_gt(table_review29c, grade = character())[["_data"]]) == 0L)
+table_bad_grade29c <- tryCatch(fmt_screens_gt(table_review29c, grade = "Typo"), error = conditionMessage)
+stopifnot(is.character(table_bad_grade29c), grepl("grade", table_bad_grade29c, fixed = TRUE))
+validation_values <- list(n = table_rows29c$n, groups = unique(table_rows29c$.group),
+  labels = table_labels29c, stubs = table_rows29c$.stub,
+  x_reasons = table_review29c$all$x_reason[table_review29c$all$grade == "X"],
+  min_cell_events = table_rows29c$cell,
+  small_cell_threshold = attr(table_review29c, "grade_args")$small_cell,
+  grade_error = table_bad_grade29c)
+```
+:::
+
+<!-- /update-20261029c: regr_screen_table -->
+
 ## 两种热图布局与可靠保存 {#heatmap}
 
 每格左半是乘法交互，右半是 RERI；红/蓝分别表示相对无交互值 1 / 0 的方向，颜色深浅依赖当前 alpha 与 null_p。深色半格显示估计和星号，A 级框实/虚线区分 stable_A；灰框标 X。短横线为不适用，深灰为不可估计，别名的小圆点提示重复组合。没有选择显示的分级也会变灰，所以灰色不能一律解释为 P 大于阈值。
@@ -466,6 +544,7 @@ validation_values[["late_checks"]] <- list(factor_error = bad_factor_error29,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- **2026-10-29**：[表格脚注与重名分组](#table-notes-20261029c)补充 X 原因、小单元阈值和等级筛选后的实际标签。
 - **2026-10-29**：[输入和按需版本](#inputs-20261029c)补充重复列、随访单位、公式、事件参考与负对照、cap 预检。
 - **2026-10-29**：[二分类筛查](#binary-20261029c)补充 Logistic、康复事件方向、原始列筛选与独立 glm 核对。
 - 2026-10-29：新增[卡片和对比方向](#cards)、[版本与重复组合](#versions)、[重新分级](#regrade)及[热图保存](#heatmap)，并与独立 Cox 模型核对。
