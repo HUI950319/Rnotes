@@ -14,7 +14,7 @@ directory:
 用 `get_screens()` 一次组织多个人群、治疗对比和修饰变量，再用 `get_screens_grade()` 调整分级、`fmt_screens_gt()` 生成表格、`plt_screens()` 绘制热图。单个交互模型及 HR / RERI 的解释见[交互分析](interaction-guide.qmd#binary-wald-20261029)。本页独立构造数据，无需先运行其他教程。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
-本页依据已推送 RegR 0.1.3 `ba6e4ce687b7c56a304a7120a149e4ccddeeedbf`，以及 UtilsR 0.6.13 `ce17defcc47c2f8a8d5b5ae0cce240414f463caa`，在 Windows / WSL R 4.4.3 执行。固定种子 20261029，720 行合成数据，串行 `n_cores=1`；展示实际生成的 gt 表格、两份原生 PDF 及预览。没有使用真实患者记录，没有运行论文队列、并行性能基准或整个站点的历史模型。
+本页依据已推送 RegR 0.1.3 `2abf7761c8afbec915b6285bf9c948b2e364f6fb`，以及 UtilsR 0.6.13 `ce17defcc47c2f8a8d5b5ae0cce240414f463caa`，在 Windows / WSL R 4.4.3 执行。固定种子 20261029，720 行合成数据，串行 `n_cores=1`；展示实际生成的 gt 表格、两份原生 PDF 及预览。没有使用真实患者记录，没有运行论文队列、并行性能基准或整个站点的历史模型。
 
 对应源码为 `R/screens-get.R`、`R/screens-plt.R` 与 `R/inter-get.R`；热图需要 UtilsR 0.6.13 的[固定面板色条修复](../utilsr/format-guide.qmd#axis-pins-20261029)。
 :::
@@ -93,6 +93,14 @@ screens29 <- withr::with_options(list(RegR.screens.print = FALSE),
 ```
 
 本例故意保留四种情况：Full 为完整合成人群；Half 是每个联合单元格都取偶数 replicate 的 360 行子集，并把治疗卡顺序反过来；Duplicate 重复 Full 的 TherapyA × Marker；MissingRef 删除所有 Low 记录但保留 Low 这个声明的参考水平。TxMirror 派生自 TxA，不能拿它修饰自身治疗。
+
+### 发布前的输入检查与计算复用（2026-10-29） {#checks-20261029b}
+
+RegR `2abf776` 追加核对9次已推送提交。与前面的普通 NA 不同，分析因子若具有真正的 **NA 水平**（如 `addNA()` 生成的水平），现在会在拟合前指出列名并拒绝；请先明确改成普通缺失，或有实际含义的文字标签，不能把它误报为一个失败模型。`adj_swap` 的来源名必须唯一、非缺失且非空，替换列名也不能为空；非 NULL 的空 palette 会报错，默认配色请传 NULL。
+
+带名字的标量卡片字段、月份或阈值按其值处理，不改变版本与分级。只有计划拟合二分类修饰变量时才提前要求 msm；纯多水平模型使用既有解析梯度。筛选公式先在完整人群执行，预先算好的行掩码保留，但不再把公式的调用环境发给 PSOCK worker；多水平筛查也不再构造用不到的显示表。这些是执行路径优化，不改变模型、区间或警告，不据此新增提速倍数。
+
+下面的两端重跑保留了原来716行主模型、46次拟合与全部未舍入结果；未开展多 worker 性能或序列化内存基准。热图的长标题测量也改为尊重有效的顶部条带主题。
 
 ## 读懂模型版本、人数与重复组合 {#versions}
 
@@ -237,6 +245,38 @@ for (level29 in c("Mid", "High")) {
 validation_values <- list(input_n = nrow(screen_data29), counted = sum(screen_all29[["counted"]]),
   fits = attr(screens29, "fits"), all = screen_all29, specs = screen_specs29,
   strict = strict_screen29[["all"]][, c("id", "mod_alt", "grade", "x_reason")])
+```
+:::
+
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+bad_factor_pops29 <- pops29
+bad_factor_pops29[["Full"]][["data"]][["Marker"]] <- addNA(screen_data29[["Marker"]])
+bad_factor_error29 <- tryCatch(get_screens(bad_factor_pops29, trts29, mods29, n_cores = 1),
+  error = function(e) conditionMessage(e))
+bad_swap_pops29 <- pops29
+bad_swap_pops29[["Full"]][["adj_swap"]] <- c(Age = "Tumor", Age = "TxB")
+bad_swap_error29 <- tryCatch(get_screens(bad_swap_pops29, trts29, mods29, n_cores = 1),
+  error = function(e) conditionMessage(e))
+empty_palette_error29 <- tryCatch(plt_screens(screens29, palette = character()),
+  error = function(e) conditionMessage(e))
+named_trts29 <- trts29
+named_trts29[["TherapyA"]][["type"]] <- c(card = "do_vs_not")
+named_mods29 <- mods29
+named_mods29[["Marker"]][["class"]] <- c(card = "tumor")
+named_screens29 <- withr::with_options(list(RegR.screens.print = FALSE),
+  get_screens(pops29, named_trts29, named_mods29,
+    year_var = c(column = "Yea"), version_args = list(landmark = c(month = 3)),
+    grade_args = list(alpha = c(threshold = .05)), n_cores = 1))
+stopifnot(is.character(bad_factor_error29), grepl("explicit NA level", bad_factor_error29, fixed = TRUE),
+  grepl("Marker", bad_factor_error29, fixed = TRUE),
+  is.character(bad_swap_error29), grepl("adj_swap", bad_swap_error29, fixed = TRUE),
+  is.character(empty_palette_error29), grepl("at least one colour", empty_palette_error29, fixed = TRUE),
+  isTRUE(all.equal(named_screens29[["all"]], screens29[["all"]])),
+  isTRUE(all.equal(named_screens29[["specs"]], screens29[["specs"]])))
+validation_values[["late_checks"]] <- list(factor_error = bad_factor_error29,
+  swap_error = bad_swap_error29, palette_error = empty_palette_error29, named_values_match = TRUE)
 ```
 :::
 
