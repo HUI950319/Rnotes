@@ -14,6 +14,8 @@ directory:
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+本轮补充按已推送 RegR `6d15ecd`（0.1.3）及 UtilsR `ce17def`（0.6.13）导出源码，使用 Windows / WSL R 4.4.3 独立运行；合成数据与新增输出在对应小节说明，既有图表保留原执行快照。
+
 **版本与执行范围：** 接口按 RegR **0.1.3**（2026-10-09 源码 `40515e1`）核对，使用 WSL R **4.4.3** 重新拟合并绘制下方 **24 张主教程图**；set_eff 与分期方案补充图保留各自注明的执行记录。页面显示已保存的结果；代码可在装有 RegR、ToyData 及相关依赖的 R 环境中复现。
 
 24 张主教程图已于 2026-10-09 更新；此前执行记录不再用于说明当前默认后端或区间。下方 `cat_var_rpa` 补充示例按 2026-10-05 源码 `3411eb0` 实际运行，使用另外的 800 人 MTC 演示样本。
@@ -89,7 +91,7 @@ plt_eff2(eff_labels, which = 1L,
 
 `get_eff()` 负责模型拟合、概率估计、亚组与分层组织，返回带有绘图元数据的结果表。森林图函数读取这些表中的数值，调整布局和文字。
 
-多模型 `surv` 会返回“每模型一份完整结果”的外层 list，绘图时先取其中一个元素；它与 `get_eff_cat()` 的“每结局一张模型比较表”不同，见[多模型返回结构](forest-plot-guide.qmd#models-20261019)。`split_var=list(...)` 表示逐变量独立分层，字符向量表示交叉分层，见[分层对照](eff-cat-guide.qmd#strata-20261019)。
+多模型 `surv` 会返回“每模型一份完整结果”的外层 list，可直接交给 plt_eff()/plt_eff2() 逐模型绘图，或先取其中一个元素；它与 `get_eff_cat()` 的“每结局一张模型比较表”不同，见[多模型返回结构](forest-plot-guide.qmd#models-20261019)。`split_var=list(...)` 表示逐变量独立分层，字符向量表示交叉分层，见[分层对照](eff-cat-guide.qmd#strata-20261019)。
 
 ### 当前接口
 
@@ -117,7 +119,7 @@ get_eff(
 
 | 参数 | 作用与选择方式 |
 |:--|:--|
-| `data` | 数据框；列名与结局编码必须符合所选任务 |
+| `data` | 数据框或非空数据框列表；列表逐队列返回完整结果，列名与结局编码须符合所选任务 |
 | `cat_var` | 主要暴露或待估计变量的列名向量；分类变量的首水平为参考组。数值型且不同取值超过 5 个时按连续变量处理 |
 | `sub_var = NULL` | 单因素 / 多因素变量效应表；`direct` 的多因素模型同时包含选定的 `cat_var` 和调整项 |
 | `sub_var` 非空 | 主要暴露在各亚组中的效应；不是把亚组变量本身当成暴露 |
@@ -511,6 +513,79 @@ stopifnot(inherits(singular_now, "RegR_singular_design"),
 
 <!-- /refresh-20261021: fg_design -->
 
+
+<!-- update-20261029e: regr_eff_data -->
+
+### 多个数据框：每个队列返回一份完整结果（2026-10-29） {#data-list-20261029e}
+
+`get_eff(data=list(...))` 对每个数据框执行相同分析，返回 `eff_data_list`。外层名称表示数据子集；若同时给多个 `surv` 模型，每个子集里再保存 `surv_models`。它不会把不同队列合并拟合，也不是在同一模型中加一个分层项。`get_eff_cat()` 的调整模型组织方式见[同一暴露的效应比较](eff-cat-guide.qmd)。
+
+以下独立生成 **240 行合成数据**，N0、N1a、N1b 各 80 行；两个 160 行子集均以 N0 为参考。两次比较共享同一批 80 行 N0，不能当成独立研究进行汇总。示例用 Cox 比较瞬时风险，Age 是演示调整项，没有外推为淋巴结治疗效果。
+
+```r
+library(RegR)
+set.seed(202610291)
+data29e <- data.frame(
+  Node = factor(rep(c("N0", "N1a", "N1b"), each = 80), c("N0", "N1a", "N1b")),
+  Age = rnorm(240, 60, 9))
+data29e$time <- rexp(240, exp(-4 + .018 * (data29e$Age - 60) +
+  .25 * (data29e$Node == "N1a") + .45 * (data29e$Node == "N1b")))
+data29e$DSS <- rbinom(240, 1, .7)
+cohorts29e <- list(
+  N1a = droplevels(data29e[data29e$Node %in% c("N0", "N1a"), ]),
+  N1b = droplevels(data29e[data29e$Node %in% c("N0", "N1b"), ]))
+eff_runs29e <- run_quiet(get_eff(cohorts29e, cat_var = Node, adj_var = "Age",
+  surv = TRUE, methods = c("unadj", "direct"), all = NULL))
+eff_runs29e$N1a
+
+cohort_audit29e <- data.frame(subset = names(cohorts29e),
+  rows = vapply(cohorts29e, nrow, 0L),
+  events = vapply(cohorts29e, function(d) sum(d$DSS), 0L),
+  reference = "N0",
+  result_class = vapply(eff_runs29e, function(x) class(x)[1], ""))
+gt::gtsave(gt::gt(cohort_audit29e),
+  file.path(tempdir(), "20261029e-update-data-inputs.html"))
+```
+
+![实际两次拟合的队列人数、事件数和返回类。](images/forest-guide/20261029e-update-data-inputs.png){fig-alt="两个160行合成子集分别返回eff_res，均以N0为参考，表中事件数来自各子集实际DSS编码。"}
+
+[查看输入与返回对象核对表](images/forest-guide/20261029e-update-data-inputs.html) · [查看两套森林图和分文件保存](forest-plot-guide.qmd#data-list-20261029e)。
+
+未命名的元素按位置命名为 `data1`、`data2`；部分命名时只补空名称，重复名称会报错，避免绘图设置错配。空列表或混入非数据框也会在拟合前报错。只有一个普通数据框时仍返回原来的 `eff_res`，无需为旧调用额外包一层列表。更改每个子集的结局、调整或加权方案时，应分别调用函数并保存方案，不能假定本入口会按子集名称自动修改统计设置。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(inherits(eff_runs29e, "eff_data_list"),
+  identical(names(eff_runs29e), c("N1a", "N1b")),
+  all(vapply(cohorts29e, nrow, 0L) == 160L),
+  length(intersect(rownames(cohorts29e$N1a), rownames(cohorts29e$N1b))) == 80L)
+for (i in names(cohorts29e)) {
+  single <- run_quiet(get_eff(cohorts29e[[i]], cat_var = Node, adj_var = "Age",
+    surv = TRUE, methods = c("unadj", "direct"), all = NULL))
+  stopifnot(identical(eff_runs29e[[i]], single), inherits(single, "eff_res"))
+}
+unnamed29e <- run_quiet(get_eff(unname(cohorts29e), cat_var = "Node",
+  surv = TRUE, methods = "unadj", all = NULL))
+nested29e <- run_quiet(get_eff(cohorts29e, cat_var = "Node",
+  surv = list(sur = TRUE, log = "DSS"), methods = "unadj", all = NULL))
+stopifnot(identical(names(unnamed29e), c("data1", "data2")),
+  inherits(nested29e$N1a, "surv_models"),
+  identical(names(nested29e$N1a), c("sur", "log")))
+bad_names29e <- tryCatch({
+  get_eff(list(A = cohorts29e$N1a, A = cohorts29e$N1b), cat_var = "Node")
+  ""}, error = conditionMessage)
+bad_member29e <- tryCatch({
+  get_eff(list(A = cohorts29e$N1a, B = 1), cat_var = "Node")
+  ""}, error = conditionMessage)
+stopifnot(grepl("distinct names", bad_names29e), grepl("list of data frames", bad_member29e))
+validation_values <- list(input_n = 240L, cohorts = cohort_audit29e,
+  shared_reference_n = 80L, nested = lapply(nested29e, names),
+  bad_names = bad_names29e, bad_member = bad_member29e)
+```
+:::
+
+<!-- /update-20261029e: regr_eff_data -->
+
 ## 可复现的分析准备 {#prepare}
 
 只在副本 `d` 上修改参考水平和竞争风险编码，ToyData 中保存的对象保持原样。图中的短英文名称只用于展示。
@@ -825,6 +900,7 @@ tryCatch(
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-29：[数据列表](#data-list-20261029e)：两个160行合成子集逐份拟合，核对嵌套模型、返回类及参考样本重叠。
 - 2026-10-29：[亚组缺失、单臂、无事件及有限极端区间](#subgroup-boundaries-20261029)，核对 grouped / rowwise 与普通数据输入。
 - 2026-10-21：[Fine–Gray：完整病例中的常量与奇异诊断](#fg-design-20261021)
 - 2026-10-19：[概率开关与自动森林坐标](#defaults-auto-20261019)
