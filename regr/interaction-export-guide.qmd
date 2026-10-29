@@ -136,7 +136,113 @@ fmt_inter_ft(
 
 `show_subeffect` 控制两个层内效应摘要：`"column"` 保留效应列，`"row"` 保留主暴露效应行，`"both"` 两者都保留，`"none"` 两者都隐藏。隐藏摘要不会改写模型。
 
-`show_measure` 控制 HR / Risk 等度量行的位置：`"above_header"` 在表头，`"below_header"` 在表体首行，`"none"` 不显示。`layout` 组织多对比 / 分层表；完整多水平结果使用固定的模型并排布局。
+`show_measure` 控制 HR / Risk 等度量行的位置：`"above_header"` 在表头，`"below_header"` 在表体首行，`"none"` 不显示。`layout` 组织多对比 / 分层表；完整多水平结果的两个模型仍并排，分层结果可显式用 `layout="vertical"` 将各层向下堆叠。默认 auto / horizontal 保留各层横向并排，见[分层完整模型](#split-multicat-20261029d)。
+
+
+<!-- update-20261029d: regr_split_vertical -->
+
+### 分层完整模型：显式纵向排列（2026-10-29） {#split-multicat-20261029d}
+
+RegR `e5e2a4d` 为 `get_inter(split_var=..., multicat_model="interaction")` 的完整多水平结果增加纵向分层表。`fmt_inter_ft(..., layout="vertical")` 在左侧合并分层名称，每层一个行块，未调整 / 调整模型及各水平继续在列上并排。auto / horizontal 仍将各层横向并排。
+
+`save_tb_inter()` 也要**显式**传 `layout="vertical"`；不传时为兼容既有文档，分层完整多水平结果仍横向并排。不能只看其 formals 中 vertical 排在第一个，就推断此结果类型的默认排列。`landscape` 只控制 Word 纸张方向，和表格排列分开。
+
+下面独立生成480行合成 Cox 数据，North / South各240行、治疗两水平、修饰变量三水平，调整连续年龄。图表来自实际生成的 flextable，两个 Word 文件也由同一结果直接保存。
+
+```r
+library(RegR)
+options(RegR.inter.print = FALSE)
+set.seed(20261103)
+split_data29d <- expand.grid(Tx = c("Yes", "No"), Marker = c("Low", "Mid", "High"),
+  Site = c("North", "South"), replicate = seq_len(40),
+  KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+split_data29d$Tx <- factor(split_data29d$Tx, c("Yes", "No"))
+split_data29d$Marker <- factor(split_data29d$Marker, c("Low", "Mid", "High"))
+split_data29d$Site <- factor(split_data29d$Site, c("North", "South"))
+split_data29d$Age <- rnorm(480, 60, 8)
+split_lp29d <- .5 * (split_data29d$Tx == "No") + .3 * (split_data29d$Marker == "Mid") +
+  .6 * (split_data29d$Marker == "High") + .4 * (split_data29d$Tx == "No" & split_data29d$Marker == "Mid") +
+  .9 * (split_data29d$Tx == "No" & split_data29d$Marker == "High") +
+  .2 * (split_data29d$Site == "South") + .015 * (split_data29d$Age - 60)
+split_event29d <- rexp(480, exp(split_lp29d) / 40)
+split_censor29d <- rexp(480, 1 / 70)
+split_data29d$time <- pmin(split_event29d, split_censor29d)
+split_data29d$DSS <- as.integer(split_event29d <= split_censor29d)
+split_result29d <- get_inter(split_data29d, c("Tx", "Marker"), adj_var = "Age",
+  surv = TRUE, split_var = "Site", multicat_model = "interaction")
+split_default29d <- save_tb_inter(split_result29d,
+  title = file.path(tempdir(), "Table S1. Default split interaction"), landscape = TRUE, font_size = 10)
+split_vertical29d <- save_tb_inter(split_result29d, layout = "vertical",
+  title = file.path(tempdir(), "Table S2. Vertical split interaction"), landscape = TRUE, font_size = 10)
+flextable::save_as_html(split_default29d,
+  path = file.path(tempdir(), "20261029d-update-split-default.html"))
+flextable::save_as_html(split_vertical29d,
+  path = file.path(tempdir(), "20261029d-update-split-vertical.html"))
+```
+
+::: {.panel-tabset}
+#### 不显式传 layout {.unnumbered}
+
+![实际生成的默认 flextable，North / South在列上并排。](images/interaction-export-guide/20261029d-update-split-default.png){fig-alt="480行合成Cox交互结果的实际默认Word表预览，两个各240行分层横向并排，保留未调整和年龄调整模型。"}
+
+[原生 HTML](images/interaction-export-guide/20261029d-update-split-default.html) · [可编辑 Word](images/interaction-export-guide/20261029d-update-split-default.docx)
+
+#### 显式 vertical {.unnumbered}
+
+![实际生成的纵向 flextable，每层独立行块，左侧分层标签合并。](images/interaction-export-guide/20261029d-update-split-vertical.png){fig-alt="相同Cox结果的纵向Word表，North South各一行块，分层标签合并，两个模型及Low Mid High水平仍并排。"}
+
+[原生 HTML](images/interaction-export-guide/20261029d-update-split-vertical.html) · [可编辑 Word](images/interaction-export-guide/20261029d-update-split-vertical.docx)
+:::
+
+单独 `fmt_inter_ft()` 保留 AP / SI 时，默认7行的两个分层变为14行、9列；`save_tb_inter()` 默认移除 AP / SI，上述两个文件分别为5行横向表和10行纵向表。`show_model="adjusted"` 可把纵向表收为5列。格式化不会重新拟合，也不改变两层各自的完整模型或参考水平；两层人数不能重复相加为更多患者。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+split_side_ft29d <- fmt_inter_ft(split_result29d)
+split_vertical_ft29d <- fmt_inter_ft(split_result29d, layout = "vertical")
+split_adjusted29d <- save_tb_inter(split_result29d, layout = "vertical", show_model = "adjusted")
+split_body29d <- split_vertical_ft29d$body$dataset
+stopifnot(nrow(split_data29d) == 480L,
+  identical(as.integer(table(split_data29d$Site)), c(240L, 240L)),
+  flextable::nrow_part(split_side_ft29d, "body") == 7L,
+  flextable::nrow_part(split_vertical_ft29d, "body") == 14L,
+  length(split_vertical_ft29d$col_keys) == 9L,
+  identical(split_body29d[[1]], rep(c("North", "South"), each = 7L)),
+  flextable::nrow_part(split_default29d, "body") == 5L,
+  flextable::nrow_part(split_vertical29d, "body") == 10L,
+  length(split_adjusted29d$col_keys) == 5L)
+for (k in seq_along(levels(split_data29d$Site))) {
+  columns29d <- c("stub", paste0("s", k, "_unadj_", 1:3),
+    paste0("s", k, "_spacer"), paste0("s", k, "_adjus_", 1:3))
+  stopifnot(identical(unname(as.matrix(split_body29d[split_body29d[[1]] == levels(split_data29d$Site)[k], -1])),
+    unname(as.matrix(split_side_ft29d$body$dataset[, columns29d]))))
+}
+split_model_values29d <- lapply(split_result29d, function(x) lapply(x, function(table) attr(table, "estimates")))
+split_original_files29d <- file.path(tempdir(), c("Table S1. Default split interaction.docx",
+  "Table S2. Vertical split interaction.docx"))
+split_downloads29d <- file.path(tempdir(), c("20261029d-update-split-default.docx",
+  "20261029d-update-split-vertical.docx"))
+stopifnot(all(file.copy(split_original_files29d, split_downloads29d, overwrite = TRUE)))
+split_doc_checks29d <- lapply(split_downloads29d, function(path) {
+  doc <- xml2::read_xml(unz(path, "word/document.xml"))
+  ns <- c(w = "http://schemas.openxmlformats.org/wordprocessingml/2006/main")
+  stopifnot(length(xml2::xml_find_all(doc, ".//w:tbl", ns)) == 1L,
+    xml2::xml_attr(xml2::xml_find_first(doc, ".//w:pgSz", ns), "w:orient", ns = ns) == "landscape")
+  list(tables = 1L, table_rows = length(xml2::xml_find_all(doc, ".//w:tbl/w:tr", ns)),
+    contains_strata = all(vapply(c("North", "South"), function(label)
+      grepl(label, xml2::xml_text(doc), fixed = TRUE), logical(1))))
+})
+stopifnot(all(vapply(split_doc_checks29d, function(x) x$contains_strata, logical(1))))
+validation_values <- list(n = 480, stratum_n = as.integer(table(split_data29d$Site)),
+  fmt_dimensions = c(rows = nrow(split_body29d), cols = length(split_vertical_ft29d$col_keys)),
+  save_dimensions = c(default_rows = flextable::nrow_part(split_default29d, "body"),
+    vertical_rows = flextable::nrow_part(split_vertical29d, "body"),
+    vertical_cols = length(split_vertical29d$col_keys), adjusted_cols = length(split_adjusted29d$col_keys)),
+  document_checks = split_doc_checks29d, estimates = split_model_values29d)
+```
+:::
+
+<!-- /update-20261029d: regr_split_vertical -->
 
 ::: {.panel-tabset}
 
@@ -230,7 +336,7 @@ save_tb_inter(
 
 | 参数 | 用途与适用范围 |
 |:--|:--|
-| `layout` | 默认 `"vertical"`，对比 / 层向下堆叠；`"horizontal"` 横向排列。完整多水平表保留固定布局 |
+| `layout` | 一般对比 / 层默认向下堆叠；**分层完整多水平结果**不显式传时仍将各层横向并排，显式 `"vertical"` 才纵向堆叠，模型仍并排 |
 | `landscape` | Word 页面横向；独立于表格的横 / 纵布局 |
 | `show_model` | 两个模型都保留，或只保留 `"unadjusted"` / `"adjusted"` |
 | `show_ap_si = FALSE` | 当前默认；比值结果保留乘性交互与主要加性指标 RERI，绝对结果保留乘性交互与 IC；TRUE保留其他加性指标 |
@@ -498,6 +604,7 @@ ft_full <- save_tb_inter(inter_check[["sur"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- **2026-10-29**：[分层完整模型纵向表](#split-multicat-20261029d)补充显式 layout、默认兼容及真实 flextable / Word 对照。
 - 2026-10-29：[Rscript 默认不自动打印与 knitr 原生表格呈现](#knitr-default-20261029)。
 - 2026-10-27：补充[关闭自动表格打印](#auto-print-20261027)的局部选项、真实输出与结果不变核对。
 :::

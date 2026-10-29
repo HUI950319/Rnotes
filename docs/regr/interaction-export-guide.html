@@ -1301,28 +1301,143 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_measure =</span> <span class="fu">c</span>(<span class="st">"above_header"</span>, <span class="st">"below_header"</span>, <span class="st">"none"</span>)</span>
 <span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>show_subeffect</code> 控制两个层内效应摘要：<code>"column"</code> 保留效应列，<code>"row"</code> 保留主暴露效应行，<code>"both"</code> 两者都保留，<code>"none"</code> 两者都隐藏。隐藏摘要不会改写模型。</p>
-<p><code>show_measure</code> 控制 HR / Risk 等度量行的位置：<code>"above_header"</code> 在表头，<code>"below_header"</code> 在表体首行，<code>"none"</code> 不显示。<code>layout</code> 组织多对比 / 分层表；完整多水平结果使用固定的模型并排布局。</p>
+<p><code>show_measure</code> 控制 HR / Risk 等度量行的位置：<code>"above_header"</code> 在表头，<code>"below_header"</code> 在表体首行，<code>"none"</code> 不显示。<code>layout</code> 组织多对比 / 分层表；完整多水平结果的两个模型仍并排，分层结果可显式用 <code>layout="vertical"</code> 将各层向下堆叠。默认 auto / horizontal 保留各层横向并排，见<a href="#split-multicat-20261029d">分层完整模型</a>。</p>
+<!-- update-20261029d: regr_split_vertical -->
+<section id="split-multicat-20261029d" class="level3">
+<h3 class="anchored" data-anchor-id="split-multicat-20261029d">分层完整模型：显式纵向排列（2026-10-29）</h3>
+<p>RegR <code>e5e2a4d</code> 为 <code>get_inter(split_var=..., multicat_model="interaction")</code> 的完整多水平结果增加纵向分层表。<code>fmt_inter_ft(..., layout="vertical")</code> 在左侧合并分层名称，每层一个行块，未调整 / 调整模型及各水平继续在列上并排。auto / horizontal 仍将各层横向并排。</p>
+<p><code>save_tb_inter()</code> 也要<strong>显式</strong>传 <code>layout="vertical"</code>；不传时为兼容既有文档，分层完整多水平结果仍横向并排。不能只看其 formals 中 vertical 排在第一个，就推断此结果类型的默认排列。<code>landscape</code> 只控制 Word 纸张方向，和表格排列分开。</p>
+<p>下面独立生成480行合成 Cox 数据，North / South各240行、治疗两水平、修饰变量三水平，调整连续年龄。图表来自实际生成的 flextable，两个 Word 文件也由同一结果直接保存。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">RegR.inter.print =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261103</span>)</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>split_data29d <span class="ot">&lt;-</span> <span class="fu">expand.grid</span>(<span class="at">Tx =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"No"</span>), <span class="at">Marker =</span> <span class="fu">c</span>(<span class="st">"Low"</span>, <span class="st">"Mid"</span>, <span class="st">"High"</span>),</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">Site =</span> <span class="fu">c</span>(<span class="st">"North"</span>, <span class="st">"South"</span>), <span class="at">replicate =</span> <span class="fu">seq_len</span>(<span class="dv">40</span>),</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">KEEP.OUT.ATTRS =</span> <span class="cn">FALSE</span>, <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>split_data29d<span class="sc">$</span>Tx <span class="ot">&lt;-</span> <span class="fu">factor</span>(split_data29d<span class="sc">$</span>Tx, <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"No"</span>))</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>split_data29d<span class="sc">$</span>Marker <span class="ot">&lt;-</span> <span class="fu">factor</span>(split_data29d<span class="sc">$</span>Marker, <span class="fu">c</span>(<span class="st">"Low"</span>, <span class="st">"Mid"</span>, <span class="st">"High"</span>))</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>split_data29d<span class="sc">$</span>Site <span class="ot">&lt;-</span> <span class="fu">factor</span>(split_data29d<span class="sc">$</span>Site, <span class="fu">c</span>(<span class="st">"North"</span>, <span class="st">"South"</span>))</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>split_data29d<span class="sc">$</span>Age <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(<span class="dv">480</span>, <span class="dv">60</span>, <span class="dv">8</span>)</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>split_lp29d <span class="ot">&lt;-</span> .<span class="dv">5</span> <span class="sc">*</span> (split_data29d<span class="sc">$</span>Tx <span class="sc">==</span> <span class="st">"No"</span>) <span class="sc">+</span> .<span class="dv">3</span> <span class="sc">*</span> (split_data29d<span class="sc">$</span>Marker <span class="sc">==</span> <span class="st">"Mid"</span>) <span class="sc">+</span></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>  .<span class="dv">6</span> <span class="sc">*</span> (split_data29d<span class="sc">$</span>Marker <span class="sc">==</span> <span class="st">"High"</span>) <span class="sc">+</span> .<span class="dv">4</span> <span class="sc">*</span> (split_data29d<span class="sc">$</span>Tx <span class="sc">==</span> <span class="st">"No"</span> <span class="sc">&amp;</span> split_data29d<span class="sc">$</span>Marker <span class="sc">==</span> <span class="st">"Mid"</span>) <span class="sc">+</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>  .<span class="dv">9</span> <span class="sc">*</span> (split_data29d<span class="sc">$</span>Tx <span class="sc">==</span> <span class="st">"No"</span> <span class="sc">&amp;</span> split_data29d<span class="sc">$</span>Marker <span class="sc">==</span> <span class="st">"High"</span>) <span class="sc">+</span></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>  .<span class="dv">2</span> <span class="sc">*</span> (split_data29d<span class="sc">$</span>Site <span class="sc">==</span> <span class="st">"South"</span>) <span class="sc">+</span> .<span class="dv">015</span> <span class="sc">*</span> (split_data29d<span class="sc">$</span>Age <span class="sc">-</span> <span class="dv">60</span>)</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>split_event29d <span class="ot">&lt;-</span> <span class="fu">rexp</span>(<span class="dv">480</span>, <span class="fu">exp</span>(split_lp29d) <span class="sc">/</span> <span class="dv">40</span>)</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>split_censor29d <span class="ot">&lt;-</span> <span class="fu">rexp</span>(<span class="dv">480</span>, <span class="dv">1</span> <span class="sc">/</span> <span class="dv">70</span>)</span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>split_data29d<span class="sc">$</span>time <span class="ot">&lt;-</span> <span class="fu">pmin</span>(split_event29d, split_censor29d)</span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>split_data29d<span class="sc">$</span>DSS <span class="ot">&lt;-</span> <span class="fu">as.integer</span>(split_event29d <span class="sc">&lt;=</span> split_censor29d)</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>split_result29d <span class="ot">&lt;-</span> <span class="fu">get_inter</span>(split_data29d, <span class="fu">c</span>(<span class="st">"Tx"</span>, <span class="st">"Marker"</span>), <span class="at">adj_var =</span> <span class="st">"Age"</span>,</span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="cn">TRUE</span>, <span class="at">split_var =</span> <span class="st">"Site"</span>, <span class="at">multicat_model =</span> <span class="st">"interaction"</span>)</span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>split_default29d <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(split_result29d,</span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">title =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"Table S1. Default split interaction"</span>), <span class="at">landscape =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">10</span>)</span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>split_vertical29d <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(split_result29d, <span class="at">layout =</span> <span class="st">"vertical"</span>,</span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>  <span class="at">title =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"Table S2. Vertical split interaction"</span>), <span class="at">landscape =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">10</span>)</span>
+<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>flextable<span class="sc">::</span><span class="fu">save_as_html</span>(split_default29d,</span>
+<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">path =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029d-update-split-default.html"</span>))</span>
+<span id="cb8-27"><a href="#cb8-27" aria-hidden="true" tabindex="-1"></a>flextable<span class="sc">::</span><span class="fu">save_as_html</span>(split_vertical29d,</span>
+<span id="cb8-28"><a href="#cb8-28" aria-hidden="true" tabindex="-1"></a>  <span class="at">path =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029d-update-split-vertical.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">默认摘要</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">精简表格</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">不显式传 layout</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">显式 vertical</a></li></ul>
 <div class="tab-content">
 <div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
-<p>保留两类层内效应，度量行位于表头。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_ft</span>(inter_single)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/inter-ft.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="fmt_inter_ft：保留层内效应的默认布局。"><img src="images/interaction-guide/inter-ft.png" class="img-fluid figure-img" alt="flextable 默认布局，包含联合效应、两个层内效应摘要及交互指标。" loading="lazy" decoding="async" width="4800" height="1548" srcset="../assets/figure-previews/00aca97c0de62b30ad3f577ba836b06a.webp"></a></p>
+<p><a href="images/interaction-export-guide/20261029d-update-split-default.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="实际生成的默认 flextable，North / South在列上并排。"><img src="images/interaction-export-guide/20261029d-update-split-default.png" class="img-fluid figure-img" alt="480行合成Cox交互结果的实际默认Word表预览，两个各240行分层横向并排，保留未调整和年龄调整模型。" loading="lazy" decoding="async" width="1476" height="908" srcset="../assets/figure-previews/51d6964ed2aecabb709cf9a69194810b.webp"></a></p>
+<figcaption>实际生成的默认 flextable，North / South在列上并排。</figcaption>
+</figure>
+</div>
+<p><a href="images/interaction-export-guide/20261029d-update-split-default.html">原生 HTML</a> · <a href="images/interaction-export-guide/20261029d-update-split-default.docx">可编辑 Word</a></p>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/interaction-export-guide/20261029d-update-split-vertical.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="实际生成的纵向 flextable，每层独立行块，左侧分层标签合并。"><img src="images/interaction-export-guide/20261029d-update-split-vertical.png" class="img-fluid figure-img" alt="相同Cox结果的纵向Word表，North South各一行块，分层标签合并，两个模型及Low Mid High水平仍并排。" loading="lazy" decoding="async" width="1476" height="797" srcset="../assets/figure-previews/dee05a5d6f95cbc74427fee63c283581.webp"></a></p>
+<figcaption>实际生成的纵向 flextable，每层独立行块，左侧分层标签合并。</figcaption>
+</figure>
+</div>
+<p><a href="images/interaction-export-guide/20261029d-update-split-vertical.html">原生 HTML</a> · <a href="images/interaction-export-guide/20261029d-update-split-vertical.docx">可编辑 Word</a></p>
+</div>
+</div>
+</div>
+<p>单独 <code>fmt_inter_ft()</code> 保留 AP / SI 时，默认7行的两个分层变为14行、9列；<code>save_tb_inter()</code> 默认移除 AP / SI，上述两个文件分别为5行横向表和10行纵向表。<code>show_model="adjusted"</code> 可把纵向表收为5列。格式化不会重新拟合，也不改变两层各自的完整模型或参考水平；两层人数不能重复相加为更多患者。</p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>split_side_ft29d <span class="ot">&lt;-</span> <span class="fu">fmt_inter_ft</span>(split_result29d)</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>split_vertical_ft29d <span class="ot">&lt;-</span> <span class="fu">fmt_inter_ft</span>(split_result29d, <span class="at">layout =</span> <span class="st">"vertical"</span>)</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>split_adjusted29d <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(split_result29d, <span class="at">layout =</span> <span class="st">"vertical"</span>, <span class="at">show_model =</span> <span class="st">"adjusted"</span>)</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>split_body29d <span class="ot">&lt;-</span> split_vertical_ft29d<span class="sc">$</span>body<span class="sc">$</span>dataset</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(split_data29d) <span class="sc">==</span> <span class="dv">480</span>L,</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">as.integer</span>(<span class="fu">table</span>(split_data29d<span class="sc">$</span>Site)), <span class="fu">c</span>(<span class="dv">240</span>L, <span class="dv">240</span>L)),</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  flextable<span class="sc">::</span><span class="fu">nrow_part</span>(split_side_ft29d, <span class="st">"body"</span>) <span class="sc">==</span> <span class="dv">7</span>L,</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>  flextable<span class="sc">::</span><span class="fu">nrow_part</span>(split_vertical_ft29d, <span class="st">"body"</span>) <span class="sc">==</span> <span class="dv">14</span>L,</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">length</span>(split_vertical_ft29d<span class="sc">$</span>col_keys) <span class="sc">==</span> <span class="dv">9</span>L,</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(split_body29d[[<span class="dv">1</span>]], <span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"North"</span>, <span class="st">"South"</span>), <span class="at">each =</span> <span class="dv">7</span>L)),</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>  flextable<span class="sc">::</span><span class="fu">nrow_part</span>(split_default29d, <span class="st">"body"</span>) <span class="sc">==</span> <span class="dv">5</span>L,</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>  flextable<span class="sc">::</span><span class="fu">nrow_part</span>(split_vertical29d, <span class="st">"body"</span>) <span class="sc">==</span> <span class="dv">10</span>L,</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">length</span>(split_adjusted29d<span class="sc">$</span>col_keys) <span class="sc">==</span> <span class="dv">5</span>L)</span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (k <span class="cf">in</span> <span class="fu">seq_along</span>(<span class="fu">levels</span>(split_data29d<span class="sc">$</span>Site))) {</span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>  columns29d <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"stub"</span>, <span class="fu">paste0</span>(<span class="st">"s"</span>, k, <span class="st">"_unadj_"</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>),</span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">paste0</span>(<span class="st">"s"</span>, k, <span class="st">"_spacer"</span>), <span class="fu">paste0</span>(<span class="st">"s"</span>, k, <span class="st">"_adjus_"</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">3</span>))</span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">identical</span>(<span class="fu">unname</span>(<span class="fu">as.matrix</span>(split_body29d[split_body29d[[<span class="dv">1</span>]] <span class="sc">==</span> <span class="fu">levels</span>(split_data29d<span class="sc">$</span>Site)[k], <span class="sc">-</span><span class="dv">1</span>])),</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>    <span class="fu">unname</span>(<span class="fu">as.matrix</span>(split_side_ft29d<span class="sc">$</span>body<span class="sc">$</span>dataset[, columns29d]))))</span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>split_model_values29d <span class="ot">&lt;-</span> <span class="fu">lapply</span>(split_result29d, <span class="cf">function</span>(x) <span class="fu">lapply</span>(x, <span class="cf">function</span>(table) <span class="fu">attr</span>(table, <span class="st">"estimates"</span>)))</span>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a>split_original_files29d <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="fu">c</span>(<span class="st">"Table S1. Default split interaction.docx"</span>,</span>
+<span id="cb9-22"><a href="#cb9-22" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Table S2. Vertical split interaction.docx"</span>))</span>
+<span id="cb9-23"><a href="#cb9-23" aria-hidden="true" tabindex="-1"></a>split_downloads29d <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="fu">c</span>(<span class="st">"20261029d-update-split-default.docx"</span>,</span>
+<span id="cb9-24"><a href="#cb9-24" aria-hidden="true" tabindex="-1"></a>  <span class="st">"20261029d-update-split-vertical.docx"</span>))</span>
+<span id="cb9-25"><a href="#cb9-25" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">all</span>(<span class="fu">file.copy</span>(split_original_files29d, split_downloads29d, <span class="at">overwrite =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb9-26"><a href="#cb9-26" aria-hidden="true" tabindex="-1"></a>split_doc_checks29d <span class="ot">&lt;-</span> <span class="fu">lapply</span>(split_downloads29d, <span class="cf">function</span>(path) {</span>
+<span id="cb9-27"><a href="#cb9-27" aria-hidden="true" tabindex="-1"></a>  doc <span class="ot">&lt;-</span> xml2<span class="sc">::</span><span class="fu">read_xml</span>(<span class="fu">unz</span>(path, <span class="st">"word/document.xml"</span>))</span>
+<span id="cb9-28"><a href="#cb9-28" aria-hidden="true" tabindex="-1"></a>  ns <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">w =</span> <span class="st">"http://schemas.openxmlformats.org/wordprocessingml/2006/main"</span>)</span>
+<span id="cb9-29"><a href="#cb9-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">length</span>(xml2<span class="sc">::</span><span class="fu">xml_find_all</span>(doc, <span class="st">".//w:tbl"</span>, ns)) <span class="sc">==</span> <span class="dv">1</span>L,</span>
+<span id="cb9-30"><a href="#cb9-30" aria-hidden="true" tabindex="-1"></a>    xml2<span class="sc">::</span><span class="fu">xml_attr</span>(xml2<span class="sc">::</span><span class="fu">xml_find_first</span>(doc, <span class="st">".//w:pgSz"</span>, ns), <span class="st">"w:orient"</span>, <span class="at">ns =</span> ns) <span class="sc">==</span> <span class="st">"landscape"</span>)</span>
+<span id="cb9-31"><a href="#cb9-31" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">tables =</span> <span class="dv">1</span>L, <span class="at">table_rows =</span> <span class="fu">length</span>(xml2<span class="sc">::</span><span class="fu">xml_find_all</span>(doc, <span class="st">".//w:tbl/w:tr"</span>, ns)),</span>
+<span id="cb9-32"><a href="#cb9-32" aria-hidden="true" tabindex="-1"></a>    <span class="at">contains_strata =</span> <span class="fu">all</span>(<span class="fu">vapply</span>(<span class="fu">c</span>(<span class="st">"North"</span>, <span class="st">"South"</span>), <span class="cf">function</span>(label)</span>
+<span id="cb9-33"><a href="#cb9-33" aria-hidden="true" tabindex="-1"></a>      <span class="fu">grepl</span>(label, xml2<span class="sc">::</span><span class="fu">xml_text</span>(doc), <span class="at">fixed =</span> <span class="cn">TRUE</span>), <span class="fu">logical</span>(<span class="dv">1</span>))))</span>
+<span id="cb9-34"><a href="#cb9-34" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb9-35"><a href="#cb9-35" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">all</span>(<span class="fu">vapply</span>(split_doc_checks29d, <span class="cf">function</span>(x) x<span class="sc">$</span>contains_strata, <span class="fu">logical</span>(<span class="dv">1</span>))))</span>
+<span id="cb9-36"><a href="#cb9-36" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> <span class="dv">480</span>, <span class="at">stratum_n =</span> <span class="fu">as.integer</span>(<span class="fu">table</span>(split_data29d<span class="sc">$</span>Site)),</span>
+<span id="cb9-37"><a href="#cb9-37" aria-hidden="true" tabindex="-1"></a>  <span class="at">fmt_dimensions =</span> <span class="fu">c</span>(<span class="at">rows =</span> <span class="fu">nrow</span>(split_body29d), <span class="at">cols =</span> <span class="fu">length</span>(split_vertical_ft29d<span class="sc">$</span>col_keys)),</span>
+<span id="cb9-38"><a href="#cb9-38" aria-hidden="true" tabindex="-1"></a>  <span class="at">save_dimensions =</span> <span class="fu">c</span>(<span class="at">default_rows =</span> flextable<span class="sc">::</span><span class="fu">nrow_part</span>(split_default29d, <span class="st">"body"</span>),</span>
+<span id="cb9-39"><a href="#cb9-39" aria-hidden="true" tabindex="-1"></a>    <span class="at">vertical_rows =</span> flextable<span class="sc">::</span><span class="fu">nrow_part</span>(split_vertical29d, <span class="st">"body"</span>),</span>
+<span id="cb9-40"><a href="#cb9-40" aria-hidden="true" tabindex="-1"></a>    <span class="at">vertical_cols =</span> <span class="fu">length</span>(split_vertical29d<span class="sc">$</span>col_keys), <span class="at">adjusted_cols =</span> <span class="fu">length</span>(split_adjusted29d<span class="sc">$</span>col_keys)),</span>
+<span id="cb9-41"><a href="#cb9-41" aria-hidden="true" tabindex="-1"></a>  <span class="at">document_checks =</span> split_doc_checks29d, <span class="at">estimates =</span> split_model_values29d)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<!-- /update-20261029d: regr_split_vertical -->
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">默认摘要</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">精简表格</a></li></ul>
+<div class="tab-content">
+<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
+<p>保留两类层内效应，度量行位于表头。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_ft</span>(inter_single)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/interaction-guide/inter-ft.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="fmt_inter_ft：保留层内效应的默认布局。"><img src="images/interaction-guide/inter-ft.png" class="img-fluid figure-img" alt="flextable 默认布局，包含联合效应、两个层内效应摘要及交互指标。" loading="lazy" decoding="async" width="4800" height="1548" srcset="../assets/figure-previews/00aca97c0de62b30ad3f577ba836b06a.webp"></a></p>
 <figcaption>fmt_inter_ft：保留层内效应的默认布局。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
 <p>隐藏两类层内摘要，将度量行放在表体。联合效应和交互指标仍来自同一份分析。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_ft</span>(</span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  inter_single, <span class="at">show_subeffect =</span> <span class="st">"none"</span>, <span class="at">show_measure =</span> <span class="st">"below_header"</span></span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_ft</span>(</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  inter_single, <span class="at">show_subeffect =</span> <span class="st">"none"</span>, <span class="at">show_measure =</span> <span class="st">"below_header"</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/inter-ft-compact.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="fmt_inter_ft：隐藏层内摘要并移动度量行。"><img src="images/interaction-guide/inter-ft-compact.png" class="img-fluid figure-img" alt="设置 show_subeffect 为 none 和 show_measure 为 below_header 的精简交互表。" loading="lazy" decoding="async" width="3600" height="1500" srcset="../assets/figure-previews/181d072e681d3bef61c160cbbd8cfa3d.webp"></a></p>
+<p><a href="images/interaction-guide/inter-ft-compact.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="fmt_inter_ft：隐藏层内摘要并移动度量行。"><img src="images/interaction-guide/inter-ft-compact.png" class="img-fluid figure-img" alt="设置 show_subeffect 为 none 和 show_measure 为 below_header 的精简交互表。" loading="lazy" decoding="async" width="3600" height="1500" srcset="../assets/figure-previews/181d072e681d3bef61c160cbbd8cfa3d.webp"></a></p>
 <figcaption>fmt_inter_ft：隐藏层内摘要并移动度量行。</figcaption>
 </figure>
 </div>
@@ -1330,38 +1445,39 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 </section>
+</section>
 <section id="fmt-inter-gt" class="level2">
 <h2 class="anchored" data-anchor-id="fmt-inter-gt">fmt_inter_gt()：网页表格与分组表头</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 接口签名（不执行）</span></span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_gt</span>(</span>
-<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  df_inter, <span class="at">table_map =</span> <span class="cn">NULL</span>,</span>
-<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="fu">c</span>(<span class="st">"auto"</span>, <span class="st">"horizontal"</span>, <span class="st">"vertical"</span>),</span>
-<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_combine =</span> <span class="cn">TRUE</span>, <span class="at">table_names =</span> <span class="cn">NULL</span>,</span>
-<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">spanner_colors =</span> <span class="fu">c</span>(<span class="st">"#2C3E50"</span>, <span class="st">"#5D6D7E"</span>, <span class="st">"#7B4B3A"</span>, <span class="st">"#4A6155"</span>)</span>
-<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 接口签名（不执行）</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_gt</span>(</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  df_inter, <span class="at">table_map =</span> <span class="cn">NULL</span>,</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="fu">c</span>(<span class="st">"auto"</span>, <span class="st">"horizontal"</span>, <span class="st">"vertical"</span>),</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_combine =</span> <span class="cn">TRUE</span>, <span class="at">table_names =</span> <span class="cn">NULL</span>,</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">spanner_colors =</span> <span class="fu">c</span>(<span class="st">"#2C3E50"</span>, <span class="st">"#5D6D7E"</span>, <span class="st">"#7B4B3A"</span>, <span class="st">"#4A6155"</span>)</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p><code>show_combine = TRUE</code> 将单个交互结果的 Unadjusted / Adjusted 合成一个 <code>gt_tbl</code>；<code>FALSE</code> 返回 <code>gt_group</code>。<code>table_names</code> 用于多对比标签，<code>spanner_colors</code> 循环应用于 <code>mul</code> 的分组表头。<code>layout = "auto"</code> 对带 <code>table_names</code> 的多修饰变量结果采用纵向，其余通常横向；<code>single</code> / <code>grid</code> 的 gt 渲染不使用这个布局开关。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-3-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-1" role="tab" aria-controls="tabset-3-1" aria-selected="true" href="">完整多水平表</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-3-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-3-2" role="tab" aria-controls="tabset-3-2" aria-selected="false" href="">逐对表与颜色</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">完整多水平表</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">逐对表与颜色</a></li></ul>
 <div class="tab-content">
-<div id="tabset-3-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-3-1-tab">
+<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
 <p>直接识别 <code>multicat</code>，并排显示未调整与调整模型，不需要先拆成逐对表。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_gt</span>(inter_multi)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_gt</span>(inter_multi)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/inter-multicat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="fmt_inter_gt：完整多水平结果的网页表格。"><img src="images/interaction-guide/inter-multicat.png" class="img-fluid figure-img" alt="fmt_inter_gt 自动识别完整多水平结果，使用各种族水平作为列。" loading="lazy" decoding="async" width="2180" height="710" srcset="../assets/figure-previews/87ec79aed49c248c17c0e24c7a49644c.webp"></a></p>
+<p><a href="images/interaction-guide/inter-multicat.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="fmt_inter_gt：完整多水平结果的网页表格。"><img src="images/interaction-guide/inter-multicat.png" class="img-fluid figure-img" alt="fmt_inter_gt 自动识别完整多水平结果，使用各种族水平作为列。" loading="lazy" decoding="async" width="2180" height="710" srcset="../assets/figure-previews/87ec79aed49c248c17c0e24c7a49644c.webp"></a></p>
 <figcaption>fmt_inter_gt：完整多水平结果的网页表格。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-3-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-3-2-tab">
+<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
 <p>对 <code>mul</code> 结果选择纵向布局，用两种紫色区分对比表头。颜色与布局只改变显示。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_gt</span>(</span>
-<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>  inter_pairs, <span class="at">layout =</span> <span class="st">"vertical"</span>,</span>
-<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">spanner_colors =</span> <span class="fu">c</span>(<span class="st">"#5B3F8C"</span>, <span class="st">"#7857A4"</span>)</span>
-<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">fmt_inter_gt</span>(</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  inter_pairs, <span class="at">layout =</span> <span class="st">"vertical"</span>,</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">spanner_colors =</span> <span class="fu">c</span>(<span class="st">"#5B3F8C"</span>, <span class="st">"#7857A4"</span>)</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/inter-gt-colors.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="fmt_inter_gt：纵向逐对表与自定义表头颜色。"><img src="images/interaction-guide/inter-gt-colors.png" class="img-fluid figure-img" alt="两份种族逐对交互结果采用纵向布局与自定义紫色分组表头。" loading="lazy" decoding="async" width="2004" height="1118" srcset="../assets/figure-previews/319c7fec32d705e983677a28a78517ee.webp"></a></p>
+<p><a href="images/interaction-guide/inter-gt-colors.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="fmt_inter_gt：纵向逐对表与自定义表头颜色。"><img src="images/interaction-guide/inter-gt-colors.png" class="img-fluid figure-img" alt="两份种族逐对交互结果采用纵向布局与自定义紫色分组表头。" loading="lazy" decoding="async" width="2004" height="1118" srcset="../assets/figure-previews/319c7fec32d705e983677a28a78517ee.webp"></a></p>
 <figcaption>fmt_inter_gt：纵向逐对表与自定义表头颜色。</figcaption>
 </figure>
 </div>
@@ -1373,18 +1489,18 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="save-tb-inter">save_tb_inter()：Word 导出与发表用表</h2>
 <section id="当前接口" class="level3">
 <h3 class="anchored" data-anchor-id="当前接口">当前接口</h3>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 接口签名（不执行）</span></span>
-<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a><span class="fu">save_tb_inter</span>(</span>
-<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  inter_result, <span class="at">title =</span> <span class="cn">NULL</span>,</span>
-<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="fu">c</span>(<span class="st">"vertical"</span>, <span class="st">"horizontal"</span>),</span>
-<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_map =</span> <span class="cn">NULL</span>, <span class="at">note =</span> <span class="cn">NULL</span>, <span class="at">note_covar =</span> <span class="cn">NULL</span>,</span>
-<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">landscape =</span> <span class="cn">FALSE</span>, <span class="at">note_below =</span> <span class="cn">TRUE</span>, <span class="at">show_ap_si =</span> <span class="cn">FALSE</span>,</span>
-<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_subeffect =</span> <span class="fu">c</span>(<span class="st">"row"</span>, <span class="st">"both"</span>, <span class="st">"column"</span>, <span class="st">"none"</span>),</span>
-<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_measure =</span> <span class="fu">c</span>(<span class="st">"above_header"</span>, <span class="st">"below_header"</span>, <span class="st">"none"</span>),</span>
-<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_model =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"unadjusted"</span>, <span class="st">"adjusted"</span>),</span>
-<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">covar_map =</span> name_map_seer,</span>
-<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">font_name =</span> <span class="st">"Times New Roman"</span>, <span class="at">font_size =</span> <span class="dv">8</span></span>
-<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 接口签名（不执行）</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a><span class="fu">save_tb_inter</span>(</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  inter_result, <span class="at">title =</span> <span class="cn">NULL</span>,</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="fu">c</span>(<span class="st">"vertical"</span>, <span class="st">"horizontal"</span>),</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_map =</span> <span class="cn">NULL</span>, <span class="at">note =</span> <span class="cn">NULL</span>, <span class="at">note_covar =</span> <span class="cn">NULL</span>,</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">landscape =</span> <span class="cn">FALSE</span>, <span class="at">note_below =</span> <span class="cn">TRUE</span>, <span class="at">show_ap_si =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_subeffect =</span> <span class="fu">c</span>(<span class="st">"row"</span>, <span class="st">"both"</span>, <span class="st">"column"</span>, <span class="st">"none"</span>),</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_measure =</span> <span class="fu">c</span>(<span class="st">"above_header"</span>, <span class="st">"below_header"</span>, <span class="st">"none"</span>),</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_model =</span> <span class="fu">c</span>(<span class="st">"both"</span>, <span class="st">"unadjusted"</span>, <span class="st">"adjusted"</span>),</span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">covar_map =</span> name_map_seer,</span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">font_name =</span> <span class="st">"Times New Roman"</span>, <span class="at">font_size =</span> <span class="dv">8</span></span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>函数接受原始交互结果，也接受已经排好的 <code>flextable</code>。返回值始终是 <code>flextable</code>，因此可以先预览，再保存；<strong><code>title = NULL</code> 不写文件</strong>。非空 <code>title</code> 为输出路径，可带或不带 <code>.docx</code>，目录决定保存位置，去掉扩展名后的文件名用于表题。下面的文件示例写入 R 的临时目录；实际使用时换成自己的输出路径。</p>
 <div class="table-responsive">
 <table class="caption-top table">
@@ -1401,7 +1517,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <tbody>
 <tr class="odd">
 <td style="text-align: left;"><code>layout</code></td>
-<td style="text-align: left;">默认 <code>"vertical"</code>，对比 / 层向下堆叠；<code>"horizontal"</code> 横向排列。完整多水平表保留固定布局</td>
+<td style="text-align: left;">一般对比 / 层默认向下堆叠；<strong>分层完整多水平结果</strong>不显式传时仍将各层横向并排，显式 <code>"vertical"</code> 才纵向堆叠，模型仍并排</td>
 </tr>
 <tr class="even">
 <td style="text-align: left;"><code>landscape</code></td>
@@ -1447,77 +1563,77 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="五种导出与预览设置" class="level3">
 <h3 class="anchored" data-anchor-id="五种导出与预览设置">五种导出与预览设置</h3>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">纵向 Word 表</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">横向表与横向页面</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-3" role="tab" aria-controls="tabset-4-3" aria-selected="false" href="">只显示调整模型</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-4" role="tab" aria-controls="tabset-4-4" aria-selected="false" href="">绝对结果保留 IC</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-5-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-5" role="tab" aria-controls="tabset-4-5" aria-selected="false" href="">分层结果导出</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">纵向 Word 表</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">横向表与横向页面</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-3" role="tab" aria-controls="tabset-5-3" aria-selected="false" href="">只显示调整模型</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-4" role="tab" aria-controls="tabset-5-4" aria-selected="false" href="">绝对结果保留 IC</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-5-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-5" role="tab" aria-controls="tabset-5-5" aria-selected="false" href="">分层结果导出</a></li></ul>
 <div class="tab-content">
-<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
+<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
 <p>下面五幅历史预览显式保留原行列设置；当前默认效果见<a href="#defaults-check-20261019">新默认值对照</a>。这里按种族对比向下排，两个模型并排，写入 <code>Table 1. Sex by race.docx</code> 并返回表格。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
-<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>  inter_pairs, <span class="at">title =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"Table 1. Sex by race"</span>),</span>
-<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>,</span>
-<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="st">"vertical"</span>, <span class="at">font_size =</span> <span class="dv">10</span></span>
-<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  inter_pairs, <span class="at">title =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"Table 1. Sex by race"</span>),</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>,</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="st">"vertical"</span>, <span class="at">font_size =</span> <span class="dv">10</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/save-inter-vertical.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="save_tb_inter：纵向逐对交互表。"><img src="images/interaction-guide/save-inter-vertical.png" class="img-fluid figure-img" alt="用于 Word 导出的纵向种族逐对交互表，保留未调整与年龄调整模型及注释。" loading="lazy" decoding="async" width="4800" height="2508" srcset="../assets/figure-previews/3576eb52936e446696d10c00d15571ff.webp"></a></p>
+<p><a href="images/interaction-guide/save-inter-vertical.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="save_tb_inter：纵向逐对交互表。"><img src="images/interaction-guide/save-inter-vertical.png" class="img-fluid figure-img" alt="用于 Word 导出的纵向种族逐对交互表，保留未调整与年龄调整模型及注释。" loading="lazy" decoding="async" width="4800" height="2508" srcset="../assets/figure-previews/3576eb52936e446696d10c00d15571ff.webp"></a></p>
 <figcaption>save_tb_inter：纵向逐对交互表。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
+<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
 <p><code>layout</code> 改表内排列，<code>landscape</code> 改 Word 纸张方向。宽表应同时考虑这两个设置。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
-<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  inter_pairs, <span class="at">title =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"Table 2. Horizontal interaction"</span>),</span>
-<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>,</span>
-<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="st">"horizontal"</span>, <span class="at">landscape =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">10</span></span>
-<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  inter_pairs, <span class="at">title =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"Table 2. Horizontal interaction"</span>),</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>,</span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="st">"horizontal"</span>, <span class="at">landscape =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">10</span></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/save-inter-horizontal.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="save_tb_inter：横向排列的逐对交互表。"><img src="images/interaction-guide/save-inter-horizontal.png" class="img-fluid figure-img" alt="种族对比横向排列，并使用横向 Word 页面保存；页面方向不改变估计值。" loading="lazy" decoding="async" width="4800" height="2700" srcset="../assets/figure-previews/a0f225496fa4968e70d80cf4c99783e3.webp"></a></p>
+<p><a href="images/interaction-guide/save-inter-horizontal.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="save_tb_inter：横向排列的逐对交互表。"><img src="images/interaction-guide/save-inter-horizontal.png" class="img-fluid figure-img" alt="种族对比横向排列，并使用横向 Word 页面保存；页面方向不改变估计值。" loading="lazy" decoding="async" width="4800" height="2700" srcset="../assets/figure-previews/a0f225496fa4968e70d80cf4c99783e3.webp"></a></p>
 <figcaption>save_tb_inter：横向排列的逐对交互表。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-4-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-3-tab">
+<div id="tabset-5-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-3-tab">
 <p>保留 Adjusted 的模型标识与调整项注释。<code>title = NULL</code> 只预览，不产生 Word 文件。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
-<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  inter_pairs, <span class="at">title =</span> <span class="cn">NULL</span>, <span class="at">show_model =</span> <span class="st">"adjusted"</span>, <span class="at">font_size =</span> <span class="dv">10</span>,</span>
-<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span></span>
-<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  inter_pairs, <span class="at">title =</span> <span class="cn">NULL</span>, <span class="at">show_model =</span> <span class="st">"adjusted"</span>, <span class="at">font_size =</span> <span class="dv">10</span>,</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/save-inter-adjusted.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="save_tb_inter：仅显示调整模型。"><img src="images/interaction-guide/save-inter-adjusted.png" class="img-fluid figure-img" alt="show_model 为 adjusted，仅保留年龄调整后的种族逐对交互及协变量注释。" loading="lazy" decoding="async" width="4800" height="2508" srcset="../assets/figure-previews/9ad610032c3f45ebe79048fa57c2d73d.webp"></a></p>
+<p><a href="images/interaction-guide/save-inter-adjusted.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="save_tb_inter：仅显示调整模型。"><img src="images/interaction-guide/save-inter-adjusted.png" class="img-fluid figure-img" alt="show_model 为 adjusted，仅保留年龄调整后的种族逐对交互及协变量注释。" loading="lazy" decoding="async" width="4800" height="2508" srcset="../assets/figure-previews/9ad610032c3f45ebe79048fa57c2d73d.webp"></a></p>
 <figcaption>save_tb_inter：仅显示调整模型。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-4-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-4-tab">
+<div id="tabset-5-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-4-tab">
 <p>传入 120 月的风险结果，关闭次要加性指标；此时保留的是 IC，不能按相对尺度的 RERI 解释。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
-<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  inter_abs120, <span class="at">title =</span> <span class="cn">NULL</span>, <span class="at">show_ap_si =</span> <span class="cn">FALSE</span>, <span class="at">font_size =</span> <span class="dv">10</span>,</span>
-<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_subeffect =</span> <span class="st">"both"</span></span>
-<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  inter_abs120, <span class="at">title =</span> <span class="cn">NULL</span>, <span class="at">show_ap_si =</span> <span class="cn">FALSE</span>, <span class="at">font_size =</span> <span class="dv">10</span>,</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_subeffect =</span> <span class="st">"both"</span></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/save-inter-ic.png" class="lightbox" data-gallery="quarto-lightbox-gallery-11" title="save_tb_inter：绝对风险表保留主要加性指标 IC。"><img src="images/interaction-guide/save-inter-ic.png" class="img-fluid figure-img" alt="120 月风险表设置 show_ap_si 为 FALSE，保留乘性交互与 IC，并同步指标注释。" loading="lazy" decoding="async" width="3876" height="600" srcset="../assets/figure-previews/49509b3b76d93e8606d53b3bc2b59051.webp"></a></p>
+<p><a href="images/interaction-guide/save-inter-ic.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="save_tb_inter：绝对风险表保留主要加性指标 IC。"><img src="images/interaction-guide/save-inter-ic.png" class="img-fluid figure-img" alt="120 月风险表设置 show_ap_si 为 FALSE，保留乘性交互与 IC，并同步指标注释。" loading="lazy" decoding="async" width="3876" height="600" srcset="../assets/figure-previews/49509b3b76d93e8606d53b3bc2b59051.webp"></a></p>
 <figcaption>save_tb_inter：绝对风险表保留主要加性指标 IC。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-4-5" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-5-tab">
+<div id="tabset-5-5" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-5-tab">
 <p>按种族分层的结果纵向排版，保存为横向 Word 页面；保留层标签、模型标签和注释。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
-<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  inter_grid, <span class="at">title =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"Table 3. Stratified interaction"</span>),</span>
-<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>,</span>
-<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="st">"vertical"</span>, <span class="at">landscape =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">10</span></span>
-<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>)</span>
-<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>table <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  inter_grid, <span class="at">title =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"Table 3. Stratified interaction"</span>),</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>,</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">layout =</span> <span class="st">"vertical"</span>, <span class="at">landscape =</span> <span class="cn">TRUE</span>, <span class="at">font_size =</span> <span class="dv">10</span></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>table</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/save-inter-grid.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="save_tb_inter：按种族分层的交互表导出。"><img src="images/interaction-guide/save-inter-grid.png" class="img-fluid figure-img" alt="按种族分层的性别与年龄组交互表纵向排版，并导出到横向 Word 页面。" loading="lazy" decoding="async" width="4800" height="2892" srcset="../assets/figure-previews/d623503220e5ccbafa7c8897c5207524.webp"></a></p>
+<p><a href="images/interaction-guide/save-inter-grid.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="save_tb_inter：按种族分层的交互表导出。"><img src="images/interaction-guide/save-inter-grid.png" class="img-fluid figure-img" alt="按种族分层的性别与年龄组交互表纵向排版，并导出到横向 Word 页面。" loading="lazy" decoding="async" width="4800" height="2892" srcset="../assets/figure-previews/d623503220e5ccbafa7c8897c5207524.webp"></a></p>
 <figcaption>save_tb_inter：按种族分层的交互表导出。</figcaption>
 </figure>
 </div>
@@ -1529,50 +1645,50 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </section>
 <section id="plt-inter" class="level2">
 <h2 class="anchored" data-anchor-id="plt-inter">plt_inter()：组合图、分解与热图</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 接口签名（不执行）</span></span>
-<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_inter</span>(table_result, <span class="at">theme_use =</span> UtilsR<span class="sc">::</span>theme_my, <span class="at">base_size =</span> <span class="dv">14</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="co"># 接口签名（不执行）</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_inter</span>(table_result, <span class="at">theme_use =</span> UtilsR<span class="sc">::</span>theme_my, <span class="at">base_size =</span> <span class="dv">14</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>输入必须是<strong>一个二分类×二分类的 8×4 比值交互表</strong>，例如 <code>inter_or[["Adjus"]]</code>；不能直接传整个分析列表、完整多水平结果、分层 grid 或 <code>get_inter_abs()</code> 的 9×4 表。</p>
 <p>当前图形坐标标题固定为 <strong>OR</strong>，所以本节使用前面的 <strong>Logistic</strong> 结果，避免把 Cox HR 图按 OR 标注。图从显示表中的已四舍五入数值构造，适合展示交互形态；精确统计报告仍应读取原始模型与未舍入估计。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>plots <span class="ot">&lt;-</span> <span class="fu">plt_inter</span>(inter_or[[<span class="st">"Adjus"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>plots <span class="ot">&lt;-</span> <span class="fu">plt_inter</span>(inter_or[[<span class="st">"Adjus"</span>]])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">组合图</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">联合效应热图</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-3" role="tab" aria-controls="tabset-5-3" aria-selected="false" href="">加性分解</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-4" role="tab" aria-controls="tabset-5-4" aria-selected="false" href="">乘性交互折线</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">组合图</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">联合效应热图</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-3" role="tab" aria-controls="tabset-6-3" aria-selected="false" href="">加性分解</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-4-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-4" role="tab" aria-controls="tabset-6-4" aria-selected="false" href="">乘性交互折线</a></li></ul>
 <div class="tab-content">
-<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
+<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
 <p>左侧为加性分解，右侧为乘性交互折线。两张图描述同一份 Logistic 比值结果的不同组合方式。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>plots[[<span class="st">"combined"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>plots[[<span class="st">"combined"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/plt-inter.png" class="lightbox" data-gallery="quarto-lightbox-gallery-13" title="plt_inter：加性分解与乘性交互组合图。"><img src="images/interaction-guide/plt-inter.png" class="img-fluid figure-img" alt="调整种族后的 Logistic OR 交互图，左侧四组加性分解、右侧性别与年龄组交互折线。" loading="lazy" decoding="async" width="4200" height="1800" srcset="../assets/figure-previews/64ffa6db515f1af076e570e3f2904438.webp"></a></p>
+<p><a href="images/interaction-guide/plt-inter.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="plt_inter：加性分解与乘性交互组合图。"><img src="images/interaction-guide/plt-inter.png" class="img-fluid figure-img" alt="调整种族后的 Logistic OR 交互图，左侧四组加性分解、右侧性别与年龄组交互折线。" loading="lazy" decoding="async" width="4200" height="1800" srcset="../assets/figure-previews/64ffa6db515f1af076e570e3f2904438.webp"></a></p>
 <figcaption>plt_inter：加性分解与乘性交互组合图。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
+<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
 <p>四个暴露组合相对于共同参考组的 OR。颜色展示数值大小，不单独检验交互。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>plots[[<span class="st">"add"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>plots[[<span class="st">"add"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/plt-inter-add.png" class="lightbox" data-gallery="quarto-lightbox-gallery-14" title="plt_inter：联合 OR 的 2×2 热图。"><img src="images/interaction-guide/plt-inter-add.png" class="img-fluid figure-img" alt="Female 与小于 55 岁为共同参考组，展示性别与年龄组四个联合状态的 Logistic OR。" loading="lazy" decoding="async" width="2700" height="1800" srcset="../assets/figure-previews/70dc8c09c78cd7b9d9c27fe14e61bfc5.webp"></a></p>
+<p><a href="images/interaction-guide/plt-inter-add.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="plt_inter：联合 OR 的 2×2 热图。"><img src="images/interaction-guide/plt-inter-add.png" class="img-fluid figure-img" alt="Female 与小于 55 岁为共同参考组，展示性别与年龄组四个联合状态的 Logistic OR。" loading="lazy" decoding="async" width="2700" height="1800" srcset="../assets/figure-previews/70dc8c09c78cd7b9d9c27fe14e61bfc5.webp"></a></p>
 <figcaption>plt_inter：联合 OR 的 2×2 热图。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-5-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-3-tab">
+<div id="tabset-6-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-3-tab">
 <p>按 Reference、OnlyB、OnlyA、RERI 分解联合比值。这里的 RERI 基于 OR；柱高不能读成死亡概率或人数。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>plots[[<span class="st">"stack"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>plots[[<span class="st">"stack"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/plt-inter-stack.png" class="lightbox" data-gallery="quarto-lightbox-gallery-15" title="plt_inter：四个组合的 OR 加性分解。"><img src="images/interaction-guide/plt-inter-stack.png" class="img-fluid figure-img" alt="Logistic OR 的参考项、两个单独效应项与 RERI 堆叠分解，数值不是绝对死亡风险。" loading="lazy" decoding="async" width="2700" height="1800" srcset="../assets/figure-previews/d6852dfce93118a514a98c90f7c9a2de.webp"></a></p>
+<p><a href="images/interaction-guide/plt-inter-stack.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="plt_inter：四个组合的 OR 加性分解。"><img src="images/interaction-guide/plt-inter-stack.png" class="img-fluid figure-img" alt="Logistic OR 的参考项、两个单独效应项与 RERI 堆叠分解，数值不是绝对死亡风险。" loading="lazy" decoding="async" width="2700" height="1800" srcset="../assets/figure-previews/d6852dfce93118a514a98c90f7c9a2de.webp"></a></p>
 <figcaption>plt_inter：四个组合的 OR 加性分解。</figcaption>
 </figure>
 </div>
 </div>
-<div id="tabset-5-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-4-tab">
+<div id="tabset-6-4" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-4-tab">
 <p>用线条比较年龄组内的性别联合 OR。图形受坐标尺度影响，是否存在交互应结合模型检验与区间阅读。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>plots[[<span class="st">"line"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>plots[[<span class="st">"line"</span>]]</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/plt-inter-line.png" class="lightbox" data-gallery="quarto-lightbox-gallery-16" title="plt_inter：乘性交互折线图。"><img src="images/interaction-guide/plt-inter-line.png" class="img-fluid figure-img" alt="以性别为横轴，按年龄组连接 Logistic 联合 OR，展示乘性交互形态。" loading="lazy" decoding="async" width="2700" height="1800" srcset="../assets/figure-previews/a4a33f35619bd1bcb1ba301913e200a0.webp"></a></p>
+<p><a href="images/interaction-guide/plt-inter-line.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="plt_inter：乘性交互折线图。"><img src="images/interaction-guide/plt-inter-line.png" class="img-fluid figure-img" alt="以性别为横轴，按年龄组连接 Logistic 联合 OR，展示乘性交互形态。" loading="lazy" decoding="async" width="2700" height="1800" srcset="../assets/figure-previews/a4a33f35619bd1bcb1ba301913e200a0.webp"></a></p>
 <figcaption>plt_inter：乘性交互折线图。</figcaption>
 </figure>
 </div>
@@ -1586,32 +1702,32 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="models-20261019">多模型交互分析与逐模型 Word 导出</h2>
 <p>2026-10-19 按已推送 RegR <code>f26e137</code> 在 Windows / WSL R 4.4.3 执行。沿用本页 <code>inter_data</code>、Sex 与 Age_group 的参考组；比较 Cox HR 与 Fine–Gray sHR 的模型比值尺度交互。</p>
 <!-- rnotes-20261019: inter-models -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>inter_models <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_inter</span>(inter_data,</span>
-<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">exposure_names =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Age_group"</span>), <span class="at">adj_var =</span> <span class="st">"Age"</span>,</span>
-<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="fu">list</span>(<span class="at">sur =</span> <span class="cn">TRUE</span>, <span class="at">cif =</span> <span class="cn">FALSE</span>)))</span>
-<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>inter_tables <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(inter_models,</span>
-<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">title =</span> <span class="fu">c</span>(<span class="at">sur =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"interaction-sur.docx"</span>),</span>
-<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>            <span class="at">cif =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"interaction-cif.docx"</span>)),</span>
-<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">note =</span> <span class="fu">c</span>(<span class="at">sur =</span> <span class="st">"Cox HR; other-cause deaths are censored."</span>,</span>
-<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>           <span class="at">cif =</span> <span class="st">"Fine-Gray sHR; other-cause deaths compete."</span>),</span>
-<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>)</span>
-<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(inter_tables)  <span class="co"># "sur" "cif"</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>inter_models <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_inter</span>(inter_data,</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">exposure_names =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"Age_group"</span>), <span class="at">adj_var =</span> <span class="st">"Age"</span>,</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="fu">list</span>(<span class="at">sur =</span> <span class="cn">TRUE</span>, <span class="at">cif =</span> <span class="cn">FALSE</span>)))</span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a>inter_tables <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(inter_models,</span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">title =</span> <span class="fu">c</span>(<span class="at">sur =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"interaction-sur.docx"</span>),</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>            <span class="at">cif =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"interaction-cif.docx"</span>)),</span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">note =</span> <span class="fu">c</span>(<span class="at">sur =</span> <span class="st">"Cox HR; other-cause deaths are censored."</span>,</span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>           <span class="at">cif =</span> <span class="st">"Fine-Gray sHR; other-cause deaths compete."</span>),</span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>)</span>
+<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(inter_tables)  <span class="co"># "sur" "cif"</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-6-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-1" role="tab" aria-controls="tabset-6-1" aria-selected="true" href="">Cox</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-6-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-6-2" role="tab" aria-controls="tabset-6-2" aria-selected="false" href="">Fine–Gray</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-7-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-1" role="tab" aria-controls="tabset-7-1" aria-selected="true" href="">Cox</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-2" role="tab" aria-controls="tabset-7-2" aria-selected="false" href="">Fine–Gray</a></li></ul>
 <div class="tab-content">
-<div id="tabset-6-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-6-1-tab">
+<div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/20261019-model-sur.png" class="lightbox" data-gallery="quarto-lightbox-gallery-17" title="Cox 交互表的实际导出预览。"><img src="images/interaction-guide/20261019-model-sur.png" class="img-fluid figure-img" alt="Cox模型的Sex与Age_group交互表，保留RERI、AP、SI及行列内效应；结果来自本节实际拟合。" loading="lazy" decoding="async" width="1980" height="573" srcset="../assets/figure-previews/5baaa5b8f5481637f2c5e1de0e7c2044.webp"></a></p>
+<p><a href="images/interaction-guide/20261019-model-sur.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="Cox 交互表的实际导出预览。"><img src="images/interaction-guide/20261019-model-sur.png" class="img-fluid figure-img" alt="Cox模型的Sex与Age_group交互表，保留RERI、AP、SI及行列内效应；结果来自本节实际拟合。" loading="lazy" decoding="async" width="1980" height="573" srcset="../assets/figure-previews/5baaa5b8f5481637f2c5e1de0e7c2044.webp"></a></p>
 <figcaption>Cox 交互表的实际导出预览。</figcaption>
 </figure>
 </div>
 <p><a href="images/interaction-guide/20261019-model-sur.html" target="_blank">查看 HTML</a> · <a href="images/interaction-guide/20261019-model-sur.docx">下载 Word</a></p>
 </div>
-<div id="tabset-6-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-6-2-tab">
+<div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/20261019-model-cif.png" class="lightbox" data-gallery="quarto-lightbox-gallery-18" title="Fine–Gray 交互表的实际导出预览。"><img src="images/interaction-guide/20261019-model-cif.png" class="img-fluid figure-img" alt="同一多模型调用的Fine–Gray交互表，使用sHR并保留RERI、AP、SI，脚注说明竞争事件处理。" loading="lazy" decoding="async" width="1980" height="573" srcset="../assets/figure-previews/32861994d3317a6ea0450f2bea26c7af.webp"></a></p>
+<p><a href="images/interaction-guide/20261019-model-cif.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="Fine–Gray 交互表的实际导出预览。"><img src="images/interaction-guide/20261019-model-cif.png" class="img-fluid figure-img" alt="同一多模型调用的Fine–Gray交互表，使用sHR并保留RERI、AP、SI，脚注说明竞争事件处理。" loading="lazy" decoding="async" width="1980" height="573" srcset="../assets/figure-previews/32861994d3317a6ea0450f2bea26c7af.webp"></a></p>
 <figcaption>Fine–Gray 交互表的实际导出预览。</figcaption>
 </figure>
 </div>
@@ -1627,44 +1743,44 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>2026-10-19 按已推送 RegR <code>4034a97</code> 在 Windows / WSL R 4.4.3 实际运行。<code>save_tb_inter()</code> 当前默认 <code>show_ap_si = FALSE, show_subeffect = "row"</code>，只保留主要加性指标和主暴露的层内效应行。要恢复历史完整显示，显式使用 TRUE / <code>"both"</code>；这不改变模型拟合。<code>fmt_inter_ft()</code> 的默认仍是 <code>"both"</code>。</p>
 <p>本节另取598人 PTC 队列，以 No CND、Female 为参考，分析 CND × Sex，调整 Age；与前面的 MTC 表不是同一分析。Cox HR 与 Fine–Gray sHR 的 RERI 均为比值尺度派生指标，不能读作绝对风险差。保护性暴露的提示仍需结合参考组解释。</p>
 <!-- rnotes-refresh: inter -->
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>dat_now <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(ToyData<span class="sc">::</span>toy_ptc_m1_cnd)</span>
-<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>dat_now[[<span class="st">"N_4"</span>]] <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">relevel</span>(dat_now[[<span class="st">"N_4"</span>]], <span class="at">ref =</span> <span class="st">"No CND"</span>)</span>
-<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>dat_now[[<span class="st">"Sex"</span>]] <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">relevel</span>(dat_now[[<span class="st">"Sex"</span>]], <span class="at">ref =</span> <span class="st">"Female"</span>)</span>
-<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>inter_check <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_inter</span>(dat_now,</span>
-<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">exposure_names =</span> <span class="fu">c</span>(<span class="st">"N_4"</span>, <span class="st">"Sex"</span>), <span class="at">adj_var =</span> <span class="st">"Age"</span>, <span class="at">surv =</span> <span class="fu">c</span>(<span class="cn">TRUE</span>, <span class="cn">FALSE</span>)))</span>
-<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>facet_check <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_facet</span>(dat_now,</span>
-<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> <span class="st">"Age"</span>,</span>
-<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="fu">c</span>(<span class="cn">TRUE</span>, <span class="cn">FALSE</span>), <span class="at">method =</span> <span class="fu">c</span>(<span class="st">"unadj"</span>, <span class="st">"direct"</span>),</span>
-<span id="cb26-9"><a href="#cb26-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_sur =</span> <span class="cn">FALSE</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
-<span id="cb26-10"><a href="#cb26-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">list</span>(<span class="at">conf_int =</span> <span class="cn">FALSE</span>),</span>
-<span id="cb26-11"><a href="#cb26-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">list</span>(<span class="at">insert_table =</span> <span class="cn">FALSE</span>, <span class="at">add_p_value =</span> <span class="st">"none"</span>)))</span>
-<span id="cb26-12"><a href="#cb26-12" aria-hidden="true" tabindex="-1"></a>audit_models <span class="ot">&lt;-</span> <span class="fu">check_inter</span>(inter_check, facet_check,</span>
-<span id="cb26-13"><a href="#cb26-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">modifier =</span> <span class="st">"Sex"</span>)</span>
-<span id="cb26-14"><a href="#cb26-14" aria-hidden="true" tabindex="-1"></a><span class="fu">lapply</span>(audit_models, <span class="cf">function</span>(x) x[[<span class="st">"consistent"</span>]])</span>
-<span id="cb26-15"><a href="#cb26-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb26-16"><a href="#cb26-16" aria-hidden="true" tabindex="-1"></a>default_file <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261019-refresh-inter-default.docx"</span>)</span>
-<span id="cb26-17"><a href="#cb26-17" aria-hidden="true" tabindex="-1"></a>full_file <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261019-refresh-inter-full.docx"</span>)</span>
-<span id="cb26-18"><a href="#cb26-18" aria-hidden="true" tabindex="-1"></a>ft_default <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(inter_check[[<span class="st">"sur"</span>]],</span>
-<span id="cb26-19"><a href="#cb26-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">title =</span> default_file, <span class="at">font_size =</span> <span class="dv">10</span>)</span>
-<span id="cb26-20"><a href="#cb26-20" aria-hidden="true" tabindex="-1"></a>ft_full <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(inter_check[[<span class="st">"sur"</span>]],</span>
-<span id="cb26-21"><a href="#cb26-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">title =</span> full_file, <span class="at">font_size =</span> <span class="dv">10</span>,</span>
-<span id="cb26-22"><a href="#cb26-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>dat_now <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(ToyData<span class="sc">::</span>toy_ptc_m1_cnd)</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>dat_now[[<span class="st">"N_4"</span>]] <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">relevel</span>(dat_now[[<span class="st">"N_4"</span>]], <span class="at">ref =</span> <span class="st">"No CND"</span>)</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>dat_now[[<span class="st">"Sex"</span>]] <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">relevel</span>(dat_now[[<span class="st">"Sex"</span>]], <span class="at">ref =</span> <span class="st">"Female"</span>)</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>inter_check <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_inter</span>(dat_now,</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">exposure_names =</span> <span class="fu">c</span>(<span class="st">"N_4"</span>, <span class="st">"Sex"</span>), <span class="at">adj_var =</span> <span class="st">"Age"</span>, <span class="at">surv =</span> <span class="fu">c</span>(<span class="cn">TRUE</span>, <span class="cn">FALSE</span>)))</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>facet_check <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_facet</span>(dat_now,</span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">split_var =</span> <span class="st">"Sex"</span>, <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">adj_var =</span> <span class="st">"Age"</span>,</span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="fu">c</span>(<span class="cn">TRUE</span>, <span class="cn">FALSE</span>), <span class="at">method =</span> <span class="fu">c</span>(<span class="st">"unadj"</span>, <span class="st">"direct"</span>),</span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_sur =</span> <span class="cn">FALSE</span>, <span class="at">max_t =</span> <span class="dv">120</span>, <span class="at">parallel =</span> <span class="dv">1</span>,</span>
+<span id="cb28-10"><a href="#cb28-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">plot_params =</span> <span class="fu">list</span>(<span class="at">conf_int =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb28-11"><a href="#cb28-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">table_params =</span> <span class="fu">list</span>(<span class="at">insert_table =</span> <span class="cn">FALSE</span>, <span class="at">add_p_value =</span> <span class="st">"none"</span>)))</span>
+<span id="cb28-12"><a href="#cb28-12" aria-hidden="true" tabindex="-1"></a>audit_models <span class="ot">&lt;-</span> <span class="fu">check_inter</span>(inter_check, facet_check,</span>
+<span id="cb28-13"><a href="#cb28-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">cat_var =</span> <span class="st">"N_4"</span>, <span class="at">modifier =</span> <span class="st">"Sex"</span>)</span>
+<span id="cb28-14"><a href="#cb28-14" aria-hidden="true" tabindex="-1"></a><span class="fu">lapply</span>(audit_models, <span class="cf">function</span>(x) x[[<span class="st">"consistent"</span>]])</span>
+<span id="cb28-15"><a href="#cb28-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-16"><a href="#cb28-16" aria-hidden="true" tabindex="-1"></a>default_file <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261019-refresh-inter-default.docx"</span>)</span>
+<span id="cb28-17"><a href="#cb28-17" aria-hidden="true" tabindex="-1"></a>full_file <span class="ot">&lt;-</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261019-refresh-inter-full.docx"</span>)</span>
+<span id="cb28-18"><a href="#cb28-18" aria-hidden="true" tabindex="-1"></a>ft_default <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(inter_check[[<span class="st">"sur"</span>]],</span>
+<span id="cb28-19"><a href="#cb28-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">title =</span> default_file, <span class="at">font_size =</span> <span class="dv">10</span>)</span>
+<span id="cb28-20"><a href="#cb28-20" aria-hidden="true" tabindex="-1"></a>ft_full <span class="ot">&lt;-</span> <span class="fu">save_tb_inter</span>(inter_check[[<span class="st">"sur"</span>]],</span>
+<span id="cb28-21"><a href="#cb28-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">title =</span> full_file, <span class="at">font_size =</span> <span class="dv">10</span>,</span>
+<span id="cb28-22"><a href="#cb28-22" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_ap_si =</span> <span class="cn">TRUE</span>, <span class="at">show_subeffect =</span> <span class="st">"both"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-7-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-1" role="tab" aria-controls="tabset-7-1" aria-selected="true" href="">当前默认</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-7-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-7-2" role="tab" aria-controls="tabset-7-2" aria-selected="false" href="">完整显示</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-8-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-1" role="tab" aria-controls="tabset-8-1" aria-selected="true" href="">当前默认</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-8-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-8-2" role="tab" aria-controls="tabset-8-2" aria-selected="false" href="">完整显示</a></li></ul>
 <div class="tab-content">
-<div id="tabset-7-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-7-1-tab">
+<div id="tabset-8-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-8-1-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/20261019-refresh-inter-default.png" class="lightbox" data-gallery="quarto-lightbox-gallery-19" title="默认保留乘性交互、RERI和主暴露层内效应行。"><img src="images/interaction-guide/20261019-refresh-inter-default.png" class="img-fluid figure-img" alt="同一Cox交互分析的精简Word表，保留主要加性指标RERI和CND的层内效应行，省略AP、SI及另一方向的效应摘要。" loading="lazy" decoding="async" width="2968" height="740" srcset="../assets/figure-previews/2a575890e1b513447b8028000dd0971f.webp"></a></p>
+<p><a href="images/interaction-guide/20261019-refresh-inter-default.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="默认保留乘性交互、RERI和主暴露层内效应行。"><img src="images/interaction-guide/20261019-refresh-inter-default.png" class="img-fluid figure-img" alt="同一Cox交互分析的精简Word表，保留主要加性指标RERI和CND的层内效应行，省略AP、SI及另一方向的效应摘要。" loading="lazy" decoding="async" width="2968" height="740" srcset="../assets/figure-previews/2a575890e1b513447b8028000dd0971f.webp"></a></p>
 <figcaption>默认保留乘性交互、RERI和主暴露层内效应行。</figcaption>
 </figure>
 </div>
 <p><a href="images/interaction-guide/20261019-refresh-inter-default.html" target="_blank">查看 HTML</a> · <a href="images/interaction-guide/20261019-refresh-inter-default.docx">下载 Word</a></p>
 </div>
-<div id="tabset-7-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-7-2-tab">
+<div id="tabset-8-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-8-2-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/interaction-guide/20261019-refresh-inter-full.png" class="lightbox" data-gallery="quarto-lightbox-gallery-20" title="显式恢复 AP、SI 及两个方向的层内摘要。"><img src="images/interaction-guide/20261019-refresh-inter-full.png" class="img-fluid figure-img" alt="相同Cox结果使用show_ap_si TRUE和show_subeffect both，显示AP、SI及行列两个方向的效应摘要；估计来源不变。" loading="lazy" decoding="async" width="2968" height="858" srcset="../assets/figure-previews/07e4471f2519686dd2980c7151c8e39e.webp"></a></p>
+<p><a href="images/interaction-guide/20261019-refresh-inter-full.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="显式恢复 AP、SI 及两个方向的层内摘要。"><img src="images/interaction-guide/20261019-refresh-inter-full.png" class="img-fluid figure-img" alt="相同Cox结果使用show_ap_si TRUE和show_subeffect both，显示AP、SI及行列两个方向的效应摘要；估计来源不变。" loading="lazy" decoding="async" width="2968" height="858" srcset="../assets/figure-previews/07e4471f2519686dd2980c7151c8e39e.webp"></a></p>
 <figcaption>显式恢复 AP、SI 及两个方向的层内摘要。</figcaption>
 </figure>
 </div>
@@ -1718,7 +1834,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="本页更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1727,9 +1843,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li><strong>2026-10-29</strong>：<a href="#split-multicat-20261029d">分层完整模型纵向表</a>补充显式 layout、默认兼容及真实 flextable / Word 对照。</li>
 <li>2026-10-29：<a href="#knitr-default-20261029">Rscript 默认不自动打印与 knitr 原生表格呈现</a>。</li>
 <li>2026-10-27：补充<a href="#auto-print-20261027">关闭自动表格打印</a>的局部选项、真实输出与结果不变核对。</li>
 </ul>
