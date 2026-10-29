@@ -6,7 +6,7 @@
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
 
-<meta name="description" content="用合成队列演示人群、治疗、修饰变量卡片，A0–A3 与敏感性版本，逐水平分级、重复组合与参考水平，原生 gt 表及固定尺寸的交互热图。">
+<meta name="description" content="用合成队列演示人群、治疗、修饰变量卡片，A0–A3 与敏感性版本，逐水平分级、重复组合与参考水平，Cox / Logistic 筛查、原生 gt 表及固定尺寸的交互热图。">
 
 <title>批量交互筛查：get_screens、重新分级与热图 – R 包开发笔记</title>
 <style>
@@ -1140,6 +1140,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
   <ul class="collapse">
   <li><a href="#cards" id="toc-cards" class="nav-link active" data-scroll-target="#cards">先写清人群、对比与参考水平</a></li>
   <li><a href="#versions" id="toc-versions" class="nav-link" data-scroll-target="#versions">读懂模型版本、人数与重复组合</a></li>
+  <li><a href="#binary-20261029c" id="toc-binary-20261029c" class="nav-link" data-scroll-target="#binary-20261029c">二分类结局：Logistic 与 OR（2026-10-29）</a></li>
   <li><a href="#regrade" id="toc-regrade" class="nav-link" data-scroll-target="#regrade">重新分级与保留人工排除</a></li>
   <li><a href="#heatmap" id="toc-heatmap" class="nav-link" data-scroll-target="#heatmap">两种热图布局与可靠保存</a></li>
   <li><a href="#page-updates" id="toc-page-updates" class="nav-link" data-scroll-target="#page-updates">更新记录</a></li>
@@ -1181,7 +1182,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </header>
 
 
-<p>用 <code>get_screens()</code> 一次组织多个人群、治疗对比和修饰变量，再用 <code>get_screens_grade()</code> 调整分级、<code>fmt_screens_gt()</code> 生成表格、<code>plt_screens()</code> 绘制热图。单个交互模型及 HR / RERI 的解释见<a href="../regr/interaction-guide.html#binary-wald-20261029">交互分析</a>。本页独立构造数据，无需先运行其他教程。</p>
+<p>用 <code>get_screens()</code> 一次组织多个人群、治疗对比和修饰变量，再用 <code>get_screens_grade()</code> 调整分级、<code>fmt_screens_gt()</code> 生成表格、<code>plt_screens()</code> 绘制热图。默认 <code>surv=TRUE</code> 用 Cox；<code>surv="Recovery"</code> 等列名用 Logistic，输出 OR。单个交互模型及 HR / RERI 的解释见<a href="../regr/interaction-guide.html#binary-wald-20261029">交互分析</a>。本页独立构造数据，无需先运行其他教程。</p>
 <div class="callout callout-style-default callout-note callout-titled" title="版本与复现记录">
 <div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-1-contents" aria-controls="callout-1" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
@@ -1194,7 +1195,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<p>本页依据已推送 RegR 0.1.3 <code>2abf7761c8afbec915b6285bf9c948b2e364f6fb</code>，以及 UtilsR 0.6.13 <code>ce17defcc47c2f8a8d5b5ae0cce240414f463caa</code>，在 Windows / WSL R 4.4.3 执行。固定种子 20261029，720 行合成数据，串行 <code>n_cores=1</code>；展示实际生成的 gt 表格、两份原生 PDF 及预览。没有使用真实患者记录，没有运行论文队列、并行性能基准或整个站点的历史模型。</p>
+<p>原有 720 行 Cox 示例依据已推送 RegR 0.1.3 <code>2abf7761c8afbec915b6285bf9c948b2e364f6fb</code>，以及 UtilsR 0.6.13 <code>ce17defcc47c2f8a8d5b5ae0cce240414f463caa</code>，在 Windows / WSL R 4.4.3 执行。固定种子 20261029，720 行合成数据，串行 <code>n_cores=1</code>；展示实际生成的 gt 表格、两份原生 PDF 及预览。没有使用真实患者记录，没有运行论文队列、并行性能基准或整个站点的历史模型。</p>
+<p>新增 <a href="#binary-20261029c">Logistic 示例</a>依据已推送 RegR <code>847d71d6bc5504ce88abbb6adc96785cdc44af5f</code>，同样使用 UtilsR <code>ce17def</code>；原有图和统计量保留各自的执行快照。</p>
 <p>对应源码为 <code>R/screens-get.R</code>、<code>R/screens-plt.R</code> 与 <code>R/inter-get.R</code>；热图需要 UtilsR 0.6.13 的<a href="../utilsr/format-guide.html#axis-pins-20261029">固定面板色条修复</a>。</p>
 </div>
 </div>
@@ -1366,67 +1368,65 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </figure>
 </div>
 <p><a href="images/screening-guide/20261029-update-screening-table.html">查看完整原生表格</a>。表格展示 counted 的检验；all 中的 alias、不适用条目仍保留供追溯。层内 HR 的色彩方向是实际 alt 对 ref，其他治疗比较不能一律写成“未治疗对治疗”。不可估计版本可能保留原始估计供诊断，表格会取消其星号和方向底色并附原因。</p>
+<!-- update-20261029c: regr_screen_binary -->
 </section>
-<section id="regrade" class="level2">
-<h2 class="anchored" data-anchor-id="regrade">重新分级与保留人工排除</h2>
-<p>分级使用未经舍入的 P 值，默认 <code>alpha=.05</code>、<code>null_p=.1</code>。A 表示 A0 与 A3 至少各有一个尺度显著，B 为仅 A3，C 为仅 A0；N 为 A3 两个 P 都不小于 null_p，其他情形为 <code>-</code>。显著尺度冲突，或 A0 与 A3 在同一比较尺度上方向冲突，可判 X；不能把乘法比值直接与 RERI 的数值比较方向。</p>
-<p>五项稳定性依次检查 landmark、era/cap、negative、magnitude、stepwise。<code>pass/fail/NA/n/a</code> 含义不同，<code>stable_A</code> 也不能代替逐项审阅。多水平 Marker 的 Mid、High 不是两个切点，<code>cut_direction="single"</code>，不会拿它们作切点方向一致性检验。</p>
-<p><code>get_screens_grade()</code> 不重新拟合。<code>x_list</code> 用 <strong>id=原因</strong> 追加人工 X 排除；改变阈值会保留已有人工排除，新列表只更新其中点名的 id，空原因才移除相应人工排除。移除后仍可能因统计规则得到 X。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>manual_id29 <span class="ot">&lt;-</span> <span class="st">"Full__TherapyA__Marker"</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>manual_screen29 <span class="ot">&lt;-</span> <span class="fu">get_screens_grade</span>(screens29,</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">x_list =</span> stats<span class="sc">::</span><span class="fu">setNames</span>(<span class="st">"Synthetic design exclusion for demonstration"</span>, manual_id29))</span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>strict_screen29 <span class="ot">&lt;-</span> <span class="fu">get_screens_grade</span>(manual_screen29, <span class="at">grade_args =</span> <span class="fu">list</span>(<span class="at">alpha =</span> .<span class="dv">01</span>))</span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>released_screen29 <span class="ot">&lt;-</span> <span class="fu">get_screens_grade</span>(strict_screen29, <span class="at">grade_args =</span> <span class="fu">list</span>(<span class="at">alpha =</span> .<span class="dv">01</span>),</span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">x_list =</span> stats<span class="sc">::</span><span class="fu">setNames</span>(<span class="st">""</span>, manual_id29))</span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>empty_gt29 <span class="ot">&lt;-</span> <span class="fu">fmt_screens_gt</span>(strict_screen29, <span class="at">grade =</span> <span class="fu">character</span>())</span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(empty_gt29, <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029-update-screening-empty.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
-<div class="quarto-figure quarto-figure-center">
-<figure class="figure">
-<p><a href="images/screening-guide/20261029-update-screening-empty.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="筛选为空时仍返回可显示的原生 gt，说明总体与展示范围。"><img src="images/screening-guide/20261029-update-screening-empty.png" class="img-fluid figure-img" alt="筛选grade为空的gt表，保留总体筛查计数并明确没有符合选中分级的检验。" loading="lazy" decoding="async" width="1476" height="294" srcset="../assets/figure-previews/40ea7d376d6246450bb2f0a113c0342f.webp"></a></p>
-<figcaption>筛选为空时仍返回可显示的原生 gt，说明总体与展示范围。</figcaption>
-</figure>
-</div>
-<p><a href="images/screening-guide/20261029-update-screening-empty.html">查看空筛选表格</a>。<code>fmt_screens_gt(grade=...)</code> 过滤展示行，副标题区分总体与展示计数；空结果不报 row zero 错误。星号和底色遵循当前评级 alpha，<code>show_color</code> / <code>compact</code> 必须是单个非缺失逻辑值。</p>
-<p>这些等级用于整理探索性模型结果，不是证据质量评级；这里没有额外做多重检验校正，也不能由“某亚组显著、另一亚组不显著”推断有交互或治疗因果效应。</p>
-</section>
-<section id="heatmap" class="level2">
-<h2 class="anchored" data-anchor-id="heatmap">两种热图布局与可靠保存</h2>
-<p>每格左半是乘法交互，右半是 RERI；红/蓝分别表示相对无交互值 1 / 0 的方向，颜色深浅依赖当前 alpha 与 null_p。深色半格显示估计和星号，A 级框实/虚线区分 stable_A；灰框标 X。短横线为不适用，深灰为不可估计，别名的小圆点提示重复组合。没有选择显示的分级也会变灰，所以灰色不能一律解释为 P 大于阈值。</p>
-<p><code>version</code> 可选 A0–A3，并固定按 A0、A1、A2、A3 排列。<code>panel</code> 将调整集分面，<code>stack</code> 把每格拆成按调整集排列的小行。各人群保留<strong>自己</strong>的治疗卡顺序：Full 为 A/B，Half 为 B/A。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>population_colors29 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">Full =</span> <span class="st">"#2F5597"</span>, <span class="at">Half =</span> <span class="st">"#C9541E"</span>,</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">Duplicate =</span> <span class="st">"#5B9A3B"</span>, <span class="at">MissingRef =</span> <span class="st">"#8064A2"</span>)</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>screen_panel29 <span class="ot">&lt;-</span> <span class="fu">plt_screens</span>(screens29, <span class="at">version =</span> <span class="fu">c</span>(<span class="st">"A0"</span>, <span class="st">"A3"</span>),</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">version_layout =</span> <span class="st">"panel"</span>, <span class="at">palette =</span> population_colors29,</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029-update-screening-panel.pdf"</span>)))</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>screen_stack29 <span class="ot">&lt;-</span> <span class="fu">plt_screens</span>(screens29, <span class="at">version =</span> <span class="fu">c</span>(<span class="st">"A3"</span>, <span class="st">"A0"</span>, <span class="st">"A2"</span>, <span class="st">"A1"</span>),</span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">version_layout =</span> <span class="st">"stack"</span>, <span class="at">grade =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"X"</span>), <span class="at">palette =</span> population_colors29,</span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029-update-screening-stack.pdf"</span>)))</span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(screen_stack29, <span class="st">"plot_size"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<section id="binary-20261029c" class="level2">
+<h2 class="anchored" data-anchor-id="binary-20261029c">二分类结局：Logistic 与 OR（2026-10-29）</h2>
+<p><code>surv</code> 现在可指定二分类结局列。因子的<strong>第一声明水平是非事件</strong>，其他观测水平编码为事件；也接受 logical 或 0/1。每个人群编码后都要实际观察到事件和非事件，空的首水平不能自动改成别的参考。这里把康复作为事件，OR 大于 1 表示康复的 odds 较高，不表示结局更坏。OR 不是风险比；基于 OR 的 RERI 在常见结局下会夸大风险尺度的加性交互，不能当作绝对风险差。</p>
+<p>下面独立生成 480 行合成数据。<code>time</code>、<code>DSS</code> 仅用于展示治疗筛选会读取<strong>原始列</strong>，不会先被内部 Logistic 工作列覆盖；若 filter 不用这两列，二分类筛查不需要它们。这里的 <code>DSS=8</code> 是人为的筛选标签，与生存事件无关。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">RegR.screens.print =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261030</span>)</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>binary_data29c <span class="ot">&lt;-</span> <span class="fu">expand.grid</span>(<span class="at">Tx =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"No"</span>), <span class="at">Marker =</span> <span class="fu">c</span>(<span class="st">"Low"</span>, <span class="st">"High"</span>),</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">replicate =</span> <span class="fu">seq_len</span>(<span class="dv">120</span>), <span class="at">KEEP.OUT.ATTRS =</span> <span class="cn">FALSE</span>, <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>binary_data29c<span class="sc">$</span>Tx <span class="ot">&lt;-</span> <span class="fu">factor</span>(binary_data29c<span class="sc">$</span>Tx, <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"No"</span>))</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>binary_data29c<span class="sc">$</span>Marker <span class="ot">&lt;-</span> <span class="fu">factor</span>(binary_data29c<span class="sc">$</span>Marker, <span class="fu">c</span>(<span class="st">"Low"</span>, <span class="st">"High"</span>))</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>binary_data29c<span class="sc">$</span>Age <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(<span class="dv">480</span>, <span class="dv">60</span>, <span class="dv">8</span>)</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>binary_data29c<span class="sc">$</span>time <span class="ot">&lt;-</span> binary_data29c<span class="sc">$</span>replicate</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>binary_data29c<span class="sc">$</span>DSS <span class="ot">&lt;-</span> <span class="dv">7</span>L <span class="sc">+</span> <span class="fu">as.integer</span>(binary_data29c<span class="sc">$</span>replicate <span class="sc">%%</span> <span class="dv">3</span>L <span class="sc">==</span> <span class="dv">0</span>L)</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>binary_probability29c <span class="ot">&lt;-</span> <span class="fu">plogis</span>(<span class="sc">-</span><span class="fl">0.5</span> <span class="sc">+</span> <span class="fl">0.5</span> <span class="sc">*</span> (binary_data29c<span class="sc">$</span>Tx <span class="sc">==</span> <span class="st">"No"</span>) <span class="sc">+</span></span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="fl">0.3</span> <span class="sc">*</span> (binary_data29c<span class="sc">$</span>Marker <span class="sc">==</span> <span class="st">"High"</span>) <span class="sc">+</span></span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="fl">0.6</span> <span class="sc">*</span> (binary_data29c<span class="sc">$</span>Tx <span class="sc">==</span> <span class="st">"No"</span> <span class="sc">&amp;</span> binary_data29c<span class="sc">$</span>Marker <span class="sc">==</span> <span class="st">"High"</span>) <span class="sc">+</span></span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="fl">0.02</span> <span class="sc">*</span> (binary_data29c<span class="sc">$</span>Age <span class="sc">-</span> <span class="dv">60</span>))</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>binary_data29c<span class="sc">$</span>Recovery <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">ifelse</span>(<span class="fu">runif</span>(<span class="dv">480</span>) <span class="sc">&lt;</span> binary_probability29c,</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Recovered"</span>, <span class="st">"Not recovered"</span>), <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Not recovered"</span>, <span class="st">"Recovered"</span>))</span>
+<span id="cb3-17"><a href="#cb3-17" aria-hidden="true" tabindex="-1"></a>binary_pops29c <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">Recovery =</span> <span class="fu">list</span>(<span class="at">data =</span> binary_data29c,</span>
+<span id="cb3-18"><a href="#cb3-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">trt =</span> <span class="st">"Compare"</span>, <span class="at">mod =</span> <span class="st">"Marker"</span>, <span class="at">adj =</span> <span class="fu">list</span>(<span class="at">demo =</span> <span class="st">"Age"</span>)))</span>
+<span id="cb3-19"><a href="#cb3-19" aria-hidden="true" tabindex="-1"></a>binary_trts29c <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">Compare =</span> <span class="fu">list</span>(<span class="at">var =</span> <span class="st">"Tx"</span>, <span class="at">ref =</span> <span class="st">"Yes"</span>, <span class="at">alt =</span> <span class="st">"No"</span>,</span>
+<span id="cb3-20"><a href="#cb3-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">type =</span> <span class="st">"do_vs_not"</span>, <span class="at">filter =</span> <span class="fu">quote</span>(time <span class="sc">&gt;=</span> <span class="dv">20</span> <span class="sc">&amp;</span> DSS <span class="sc">==</span> <span class="dv">8</span>)))</span>
+<span id="cb3-21"><a href="#cb3-21" aria-hidden="true" tabindex="-1"></a>binary_mods29c <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">Marker =</span> <span class="fu">list</span>(<span class="at">class =</span> <span class="st">"tumor"</span>))</span>
+<span id="cb3-22"><a href="#cb3-22" aria-hidden="true" tabindex="-1"></a>binary_screen29c <span class="ot">&lt;-</span> <span class="fu">get_screens</span>(binary_pops29c, binary_trts29c, binary_mods29c,</span>
+<span id="cb3-23"><a href="#cb3-23" aria-hidden="true" tabindex="-1"></a>  <span class="at">surv =</span> <span class="st">"Recovery"</span>, <span class="at">n_cores =</span> <span class="dv">1</span>)</span>
+<span id="cb3-24"><a href="#cb3-24" aria-hidden="true" tabindex="-1"></a>binary_gt29c <span class="ot">&lt;-</span> <span class="fu">fmt_screens_gt</span>(binary_screen29c)</span>
+<span id="cb3-25"><a href="#cb3-25" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(binary_gt29c, <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029c-update-binary-table.html"</span>))</span>
+<span id="cb3-26"><a href="#cb3-26" aria-hidden="true" tabindex="-1"></a>binary_plot29c <span class="ot">&lt;-</span> <span class="fu">plt_screens</span>(binary_screen29c, <span class="at">version =</span> <span class="fu">c</span>(<span class="st">"A0"</span>, <span class="st">"A3"</span>),</span>
+<span id="cb3-27"><a href="#cb3-27" aria-hidden="true" tabindex="-1"></a>  <span class="at">version_layout =</span> <span class="st">"panel"</span>, <span class="at">fixed_size =</span> <span class="dv">9</span>,</span>
+<span id="cb3-28"><a href="#cb3-28" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029c-update-binary-heatmap.pdf"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">调整集分面</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">格内逐层堆叠</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-1-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-1" role="tab" aria-controls="tabset-1-1" aria-selected="true" href="" aria-current="page">结局事件与表格</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-1-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-1-2" role="tab" aria-controls="tabset-1-2" aria-selected="false" href="">OR 交互热图</a></li></ul>
 <div class="tab-content">
 <div id="tabset-1-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-1-1-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/screening-guide/20261029-update-screening-panel.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="A0 与 A3 分面，保留原始分级和不适用、别名信息。"><img src="images/screening-guide/20261029-update-screening-panel.png" class="img-fluid figure-img" alt="合成筛查的A0与A3热图，按人群和治疗组织，格内左侧乘法交互、右侧RERI，保留别名与不适用标记。" loading="lazy" decoding="async" width="899" height="725" srcset="../assets/figure-previews/5edad4a071fd13d3203a31c8bfafb179.webp"></a></p>
-<figcaption>A0 与 A3 分面，保留原始分级和不适用、别名信息。</figcaption>
+<p><a href="images/screening-guide/20261029c-update-binary-table.png" class="lightbox" data-gallery="quarto-lightbox-gallery-2" title="Logistic 筛查的原生表格，OR 的方向按康复事件解释。"><img src="images/screening-guide/20261029c-update-binary-table.png" class="img-fluid figure-img" alt="合成康复结局的Logistic交互筛查，显示136个完整病例及A0 A3的OR和RERI。" loading="lazy" decoding="async" width="1476" height="320" srcset="../assets/figure-previews/28c0bb787e52fb4bfe57d203ccef77e9.webp"></a></p>
+<figcaption>Logistic 筛查的原生表格，OR 的方向按康复事件解释。</figcaption>
 </figure>
 </div>
-<p><a href="images/screening-guide/20261029-update-screening-panel.pdf">原生 PDF</a></p>
+<p><a href="images/screening-guide/20261029c-update-binary-table.html">完整原生表格</a></p>
 </div>
 <div id="tabset-1-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-1-2-tab">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/screening-guide/20261029-update-screening-stack.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="四套调整集依次堆叠，未选分级变灰，Half 保留 B/A 顺序。"><img src="images/screening-guide/20261029-update-screening-stack.png" class="img-fluid figure-img" alt="A0 A1 A2 A3依次排列的交互热图，仅着色A B X分级，Full治疗顺序A B而Half为B A。" loading="lazy" decoding="async" width="899" height="1102" srcset="../assets/figure-previews/c6d5e66121864b5db3dbf4b3dc006b37.webp"></a></p>
-<figcaption>四套调整集依次堆叠，未选分级变灰，Half 保留 B/A 顺序。</figcaption>
+<p><a href="images/screening-guide/20261029c-update-binary-heatmap.png" class="lightbox" data-gallery="quarto-lightbox-gallery-3" title="同一对象的 A0 与 A3 热图，图例注明 Logistic 与 OR。"><img src="images/screening-guide/20261029c-update-binary-heatmap.png" class="img-fluid figure-img" alt="康复结局Logistic模型的A0 A3交互热图，左半为OR之比，右半为基于OR的RERI。" loading="lazy" decoding="async" width="1320" height="405" srcset="../assets/figure-previews/756a0cfe4381eac893584f39825a5ffc.webp"></a></p>
+<figcaption>同一对象的 A0 与 A3 热图，图例注明 Logistic 与 OR。</figcaption>
 </figure>
 </div>
-<p><a href="images/screening-guide/20261029-update-screening-stack.pdf">原生 PDF</a></p>
+<p><a href="images/screening-guide/20261029c-update-binary-heatmap.pdf">原生 PDF</a></p>
 </div>
 </div>
 </div>
-<p>默认 <code>fixed_size=TRUE</code> 将单格固定到 0.46 × 0.42 英寸并报告推荐画布。数值型 fixed_size 指定总宽度，但图题或图例仍可能要求更宽，且单格不能窄于 0.40 英寸；不接受带 class 的数值。FALSE 则随设备伸缩且无推荐尺寸。默认保存优先用 <code>attr(p,"plot_size")</code>，避免裁掉倾斜轴标签、底部图例或脚注。</p>
-<p>命名 palette 必须覆盖所有绘图人群，名字唯一且非空，可以额外带其他人群供子集复用。固定面板下，较长的人群条带标签会按宽度换行；整体留白按实际主题测量。<code>grade</code> 拼写错误会报错，不会悄悄把所有格子染灰。</p>
+<p>筛选后有 <strong>136 行</strong>，A0–A3 继续共用 A3 完整病例。本例用数值型 <code>fixed_size=9</code> 给两个版本标题留出宽度。二分类结果的 <code>all$measure</code> 为 <code>"OR"</code>，但为兼容历史对象，层内估计字段仍叫 <code>hr_ref</code> / <code>hr_alt</code>，不能只看字段名判为 HR。<code>landmark</code>、<code>cap</code>、<code>negative</code> 版本为 n/a；有诊断年份与 <code>era_cut</code> 时，非 era 修饰变量仍可拟合 era1 / era2。<code>survive=TRUE</code> 或 <code>early_death=TRUE</code> 会直接报错。<code>surv=FALSE</code> 不用于批量 Fine–Gray，单个 Fine–Gray 模型请用 <a href="../regr/interaction-guide.html">get_inter</a>。</p>
+<p>以下用同一 136 行独立拟合 <code>glm</code>，对照未舍入层内 OR、乘法交互、Wald P 与 delta-method RERI 区间；另核对某个单元全为事件时应为不可估计。</p>
 <div class="callout callout-style-default callout-note callout-titled" title="复核代码">
 <div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
@@ -1439,55 +1439,108 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="callout-2" class="callout-2-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>screen_all29 <span class="ot">&lt;-</span> screens29[[<span class="st">"all"</span>]]</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>screen_specs29 <span class="ot">&lt;-</span> screens29[[<span class="st">"specs"</span>]]</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>main_rows29 <span class="ot">&lt;-</span> screen_all29[[<span class="st">"id"</span>]] <span class="sc">==</span> <span class="st">"Full__TherapyA__Marker"</span></span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>alias_rows29 <span class="ot">&lt;-</span> screen_all29[[<span class="st">"pop"</span>]] <span class="sc">==</span> <span class="st">"Duplicate"</span></span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>missing_rows29 <span class="ot">&lt;-</span> screen_all29[[<span class="st">"pop"</span>]] <span class="sc">==</span> <span class="st">"MissingRef"</span></span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">inherits</span>(screens29, <span class="st">"get_screens"</span>), <span class="fu">nrow</span>(screen_all29) <span class="sc">==</span> <span class="dv">16</span>L,</span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(screen_all29[[<span class="st">"counted"</span>]]) <span class="sc">==</span> <span class="dv">10</span>L,</span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"n"</span>]][main_rows29] <span class="sc">==</span> <span class="dv">716</span>L),</span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"cut_direction"</span>]][main_rows29] <span class="sc">==</span> <span class="st">"single"</span>),</span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"planned"</span>]][alias_rows29] <span class="sc">==</span> <span class="st">"alias"</span>),</span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!</span><span class="fu">any</span>(screen_all29[[<span class="st">"counted"</span>]][alias_rows29]),</span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"alias_of"</span>]][alias_rows29] <span class="sc">==</span> <span class="st">"Full__TherapyA__Marker"</span>),</span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"planned"</span>]][missing_rows29] <span class="sc">==</span> <span class="st">"n/a"</span>),</span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"mod_ref"</span>]][missing_rows29] <span class="sc">==</span> <span class="st">"Low"</span>),</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(strict_screen29[[<span class="st">"all"</span>]][[<span class="st">"grade"</span>]][main_rows29] <span class="sc">==</span> <span class="st">"X"</span>),</span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(strict_screen29[[<span class="st">"all"</span>]][[<span class="st">"x_reason"</span>]][main_rows29] <span class="sc">==</span></span>
-<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Synthetic design exclusion for demonstration"</span>),</span>
-<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(released_screen29[[<span class="st">"all"</span>]][[<span class="st">"grade"</span>]][main_rows29] <span class="sc">==</span></span>
-<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>    released_screen29[[<span class="st">"all"</span>]][[<span class="st">"grade_stat"</span>]][main_rows29]),</span>
-<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">attr</span>(screens29, <span class="st">"fits"</span>), <span class="fu">attr</span>(strict_screen29, <span class="st">"fits"</span>)),</span>
-<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(screens29[[<span class="st">"specs"</span>]], strict_screen29[[<span class="st">"specs"</span>]])),</span>
-<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">nrow</span>(empty_gt29[[<span class="st">"_data"</span>]]) <span class="sc">==</span> <span class="dv">0</span>L,</span>
-<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">is.finite</span>(<span class="fu">attr</span>(screen_panel29, <span class="st">"plot_size"</span>))),</span>
-<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">is.finite</span>(<span class="fu">attr</span>(screen_stack29, <span class="st">"plot_size"</span>))))</span>
-<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a><span class="co"># 独立完整 Cox 模型：三水平 Marker，保留完整的716个病例。</span></span>
-<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>manual_screen_data29 <span class="ot">&lt;-</span> screen_data29</span>
-<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>manual_screen_data29[[<span class="st">"Age"</span>]] <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(haven<span class="sc">::</span><span class="fu">zap_missing</span>(manual_screen_data29[[<span class="st">"Age"</span>]]))</span>
-<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>manual_screen_data29 <span class="ot">&lt;-</span> manual_screen_data29[stats<span class="sc">::</span><span class="fu">complete.cases</span>(</span>
-<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a>  manual_screen_data29[<span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"DSS"</span>, <span class="st">"TxA"</span>, <span class="st">"Marker"</span>, <span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Yea"</span>, <span class="st">"Tumor"</span>, <span class="st">"TxB"</span>)]), ]</span>
-<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a>manual_screen_fit29 <span class="ot">&lt;-</span> survival<span class="sc">::</span><span class="fu">coxph</span>(survival<span class="sc">::</span><span class="fu">Surv</span>(time, DSS) <span class="sc">~</span> TxA <span class="sc">*</span> Marker <span class="sc">+</span></span>
-<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>  Age <span class="sc">+</span> Sex <span class="sc">+</span> Yea <span class="sc">+</span> Tumor <span class="sc">+</span> TxB, <span class="at">data =</span> manual_screen_data29, <span class="at">ties =</span> <span class="st">"efron"</span>, <span class="at">x =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a>manual_beta29 <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">coef</span>(manual_screen_fit29)</span>
-<span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (level29 <span class="cf">in</span> <span class="fu">c</span>(<span class="st">"Mid"</span>, <span class="st">"High"</span>)) {</span>
-<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>  row29 <span class="ot">&lt;-</span> screen_all29[main_rows29 <span class="sc">&amp;</span> screen_all29[[<span class="st">"mod_alt"</span>]] <span class="sc">==</span> level29, ]</span>
-<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a>  interaction_term29 <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"TxANo:Marker"</span>, level29)</span>
-<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a>  expected_mult29 <span class="ot">&lt;-</span> <span class="fu">exp</span>(manual_beta29[[interaction_term29]])</span>
-<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a>  expected_reri29 <span class="ot">&lt;-</span> <span class="fu">exp</span>(manual_beta29[[<span class="st">"TxANo"</span>]] <span class="sc">+</span> manual_beta29[[<span class="fu">paste0</span>(<span class="st">"Marker"</span>, level29)]] <span class="sc">+</span></span>
-<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>    manual_beta29[[interaction_term29]]) <span class="sc">-</span> <span class="fu">exp</span>(manual_beta29[[<span class="st">"TxANo"</span>]]) <span class="sc">-</span></span>
-<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>    <span class="fu">exp</span>(manual_beta29[[<span class="fu">paste0</span>(<span class="st">"Marker"</span>, level29)]]) <span class="sc">+</span> <span class="dv">1</span></span>
-<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(row29[[<span class="st">"mult"</span>]], <span class="fu">unname</span>(expected_mult29), <span class="at">tolerance =</span> <span class="fl">1e-8</span>)),</span>
-<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>    <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(row29[[<span class="st">"reri"</span>]], <span class="fu">unname</span>(expected_reri29), <span class="at">tolerance =</span> <span class="fl">1e-8</span>)))</span>
-<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a>}</span>
-<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">input_n =</span> <span class="fu">nrow</span>(screen_data29), <span class="at">counted =</span> <span class="fu">sum</span>(screen_all29[[<span class="st">"counted"</span>]]),</span>
-<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a>  <span class="at">fits =</span> <span class="fu">attr</span>(screens29, <span class="st">"fits"</span>), <span class="at">all =</span> screen_all29, <span class="at">specs =</span> screen_specs29,</span>
-<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a>  <span class="at">strict =</span> strict_screen29[[<span class="st">"all"</span>]][, <span class="fu">c</span>(<span class="st">"id"</span>, <span class="st">"mod_alt"</span>, <span class="st">"grade"</span>, <span class="st">"x_reason"</span>)])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>binary_manual_data29c <span class="ot">&lt;-</span> <span class="fu">subset</span>(binary_data29c, time <span class="sc">&gt;=</span> <span class="dv">20</span> <span class="sc">&amp;</span> DSS <span class="sc">==</span> <span class="dv">8</span>)</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>binary_fit29c <span class="ot">&lt;-</span> <span class="fu">glm</span>(Recovery <span class="sc">~</span> Tx <span class="sc">*</span> Marker <span class="sc">+</span> Age,</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">family =</span> <span class="fu">binomial</span>(), <span class="at">data =</span> binary_manual_data29c)</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>binary_names29c <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"TxNo"</span>, <span class="st">"MarkerHigh"</span>, <span class="st">"TxNo:MarkerHigh"</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>binary_b29c <span class="ot">&lt;-</span> <span class="fu">coef</span>(binary_fit29c)[binary_names29c]</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>binary_v29c <span class="ot">&lt;-</span> <span class="fu">vcov</span>(binary_fit29c)[binary_names29c, binary_names29c]</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>binary_joint29c <span class="ot">&lt;-</span> <span class="fu">exp</span>(<span class="fu">sum</span>(binary_b29c))</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>binary_reri29c <span class="ot">&lt;-</span> binary_joint29c <span class="sc">-</span> <span class="fu">exp</span>(binary_b29c[<span class="dv">1</span>]) <span class="sc">-</span> <span class="fu">exp</span>(binary_b29c[<span class="dv">2</span>]) <span class="sc">+</span> <span class="dv">1</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>binary_gradient29c <span class="ot">&lt;-</span> <span class="fu">c</span>(binary_joint29c <span class="sc">-</span> <span class="fu">exp</span>(binary_b29c[<span class="dv">1</span>]),</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  binary_joint29c <span class="sc">-</span> <span class="fu">exp</span>(binary_b29c[<span class="dv">2</span>]), binary_joint29c)</span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>binary_se29c <span class="ot">&lt;-</span> <span class="fu">sqrt</span>(<span class="fu">drop</span>(<span class="fu">t</span>(binary_gradient29c) <span class="sc">%*%</span> binary_v29c <span class="sc">%*%</span> binary_gradient29c))</span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>binary_row29c <span class="ot">&lt;-</span> binary_screen29c<span class="sc">$</span>all[binary_screen29c<span class="sc">$</span>all<span class="sc">$</span>counted, ]</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>binary_close29c <span class="ot">&lt;-</span> <span class="cf">function</span>(x, y) <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(<span class="fu">as.numeric</span>(x), <span class="fu">as.numeric</span>(y), <span class="at">tolerance =</span> <span class="fl">1e-8</span>))</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(binary_manual_data29c) <span class="sc">==</span> <span class="dv">136</span>L, binary_row29c<span class="sc">$</span>n <span class="sc">==</span> <span class="dv">136</span>L,</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">unique</span>(binary_screen29c<span class="sc">$</span>all<span class="sc">$</span>measure), <span class="st">"OR"</span>),</span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">binary_close29c</span>(binary_row29c<span class="sc">$</span>hr_ref, <span class="fu">exp</span>(binary_b29c[<span class="dv">1</span>])),</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">binary_close29c</span>(binary_row29c<span class="sc">$</span>hr_alt, <span class="fu">exp</span>(binary_b29c[<span class="dv">1</span>] <span class="sc">+</span> binary_b29c[<span class="dv">3</span>])),</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">binary_close29c</span>(binary_row29c<span class="sc">$</span>mult, <span class="fu">exp</span>(binary_b29c[<span class="dv">3</span>])),</span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">binary_close29c</span>(binary_row29c<span class="sc">$</span>p_mult, <span class="dv">2</span> <span class="sc">*</span> <span class="fu">pnorm</span>(<span class="sc">-</span><span class="fu">abs</span>(binary_b29c[<span class="dv">3</span>] <span class="sc">/</span> <span class="fu">sqrt</span>(binary_v29c[<span class="dv">3</span>, <span class="dv">3</span>])))),</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">binary_close29c</span>(binary_row29c<span class="sc">$</span>reri, binary_reri29c),</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">binary_close29c</span>(binary_row29c<span class="sc">$</span>reri_lo, binary_reri29c <span class="sc">-</span> <span class="fu">qnorm</span>(.<span class="dv">975</span>) <span class="sc">*</span> binary_se29c),</span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">binary_close29c</span>(binary_row29c<span class="sc">$</span>reri_hi, binary_reri29c <span class="sc">+</span> <span class="fu">qnorm</span>(.<span class="dv">975</span>) <span class="sc">*</span> binary_se29c))</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>binary_versions29c <span class="ot">&lt;-</span> <span class="fu">subset</span>(binary_screen29c<span class="sc">$</span>specs, version <span class="sc">%in%</span> <span class="fu">c</span>(<span class="st">"landmark"</span>, <span class="st">"cap"</span>, <span class="st">"negative"</span>))</span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">all</span>(binary_versions29c<span class="sc">$</span>fit_status <span class="sc">==</span> <span class="st">"n/a"</span>))</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>binary_bad_cell29c <span class="ot">&lt;-</span> binary_pops29c</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>binary_bad_cell29c<span class="sc">$</span>Recovery<span class="sc">$</span>data<span class="sc">$</span>Recovery[binary_data29c<span class="sc">$</span>Tx <span class="sc">==</span> <span class="st">"No"</span> <span class="sc">&amp;</span></span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>  binary_data29c<span class="sc">$</span>Marker <span class="sc">==</span> <span class="st">"High"</span>] <span class="ot">&lt;-</span> <span class="st">"Recovered"</span></span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a>binary_nonestimable29c <span class="ot">&lt;-</span> <span class="fu">get_screens</span>(binary_bad_cell29c, binary_trts29c,</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a>  binary_mods29c, <span class="at">surv =</span> <span class="st">"Recovery"</span>, <span class="at">n_cores =</span> <span class="dv">1</span>)</span>
+<span id="cb4-30"><a href="#cb4-30" aria-hidden="true" tabindex="-1"></a>binary_bad_a329c <span class="ot">&lt;-</span> <span class="fu">subset</span>(binary_nonestimable29c<span class="sc">$</span>specs, version <span class="sc">==</span> <span class="st">"A3"</span>)</span>
+<span id="cb4-31"><a href="#cb4-31" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">all</span>(binary_bad_a329c<span class="sc">$</span>fit_status <span class="sc">==</span> <span class="st">"NA"</span>),</span>
+<span id="cb4-32"><a href="#cb4-32" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">grepl</span>(<span class="st">"no non-events"</span>, binary_bad_a329c<span class="sc">$</span>fit_reason, <span class="at">fixed =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb4-33"><a href="#cb4-33" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">input_n =</span> <span class="dv">480</span>, <span class="at">model_n =</span> binary_row29c<span class="sc">$</span>n,</span>
+<span id="cb4-34"><a href="#cb4-34" aria-hidden="true" tabindex="-1"></a>  <span class="at">events =</span> binary_row29c<span class="sc">$</span>events, <span class="at">measure =</span> binary_row29c<span class="sc">$</span>measure,</span>
+<span id="cb4-35"><a href="#cb4-35" aria-hidden="true" tabindex="-1"></a>  <span class="at">mult =</span> binary_row29c<span class="sc">$</span>mult, <span class="at">p_mult =</span> binary_row29c<span class="sc">$</span>p_mult,</span>
+<span id="cb4-36"><a href="#cb4-36" aria-hidden="true" tabindex="-1"></a>  <span class="at">reri =</span> binary_row29c<span class="sc">$</span>reri, <span class="at">reri_lo =</span> binary_row29c<span class="sc">$</span>reri_lo,</span>
+<span id="cb4-37"><a href="#cb4-37" aria-hidden="true" tabindex="-1"></a>  <span class="at">reri_hi =</span> binary_row29c<span class="sc">$</span>reri_hi, <span class="at">nonestimable_reason =</span> binary_bad_a329c<span class="sc">$</span>fit_reason)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </div>
 </div>
+<!-- /update-20261029c: regr_screen_binary -->
+</section>
+<section id="regrade" class="level2">
+<h2 class="anchored" data-anchor-id="regrade">重新分级与保留人工排除</h2>
+<p>分级使用未经舍入的 P 值，默认 <code>alpha=.05</code>、<code>null_p=.1</code>。A 表示 A0 与 A3 至少各有一个尺度显著，B 为仅 A3，C 为仅 A0；N 为 A3 两个 P 都不小于 null_p，其他情形为 <code>-</code>。显著尺度冲突，或 A0 与 A3 在同一比较尺度上方向冲突，可判 X；不能把乘法比值直接与 RERI 的数值比较方向。</p>
+<p>五项稳定性依次检查 landmark、era/cap、negative、magnitude、stepwise。<code>pass/fail/NA/n/a</code> 含义不同，<code>stable_A</code> 也不能代替逐项审阅。多水平 Marker 的 Mid、High 不是两个切点，<code>cut_direction="single"</code>，不会拿它们作切点方向一致性检验。</p>
+<p><code>get_screens_grade()</code> 不重新拟合。<code>x_list</code> 用 <strong>id=原因</strong> 追加人工 X 排除；改变阈值会保留已有人工排除，新列表只更新其中点名的 id，空原因才移除相应人工排除。移除后仍可能因统计规则得到 X。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>manual_id29 <span class="ot">&lt;-</span> <span class="st">"Full__TherapyA__Marker"</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>manual_screen29 <span class="ot">&lt;-</span> <span class="fu">get_screens_grade</span>(screens29,</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">x_list =</span> stats<span class="sc">::</span><span class="fu">setNames</span>(<span class="st">"Synthetic design exclusion for demonstration"</span>, manual_id29))</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>strict_screen29 <span class="ot">&lt;-</span> <span class="fu">get_screens_grade</span>(manual_screen29, <span class="at">grade_args =</span> <span class="fu">list</span>(<span class="at">alpha =</span> .<span class="dv">01</span>))</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>released_screen29 <span class="ot">&lt;-</span> <span class="fu">get_screens_grade</span>(strict_screen29, <span class="at">grade_args =</span> <span class="fu">list</span>(<span class="at">alpha =</span> .<span class="dv">01</span>),</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">x_list =</span> stats<span class="sc">::</span><span class="fu">setNames</span>(<span class="st">""</span>, manual_id29))</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>empty_gt29 <span class="ot">&lt;-</span> <span class="fu">fmt_screens_gt</span>(strict_screen29, <span class="at">grade =</span> <span class="fu">character</span>())</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(empty_gt29, <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029-update-screening-empty.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/screening-guide/20261029-update-screening-empty.png" class="lightbox" data-gallery="quarto-lightbox-gallery-4" title="筛选为空时仍返回可显示的原生 gt，说明总体与展示范围。"><img src="images/screening-guide/20261029-update-screening-empty.png" class="img-fluid figure-img" alt="筛选grade为空的gt表，保留总体筛查计数并明确没有符合选中分级的检验。" loading="lazy" decoding="async" width="1476" height="294" srcset="../assets/figure-previews/40ea7d376d6246450bb2f0a113c0342f.webp"></a></p>
+<figcaption>筛选为空时仍返回可显示的原生 gt，说明总体与展示范围。</figcaption>
+</figure>
+</div>
+<p><a href="images/screening-guide/20261029-update-screening-empty.html">查看空筛选表格</a>。<code>fmt_screens_gt(grade=...)</code> 过滤展示行，副标题区分总体与展示计数；空结果不报 row zero 错误。星号和底色遵循当前评级 alpha，<code>show_color</code> / <code>compact</code> 必须是单个非缺失逻辑值。</p>
+<p>这些等级用于整理探索性模型结果，不是证据质量评级；这里没有额外做多重检验校正，也不能由“某亚组显著、另一亚组不显著”推断有交互或治疗因果效应。</p>
+</section>
+<section id="heatmap" class="level2">
+<h2 class="anchored" data-anchor-id="heatmap">两种热图布局与可靠保存</h2>
+<p>每格左半是乘法交互，右半是 RERI；红/蓝分别表示相对无交互值 1 / 0 的方向，颜色深浅依赖当前 alpha 与 null_p。深色半格显示估计和星号，A 级框实/虚线区分 stable_A；灰框标 X。短横线为不适用，深灰为不可估计，别名的小圆点提示重复组合。没有选择显示的分级也会变灰，所以灰色不能一律解释为 P 大于阈值。</p>
+<p><code>version</code> 可选 A0–A3，并固定按 A0、A1、A2、A3 排列。<code>panel</code> 将调整集分面，<code>stack</code> 把每格拆成按调整集排列的小行。各人群保留<strong>自己</strong>的治疗卡顺序：Full 为 A/B，Half 为 B/A。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>population_colors29 <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">Full =</span> <span class="st">"#2F5597"</span>, <span class="at">Half =</span> <span class="st">"#C9541E"</span>,</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">Duplicate =</span> <span class="st">"#5B9A3B"</span>, <span class="at">MissingRef =</span> <span class="st">"#8064A2"</span>)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>screen_panel29 <span class="ot">&lt;-</span> <span class="fu">plt_screens</span>(screens29, <span class="at">version =</span> <span class="fu">c</span>(<span class="st">"A0"</span>, <span class="st">"A3"</span>),</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">version_layout =</span> <span class="st">"panel"</span>, <span class="at">palette =</span> population_colors29,</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029-update-screening-panel.pdf"</span>)))</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>screen_stack29 <span class="ot">&lt;-</span> <span class="fu">plt_screens</span>(screens29, <span class="at">version =</span> <span class="fu">c</span>(<span class="st">"A3"</span>, <span class="st">"A0"</span>, <span class="st">"A2"</span>, <span class="st">"A1"</span>),</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">version_layout =</span> <span class="st">"stack"</span>, <span class="at">grade =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>, <span class="st">"X"</span>), <span class="at">palette =</span> population_colors29,</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261029-update-screening-stack.pdf"</span>)))</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="fu">attr</span>(screen_stack29, <span class="st">"plot_size"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-2-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-1" role="tab" aria-controls="tabset-2-1" aria-selected="true" href="">调整集分面</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-2-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-2-2" role="tab" aria-controls="tabset-2-2" aria-selected="false" href="">格内逐层堆叠</a></li></ul>
+<div class="tab-content">
+<div id="tabset-2-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-2-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/screening-guide/20261029-update-screening-panel.png" class="lightbox" data-gallery="quarto-lightbox-gallery-5" title="A0 与 A3 分面，保留原始分级和不适用、别名信息。"><img src="images/screening-guide/20261029-update-screening-panel.png" class="img-fluid figure-img" alt="合成筛查的A0与A3热图，按人群和治疗组织，格内左侧乘法交互、右侧RERI，保留别名与不适用标记。" loading="lazy" decoding="async" width="899" height="725" srcset="../assets/figure-previews/5edad4a071fd13d3203a31c8bfafb179.webp"></a></p>
+<figcaption>A0 与 A3 分面，保留原始分级和不适用、别名信息。</figcaption>
+</figure>
+</div>
+<p><a href="images/screening-guide/20261029-update-screening-panel.pdf">原生 PDF</a></p>
+</div>
+<div id="tabset-2-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-2-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/screening-guide/20261029-update-screening-stack.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="四套调整集依次堆叠，未选分级变灰，Half 保留 B/A 顺序。"><img src="images/screening-guide/20261029-update-screening-stack.png" class="img-fluid figure-img" alt="A0 A1 A2 A3依次排列的交互热图，仅着色A B X分级，Full治疗顺序A B而Half为B A。" loading="lazy" decoding="async" width="899" height="1102" srcset="../assets/figure-previews/c6d5e66121864b5db3dbf4b3dc006b37.webp"></a></p>
+<figcaption>四套调整集依次堆叠，未选分级变灰，Half 保留 B/A 顺序。</figcaption>
+</figure>
+</div>
+<p><a href="images/screening-guide/20261029-update-screening-stack.pdf">原生 PDF</a></p>
+</div>
+</div>
+</div>
+<p>默认 <code>fixed_size=TRUE</code> 将单格固定到 0.46 × 0.42 英寸并报告推荐画布。数值型 fixed_size 指定总宽度，但图题或图例仍可能要求更宽，且单格不能窄于 0.40 英寸；不接受带 class 的数值。FALSE 则随设备伸缩且无推荐尺寸。默认保存优先用 <code>attr(p,"plot_size")</code>，避免裁掉倾斜轴标签、底部图例或脚注。</p>
+<p>命名 palette 必须覆盖所有绘图人群，名字唯一且非空，可以额外带其他人群供子集复用。固定面板下，较长的人群条带标签会按宽度换行；整体留白按实际主题测量。<code>grade</code> 拼写错误会报错，不会悄悄把所有格子染灰。</p>
 <div class="callout callout-style-default callout-note callout-titled" title="复核代码">
 <div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
@@ -1500,32 +1553,93 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="callout-3" class="callout-3-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>bad_factor_pops29 <span class="ot">&lt;-</span> pops29</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>bad_factor_pops29[[<span class="st">"Full"</span>]][[<span class="st">"data"</span>]][[<span class="st">"Marker"</span>]] <span class="ot">&lt;-</span> <span class="fu">addNA</span>(screen_data29[[<span class="st">"Marker"</span>]])</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>bad_factor_error29 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_screens</span>(bad_factor_pops29, trts29, mods29, <span class="at">n_cores =</span> <span class="dv">1</span>),</span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) <span class="fu">conditionMessage</span>(e))</span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>bad_swap_pops29 <span class="ot">&lt;-</span> pops29</span>
-<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>bad_swap_pops29[[<span class="st">"Full"</span>]][[<span class="st">"adj_swap"</span>]] <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">Age =</span> <span class="st">"Tumor"</span>, <span class="at">Age =</span> <span class="st">"TxB"</span>)</span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>bad_swap_error29 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_screens</span>(bad_swap_pops29, trts29, mods29, <span class="at">n_cores =</span> <span class="dv">1</span>),</span>
-<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) <span class="fu">conditionMessage</span>(e))</span>
-<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>empty_palette_error29 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">plt_screens</span>(screens29, <span class="at">palette =</span> <span class="fu">character</span>()),</span>
-<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) <span class="fu">conditionMessage</span>(e))</span>
-<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>named_trts29 <span class="ot">&lt;-</span> trts29</span>
-<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>named_trts29[[<span class="st">"TherapyA"</span>]][[<span class="st">"type"</span>]] <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">card =</span> <span class="st">"do_vs_not"</span>)</span>
-<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>named_mods29 <span class="ot">&lt;-</span> mods29</span>
-<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>named_mods29[[<span class="st">"Marker"</span>]][[<span class="st">"class"</span>]] <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">card =</span> <span class="st">"tumor"</span>)</span>
-<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>named_screens29 <span class="ot">&lt;-</span> withr<span class="sc">::</span><span class="fu">with_options</span>(<span class="fu">list</span>(<span class="at">RegR.screens.print =</span> <span class="cn">FALSE</span>),</span>
-<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">get_screens</span>(pops29, named_trts29, named_mods29,</span>
-<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">year_var =</span> <span class="fu">c</span>(<span class="at">column =</span> <span class="st">"Yea"</span>), <span class="at">version_args =</span> <span class="fu">list</span>(<span class="at">landmark =</span> <span class="fu">c</span>(<span class="at">month =</span> <span class="dv">3</span>)),</span>
-<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">grade_args =</span> <span class="fu">list</span>(<span class="at">alpha =</span> <span class="fu">c</span>(<span class="at">threshold =</span> .<span class="dv">05</span>)), <span class="at">n_cores =</span> <span class="dv">1</span>))</span>
-<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">is.character</span>(bad_factor_error29), <span class="fu">grepl</span>(<span class="st">"explicit NA level"</span>, bad_factor_error29, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">grepl</span>(<span class="st">"Marker"</span>, bad_factor_error29, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">is.character</span>(bad_swap_error29), <span class="fu">grepl</span>(<span class="st">"adj_swap"</span>, bad_swap_error29, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">is.character</span>(empty_palette_error29), <span class="fu">grepl</span>(<span class="st">"at least one colour"</span>, empty_palette_error29, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(named_screens29[[<span class="st">"all"</span>]], screens29[[<span class="st">"all"</span>]])),</span>
-<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(named_screens29[[<span class="st">"specs"</span>]], screens29[[<span class="st">"specs"</span>]])))</span>
-<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>validation_values[[<span class="st">"late_checks"</span>]] <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">factor_error =</span> bad_factor_error29,</span>
-<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">swap_error =</span> bad_swap_error29, <span class="at">palette_error =</span> empty_palette_error29, <span class="at">named_values_match =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>screen_all29 <span class="ot">&lt;-</span> screens29[[<span class="st">"all"</span>]]</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>screen_specs29 <span class="ot">&lt;-</span> screens29[[<span class="st">"specs"</span>]]</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>main_rows29 <span class="ot">&lt;-</span> screen_all29[[<span class="st">"id"</span>]] <span class="sc">==</span> <span class="st">"Full__TherapyA__Marker"</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>alias_rows29 <span class="ot">&lt;-</span> screen_all29[[<span class="st">"pop"</span>]] <span class="sc">==</span> <span class="st">"Duplicate"</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>missing_rows29 <span class="ot">&lt;-</span> screen_all29[[<span class="st">"pop"</span>]] <span class="sc">==</span> <span class="st">"MissingRef"</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">inherits</span>(screens29, <span class="st">"get_screens"</span>), <span class="fu">nrow</span>(screen_all29) <span class="sc">==</span> <span class="dv">16</span>L,</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(screen_all29[[<span class="st">"counted"</span>]]) <span class="sc">==</span> <span class="dv">10</span>L,</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"n"</span>]][main_rows29] <span class="sc">==</span> <span class="dv">716</span>L),</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"cut_direction"</span>]][main_rows29] <span class="sc">==</span> <span class="st">"single"</span>),</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"planned"</span>]][alias_rows29] <span class="sc">==</span> <span class="st">"alias"</span>),</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!</span><span class="fu">any</span>(screen_all29[[<span class="st">"counted"</span>]][alias_rows29]),</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"alias_of"</span>]][alias_rows29] <span class="sc">==</span> <span class="st">"Full__TherapyA__Marker"</span>),</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"planned"</span>]][missing_rows29] <span class="sc">==</span> <span class="st">"n/a"</span>),</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(screen_all29[[<span class="st">"mod_ref"</span>]][missing_rows29] <span class="sc">==</span> <span class="st">"Low"</span>),</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(strict_screen29[[<span class="st">"all"</span>]][[<span class="st">"grade"</span>]][main_rows29] <span class="sc">==</span> <span class="st">"X"</span>),</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(strict_screen29[[<span class="st">"all"</span>]][[<span class="st">"x_reason"</span>]][main_rows29] <span class="sc">==</span></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Synthetic design exclusion for demonstration"</span>),</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(released_screen29[[<span class="st">"all"</span>]][[<span class="st">"grade"</span>]][main_rows29] <span class="sc">==</span></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>    released_screen29[[<span class="st">"all"</span>]][[<span class="st">"grade_stat"</span>]][main_rows29]),</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(<span class="fu">attr</span>(screens29, <span class="st">"fits"</span>), <span class="fu">attr</span>(strict_screen29, <span class="st">"fits"</span>)),</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(screens29[[<span class="st">"specs"</span>]], strict_screen29[[<span class="st">"specs"</span>]])),</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">nrow</span>(empty_gt29[[<span class="st">"_data"</span>]]) <span class="sc">==</span> <span class="dv">0</span>L,</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">is.finite</span>(<span class="fu">attr</span>(screen_panel29, <span class="st">"plot_size"</span>))),</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">is.finite</span>(<span class="fu">attr</span>(screen_stack29, <span class="st">"plot_size"</span>))))</span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a><span class="co"># 独立完整 Cox 模型：三水平 Marker，保留完整的716个病例。</span></span>
+<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a>manual_screen_data29 <span class="ot">&lt;-</span> screen_data29</span>
+<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>manual_screen_data29[[<span class="st">"Age"</span>]] <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(haven<span class="sc">::</span><span class="fu">zap_missing</span>(manual_screen_data29[[<span class="st">"Age"</span>]]))</span>
+<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>manual_screen_data29 <span class="ot">&lt;-</span> manual_screen_data29[stats<span class="sc">::</span><span class="fu">complete.cases</span>(</span>
+<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>  manual_screen_data29[<span class="fu">c</span>(<span class="st">"time"</span>, <span class="st">"DSS"</span>, <span class="st">"TxA"</span>, <span class="st">"Marker"</span>, <span class="st">"Age"</span>, <span class="st">"Sex"</span>, <span class="st">"Yea"</span>, <span class="st">"Tumor"</span>, <span class="st">"TxB"</span>)]), ]</span>
+<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>manual_screen_fit29 <span class="ot">&lt;-</span> survival<span class="sc">::</span><span class="fu">coxph</span>(survival<span class="sc">::</span><span class="fu">Surv</span>(time, DSS) <span class="sc">~</span> TxA <span class="sc">*</span> Marker <span class="sc">+</span></span>
+<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>  Age <span class="sc">+</span> Sex <span class="sc">+</span> Yea <span class="sc">+</span> Tumor <span class="sc">+</span> TxB, <span class="at">data =</span> manual_screen_data29, <span class="at">ties =</span> <span class="st">"efron"</span>, <span class="at">x =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>manual_beta29 <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">coef</span>(manual_screen_fit29)</span>
+<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (level29 <span class="cf">in</span> <span class="fu">c</span>(<span class="st">"Mid"</span>, <span class="st">"High"</span>)) {</span>
+<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a>  row29 <span class="ot">&lt;-</span> screen_all29[main_rows29 <span class="sc">&amp;</span> screen_all29[[<span class="st">"mod_alt"</span>]] <span class="sc">==</span> level29, ]</span>
+<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a>  interaction_term29 <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"TxANo:Marker"</span>, level29)</span>
+<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a>  expected_mult29 <span class="ot">&lt;-</span> <span class="fu">exp</span>(manual_beta29[[interaction_term29]])</span>
+<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a>  expected_reri29 <span class="ot">&lt;-</span> <span class="fu">exp</span>(manual_beta29[[<span class="st">"TxANo"</span>]] <span class="sc">+</span> manual_beta29[[<span class="fu">paste0</span>(<span class="st">"Marker"</span>, level29)]] <span class="sc">+</span></span>
+<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a>    manual_beta29[[interaction_term29]]) <span class="sc">-</span> <span class="fu">exp</span>(manual_beta29[[<span class="st">"TxANo"</span>]]) <span class="sc">-</span></span>
+<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a>    <span class="fu">exp</span>(manual_beta29[[<span class="fu">paste0</span>(<span class="st">"Marker"</span>, level29)]]) <span class="sc">+</span> <span class="dv">1</span></span>
+<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(row29[[<span class="st">"mult"</span>]], <span class="fu">unname</span>(expected_mult29), <span class="at">tolerance =</span> <span class="fl">1e-8</span>)),</span>
+<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a>    <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(row29[[<span class="st">"reri"</span>]], <span class="fu">unname</span>(expected_reri29), <span class="at">tolerance =</span> <span class="fl">1e-8</span>)))</span>
+<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb7-44"><a href="#cb7-44" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">input_n =</span> <span class="fu">nrow</span>(screen_data29), <span class="at">counted =</span> <span class="fu">sum</span>(screen_all29[[<span class="st">"counted"</span>]]),</span>
+<span id="cb7-45"><a href="#cb7-45" aria-hidden="true" tabindex="-1"></a>  <span class="at">fits =</span> <span class="fu">attr</span>(screens29, <span class="st">"fits"</span>), <span class="at">all =</span> screen_all29, <span class="at">specs =</span> screen_specs29,</span>
+<span id="cb7-46"><a href="#cb7-46" aria-hidden="true" tabindex="-1"></a>  <span class="at">strict =</span> strict_screen29[[<span class="st">"all"</span>]][, <span class="fu">c</span>(<span class="st">"id"</span>, <span class="st">"mod_alt"</span>, <span class="st">"grade"</span>, <span class="st">"x_reason"</span>)])</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-4" class="callout-4-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>bad_factor_pops29 <span class="ot">&lt;-</span> pops29</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>bad_factor_pops29[[<span class="st">"Full"</span>]][[<span class="st">"data"</span>]][[<span class="st">"Marker"</span>]] <span class="ot">&lt;-</span> <span class="fu">addNA</span>(screen_data29[[<span class="st">"Marker"</span>]])</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>bad_factor_error29 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_screens</span>(bad_factor_pops29, trts29, mods29, <span class="at">n_cores =</span> <span class="dv">1</span>),</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) <span class="fu">conditionMessage</span>(e))</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>bad_swap_pops29 <span class="ot">&lt;-</span> pops29</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>bad_swap_pops29[[<span class="st">"Full"</span>]][[<span class="st">"adj_swap"</span>]] <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">Age =</span> <span class="st">"Tumor"</span>, <span class="at">Age =</span> <span class="st">"TxB"</span>)</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>bad_swap_error29 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">get_screens</span>(bad_swap_pops29, trts29, mods29, <span class="at">n_cores =</span> <span class="dv">1</span>),</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) <span class="fu">conditionMessage</span>(e))</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>empty_palette_error29 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">plt_screens</span>(screens29, <span class="at">palette =</span> <span class="fu">character</span>()),</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) <span class="fu">conditionMessage</span>(e))</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>named_trts29 <span class="ot">&lt;-</span> trts29</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>named_trts29[[<span class="st">"TherapyA"</span>]][[<span class="st">"type"</span>]] <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">card =</span> <span class="st">"do_vs_not"</span>)</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>named_mods29 <span class="ot">&lt;-</span> mods29</span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>named_mods29[[<span class="st">"Marker"</span>]][[<span class="st">"class"</span>]] <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="at">card =</span> <span class="st">"tumor"</span>)</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>named_screens29 <span class="ot">&lt;-</span> withr<span class="sc">::</span><span class="fu">with_options</span>(<span class="fu">list</span>(<span class="at">RegR.screens.print =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">get_screens</span>(pops29, named_trts29, named_mods29,</span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>    <span class="at">year_var =</span> <span class="fu">c</span>(<span class="at">column =</span> <span class="st">"Yea"</span>), <span class="at">version_args =</span> <span class="fu">list</span>(<span class="at">landmark =</span> <span class="fu">c</span>(<span class="at">month =</span> <span class="dv">3</span>)),</span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>    <span class="at">grade_args =</span> <span class="fu">list</span>(<span class="at">alpha =</span> <span class="fu">c</span>(<span class="at">threshold =</span> .<span class="dv">05</span>)), <span class="at">n_cores =</span> <span class="dv">1</span>))</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">is.character</span>(bad_factor_error29), <span class="fu">grepl</span>(<span class="st">"explicit NA level"</span>, bad_factor_error29, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">grepl</span>(<span class="st">"Marker"</span>, bad_factor_error29, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">is.character</span>(bad_swap_error29), <span class="fu">grepl</span>(<span class="st">"adj_swap"</span>, bad_swap_error29, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">is.character</span>(empty_palette_error29), <span class="fu">grepl</span>(<span class="st">"at least one colour"</span>, empty_palette_error29, <span class="at">fixed =</span> <span class="cn">TRUE</span>),</span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(named_screens29[[<span class="st">"all"</span>]], screens29[[<span class="st">"all"</span>]])),</span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">isTRUE</span>(<span class="fu">all.equal</span>(named_screens29[[<span class="st">"specs"</span>]], screens29[[<span class="st">"specs"</span>]])))</span>
+<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>validation_values[[<span class="st">"late_checks"</span>]] <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">factor_error =</span> bad_factor_error29,</span>
+<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">swap_error =</span> bad_swap_error29, <span class="at">palette_error =</span> empty_palette_error29, <span class="at">named_values_match =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </div>
 </div>
@@ -1534,7 +1648,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -1543,9 +1657,10 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-4" class="callout-4-contents callout-collapse collapse">
+<div id="callout-5" class="callout-5-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li><strong>2026-10-29</strong>：<a href="#binary-20261029c">二分类筛查</a>补充 Logistic、康复事件方向、原始列筛选与独立 glm 核对。</li>
 <li>2026-10-29：新增<a href="#cards">卡片和对比方向</a>、<a href="#versions">版本与重复组合</a>、<a href="#regrade">重新分级</a>及<a href="#heatmap">热图保存</a>，并与独立 Cox 模型核对。</li>
 </ul>
 </div>
