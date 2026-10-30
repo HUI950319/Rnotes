@@ -7,12 +7,18 @@ toc-depth: 2
 directory:
   title: "连续变量：分布、统计比较与多面板布局，23 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-10-20
+  updated: 2026-10-31
+date-modified: 2026-10-31
 ---
 
 plt_con 的四种图形、箱线与原始点叠加、统计标注、纵轴观察窗和多变量布局。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
-**版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 23 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+**历史版本与执行范围：** 以下原有23个参数示例按 UtilsR **0.6.8** 核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 23 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -30,6 +36,105 @@ dat[["marker2"]] <- rnorm(180, rep(c(12, 15, 13), each = 60), 2.5)
 dat[["region"]] <- factor(ifelse(dat[["group"]] == "C", "R2", "R1"))
 ```
 
+### 原始数值、参考组与独立坐标（2026-10-31） {#finite-20261031}
+
+<!-- update-20261031: utils_continuous -->
+
+当前 `jitter.height=0`，原始点只作横向抖动。SPSS用户缺失先排除，分组中实际观测到的NA层仍保留；矩阵、integer64、日期或时间跨度等存储要先明确转换，不能悄悄当作普通测量值。下面12行的score有效11个值，scaled有效12个值。
+
+```r
+con31 <- data.frame(group = factor(rep(c("A", "B", "C"), each = 4)),
+  score = haven::labelled_spss(c(1, 2, 3, 99, 3, 4, 5, 6, 7, 8, 9, 10), na_values = 99),
+  scaled = 100 * c(1, 2, 3, 4, 3, 4, 5, 6, 7, 8, 9, 10))
+con_before31 <- con31
+con_ref31 <- UtilsR::plt_con(con31, c("score", "scaled"), group.by = "group",
+  type = "box", stack = TRUE, same.y.lims = FALSE, add_point = TRUE,
+  ref_group = "A", pairwise_method = "t.test", sig_label = "p.format", bg.by = "group",
+  save = list(filename = file.path(tempdir(), "20261031-update-continuous-reference.pdf")))
+con_zoom31 <- UtilsR::plt_con(con31, c("score", "scaled"), group.by = "group",
+  type = "box", stack = TRUE, flip = TRUE, same.y.lims = FALSE,
+  y.min = "q10", y.max = "q90", add_point = TRUE,
+  save = list(filename = file.path(tempdir(), "20261031-update-continuous-zoom.pdf")))
+```
+
+::: {.panel-tabset}
+#### 按特征比较参考组 {.unnumbered}
+
+![两个量级不同的特征各自保留坐标，分别比较B对A、C对A，原始点与背景分组保留。](images/continuous-guide/20261031-update-continuous-reference.png){fig-alt="独立坐标的两个箱线面板，参考组A生成两组比较，数值点没有纵向抖动。"}
+
+[原生 PDF](images/continuous-guide/20261031-update-continuous-reference.pdf)
+
+#### 翻转后的分位数观察窗 {.unnumbered}
+
+![翻转后每个特征用自己的10至90分位数作为数值观察窗，分组方向不变。](images/continuous-guide/20261031-update-continuous-zoom.png){fig-alt="横向的score和scaled面板分别使用自身分位数范围，坐标量级独立。"}
+
+[原生 PDF](images/continuous-guide/20261031-update-continuous-zoom.pdf)
+:::
+
+`ref_group` 对观测到的参考组生成比较；显式 `comparisons` 优先。某个特征缺少一组时，只跳过该特征中无法检验的比较并提示，其余比较保留。`y.min/y.max` 是观察窗，分位数按各特征原始有限值计算，不先删除窗外数据再求摘要或P值；显式观察窗也不会为括号自动放大。要比较同一单位的特征才适合 `same.y.lims=TRUE`。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+con_points31 <- Filter(function(layer) inherits(layer$position, "PositionJitterdodge"), con_ref31$layers)
+point_build31 <- ggplot2::ggplot_build(con_ref31)
+point_indices31 <- which(vapply(con_ref31$layers, function(layer) inherits(layer$position, "PositionJitterdodge"), FALSE))
+stopifnot(identical(con31, con_before31), identical(formals(UtilsR::plt_con)$jitter.height, 0),
+  length(con_points31) > 0L,
+  isTRUE(all.equal(sort(unlist(lapply(point_build31$data[point_indices31], `[[`, "y"))),
+    sort(con_ref31$data$value), check.attributes = FALSE)),
+  sum(vapply(point_build31$data[point_indices31], nrow, 0L)) == 23L,
+  length(point_build31$layout$panel_scales_y) == 2L)
+```
+:::
+
+柱形图仍是均值加减SD，自动观察窗容纳完整SD和零基线。dot图按数值边界分箱，多特征各自分箱；点的大小是计数，额外 `add_point=TRUE` 才叠加原始点。缺失组也参与实际计数。
+
+```r
+bar31 <- data.frame(group = factor(rep(c("A", "B"), each = 4)),
+  value = c(-12, -4, 4, 12, -6, 0, 6, 12))
+con_bar31 <- UtilsR::plt_con(bar31, "value", group.by = "group", type = "bar",
+  save = list(filename = file.path(tempdir(), "20261031-update-continuous-sd.pdf")))
+dot31 <- con31
+dot31$group[c(1, 5)] <- NA
+con_dot31 <- UtilsR::plt_con(dot31, c("score", "scaled"), group.by = "group",
+  type = "dot", stack = TRUE, same.y.lims = FALSE, add_point = TRUE,
+  save = list(filename = file.path(tempdir(), "20261031-update-continuous-dots.pdf")))
+```
+
+::: {.panel-tabset}
+#### 完整均值加减SD {.unnumbered}
+
+![自动坐标包含零基线及完整误差线。](images/continuous-guide/20261031-update-continuous-sd.png){fig-alt="两个合成组的柱形均值及SD误差线均完整显示，包含负值端点和零基线。"}
+
+[原生 PDF](images/continuous-guide/20261031-update-continuous-sd.pdf)
+
+#### 多特征点计数与缺失组 {.unnumbered}
+
+![两种量级各自分箱，NA分组的原始观察没有从计数中消失。](images/continuous-guide/20261031-update-continuous-dots.png){fig-alt="score及scaled独立坐标点计数图包含NA分组，并叠加全部23个有效原始点。"}
+
+[原生 PDF](images/continuous-guide/20261031-update-continuous-dots.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+bar_build31 <- ggplot2::ggplot_build(con_bar31)
+bar_errors31 <- Filter(function(z) all(c("ymin", "ymax") %in% names(z)), bar_build31$data)[[1]]
+bar_range31 <- bar_build31$layout$panel_params[[1]]$y.range
+dot_counts31 <- Filter(function(layer) is.data.frame(layer$data) && "n" %in% names(layer$data), con_dot31$layers)[[1]]$data
+stopifnot(min(bar_range31) <= min(bar_errors31$ymin), max(bar_range31) >= max(bar_errors31$ymax),
+  sum(dot_counts31$n) == 23L, anyNA(dot_counts31$group.by))
+bad_axis31 <- tryCatch(UtilsR::plt_con(con31, "score", y.min = "q10.5"), error = conditionMessage)
+stopifnot(grepl("y.min", bad_axis31, fixed = TRUE))
+validation_values <- list(input_rows = nrow(con31), valid_points = 23L,
+  dot_total = sum(dot_counts31$n), mean_sd_range = range(bar_errors31[c("ymin", "ymax")]),
+  invalid_axis = bad_axis31)
+```
+:::
+
+分组排序只用有限值，不让Inf改变中位数顺序；无有限观测的特征或分层会提示并跳过，全部不可画时明确报错。单例组保留原始点和摘要层，省略无法估计的密度。`combine=FALSE` 返回按分层命名的图列表，各图有自己的尺寸；这种列表不能直接经同一个 `save` 写成一张图。
+
+<!-- /update-20261031: utils_continuous -->
+
 ## 函数选择与重要参数 {#parameters}
 
 | 目标 | 参数及默认值 | 作用与适用范围 |
@@ -38,9 +143,9 @@ dat[["region"]] <- factor(ifelse(dat[["group"]] == "C", "R2", "R1"))
 | 统计和分组 | `stat.by`、`group.by = NULL` | 多个数值变量可共同输入；列名用字符向量 |
 | 分层与填色 | `split.by = NULL`、`fill.by = "group"` | 可改按 `"feature"` 填色；分层后各层独立作图 |
 | 箱线叠加 | `add_box = FALSE`、`box_width = 0.1` | 配合小提琴展示分位数；`box_color` 控制边框 |
-| 点叠加 | `add_point = FALSE` | `pt.size/pt.alpha/pt.color`、`jitter.width/height` 和 `seed = 11` 控制点层 |
+| 点叠加 | `add_point = FALSE` | `pt.size/pt.alpha/pt.color`、`jitter.width=0.4`、`jitter.height=0` 和 `seed=11` 控制点层 |
 | 趋势 | `add_trend = FALSE` | 小提琴/箱线连接中位数；柱形连接均值，点图分支不使用 |
-| 两两比较 | `comparisons = NULL`、`pairwise_method = "wilcox.test"` | 长度为 2 的组名向量 list；可改 `"t.test"` |
+| 两两比较 | `comparisons = NULL`、`ref_group = NULL`、`pairwise_method = "wilcox.test"` | 长度为 2 的组名向量 list；可改 `"t.test"` |
 | 整体比较 | `multiplegroup_comparisons = FALSE`、`multiple_method = "kruskal.test"` | 展示整体检验；不等于两两比较 |
 | 标签 | `sig_label = "p.signif"`、`sig_labelsize = 3.5` | 可用 `"p.format"` 显示数值 |
 | 纵轴 | `same.y.lims = FALSE`、`y.min/y.max = NULL` | 数字或 `"qN"` 百分位控制观察窗，`y.nbreaks = 5` 控制刻度 |
@@ -450,3 +555,9 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充原始数值、参考组比较、独立观察窗、SD端点及缺失组点计数](#finite-20261031)。
+:::
