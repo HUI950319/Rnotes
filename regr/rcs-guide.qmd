@@ -2,18 +2,23 @@
 title: "RCS 组合图：get_rcs_all 的 7 种模式"
 description: "get_rcs_all 的模型分派、7 种面板、分组对比、时间单位、条带与坐标设置；598 人 PTC 队列的历史图例与三种分组模型、参考值和置信带对照。"
 date: 2026-10-01
-date-modified: 2026-10-19
+date-modified: 2026-10-31
 lightbox: true
 toc-depth: 2
 directory:
   title: "RCS组合图：隐藏非线性P与保留整体P"
   topic: 回归与生存分析
-  updated: 2026-10-19
+  updated: 2026-10-31
 ---
 
 `get_rcs_all()` 把未调整、调整后的限制性立方样条（RCS）曲线组成一幅图。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：代码与实际图形相邻，关键选项放在标签页中比较，点击图片可以放大。切点分析接着看 [get_cut 系列教程](cut-guide.qmd)。
 
 **核对记录：** 当前接口按已推送的 RegR 源码 `3c58b3f` 核对，新模型与条带示例于 2026-10-10 在 WSL R 4.4.3 实际拟合、构建并导出。既有 **16 张历史图**保留原执行快照 `0add2bb`，覆盖全部 **7 种 `panel_show`**；本次新增 **6 张参数对照图**。VPD 使用 MLR **0.1.13** 的默认 Cox 解释模型。页面显示保存的图形，复制代码时需安装相应版本及依赖。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 示例准备与读图尺度 {#data}
 
@@ -106,7 +111,7 @@ get_rcs_all(
   adj_show = c("both", "adj", "unadj"),
   strip_list = list(
     style = c("panel", "grid"),
-    label = NULL, fill = NULL, palette = NULL,
+    label = NULL, suffix = NULL, fill = NULL, palette = NULL,
     adj_position = c("auto", "right", "bottom")
   ),
   name_map = NULL, xlim = NULL, xbreaks = NULL, xtitle = NULL,
@@ -196,6 +201,66 @@ rcs_view(get_rcs_all(d, rcs_var = "Age", adj_var = adj,
 ![以 DSS 指示列作为二分类结局的 OR；仅用于展示 Logistic 分派。](images/rcs-guide/logistic.png){fig-alt="以 DSS 指示列作为二分类结局的 OR；仅用于展示 Logistic 分派。"}
 
 :::
+
+### 数据列表、条带后缀与逐子集保存（2026-10-31） {#subsets-20261031}
+
+<!-- update-20261031: regr_rcs_lists -->
+
+`data` 现在可直接接命名数据框列表，逐子集拟合并返回 `eff_data_list` 图列表；单个数据框用法不变。下面240行合成数据分成两组各120行，分别估计连续Dose与二分类Outcome的OR曲线，用 `adj_show="adj"` 只显示调整面板。`strip_list$suffix` 保留自动生成的“调整状态 + 效应尺度”，只替换后半段；它与完整 `label` 互斥。
+
+```r
+set.seed(20261031)
+rcs_data31 <- data.frame(Dose = runif(240, 1, 60), Age = rnorm(240, 50, 9))
+rcs_data31$Outcome <- rbinom(240, 1, plogis(-1.5 + .04 * rcs_data31$Dose))
+rcs_cohorts31 <- list(A = rcs_data31[1:120, ], B = rcs_data31[121:240, ])
+rcs_lists31 <- RegR::run_quiet(RegR::get_rcs_all(rcs_cohorts31, "Dose", "Age",
+  surv = "Outcome", panel_show = "haz", adj_show = "adj",
+  strip_list = list(suffix = c("for synthetic cohort A", "for synthetic cohort B")),
+  fmt_his = list(type = "h", binwidth = 5, height_ratio = .2),
+  ybre = list(A = c(0, 1, 2, 4, 8), B = c(0, 1, 2, 3, 4)),
+  cut_arg = list(breakpoint = list(A = 20, B = 30), which = 1L,
+    save = list(path = tempdir(), title = c("20261031-update-rcs-cut-A", "20261031-update-rcs-cut-B"))),
+  save = list(filename = file.path(tempdir(),
+    c("20261031-update-rcs-cohort-A.pdf", "20261031-update-rcs-cohort-B.pdf")))))
+```
+
+::: {.panel-tabset}
+#### 子集A {.unnumbered}
+
+![120行子集A只显示调整后的OR曲线，条带保留效应尺度，直方图显示实际Dose分布。](images/rcs-guide/20261031-update-rcs-cohort-A.png){fig-alt="子集A的调整后OR曲线保留自动条带，后缀标记synthetic cohort A，灰色分布来自120行输入。"}
+
+[原生 PDF](images/rcs-guide/20261031-update-rcs-cohort-A.pdf) · [同次调用生成的切点Word表](images/rcs-guide/20261031-update-rcs-cut-A.docx)
+
+#### 子集B {.unnumbered}
+
+![子集B独立拟合并使用自己的纵轴刻度、标题后缀与保存名称。](images/rcs-guide/20261031-update-rcs-cohort-B.png){fig-alt="另一120行子集B的OR曲线，后缀为synthetic cohort B，直方图使用该子集的Dose。"}
+
+[原生 PDF](images/rcs-guide/20261031-update-rcs-cohort-B.pdf) · [同次调用生成的切点Word表](images/rcs-guide/20261031-update-rcs-cut-B.docx)
+:::
+
+命名列表设置按子集名匹配，普通位置列表按子集顺序匹配；字段也可以这样设置。`save$filename`、`strip_list$suffix` 和嵌套 `cut_arg$save$title` 的字符向量按子集分配。**未命名的 `ybre`、`pnl_value`、`fmt_rcs` 列表仍是逐面板设置**，要逐子集设置时用子集名命名，避免把面板误当人群。错误长度会报错。
+
+`fmt_his` 没有显式给 `data/con_var` 时，使用本子集分析数据与连续暴露，示例每幅图120行，不是RCS曲线的200点预测网格。通过 `cut_arg` 保存的两段表描述预测曲线；20与30是预设演示切点，不是筛出来的临床阈值。需要原始结局的两段效应见[get_cut](cut-guide.qmd#get-cut)。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+rcs_strips31 <- lapply(rcs_lists31, function(p) vapply(seq_along(p), function(i)
+  as.character(rlang::quo_get_expr(p[[i]]$facet$params$facets[[1L]])), ""))
+rcs_hist_n31 <- vapply(rcs_lists31, function(p) max(vapply(p[[1]]$layers, function(layer)
+  if (is.data.frame(layer$data) && "Dose" %in% names(layer$data)) nrow(layer$data) else 0L, 0L)), 0L)
+stopifnot(inherits(rcs_lists31, "eff_data_list"), identical(names(rcs_lists31), c("A", "B")),
+  identical(unname(rcs_hist_n31), c(120L, 120L)),
+  identical(rcs_strips31$B, "Adjusted odds ratio for synthetic cohort B"))
+rcs_bad31 <- tryCatch(RegR::get_rcs_all(rcs_cohorts31$A, "Dose", "Age", surv = "Outcome", panel_show = "haz",
+  strip_list = list(label = "Full label", suffix = "for A")), error = conditionMessage)
+stopifnot(grepl("only one", rcs_bad31, fixed = TRUE))
+validation_values <- list(rows = vapply(rcs_cohorts31, nrow, 0L),
+  events = vapply(rcs_cohorts31, function(d) sum(d$Outcome), 0L),
+  strips = rcs_strips31, histogram_rows = rcs_hist_n31, label_conflict = rcs_bad31)
+```
+:::
+
+<!-- /update-20261031: regr_rcs_lists -->
 
 ## 分组 RCS：对比曲线的方向 {#grouped}
 
@@ -625,3 +690,9 @@ p_rcs_saved <- get_rcs_all(d, rcs_var = "Age", adj_var = adj,
 | `panel_show="haz"`，`adj_show="adj"` 或 `"unadj"` | 8 × 3.5 |
 
 非空 `save` 省略的宽高现在直接采用当前布局的推荐尺寸，显式传入的一边仍保留。空 list 或 NULL 不保存。控制台会输出完整调用，避免仅凭默认 PDF 设备尺寸导出后出现大块留白。`cut_arg` 内的表格保存继续使用已更新的 `save` 字段；图与阈值表分别保存，统计含义不随页面尺寸改变。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充数据列表、自动标题后缀、原始分布与逐子集保存](#subsets-20261031)。
+:::
