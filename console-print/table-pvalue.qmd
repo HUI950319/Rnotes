@@ -7,12 +7,15 @@ execute:
 directory:
   title: "结果表与 P 值：pr_table 的着色、位数、高亮与省略"
   topic: 打印信息
-  updated: 2026-10-30
+  updated: 2026-10-31
+date-modified: 2026-10-31
 ---
 
 `pr_table(data, p_col = NULL, highlight = NULL, n = 20, align = NULL, digits = 2, width = NULL, indent = 2)` 把数据框打印成对齐的纯文本表：粗体表头、一条灰线，然后每行一条。它不修改数据，屏幕上省略的行列仍在对象里。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 本轮补充按已推送 UtilsR `5a9d8eb`（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。
 
 :::
@@ -209,6 +212,76 @@ validation_values <- list(rows = c(stored = nrow(stored30), repeated = nrow(repe
 
 <!-- /update-20261030: utils_print_table -->
 
+### 行身份、日期列与十进制P值（2026-10-31） {#rows-decimals-20261031}
+
+<!-- update-20261031: utils_table31 -->
+
+行名是显示身份，不参与P值格式化；零列数据框也可用 `rownames=TRUE` 显示行名。POSIXlt按日期向量显示，内嵌数据框列按整行描述；显式NA因子水平显示为 `<NA>`，不误认为存储缺失。下面的四行都是人工构造的显示样本。
+
+```r
+table31 <- data.frame(P = c(.3, .0001, .05, .9), row.names = c("0.0001", "term2", "term3", "term4"))
+table31$when <- as.POSIXlt(c("2026-10-01 00:00:00", "2026-10-02 00:00:00",
+  "2026-10-03 00:00:00", NA), tz = "UTC")
+table31$packed <- data.frame(code = 1:4, tag = c("red", "blue", "green", "grey"))
+table31$category <- structure(c(1L, 2L, 1L, NA_integer_),
+  levels = c("Observed", NA_character_), class = "factor")
+table_before31 <- table31
+table_lines31 <- capture.output(UtilsR::pr_table(table31, p_col = "P", rownames = TRUE, width = 100))
+zero31 <- data.frame(row.names = c("first", "second"))
+zero_lines31 <- capture.output(UtilsR::pr_table(zero31, rownames = TRUE, width = 40))
+p_text31 <- data.frame(P = c("-1e-1000", ">=1e-1000", "<0.05000000000000000000001",
+  "0.04999999999999999999999", "<0.05"))
+p_lines31 <- capture.output(UtilsR::pr_table(p_text31, p_col = "P", width = 80))
+```
+
+十进制文本P值按文本精确比较：极小负数不会下溢成0后加星，极小正下界不能证明显著，长小数端点不先经double舍入。普通数值型P值仍遵循前节格式；这项更新不增加原始统计检验的精度。
+
+![四行原生控制台表、零列表行名及十进制P值边界。](images/table-pvalue/20261031-update-print-rows.png){fig-alt="真实pr_table输出，保留日期、内嵌数据框行、显式NA水平和零列表行名；五个十进制文本P值仅可判定的两行带星。"}
+
+[原生 HTML](images/table-pvalue/20261031-update-print-rows.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(table31, table_before31), any(grepl("first", zero_lines31, fixed = TRUE)),
+  any(grepl("second", zero_lines31, fixed = TRUE)),
+  !any(grepl("0.0001*", table_lines31, fixed = TRUE)),
+  any(grepl("red", table_lines31, fixed = TRUE)), any(grepl("<NA>", table_lines31, fixed = TRUE)),
+  sum(grepl("*", p_lines31, fixed = TRUE)) == 2L)
+bad_highlight31 <- tryCatch(UtilsR::pr_table(table31, highlight = 1.5), error = conditionMessage)
+bad_digits31 <- tryCatch(UtilsR::pr_table(table31, digits = 325), error = conditionMessage)
+stopifnot(grepl("highlight", bad_highlight31, fixed = TRUE), grepl("digits", bad_digits31, fixed = TRUE))
+
+# 只把真实stdout转为网页预览；宽字符按完整字素簇处理，不拆组合字符或emoji。
+save_console31 <- function(lines, name) {
+  pin <- function(line) {
+    chars <- stringi::stri_split_boundaries(line, type = "character")[[1]]
+    for (i in seq_along(chars)) {
+      u <- utf8ToInt(chars[i])
+      if (any(u > 127L) && !all(u >= 0x2500L & u <= 0x257FL)) {
+        w <- cli::ansi_nchar(chars[i], type = "width")
+        if (w %in% 1:2) chars[i] <- sprintf('<span style="display:inline-block;width:%dch">%s</span>', w, chars[i])
+      }
+    }
+    paste(chars, collapse = "")
+  }
+  body <- paste(fansi::sgr_to_html(vapply(htmltools::htmlEscape(lines), pin, "")), collapse = "\n")
+  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre;display:inline-block}',
+    '</style><pre data-native-console>', body, '</pre>'),
+    file.path(tempdir(), paste0("20261031-update-", name, ".html")), useBytes = TRUE)
+}
+save_console31(c("pr_table: stored columns", table_lines31, "", "Zero columns with row names", zero_lines31,
+  "", "Decimal text P values", p_lines31), "print-rows")
+validation_values <- list(rows = nrow(table31), decimal_lines = p_lines31,
+  zero_columns = zero_lines31, invalid_highlight = bad_highlight31, invalid_digits = bad_digits31)
+```
+:::
+
+`highlight` 拒绝缺失、非有限或小数位置；0和显示范围之外的整数位置忽略。`digits` 允许0至324的整数；`n/width/indent` 等控制项也在格式化前检查。窄屏时表头、行名与高亮标记共同计入显示宽度，必要时缩短，不通过修改原对象来满足宽度。
+
+<!-- /update-20261031: utils_table31 -->
+
 ## 高亮行 {#highlight}
 
 `highlight` 接受行号或逻辑向量。高亮行整行浅黄底、黑字，**行内其他颜色去掉**，所以示例第一行的 `<0.001` 不是红色。无色时高亮行行首写 `>`，表格整体靠两格缩进对齐。
@@ -246,6 +319,7 @@ tibble 自带的打印会显示列类型，列多时把放不下的列名列在�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充行身份、日期与内嵌列、十进制P值及参数检查](#rows-decimals-20261031)。
 - 2026-10-30：[0.6.14显示合同](#storage-pvalues-20261030)：保留存储类型、重复列和数组分量，核对极端数值与P值边界。
 - 2026-10-25：按 UtilsR 0.6.12 补充[临界 P 值](#p-values)、[列表列](#numbers)与[首列截短、rownames](#width)。
 :::
