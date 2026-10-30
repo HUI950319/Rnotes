@@ -7,12 +7,18 @@ toc-depth: 2
 directory:
   title: "分类变量：plt_cat 的 11 种图形与重要参数，31 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-10-20
+  updated: 2026-10-31
+date-modified: 2026-10-31
 ---
 
 `plt_cat()` 用一个公共入口组织 11 种分类图形。本页先比较同一张频数表的显示方式，再分别展示流向、弦图和集合交集。图形选项放在标签页中，点击结果图可放大。
 
-**版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；31 个示例已在 WSL R 4.4.3 中实际执行，其中 31 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+**历史版本与执行范围：** 以下原有31个参数示例按 UtilsR **0.6.8** 核对；31 个示例已在 WSL R 4.4.3 中实际执行，其中 31 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -177,6 +183,61 @@ plt_cat(dat, "stage", "cohort", aspect.ratio = 0.5, base_size = 16,
 
 :::
 
+### 背景条带与空水平复核（2026-10-31） {#bands-20261031}
+
+<!-- update-20261031: utils_cat_bands -->
+
+下面9行合成数据的输入因子顺序为C、空位、B、A；每个观测组都只有3行。按已推送 `05f4c963` 实跑，`keep_empty=FALSE/TRUE` 都只显示C、B、A，背景与这三个实际显示组对齐。该快照准备数据时再次 `factor()` 丢弃未观测水平，属于包实现待修复；本地后续修复尚未推送，不能把空位补齐写成已发布行为。原始对象、计数和组内百分比保持不变。
+
+```r
+cat_bands31 <- data.frame(category = factor(rep(c("Yes", "No", "Yes"), 3)),
+  group = factor(rep(c("C", "B", "A"), each = 3), levels = c("C", "unused", "B", "A")),
+  region = rep(c("R3", "R2", "R1"), each = 3))
+cat_plain31 <- UtilsR::plt_cat(cat_bands31, "category", "group", position = "dodge",
+  bg.by = "region", bg_palette = c("#DDEBF7", "#FCE4D6", "#E2F0D9"),
+  keep_empty = FALSE, label = TRUE,
+  save = list(filename = file.path(tempdir(), "20261031-update-cat-bands-observed.pdf")))
+cat_empty31 <- UtilsR::plt_cat(cat_bands31, "category", "group", position = "dodge",
+  bg.by = "region", bg_palette = c("#DDEBF7", "#FCE4D6", "#E2F0D9"),
+  keep_empty = TRUE, label = TRUE,
+  save = list(filename = file.path(tempdir(), "20261031-update-cat-bands-empty.pdf")))
+```
+
+::: {.panel-tabset}
+#### 仅观测组 {.unnumbered}
+
+![C、B、A三个观测组按因子顺序显示，背景与组对齐。](images/categorical-guide/20261031-update-cat-bands-observed.png){fig-alt="九行输入的并排百分比图，每组Yes为三分之二、No为三分之一，背景跟随C B A。"}
+
+[原生 PDF](images/categorical-guide/20261031-update-cat-bands-observed.pdf)
+
+#### TRUE的当前实测 {.unnumbered}
+
+![该已推送快照中TRUE仍只显示三个观测组，背景与B保持一致。](images/categorical-guide/20261031-update-cat-bands-empty.png){fig-alt="已推送快照的TRUE调用横轴仍为C B A，没有补出unused，B保留浅橙背景。"}
+
+[原生 PDF](images/categorical-guide/20261031-update-cat-bands-empty.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_builds31 <- lapply(list(observed = cat_plain31, empty = cat_empty31), ggplot2::ggplot_build)
+for (b31 in cat_builds31) {
+  labels31 <- b31$layout$panel_params[[1]]$x$get_labels()
+  rect31 <- Filter(function(z) all(c("xmin", "xmax", "fill") %in% names(z)), b31$data)[[1]]
+  x_b31 <- match("B", labels31)
+  stopifnot(identical(as.character(rect31$fill[rect31$xmin <= x_b31 & rect31$xmax >= x_b31]), "#FCE4D6"))
+}
+stopifnot(identical(cat_builds31$observed$layout$panel_params[[1]]$x$get_labels(), c("C", "B", "A")),
+  identical(cat_builds31$empty$layout$panel_params[[1]]$x$get_labels(), c("C", "B", "A")),
+  identical(as.vector(table(cat_bands31$group)), c(3L, 0L, 3L, 3L)))
+validation_values <- list(rows = nrow(cat_bands31), counts = unclass(table(cat_bands31$group, cat_bands31$category)),
+  axes = lapply(cat_builds31, function(b) b$layout$panel_params[[1]]$x$get_labels()))
+```
+:::
+
+同一共享背景处理也用于连续变量图；连续变量的排序和翻转见[独立坐标示例](continuous-guide.qmd#finite-20261031)。背景仅辅助识别分组，不参与百分比分母或统计检验。
+
+<!-- /update-20261031: utils_cat_bands -->
+
 ## 分层、缺失与空水平
 
 ::: {.panel-tabset}
@@ -236,13 +297,13 @@ plt_cat(dat_empty, "stage", type = "bar", stat = "count", keep_empty = FALSE, la
 
 ### 开启空水平选项 {.unnumbered}
 
-当前 0.6.8 实例中，开启后图像仍与 FALSE 相同，III 未重新显示。输入保留了 III 因子水平，但当前准备过程会重建因子，不能将此选项当作已经验证有效的跨图补齐办法。
+下面保留0.6.8历史截图，III未显示。当前已推送快照的再核验见[2026-10-31示例](#bands-20261031)；空水平补齐仍属包实现待修复，实际轴标签和原始计数须分别核对。
 
 ```r
 plt_cat(dat_empty, "stage", type = "bar", stat = "count", keep_empty = TRUE, label = TRUE)
 ```
 
-![当前 0.6.8 实例中，开启后图像仍与 FALSE 相同，III 未重新显示。输入保留了 III 因子水平，但当前准备过程会重建因子，不能将此选项当作已经验证有效的跨图补齐办法。](images/categorical-guide/empty-keep.png){fig-alt="分类变量：plt_cat 的 11 种图形与重要参数；开启空水平选项；固定模拟数据的实际参数对照结果。"}
+![下面保留0.6.8历史截图，III未显示。当前已推送快照的再核验见[2026-10-31示例](#bands-20261031)；空水平补齐仍属包实现待修复，实际轴标签和原始计数须分别核对。](images/categorical-guide/empty-keep.png){fig-alt="分类变量：plt_cat 的 11 种图形与重要参数；开启空水平选项；固定模拟数据的实际参数对照结果。"}
 
 :::
 
@@ -555,3 +616,9 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[核对背景条带、原始计数及空水平待修状态](#bands-20261031)。
+:::
