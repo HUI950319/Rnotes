@@ -2,18 +2,20 @@
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
 description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
-date-modified: 2026-10-28
+date-modified: 2026-10-31
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-10-28
+  updated: 2026-10-31
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 9 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。数据质量报告的四张表与 [当前检视](#inspection-20261021) 一节于 2026-10-22 按已推送 UtilsR `cdfdfec` 在 Windows / WSL R 4.4.3 重新执行，两边结果一致。
 :::
 
@@ -591,6 +593,74 @@ plt_na(dat, output = "matrix",
 ![存在值浅色、缺失值深红，第三色仅用于比例图参考线。](images/missing-guide/colors.png){fig-alt="数据检视与缺失：摘要、缺失模式和 KNN 插补；自定义缺失配色；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 原始缺失掩码、重复标签与比例端点（2026-10-31） {#masks-20261031}
+
+<!-- update-20261031: utils_missing -->
+
+`plt_na()` 按原列的 `is.na()` 识别缺失：SPSS 用户缺失码和范围会计入；factor 的显式 NA **水平**仍是类别，存储中的 NA 才计入缺失。列名 `id` 可以正常检视；`name.map` 只改显示文字，多个变量同名显示也不会合并。本例4行、3个变量分别缺失1、2、1行。
+
+```r
+missing31 <- data.frame(id = c(1, NA, 3, 4),
+  score = haven::labelled_spss(c(1, 99, 8, 3), na_values = 99, na_range = c(8, 9)),
+  category = structure(c(1L, 2L, 1L, NA_integer_),
+    levels = c("Observed", NA_character_), class = "factor"))
+missing_before31 <- missing31
+missing_map31 <- c(id = "Shared label", score = "Shared label", category = "Category")
+missing_colours31 <- c(Present = "#9CC5CE", Missing = "#B95151", Guide = "#666666")
+missing_pct31 <- UtilsR::plt_na(missing31, name.map = missing_map31,
+  miss_palette = missing_colours31, output = "percentage")
+missing_matrix31 <- UtilsR::plt_na(missing31, name.map = missing_map31,
+  miss_palette = missing_colours31, output = "matrix")
+missing_both31 <- UtilsR::plt_na(missing31, name.map = missing_map31,
+  miss_palette = missing_colours31, output = "both_reverse",
+  save = list(filename = file.path(tempdir(), "20261031-update-missing-masks.pdf")))
+```
+
+![四行合成数据的反向比例图与缺失矩阵，两个同名显示变量各自保留，SPSS缺失占一半。](images/missing-guide/20261031-update-missing-masks.png){fig-alt="反向缺失比例与四行矩阵，Shared label为两个独立变量，缺失数为2、1、1。"}
+
+[下载原生 PDF](images/missing-guide/20261031-update-missing-masks.pdf)。命名配色仍按三个位置解释：Present、Missing、参考线；不会按颜色向量的名字重新排序。没有缺失的列不会画入缺失图。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+missing_counts31 <- vapply(missing31, function(x) sum(is.na(x)), 0L)
+missing_rows31 <- missing_pct31$data[missing_pct31$data$isna, ]
+stopifnot(identical(missing_counts31, c(id = 1L, score = 2L, category = 1L)),
+  identical(missing31, missing_before31), nrow(missing_rows31) == 3L,
+  length(unique(missing_rows31$label)) == 3L,
+  nrow(missing_matrix31$data) == 12L,
+  sum(missing_matrix31$data$isna) == 4L)
+```
+:::
+
+对很小的非零比例，显示为“小于0.01%”；接近但未达到全缺失，显示为“大于99.99%”；恰好全缺失仍显示100%。标签向面板内侧对齐。下面的20001行只是合成比例计数输入，百分比图按列计数，不展开全部单元格。
+
+```r
+rare_missing31 <- data.frame(tiny = c(NA, rep(1, 20000)),
+  almost_all = c(1, rep(NA_real_, 20000)), all = rep(NA_real_, 20001))
+rare_pct31 <- UtilsR::plt_na(rare_missing31, output = "percentage",
+  save = list(filename = file.path(tempdir(), "20261031-update-missing-endpoints.pdf")))
+```
+
+![一例非零缺失、近乎全缺失与全缺失保持三种不同标签。](images/missing-guide/20261031-update-missing-endpoints.png){fig-alt="20001行比例图分别显示小于0.01%、大于99.99%和100%，标签位于面板内部。"}
+
+[下载原生 PDF](images/missing-guide/20261031-update-missing-endpoints.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+rare_labels31 <- ggplot2::ggplot_build(rare_pct31)$data[[3]]$label
+bad_missing31 <- tryCatch(UtilsR::plt_na(data.frame(x = I(matrix(1:4, 2)))),
+  error = conditionMessage)
+stopifnot(setequal(rare_labels31, c("<0.01%", ">99.99%", "100%")),
+  grepl("one-dimensional", bad_missing31, fixed = TRUE))
+validation_values <- list(rows = nrow(missing31), missing_counts = missing_counts31,
+  labels = rare_labels31, ratio_rows = nrow(rare_missing31), invalid_column = bad_missing31)
+```
+:::
+
+输入列名须唯一、非缺失且非空；矩阵或数组列会在作图前报出列名。标签字典的键也须唯一且非空。上述验证只涉及缺失图，没有插补或改变输入数据。
+
+<!-- /update-20261031: utils_missing -->
 
 ## 联合缺失
 
@@ -1407,6 +1477,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充缺失掩码、重复标签、命名配色和比例端点的实际示例](#masks-20261031)。
 - 2026-10-28：补充 [筛选建议浅灰底与无色回退](#filter-style-20261028)的实际控制台对照。
 - 2026-10-27：补充[数据总览、变量分布与二向表](#lv-report-20261027)，核对百分比分母及完整输入返回。
 - 2026-10-26：验证[lv 控制台报告的标准输出](#lv-stdout-20261026)及不可见返回合同。
