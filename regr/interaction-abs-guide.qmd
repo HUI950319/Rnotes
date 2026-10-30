@@ -2,16 +2,21 @@
 title: "交互分析：绝对风险与结果核对"
 description: "get_inter_abs 的固定时点风险、人时发生率与 Logistic 概率，mets 联合 CIF 的区间方法与加速实测，以及 check_inter 把交互结果与分层、亚组或联合结果逐单元核对。"
 date: 2026-10-25
-date-modified: 2026-10-25
+date-modified: 2026-10-31
 lightbox: true
 toc-depth: 2
 directory:
   title: "交互分析：绝对风险、mets CIF 与 check_inter 核对"
   topic: 回归与生存分析
-  updated: 2026-10-25
+  updated: 2026-10-31
 ---
 
 本页接[交互分析](interaction-guide.qmd)，讲加性尺度的绝对风险与交互结果核对。代码沿用该页[示例数据与分析尺度](interaction-guide.qmd#data)准备的 `inter_data` 和 `cohort`，请先运行那一节。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## get_inter_abs()：固定时点风险与人时发生率 {#get-inter-abs}
 
@@ -47,6 +52,35 @@ get_inter_abs(
 :::
 
 自 2026-10-02 的 `cefc1a5` 更新起，默认 Fine–Gray **调整分支可直接计算 delta 区间，无需 bootstrap**。旧版“选择 delta 仍回退 bootstrap”的说明仅适用于更新前的实现；显式选择 CSC 的调整分支仍保留回退行为。下方原有四组图展示 Cox / Logistic / Poisson，新的 CIF 示例见 [mets 优化与加速实测](#cif-mets-update)。
+
+### 绝对尺度的数据列表返回（2026-10-31） {#subsets-20261031}
+
+<!-- update-20261031: regr_abs_lists -->
+
+先运行[相对尺度数据列表](interaction-guide.qmd#subsets-20261031)准备的 `inter_cohorts31`。`get_inter_abs()` 同样逐子集运行，外层 `eff_data_list` 内各保留一个 `get_inter_abs`，不是把全部数据合并后再分表。下面仍是各160行的两个合成子集，使用Logistic概率与IC；没有指定生存时点，也没有运行bootstrap。
+
+```r
+abs_lists31 <- RegR::run_quiet(RegR::get_inter_abs(inter_cohorts31,
+  exposure_names = c("Tx", "Marker"), adj_var = "Age", surv = "Outcome", ci_method = "delta"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(inherits(abs_lists31, "eff_data_list"), identical(names(abs_lists31), c("A", "B")),
+  all(vapply(abs_lists31, inherits, FALSE, "get_inter_abs")))
+for (nm31 in names(inter_cohorts31)) {
+  abs_single31 <- RegR::run_quiet(RegR::get_inter_abs(inter_cohorts31[[nm31]],
+    exposure_names = c("Tx", "Marker"), adj_var = "Age", surv = "Outcome", ci_method = "delta"))
+  stopifnot(isTRUE(all.equal(abs_lists31[[nm31]], abs_single31)))
+}
+validation_values <- list(rows = vapply(inter_cohorts31, nrow, 0L), class = class(abs_lists31),
+  inner = vapply(abs_lists31, function(z) class(z)[1], ""), matches_separate_calls = TRUE)
+```
+:::
+
+多结局、分层或多水平的原有内层形状仍保留。列表只决定“在哪份数据上重复运行”，不会把 `sur_time`、`poi_time`、参考组或置信区间方法按数据名自动改变。查看一个子集用 `abs_lists31$B`；[导出页](interaction-export-guide.qmd#subset-word-20261031)展示原生flextable和逐子集Word文件。真正生存结局的固定时点风险、CIF与人时发生率仍按本页原有尺度说明选择。
+
+<!-- /update-20261031: regr_abs_lists -->
 
 ### 四种尺度设置
 
@@ -854,6 +888,7 @@ stopifnot(identical(unname(validation_values[["compared"]]), c(4L, 4L, 6L, 6L)),
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充绝对尺度的数据列表返回与独立调用核对](#subsets-20261031)。
 - 2026-10-23：[绝对交互：逐模型计算与导出](#abs-models-20261023)
 - 2026-10-22：[自动选分层变量与差异提示](#check-target-20261022)
 - 2026-10-22：[get_eff_cat 的 sub_inter 模型行](#eff-cat-check-20261022)

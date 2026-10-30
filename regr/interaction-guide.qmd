@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、比值尺度与统一画布"
 description: "交互分析的数据准备、get_fit_ms 整体检验、get_inter 的比值尺度与模型组织、get_eff_inter 合并表，以及 get_int / get_all 的统一画布、H 统计量与随机种子；绝对风险与核对、表格导出见同组另外两页。"
 date: 2026-10-09
-date-modified: 2026-10-29
+date-modified: 2026-10-31
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：比值尺度、合并表与统一画布"
   topic: 回归与生存分析
-  updated: 2026-10-29
+  updated: 2026-10-31
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -31,6 +31,8 @@ directory:
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 **版本与执行范围：** 接口按 RegR **0.1.3** 的本机源码快照 `0add2bb` 核对，使用 WSL R **4.4.3** 实际拟合模型，生成 **21 张不同的结果图**，并验证 3 份 Word 导出文件。页面展示已保存的汇总结果；代码可在装有相应版本 RegR 及依赖的 R 环境中复现。
 
 **2026-10-02 更新：** [竞争风险绝对交互的 mets 优化](interaction-abs-guide.qmd#cif-mets-update) 按 RegR 源码快照 `cefc1a5`、mets **1.3.13** 补充，包含默认 `delta` 与可选 `boot` 的真实结果、完整调用计时及可下载记录。该节更新了下文 Fine–Gray 区间的计算说明。
@@ -782,6 +784,47 @@ validation_values <- list(ratio = lapply(ratio_zero25, function(x) lapply(x, as.
 
 <!-- /update-20261025: inter_print -->
 
+### 同一方案逐数据子集分析（2026-10-31） {#subsets-20261031}
+
+<!-- update-20261031: regr_inter_lists -->
+
+`get_inter(data=<数据框列表>)` 逐元素运行同一套参数，外层为 `eff_data_list`，内层仍是原来的 `get_inter` 结果。下面240行合成数据组成两个160行子集，共享80行；每个子集都含四种联合暴露状态。示例使用二分类Outcome的Logistic模型，不把OR尺度RERI解释为绝对风险差。
+
+```r
+set.seed(20261031)
+inter_data31 <- expand.grid(Tx = c("No", "Yes"), Marker = c("Low", "High"),
+  replicate = 1:60, KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+inter_data31$Tx <- factor(inter_data31$Tx, c("No", "Yes"))
+inter_data31$Marker <- factor(inter_data31$Marker, c("Low", "High"))
+inter_data31$Age <- rnorm(240, 60, 8)
+inter_data31$Outcome <- rbinom(240, 1, plogis(-1 + .4 * (inter_data31$Tx == "Yes") +
+  .5 * (inter_data31$Marker == "High") + .5 * (inter_data31$Tx == "Yes" & inter_data31$Marker == "High")))
+inter_cohorts31 <- list(A = inter_data31[inter_data31$replicate <= 40, ],
+  B = inter_data31[inter_data31$replicate > 20, ])
+inter_lists31 <- RegR::run_quiet(RegR::get_inter(inter_cohorts31,
+  exposure_names = c("Tx", "Marker"), adj_var = "Age", surv = "Outcome"))
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(inherits(inter_lists31, "eff_data_list"), identical(names(inter_lists31), c("A", "B")),
+  all(vapply(inter_cohorts31, nrow, 0L) == 160L))
+for (nm31 in names(inter_cohorts31)) {
+  inter_single31 <- RegR::run_quiet(RegR::get_inter(inter_cohorts31[[nm31]],
+    exposure_names = c("Tx", "Marker"), adj_var = "Age", surv = "Outcome"))
+  stopifnot(isTRUE(all.equal(inter_lists31[[nm31]], inter_single31)))
+}
+validation_values <- list(rows = vapply(inter_cohorts31, nrow, 0L),
+  events = vapply(inter_cohorts31, function(d) sum(d$Outcome), 0L),
+  class = class(inter_lists31), inner = vapply(inter_lists31, function(z) class(z)[1], ""),
+  joint_counts = lapply(inter_cohorts31, function(d) unclass(table(d$Tx, d$Marker))), matches_separate_calls = TRUE)
+```
+:::
+
+未命名的元素按位置补 `data1/data2/...`，空列表、非数据框元素或重复名字会在分析前报错。当前入口共用 `exposure_names/adj_var/surv` 等分析方案；需要不同模型设置时分别调用。提取 `inter_lists31$A` 后才能交给单结果格式化或绘图入口；整体逐子集Word保存见[导出示例](interaction-export-guide.qmd#subset-word-20261031)，绝对尺度对应入口见[get_inter_abs](interaction-abs-guide.qmd#subsets-20261031)。
+
+<!-- /update-20261031: regr_inter_lists -->
+
 ## get_eff_inter()：把亚组效应与交互放进一张表 {#get-eff-inter}
 
 本节于 2026-10-01 按当前源码补充，使用前文同一 RegR MTC 完整病例队列，实际运行以下 Cox 示例。get_eff_inter 将 get_eff 的亚组效应与 get_inter 的乘法交互、RERI 整理到同一张表；它不是 get_inter_abs 的绝对风险输出。
@@ -1206,6 +1249,7 @@ fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充同一方案逐数据子集的get_inter调用与独立拟合核对](#subsets-20261031)。
 - **2026-10-29**：[完整模型的有序编码](#ordered-full-20261029c)核对 Cox、Fine–Gray、Logistic 及批量筛查，保留原参考与总体检验。
 - **2026-10-29**：[固定画布的设备尺寸](#fmt-page-device-20261029c)同步 fmt_page 的 PNG 字体测量与扩展规则。
 - 2026-10-29：[二分类参考编码、精确 Wald P、Fine–Gray 状态水平与可追溯警告](#binary-wald-20261029)。

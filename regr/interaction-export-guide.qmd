@@ -2,16 +2,21 @@
 title: "交互分析：表格、Word 导出与绘图"
 description: "fmt_inter、fmt_inter_ft、fmt_inter_gt 的表格后端与细节控制，save_tb_inter 的 Word 导出与默认值，plt_inter 的组合图、分解与热图，以及多模型结果的逐模型导出。"
 date: 2026-10-25
-date-modified: 2026-10-29
+date-modified: 2026-10-31
 lightbox: true
 toc-depth: 2
 directory:
   title: "交互分析：表格后端、Word 导出与交互图"
   topic: 回归与生存分析
-  updated: 2026-10-29
+  updated: 2026-10-31
 ---
 
 本页接[交互分析](interaction-guide.qmd)，把交互结果整理成表格、Word 文档和图。代码沿用该页[示例数据与分析尺度](interaction-guide.qmd#data)准备的 `inter_data`，以及[get_inter()](interaction-guide.qmd#get-inter) 一节拟合的 `inter_single`、`inter_multi`、`inter_pairs`、`inter_grid` 和 `inter_or`，请先运行这两节。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## fmt_inter()：自动选择表格后端 {#fmt-inter}
 
@@ -351,6 +356,56 @@ save_tb_inter(
 
 传入已经格式化的 `flextable` 时，函数保留其布局；`layout`、`table_map`、`show_subeffect`、`show_measure` 不重新应用。不显式传 `show_ap_si` 时保留既有行；显式传 FALSE 会警告并忽略，因为它不能再筛选原始指标。需要精简时应直接传原始分析结果。`show_model` 可用于已有表，但应确认模型标识仍完整。
 
+### 按子集分别导出相对与绝对尺度（2026-10-31） {#subset-word-20261031}
+
+<!-- update-20261031: regr_inter_save_lists -->
+
+先运行[相对尺度列表](interaction-guide.qmd#subsets-20261031)和[绝对尺度列表](interaction-abs-guide.qmd#subsets-20261031)，得到 `inter_lists31/abs_lists31`。`save_tb_inter()` 识别外层 `eff_data_list`，按列表顺序分配标题并逐子集保存，无需另写map循环。下面四份Word来自同一240行合成数据的两个重叠子集，没有合并人群或更改模型。
+
+```r
+inter_files31 <- file.path(tempdir(), c("20261031-update-inter-A", "20261031-update-inter-B"))
+abs_files31 <- file.path(tempdir(), c("20261031-update-absolute-A", "20261031-update-absolute-B"))
+inter_tables31 <- RegR::run_quiet(RegR::save_tb_inter(inter_lists31,
+  title = inter_files31, table_map = c("Tx" = "Treatment")))
+abs_tables31 <- RegR::run_quiet(RegR::save_tb_inter(abs_lists31, title = abs_files31))
+flextable::save_as_html(inter_tables31$A,
+  path = file.path(tempdir(), "20261031-update-inter-table.html"))
+flextable::save_as_html(abs_tables31$A,
+  path = file.path(tempdir(), "20261031-update-absolute-table.html"))
+```
+
+::: {.panel-tabset}
+#### OR尺度 {.unnumbered}
+
+![从子集A真实Logistic交互结果生成的原生flextable。](images/interaction-export-guide/20261031-update-inter-table.png){fig-alt="子集A的OR尺度原生交互表，保留未调整和Age调整结果、联合暴露状态与原始脚注。"}
+
+[原生 HTML](images/interaction-export-guide/20261031-update-inter-table.html) · [子集A Word](images/interaction-export-guide/20261031-update-inter-A.docx) · [子集B Word](images/interaction-export-guide/20261031-update-inter-B.docx)
+
+#### 概率与IC {.unnumbered}
+
+![同一子集A绝对尺度结果单独导出，没有与OR表混用。](images/interaction-export-guide/20261031-update-absolute-table.png){fig-alt="子集A的绝对概率及IC原生表，使用与OR分析相同的人群，尺度和脚注独立。"}
+
+[原生 HTML](images/interaction-export-guide/20261031-update-absolute-table.html) · [子集A Word](images/interaction-export-guide/20261031-update-absolute-A.docx) · [子集B Word](images/interaction-export-guide/20261031-update-absolute-B.docx)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(names(inter_tables31), c("A", "B")), identical(names(abs_tables31), c("A", "B")),
+  all(vapply(c(inter_tables31, abs_tables31), inherits, FALSE, "flextable")),
+  all(file.exists(paste0(c(inter_files31, abs_files31), ".docx"))))
+inter_docs31 <- lapply(paste0(c(inter_files31, abs_files31), ".docx"), function(path)
+  officer::docx_summary(officer::read_docx(path)))
+stopifnot(all(vapply(inter_docs31, function(d) any(d$content_type == "table cell"), FALSE)))
+validation_values <- list(files = basename(paste0(c(inter_files31, abs_files31), ".docx")),
+  classes = vapply(c(inter_tables31, abs_tables31), function(z) class(z)[1], ""),
+  table_cells = vapply(inter_docs31, function(d) sum(d$content_type == "table cell"), 0L))
+```
+:::
+
+设置既可按子集名字提供，也可用列表顺序。标题向量必须与子集数量一致；普通未命名 `note` 向量仍表示同一张表的多行脚注，不能把每行脚注误当成不同子集的设置。返回值为按子集命名的flextable列表，可提取单个元素后继续排版。这里没有把表格转换成另一后端。
+
+<!-- /update-20261031: regr_inter_save_lists -->
+
 ### 五种导出与预览设置
 
 ::: {.panel-tabset}
@@ -604,6 +659,7 @@ ft_full <- save_tb_inter(inter_check[["sur"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充按子集分别导出OR与绝对尺度的四份Word和原生表格](#subset-word-20261031)。
 - **2026-10-29**：[分层完整模型纵向表](#split-multicat-20261029d)补充显式 layout、默认兼容及真实 flextable / Word 对照。
 - 2026-10-29：[Rscript 默认不自动打印与 knitr 原生表格呈现](#knitr-default-20261029)。
 - 2026-10-27：补充[关闭自动表格打印](#auto-print-20261027)的局部选项、真实输出与结果不变核对。
