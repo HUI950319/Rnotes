@@ -7,12 +7,15 @@ execute:
 directory:
   title: "结构树、摘要框与分布：pr_tree / pr_box / pr_spark"
   topic: 打印信息
-  updated: 2026-10-30
+  updated: 2026-10-31
+date-modified: 2026-10-31
 ---
 
 这三个函数不是每个 print 方法都要用：`pr_tree()` 看清一个嵌套结果里有什么，`pr_box()` 把模型设定这类短摘要框起来，`pr_spark()` 在建模前快速看一眼各列分布。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 本轮补充按已推送 UtilsR `5a9d8eb`（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。
 
 :::
@@ -168,9 +171,61 @@ validation_values <- list(rows = nrow(spark_data30), output = spark_lines30, emp
 
 <!-- /update-20261030: utils_print_spark -->
 
+### 日期、极端尺度与有界预览（2026-10-31） {#scales-20261031}
+
+<!-- update-20261031: utils_spark31 -->
+
+`pr_spark()` 默认按列位置读取，重名列不会读成同一列。POSIXlt与POSIXct都按日期时间分布显示；表达式只描述内容和缺失，不求值。极大或极小的数值用紧凑科学记数，标准差通过中心化和缩放恢复，避免普通方差溢出或下溢。相邻integer64先平移再转数值，保留超出double精度后的分布差别。
+
+```r
+spark31 <- data.frame(huge = c(-1e300, 0, 1e300, NA_real_),
+  tiny = c(1e-300, 2e-300, 3e-300, NA_real_))
+spark31$when <- as.POSIXlt(c("2026-10-01 00:00:00", "2026-10-02 00:00:00",
+  "2026-10-03 00:00:00", NA), tz = "UTC")
+spark31$stored <- bit64::as.integer64(c("9007199254740992", "9007199254740993", "9007199254740994", NA))
+spark31$expr <- expression(stop("must not run"), NA, 3, x)
+names(spark31)[1:2] <- c("Repeated", "Repeated")
+spark_before31 <- spark31
+spark_lines31 <- capture.output(UtilsR::pr_spark(spark31))
+spark_rates31 <- data.frame(tiny = c(NA, rep(1, 20000)), almost = c(1, rep(NA_real_, 20000)))
+rate_lines31 <- capture.output(UtilsR::pr_spark(spark_rates31))
+tree31 <- list(clock = spark31$when, stored = spark31$stored,
+  labelled = haven::labelled_spss(c(1, 99), na_values = 99), formula = y ~ x)
+tree_before31 <- tree31
+tree_lines31 <- capture.output(UtilsR::pr_tree(tree31, max_depth = 1, max_items = 2, max_lines = 8))
+```
+
+![实际分布摘要保留两个重名列的不同数值、时间向量及极端尺度，缺失率端点使用界限文本。](images/structure-summary/20261031-update-print-scales.png){fig-alt="五列合成数据的原生pr_spark输出；两列重名但分布不同，integer64仍有非零离散，极小和近全缺失分别显示界限；结构树按预算省略并计数。"}
+
+[原生 HTML](images/structure-summary/20261031-update-print-scales.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+网页保存复用[表格页](table-pvalue.qmd#rows-decimals-20261031)折叠框中的 `save_console31()`；只看终端无需运行这个辅助函数。
+
+```r
+stopifnot(identical(spark31, spark_before31), identical(tree31, tree_before31),
+  sum(grepl("Repeated", spark_lines31, fixed = TRUE)) == 2L,
+  any(grepl("sd 1(\\.0+)?e\\+?300", spark_lines31)),
+  any(grepl("sd 1(\\.0+)?e-300", spark_lines31)),
+  any(grepl("NA <0.1%", rate_lines31, fixed = TRUE)),
+  any(grepl("NA >99.9%", rate_lines31, fixed = TRUE)),
+  any(grepl("more", tree_lines31, fixed = TRUE)))
+save_console31(c("Distribution summaries: 4 rows", spark_lines31, "", "Rounded missing shares: 20001 rows",
+  rate_lines31, "", "Bounded tree preview", tree_lines31), "print-scales")
+validation_values <- list(rows = nrow(spark31), distribution = spark_lines31,
+  missing_rates = rate_lines31, tree = tree_lines31)
+```
+:::
+
+`max_items/max_depth/max_lines` 限制可见预览，省略项仍保留总数和名称提示；类名、属性名和函数参数名中的控制字符转义。大型语言对象只反解析可见部分。本例验证的是输出内容与不求值合同，没有测量或宣称加速倍数。
+
+<!-- /update-20261031: utils_spark31 -->
+
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充日期、极端数值、重名列与有界结构预览](#scales-20261031)。
 - 2026-10-30：[SPSS与空列](#missing-20261030)：统一缺失掩码，区分空、全缺失、非有限及显式NA水平。
 - 2026-10-25：按 UtilsR 0.6.12 补充 [pr_tree()](#pr-tree) 截断提速、[pr_box()](#pr-box) 空输入与 [pr_spark()](#pr-spark) 标识列。
 - 2026-10-25：按 UtilsR 0.6.12（`0b59c82`）重写 [pr_tree()](#pr-tree) 的说明；示例加入属性与缺失值，重做截图。
