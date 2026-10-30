@@ -7,12 +7,15 @@ execute:
 directory:
   title: "标题、设定与注释：pr_head / pr_kv / pr_section / pr_note / pr_badge"
   topic: 打印信息
-  updated: 2026-10-30
+  updated: 2026-10-31
+date-modified: 2026-10-31
 ---
 
 一个 print 方法通常由这五个函数拼成：`pr_head()` 写首行，`pr_kv()` 列设定，`pr_section()` 把结果分节，`pr_note()` 在末尾写注意事项和下一步，`pr_badge()` 在同一行并排显示几个状态。除 `pr_badge()` 外，它们都直接写到标准输出，并不可见地返回所打印的行。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 本轮补充按已推送 UtilsR `5a9d8eb`（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。
 
 :::
@@ -169,6 +172,59 @@ validation_values <- list(table_rows = nrow(control_table30), output = control_l
 
 <!-- /update-20261030: utils_print_controls -->
 
+### 窄屏、带类键值与盒内换行（2026-10-31） {#width-types-20261031}
+
+<!-- update-20261031: utils_blocks31 -->
+
+命名integer64、Period等向量作为 `pr_kv()/pr_box()` 输入时保留元素类型，不先转成底层double。SPSS用户缺失在键值和徽标中显示NA，在可选首行片段中省略；显式NA因子水平仍显示 `<NA>`。下面真实stdout同时展示40列窄屏和盒内空行。
+
+```r
+kv_integer31 <- bit64::as.integer64(c("9007199254740993", "9007199254740994"))
+names(kv_integer31) <- c("first", "second")
+kv_period31 <- lubridate::hours(c(1, 2))
+names(kv_period31) <- c("one", "two")
+kv_missing31 <- haven::labelled_spss(c(1, 99), na_values = 99)
+kv_level31 <- factor(c("Observed", NA), exclude = NULL)
+block_lines31 <- withr::with_options(list(width = 40), capture.output({
+  UtilsR::pr_head("Synthetic", quote(y ~ x), kv_missing31[2], kv_level31[2])
+  UtilsR::pr_kv(kv_integer31)
+  UtilsR::pr_kv(kv_period31)
+  UtilsR::pr_kv(list(user_missing = kv_missing31, explicit_level = kv_level31,
+    preview = 1:1000000))
+  cat(UtilsR::pr_badge("Storage", kv_missing31), "\n")
+  UtilsR::pr_note(paste(rep("e\u0301", 45), collapse = ""))
+}))
+box_lines31 <- withr::with_options(list(width = 40, cli.num_colors = 256L),
+  capture.output(UtilsR::pr_box(cli::col_red("first line\n\nlast line"),
+    header = "Multiline box", footer = "Explicit blank separator")))
+```
+
+![原生40列输出保留整数精度、Period类型、缺失语义和总数；盒内换行及ANSI样式保留。](images/result-blocks/20261031-update-print-narrow.png){fig-alt="40列键值输出含9007199254740993、小时Period、NA与显式NA水平；一百万项只预览前20项和总数；红色盒内文本分两段并保留空白分隔行。"}
+
+[原生 HTML](images/result-blocks/20261031-update-print-narrow.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+网页保存复用[表格页](table-pvalue.qmd#rows-decimals-20261031)的 `save_console31()`；辅助函数不参与终端格式化。
+
+```r
+stopifnot(any(grepl("9007199254740993", block_lines31, fixed = TRUE)),
+  any(grepl("1000000", block_lines31, fixed = TRUE)),
+  any(grepl("<NA>", block_lines31, fixed = TRUE)),
+  max(cli::ansi_nchar(c(block_lines31, box_lines31), type = "width")) <= 40L,
+  !any(grepl("^\u0301", trimws(block_lines31))),
+  any(grepl("\033[", box_lines31, fixed = TRUE)),
+  sum(grepl("first line|last line", box_lines31)) == 2L)
+save_console31(c(block_lines31, "", box_lines31), "print-narrow")
+validation_values <- list(width = 40L, maximum_width = max(cli::ansi_nchar(c(block_lines31, box_lines31), type = "width")),
+  plain = cli::ansi_strip(block_lines31), box = cli::ansi_strip(box_lines31))
+```
+:::
+
+长向量只格式化可见的前20项，原总数保留；长表达式也按可见预览反解析。窄屏会连同边框、缩进、标记和省略计数一起计算宽度。组合字符和多码点emoji按字素簇换行；本例用组合重音字符核对，没有以截图推断所有终端字体都一致。空可选注释不打印，显式空注释仍保留注释标记。
+
+<!-- /update-20261031: utils_blocks31 -->
+
 ## 返回值 {#return}
 
 除 `pr_badge()` 外，这几个函数都不可见地返回所打印的行（无色时已去掉颜色代码），在测试里可以直接检查，也可以拼进别的输出。
@@ -176,6 +232,7 @@ validation_values <- list(table_rows = nrow(control_table30), output = control_l
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[补充40列宽度、带类向量、缺失片段及盒内换行](#width-types-20261031)。
 - 2026-10-30：[单行字段转义](#controls-20261030)：核对六种控制字符，并保留键值内容与注释的有意换行。
 - 2026-10-25：按 UtilsR 0.6.12 说明 [pr_head()](#pr-head) 与 [pr_kv()](#pr-kv) 的数字位数、[pr_note()](#pr-note) 的换行。
 :::
