@@ -2,18 +2,23 @@
 title: "SHAP：get_shp 与 14 个绘图函数"
 description: "get_shp 的自动分箱、任务、采样、后端与返回对象详解；51张图覆盖14个绘图函数、多行TI、单变量交互与聚类分配。"
 date: 2026-09-30
-date-modified: 2026-10-27
+date-modified: 2026-10-31
 lightbox: true
 toc-depth: 2
 directory:
   title: "SHAP：51张图、聚类分配与TM层级"
   topic: 模型解释
-  updated: 2026-10-27
+  updated: 2026-10-31
 ---
 
 这一页分为两部分：先介绍 `get_shp()` 如何训练树模型、计算 SHAP 并组织结果，再用已经计算好的 `ToyData::toy_shp` 展示全部 14 个 `plt_shp_*()` 函数。图形选项放在各节的标签页中，可切换比较，并点击图片放大。
 
 **核对记录：** 最近核对2026-10-13。复核的已推送MLR基线 `fe46c5f` 包含 `9f3ba6b`，新增按系统选择SHAP引擎的默认值，版本仍为0.1.13。保留原34张SHAP对象绘图及执行范围，没有重新训练模型或计算SHAP；下方说明更新后的默认值与旧安装行为。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31 追加按已推送 MLR `49cdb4c`（0.1.13）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 示例准备与读图规则 {#data}
 
@@ -578,7 +583,7 @@ SHAP 变异、标准化或 `baseline + rowSums(S)` 超出支持的数值范围�
 
 蜂群图同时展示变量的重要性顺序、每个观测的贡献方向和特征值着色。下列标签页比较纯蜂群、横轴缩放，以及两种插图组合。
 
-- `mode = "sum"`：纯蜂群；`"sum_per"`：加重要性百分比环图；`"sum_tot"`：加 `tot_var` 的总 SHAP 分布。
+- `mode = "sum"`：纯蜂群；`"sum_per"`：加重要性径向条形；`"sum_tot"`：加 `tot_var` 的总 SHAP 分布。新增 `"sum_per2"`、`"bar_per"`、`"bar_per2"` 见[本轮实图](#modes-20261031b)。
 - `display.ncol = 8` 在纯蜂群示例中保留前 8 项；当前组合模式的内部调用没有转发这个参数，因此示例保留全部变量。
 - `show_numbers = TRUE` 的纯蜂群百分比以**展示的 8 项**为分母；全变量百分比组合以全部 14 项为分母，数值会不同。
 - `scale_x = list(xlim = ..., xbre = ...)` 设置观察范围与刻度；`xlim` 使用坐标缩放，不重新计算 SHAP 或重要性。
@@ -637,6 +642,79 @@ plt_shp_sum(shp_labels, mode = "sum_tot", tot_var = "chemo",
 ![plt_shp_sum：蜂群与分组依赖。右侧查看 chemo（原 Che）的总贡献分布；横轴分组含 No/Unknown。](images/shap-guide/sum-total.png){fig-alt="总体蜂群与组合图；蜂群与分组依赖；数据为 toy_shp 的 400 个观测。"}
 
 :::
+
+### 双环插图与棒棒糖组合（2026-10-31） {#modes-20261031b}
+
+<!-- update-20261031b: mlr_shap_modes -->
+
+MLR `7acb56c` 为 `plt_shp_sum()` 增加三个模式：`"sum_per2"` 是蜂群＋双环重要性插图，`"bar_per"` 和 `"bar_per2"` 分别是mean(|SHAP|)棒棒糖＋径向条形或双环插图。`plt_shp_imp()` 同样可直接选择 `"per2"` / `"bar_per2"`。以下40行、4特征的S矩阵是合成绘图输入，没有训练模型，也不代表任何患者的解释值。
+
+```r
+set.seed(103102)
+shap_x31b <- as.data.frame(matrix(rnorm(160), nrow = 40,
+  dimnames = list(NULL, c("F1", "F2", "F3", "F4"))))
+shap_s31b <- sweep(as.matrix(shap_x31b), 2, c(1.4, 1, 0.6, 0.3), "*")
+shap_obj31b <- shapviz::shapviz(shap_s31b, X = shap_x31b, baseline = 0)
+shap_names31b <- c(F1 = "Tumor size at diagnosis", F2 = "Age at initial diagnosis",
+  F3 = "Regional lymph node count", F4 = "Treatment sequence group")
+shap_sum_per231b <- MLR::plt_shp_sum(shap_obj31b, mode = "sum_per2", add_name = shap_names31b,
+  scale_x = list(xlim = c(-4, 7)),
+  save = list(filename = file.path(tempdir(), "20261031b-update-shap-sum-per2.pdf"), width = 8, height = 5))
+shap_bar_per31b <- MLR::plt_shp_sum(shap_obj31b, mode = "bar_per", add_name = shap_names31b,
+  label_args = list(wrap = 14, size = 2.4),
+  save = list(filename = file.path(tempdir(), "20261031b-update-shap-bar-per.pdf"), width = 8, height = 5))
+shap_bar_per231b <- MLR::plt_shp_sum(shap_obj31b, mode = "bar_per2", add_name = shap_names31b,
+  save = list(filename = file.path(tempdir(), "20261031b-update-shap-bar-per2.pdf"), width = 8, height = 5))
+shap_ring31b <- MLR::plt_shp_imp(shap_obj31b, mode = "per2",
+  save = list(filename = file.path(tempdir(), "20261031b-update-shap-per2.pdf"), width = 5.5, height = 5.5))
+```
+
+::: {.panel-tabset}
+#### 蜂群＋双环 {.unnumbered}
+
+![蜂群保留方向和特征值渐变，双环显示重要性份额。](images/shap-guide/20261031b-update-shap-sum-per2.png){fig-alt="四十行四特征的合成SHAP蜂群，右下角双环插图，较长特征名缩小后避开中心留白。"}
+
+[原生 PDF](images/shap-guide/20261031b-update-shap-sum-per2.pdf)
+
+#### 棒棒糖＋径向条形 {.unnumbered}
+
+![同一SHAP输入的mean绝对值棒棒糖与径向重要性。](images/shap-guide/20261031b-update-shap-bar-per.png){fig-alt="四特征重要性棒棒糖，径向插图标签按十四字符换行，份额仍来自相同SHAP矩阵。"}
+
+[原生 PDF](images/shap-guide/20261031b-update-shap-bar-per.pdf)
+
+#### 棒棒糖＋双环 {.unnumbered}
+
+![双环作为插图时以固定70百分比不透明度叠加。](images/shap-guide/20261031b-update-shap-bar-per2.png){fig-alt="相同重要性棒棒糖与半透明双环插图，环中长名称按实际可用尺寸缩放。"}
+
+[原生 PDF](images/shap-guide/20261031b-update-shap-bar-per2.pdf)
+
+#### 独立双环 {.unnumbered}
+
+![独立per2使用不透明填色。](images/shap-guide/20261031b-update-shap-per2.png){fig-alt="同一四特征SHAP重要性双环独立图，原始特征名F1至F4，填色保持不透明。"}
+
+[原生 PDF](images/shap-guide/20261031b-update-shap-per2.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+shap_importance31b <- sort(colMeans(abs(shap_s31b)), decreasing = TRUE)
+shap_share31b <- shap_importance31b / sum(shap_importance31b) * 100
+shap_ring_build31b <- ggplot2::ggplot_build(shap_ring31b)
+shap_rects31b <- which(vapply(shap_ring31b$layers, function(z) inherits(z$geom, "GeomRect"), FALSE))
+stopifnot(identical(shap_obj31b$S, shap_s31b), identical(shap_obj31b$X, shap_x31b),
+  abs(sum(shap_share31b) - 100) < 1e-10,
+  all(vapply(list(shap_sum_per231b, shap_bar_per31b, shap_bar_per231b, shap_ring31b), inherits, FALSE, "ggplot")),
+  all(vapply(shap_ring_build31b$data[shap_rects31b], function(z)
+    all(is.na(z$alpha) | z$alpha == 1), FALSE)))
+validation_values <- list(rows = nrow(shap_s31b), features = ncol(shap_s31b),
+  importance = as.list(shap_importance31b), percentages = as.list(shap_share31b), input_unchanged = TRUE,
+  modes = c("sum_per2", "bar_per", "bar_per2", "per2"))
+```
+:::
+
+双环作为组合插图时固定alpha为0.7，让底下的点或线仍可见；独立 `per2` 保持不透明。组合模式的特征值图例改为从面板左侧内部对齐，减少8英寸画布上的裁切。双环内名字按实际尺寸测量，小插图会进一步缩小字号以避开中心洞。`label_args` 控制径向条形标签，双环使用自身的拟合标签；`per_args` 的径向留空设置不作用于双环。组合图仍用全部特征计算份额。条形横轴沿用生成图的 `Normalized scaled value`，并非原始SHAP单位；本节复核框另列原始mean(|SHAP|)及百分比。`bar_per*` 可用的条形细节参数以 `plt_shp_imp()` 为准；不要把mean(|SHAP|)的无方向份额当作贡献的正负方向。
+
+<!-- /update-20261031b: mlr_shap_modes -->
 
 ### 百分比插图的标签换行（2026-10-26） {#sum-per-labels-20261026}
 
@@ -1477,6 +1555,7 @@ page_shp_new <- RegR::fmt_page(Summary = p_summary, `Total and main` = p_tm_new,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-31：[新增双环和棒棒糖组合](#modes-20261031b)，补充三个summary模式及独立per2实图。
 - 2026-10-27：补充[独立缩放记录、带标签基线与空分配](#preprocessing-state-20261027b)，复用 60 行模型并解释 8 行新样本，新增三张实图。
 - 2026-10-27：补充[随机状态与同大小簇](#cluster-seed-20261027)的 24 行规则核对。
 - 2026-10-27：补充[同模型同基线聚类与分配](#cluster-assignment-20261027)的 60/12 行例子和两张原生 PDF。
