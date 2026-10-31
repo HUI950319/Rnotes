@@ -16,6 +16,8 @@ plt_con 的四种图形、箱线与原始点叠加、统计标注、纵轴观察
 **历史版本与执行范围：** 以下原有23个参数示例按 UtilsR **0.6.8** 核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 23 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 :::
@@ -134,6 +136,99 @@ validation_values <- list(input_rows = nrow(con31), valid_points = 23L,
 分组排序只用有限值，不让Inf改变中位数顺序；无有限观测的特征或分层会提示并跳过，全部不可画时明确报错。单例组保留原始点和摘要层，省略无法估计的密度。`combine=FALSE` 返回按分层命名的图列表，各图有自己的尺寸；这种列表不能直接经同一个 `save` 写成一张图。
 
 <!-- /update-20261031: utils_continuous -->
+
+### 空字符串、缺失层与独立比较（2026-10-31） {#groups-20261031b}
+
+<!-- update-20261031b: utils_con_groups -->
+
+0.6.19保留空字符串组的颜色映射，也把真实缺失组的背景条带对齐到实际坐标。空字符串 `""` 是观测值，和缺失NA分开处理；下面12行在两个batch各6行，空字符串组和B组使用同一份命名色板，背景也按名称对应。空名字用 `setNames()` 明确写入，不把它删成不存在的组。
+
+```r
+con_empty31b <- data.frame(value = seq_len(12),
+  group = factor(rep(c("", "B"), each = 6)),
+  region = rep(c("", "South"), each = 6), batch = rep(c("One", "Two"), each = 3, length.out = 12))
+con_empty_panels31b <- UtilsR::plt_con(con_empty31b, "value", "group", type = "box",
+  split.by = "batch", bg.by = "region", combine = FALSE,
+  palette = setNames(c("#3B5488", "#E64B35"), c("", "B")),
+  bg_palette = setNames(c("grey85", "transparent"), c("", "South")))
+RegR::save_plt(patchwork::wrap_plots(con_empty_panels31b, nrow = 1),
+  file.path(tempdir(), "20261031b-update-con-empty.pdf"), width = 8, height = 4)
+con_missing31b <- data.frame(value = seq_len(18), group = rep(c("A", "B", NA), each = 6),
+  region = rep(c("North", "South", "Unknown"), each = 6))
+con_missing_plot31b <- UtilsR::plt_con(con_missing31b, "value", "group", type = "box", flip = TRUE,
+  bg.by = "region", bg_palette = c(North = "#DDEBF7", South = "#FCE4D6", Unknown = "#E2F0D9"),
+  save = list(filename = file.path(tempdir(), "20261031b-update-con-missing.pdf")))
+con_split31b <- data.frame(value = seq_len(18), group = rep(c("A", "B"), 9),
+  batch = factor(rep(c("<NA>", "<NA>.1", NA), each = 6), exclude = NULL))
+con_split_panels31b <- UtilsR::plt_con(con_split31b, "value", "group", split.by = "batch",
+  type = "box", combine = FALSE)
+RegR::save_plt(patchwork::wrap_plots(con_split_panels31b, nrow = 1),
+  file.path(tempdir(), "20261031b-update-con-split.pdf"), width = 9, height = 3.5)
+con_compare31b <- data.frame(x = c(rep(1, 6), 2:7, rep(1, 6)), z = 11:28,
+  group = factor(rep(c("A", "B", "C"), each = 6)))
+con_compare_plot31b <- UtilsR::plt_con(con_compare31b, c("x", "z"), "group", type = "box",
+  stack = TRUE, comparisons = list(c("A", "B"), c("A", "C")), sig_label = "p.format",
+  save = list(filename = file.path(tempdir(), "20261031b-update-con-comparisons.pdf")))
+```
+
+::: {.panel-tabset}
+#### 空字符串组 {.unnumbered}
+
+![两个batch都保留空字符串组及其命名颜色。](images/continuous-guide/20261031b-update-con-empty.png){fig-alt="各六行的两个batch面板，空白横轴标签是实际空字符串组，颜色与背景映射保持一致。"}
+
+[原生 PDF](images/continuous-guide/20261031b-update-con-empty.pdf)
+
+#### 真实缺失组 {.unnumbered}
+
+![翻转后NA组仍对应Unknown的浅绿色条带。](images/continuous-guide/20261031b-update-con-missing.png){fig-alt="十八行合成值按A B和NA分组，翻转坐标后真实缺失组的背景没有被相邻组覆盖。"}
+
+[原生 PDF](images/continuous-guide/20261031b-update-con-missing.pdf)
+
+#### 缺失分层名称 {.unnumbered}
+
+![文字NA名称保留，真实缺失层获得独立名称。](images/continuous-guide/20261031b-update-con-split.png){fig-alt="三个六行分层分别命名为文字NA、文字NA点一和真实缺失NA点二，各自保留原始数值范围。"}
+
+[原生 PDF](images/continuous-guide/20261031b-update-con-split.pdf)
+
+#### 有效比较独立保留 {.unnumbered}
+
+![x的无效A对C比较被跳过，其他有效比较仍显示。](images/continuous-guide/20261031b-update-con-comparisons.png){fig-alt="十八行两个特征，x的A和C全为常数一导致非有限P值，x保留A对B，z保留两条比较。"}
+
+[原生 PDF](images/continuous-guide/20261031b-update-con-comparisons.pdf)
+:::
+
+最后一例中，x的A、C全为1，Wilcoxon比较不能给出有效的有限P值，函数明确警告并跳过这一条；x的A对B和z的两条有效比较独立保留。跳过不表示不显著，更不能把缺失P值补成1。每个比较仍使用该特征的有限观测，既有多重比较设置没有被改写。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (p31b in con_empty_panels31b) {
+  b31b <- ggplot2::ggplot_build(p31b)
+  stopifnot(nrow(p31b$data) == 6L,
+    identical(unname(b31b$plot$scales$get_scales("fill")$map(c("", "B"))), c("#3B5488", "#E64B35")),
+    identical(unname(p31b$layers[[1L]]$data$fill), c("grey85", "transparent")))
+}
+con_build31b <- ggplot2::ggplot_build(con_missing_plot31b)
+con_na_position31b <- which(is.na(con_build31b$layout$panel_scales_x[[1]]$get_limits()))
+con_rect31b <- con_build31b$data[[1]]
+con_tests_build31b <- ggplot2::ggplot_build(con_compare_plot31b)
+con_kind31b <- vapply(con_compare_plot31b$layers, function(z) class(z$geom)[1], "")
+con_brackets31b <- do.call(rbind, con_tests_build31b$data[which(con_kind31b == "GeomSignif")])
+stopifnot(identical(as.character(con_rect31b$fill[
+    con_rect31b$xmin <= con_na_position31b & con_rect31b$xmax >= con_na_position31b]), "#E2F0D9"),
+  setequal(names(con_split_panels31b), c("<NA>", "<NA>.1", "<NA>.2")),
+  identical(con_split_panels31b[["<NA>"]]$data$value, 1:6),
+  identical(con_split_panels31b[["<NA>.1"]]$data$value, 7:12),
+  identical(con_split_panels31b[["<NA>.2"]]$data$value, 13:18),
+  nrow(con_brackets31b) == 9L)
+validation_values <- list(rows = c(empty = 12, missing = 18, split = 18, comparison = 18),
+  split_names = names(con_split_panels31b), missing_background = "#E2F0D9",
+  annotation_rows = as.list(table(con_brackets31b$PANEL)))
+```
+:::
+
+排序、翻转与拆分时颜色继续按全图类别身份分配。逻辑开关必须是单个TRUE/FALSE；`sort` 仅接受帮助页列出的选择，不能靠长度大于1的逻辑向量决定行为。点图计数和图构建环境的优化保持数据含义不变，此处没有宣称未经配对计时证实的加速倍数。
+
+<!-- /update-20261031b: utils_con_groups -->
 
 ## 函数选择与重要参数 {#parameters}
 
@@ -564,5 +659,6 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[复核分组边界与独立比较](#groups-20261031b)，保留空字符串、真实缺失层、背景颜色和有效P值标注。
 - 2026-10-31：[补充原始数值、参考组比较、独立观察窗、SD端点及缺失组点计数](#finite-20261031)。
 :::
