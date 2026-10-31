@@ -7,8 +7,8 @@ toc-depth: 2
 directory:
   title: "连续变量：分布、统计比较与多面板布局"
   topic: 绘图与格式化
-  updated: 2026-10-31
-date-modified: 2026-10-31
+  updated: 2026-11-01
+date-modified: 2026-11-01
 ---
 
 plt_con 的四种图形、箱线与原始点叠加、统计标注、纵轴观察窗和多变量布局。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -16,6 +16,8 @@ plt_con 的四种图形、箱线与原始点叠加、统计标注、纵轴观察
 **历史版本与执行范围：** 以下原有23个参数示例按 UtilsR **0.6.8** 核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 23 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `129c5a71`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `129c5a71`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -409,6 +411,105 @@ plt_con(dat, "marker1", "group", type = "box",
 
 :::
 
+### 完整SD区间与退化整体检验（2026-11-01） {#statistics-20261101}
+
+<!-- update-20261101: utils_con_statistics -->
+
+UtilsR `129c5a71` 的堆叠柱图把比较标注放在完整mean±SD区间上方，整体检验再放到成对比较之上。下面4行合成数据中，x和z有很大的SD，constant全为1。各特征独立检验：constant的无效成对和整体检验会警告并跳过，x、z的有效标注保留。
+
+```r
+con_sd01 <- data.frame(x = c(1, 100, 2, 200), z = c(10, 1000, 20, 2000),
+  constant = 1, group = factor(rep(c("A", "B"), each = 2)))
+con_sd_plot01 <- UtilsR::plt_con(con_sd01, c("x", "z", "constant"), "group",
+  type = "bar", stack = TRUE, same.y.lims = FALSE,
+  comparisons = list(c("A", "B")), multiplegroup_comparisons = TRUE,
+  multiple_method = "kruskal.test", sig_label = "p.format",
+  save = list(filename = file.path(tempdir(), "20261101-update-con-sd-global.pdf")))
+```
+
+![SD区间、成对比较和整体检验分层排布，无效常量特征不显示检验标签。](images/continuous-guide/20261101-update-con-sd-global.png){fig-alt="四行三个特征的合成柱图，x与z各保留完整SD、成对比较和整体检验，constant只显示均值与零SD。"}
+
+[原生 PDF](images/continuous-guide/20261101-update-con-sd-global.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+con_sd_build01 <- ggplot2::ggplot_build(con_sd_plot01)
+con_sd_kinds01 <- vapply(con_sd_plot01$layers, function(z) class(z$geom)[1], "")
+con_errors01 <- con_sd_build01$data[[which(con_sd_kinds01 == "GeomErrorbar")]]
+con_brackets01 <- do.call(rbind, con_sd_build01$data[which(con_sd_kinds01 == "GeomSignif")])
+con_global01 <- do.call(rbind, con_sd_build01$data[which(con_sd_kinds01 == "GeomText")])
+for (panel01 in 1:2) {
+  upper01 <- max(con_errors01$ymax[as.integer(con_errors01$PANEL) == panel01])
+  bracket01 <- max(con_brackets01$y[as.integer(con_brackets01$PANEL) == panel01])
+  stopifnot(bracket01 > upper01, con_global01$y[as.integer(con_global01$PANEL) == panel01] > bracket01)
+}
+stopifnot(!any(as.integer(con_brackets01$PANEL) == 3L),
+  !any(as.integer(con_global01$PANEL) == 3L), nrow(con_global01) == 2L,
+  isTRUE(all.equal(con_global01$p, c(stats::kruskal.test(x ~ group, data = con_sd01)$p.value,
+    stats::kruskal.test(z ~ group, data = con_sd01)$p.value))))
+validation_values <- list(rows = nrow(con_sd01), global_p = con_global01$p,
+  global_panels = as.integer(con_global01$PANEL), sd_upper = con_errors01$ymax,
+  pairwise_panels = unique(as.integer(con_brackets01$PANEL)))
+```
+:::
+
+常量特征、失败的整体检验或非有限P值只影响该特征的标注；跳过不是“不显著”，也不能补成P=1。独立坐标的成对比较留白只计实际有效的比较；显式 `y.min/y.max` 仍作为观察窗保留，不会为了标签自动扩宽。
+
+<!-- /update-20261101: utils_con_statistics -->
+
+### 重复绘制与转换后的重新检验（2026-11-01） {#reuse-20261101}
+
+<!-- update-20261101: utils_con_reuse -->
+
+在同一个返回图上重复build或导出，成对检验的输入和参数未变时复用已有结果，原检验警告仍在绘制时保留。修改了传入检验的值或参数则重新计算。尤其 `scale_y_log10()` 在统计层之前转换数据，会让检验接收到log10值；这不能称作“只改外观、P值应不变”。
+
+```r
+con_reuse01 <- data.frame(value = c(1, 1.2, 1.5, 1.8, 2.1, 2.3, 2, 4, 8, 16, 32, 64),
+  group = factor(rep(c("A", "B"), each = 6)))
+con_linear01 <- UtilsR::plt_con(con_reuse01, "value", "group", type = "box",
+  comparisons = list(c("A", "B")), pairwise_method = "t.test", sig_label = "p.format",
+  title = "Welch test on original values")
+con_log_data01 <- transform(con_reuse01, value = log10(value))
+con_log01 <- UtilsR::plt_con(con_log_data01, "value", "group", type = "box",
+  comparisons = list(c("A", "B")), pairwise_method = "t.test", sig_label = "p.format",
+  title = "Welch test on log10 values", ylab = "log10(value)")
+RegR::save_plt(patchwork::wrap_plots(con_linear01, con_log01, nrow = 1),
+  file.path(tempdir(), "20261101-update-con-reuse.pdf"), width = 9, height = 4.5)
+```
+
+![相同十二行数据在原值和log10尺度分别进行Welch检验。](images/continuous-guide/20261101-update-con-reuse.png){fig-alt="左图使用原值的Welch比较，右图显式使用log10后的数值重新调用绘图，P值和标注位置均按转换值计算。"}
+
+[原生 PDF](images/continuous-guide/20261101-update-con-reuse.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+con_first01 <- ggplot2::ggplot_build(con_linear01)
+con_second01 <- ggplot2::ggplot_build(con_linear01)
+con_signif01 <- which(vapply(con_linear01$layers, function(z) inherits(z$geom, "GeomSignif"), FALSE))
+con_layer01 <- con_linear01$layers[[con_signif01]]
+con_callback01 <- con_layer01$stat_params[["test"]]
+con_args01 <- con_layer01$stat_params[["test.args"]]
+con_a01 <- con_reuse01$value[con_reuse01$group == "A"]
+con_b01 <- con_reuse01$value[con_reuse01$group == "B"]
+con_raw_p01 <- do.call(con_callback01, c(list(con_a01, con_b01), con_args01))$p.value
+con_log_p01 <- do.call(con_callback01, c(list(log10(con_a01), log10(con_b01)), con_args01))$p.value
+con_mixed01 <- UtilsR::plt_con(con_reuse01, "value", "group", type = "box",
+  comparisons = list(c("A", "B"), c("A", "absent")), pairwise_method = "t.test", sig_label = "p.format")
+stopifnot(isTRUE(all.equal(con_first01$data, con_second01$data)),
+  isTRUE(all.equal(con_raw_p01, stats::t.test(con_a01, con_b01)$p.value)),
+  isTRUE(all.equal(con_log_p01, stats::t.test(log10(con_a01), log10(con_b01))$p.value)),
+  abs(con_raw_p01 - con_log_p01) > 1e-6,
+  identical(con_linear01$coordinates$limits$y, con_mixed01$coordinates$limits$y))
+validation_values <- list(rows = nrow(con_reuse01), raw_p = con_raw_p01, log10_p = con_log_p01,
+  repeated_build_equal = TRUE, effective_pair_count = 1L,
+  axis_limits = con_linear01$coordinates$limits$y)
+```
+:::
+
+本例先显式转换输入再重新调用，让标注位置也按转换后的范围计算。在已有图上添加非线性scale时，还须复核原有标注位置。复核框另取原图回调，核对相同输入与改变输入的两条路径。沿用默认的非配对Welch检验，未新增多重比较或缓存参数。`absent` 这条不存在组的比较被跳过，独立坐标不再为它预留额外空间；有效A对B的统计和坐标范围不变。这里只核对结果复用与回退合同，没有给出未经配对计时验证的加速倍数。
+
+<!-- /update-20261101: utils_con_reuse -->
+
 ## 纵轴、排序与背景
 
 ::: {.panel-tabset}
@@ -528,6 +629,61 @@ patchwork::wrap_plots(plots, ncol = 1)
 ![combine=FALSE 返回命名图列表；可以用 wrap_plots 独立控制最终排版。](images/continuous-guide/list-layout.png){fig-alt="连续变量：分布、统计比较与多面板布局；返回列表再排版；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 分层总标题、图例名与独立纵轴间距（2026-11-01） {#layout-20261101}
+
+<!-- update-20261101: utils_con_layout -->
+
+组合分层图的 `title/subtitle` 现在只在整图上出现一次，S1、S2仍作为各面板标题；`combine=FALSE` 则每个返回面板保留其subtitle。`fill.by="feature"` 的图例标题为Feature，按组填色时使用真实分组列名；背景条带不应把标题改成 `I(fill)`。主题仍可隐藏标题，下面显式显示它。
+
+```r
+con_layout01 <- expand.grid(Treatment = c("A", "B"), batch = c("S1", "S2"),
+  replicate = 1:3, KEEP.OUT.ATTRS = FALSE)
+con_layout01$x <- seq(-500, 600, length.out = 12)
+con_layout01$large <- 1e6 + seq_len(12) * 1000
+con_layout01$region <- ifelse(con_layout01$Treatment == "A", "North", "South")
+con_layout_plot01 <- UtilsR::plt_con(con_layout01, c("x", "large"), "Treatment", type = "box",
+  split.by = "batch", bg.by = "region", stack = TRUE, same.y.lims = FALSE, fill.by = "feature",
+  title = "One overall heading", subtitle = "Two batches, independent feature axes", facet_ncol = 2)
+con_layout_plot01 <- con_layout_plot01 & ggplot2::theme(legend.title = ggplot2::element_text(face = "bold"))
+RegR::save_plt(con_layout_plot01, file.path(tempdir(), "20261101-update-con-layout.pdf"), width = 10, height = 7)
+```
+
+![分层图只出现一套总标题，独立纵轴之间留出刻度文字空间。](images/continuous-guide/20261101-update-con-layout.png){fig-alt="十二行两组两层输入，整图标题和副标题各一次，S1 S2保留，x与百万量级large分别使用纵轴，共享Feature图例。"}
+
+[原生 PDF](images/continuous-guide/20261101-update-con-layout.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+con_text01 <- function(g) c(if (inherits(g, "text")) as.character(g$label),
+  unlist(lapply(g$grobs, con_text01), use.names = FALSE),
+  unlist(lapply(g$children, con_text01), use.names = FALSE))
+con_labels01 <- con_text01(patchwork::patchworkGrob(con_layout_plot01))
+con_separate01 <- UtilsR::plt_con(con_layout01, "x", "Treatment", type = "box", split.by = "batch",
+  subtitle = "Panel subtitle", combine = FALSE)
+con_group01 <- UtilsR::plt_con(con_layout01, "x", "Treatment", type = "box", bg.by = "region")
+con_ungrouped01 <- UtilsR::plt_con(con_layout01, "x", type = "box")
+con_grob01 <- ggplot2::ggplotGrob(con_layout_plot01[[1]])
+con_panels01 <- con_grob01$layout[grepl("^panel-", con_grob01$layout$name), , drop = FALSE]
+con_panels01 <- con_panels01[order(con_panels01$t), , drop = FALSE]
+con_gap01 <- sum(con_grob01$heights[seq.int(con_panels01$b[1] + 1L, con_panels01$t[2] - 1L)])
+con_tick01 <- grid::textGrob("-500", gp = grid::gpar(fontsize = 14, fontface = "bold"))
+stopifnot(sum(con_labels01 == "One overall heading") == 1L,
+  sum(con_labels01 == "Two batches, independent feature axes") == 1L,
+  all(c("S1", "S2", "Feature") %in% con_labels01), !"I(fill)" %in% con_labels01,
+  identical(unname(vapply(con_separate01, function(z) z$labels$subtitle, "")), rep("Panel subtitle", 2)),
+  identical(con_group01$labels$fill, "Treatment"), is.null(con_ungrouped01$labels$fill),
+  grid::convertHeight(con_gap01, "pt", valueOnly = TRUE) >=
+    grid::convertHeight(grid::grobHeight(con_tick01), "pt", valueOnly = TRUE))
+validation_values <- list(rows = nrow(con_layout01), split_rows = as.list(table(con_layout01$batch)),
+  title_count = sum(con_labels01 == "One overall heading"), subtitle_count = sum(con_labels01 == "Two batches, independent feature axes"),
+  group_legend_title = con_group01$labels$fill, independent_axis_gap_pt = grid::convertHeight(con_gap01, "pt", valueOnly = TRUE))
+```
+:::
+
+独立竖排坐标为相邻刻度文字预留间距；共用纵轴和翻转分支仍按各自布局处理。本次只改呈现，不把量级不同的特征强行放到同一纵轴，也不改变每层的样本或统计。背景在返回图重排离散轴后跟随类别，详见[背景与类别位置](format-guide.qmd#background-legend-current)。
+
+<!-- /update-20261101: utils_con_layout -->
 
 ## 返回对象、保存与使用边界 {#output}
 
@@ -659,6 +815,9 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：[补充分层总标题与独立纵轴间距](#layout-20261101)，图例使用真实映射名称。
+- 2026-11-01：[核对重复绘制与转换后重算](#reuse-20261101)，按有效比较数预留空间。
+- 2026-11-01：[核对SD和退化整体检验](#statistics-20261101)，只跳过无效标注并保留其他特征。
 - 2026-10-31：[复核分组边界与独立比较](#groups-20261031b)，保留空字符串、真实缺失层、背景颜色和有效P值标注。
 - 2026-10-31：[补充原始数值、参考组比较、独立观察窗、SD端点及缺失组点计数](#finite-20261031)。
 :::
