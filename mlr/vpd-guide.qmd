@@ -4,16 +4,21 @@ description: "get_exp、get_vpd、get_vpd_pnl 与 get_ale2 的工作流；比较
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-10-27
+date-modified: 2026-10-31
 directory:
   title: "变量分布、PDP与二阶ALE：网格与统一入口"
   topic: 模型解释
-  updated: 2026-10-27
+  updated: 2026-10-31
 ---
 
 `get_exp()` 构建预测解释器，`get_vpd()` 将变量分布（VD）与部分依赖（PD）放在一起。本页用实际图形解释两块面板的差别，并对照主要任务和分组路径。
 
 **版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出原主教程 **12 张参数对照图**。Cox、Logistic 和生存随机森林均实际训练，图形来自公开入口；使用已有临床示例和模拟二分类数据，未执行外部临床验证。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31 追加按已推送 MLR `49cdb4c`（0.1.13）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 示例准备与读图规则 {#data}
 
@@ -796,6 +801,117 @@ stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
 
 `plt_vpd_log()` 和 `plt_vpd_sur()` 保存现有解释器的 VD / PD 组合；预测时间、解释对象和原始拟合仍由上游决定。本节原始数据为180行，Female / Male各90行；PD对每个性别值使用全部180个参考行，图中PD的n是参考行数，不能相加或当作原始分组人数。`plt_interboot()` 只是把传入的数值画成组间分布，本例没有运行 bootstrap，也不是交互项显著性检验。
 
+### 共享纵轴、均值标签与配色（2026-10-31） {#layout-20261031b}
+
+0.1.13的 `49cdb4c` 快照新增 `xlab/ylab/ylim/mean_label/palette`。其中非空 `palette` 与最新RegR存在包间兼容缺陷，见下方复核；本节成功输出均使用默认配色。`tidy_plot=TRUE` 现在让全部面板采用同一纵轴范围，避免隐藏后列坐标轴时误读不同量程；`"shared"` 还合并行列标题、轴标题与间距。显式 `ylim` 是观察窗，范围外的数据保留。下面仅用120行合成数据拟合Logistic和Cox，不重跑上方历史模型。
+
+<!-- update-20261031b: mlr_vpd_input -->
+
+```r
+set.seed(103103)
+vpd_data31b <- expand.grid(Sex = c("Female", "Male"), Group = c("Low", "High"),
+  replicate = seq_len(30), KEEP.OUT.ATTRS = FALSE)
+vpd_data31b$Age <- round(rnorm(120, 58, 8))
+vpd_lp31b <- 0.5 * (vpd_data31b$Sex == "Male") + 0.9 * (vpd_data31b$Group == "High") +
+  0.03 * (vpd_data31b$Age - 58)
+vpd_data31b$Outcome <- factor(ifelse(rbinom(120, 1, plogis(-1.3 + vpd_lp31b)) == 1, "Yes", "No"),
+  levels = c("No", "Yes"))
+vpd_data31b$time <- pmin(rexp(120, exp(vpd_lp31b) / 60), 60)
+vpd_data31b$DSS <- as.integer(vpd_data31b$time < 60)
+vpd_vars31b <- c("Age", "Sex", "Group")
+```
+
+<!-- /update-20261031b: mlr_vpd_input -->
+
+#### Logistic：共用标题与均值标签
+
+<!-- update-20261031b: mlr_vpd_log -->
+
+先运行本节合成数据。二分类正类为Yes；默认均值标签只显示数值，`"full"` 恢复均值符号，`"none"` 只去标签、均值点仍保留。`"shared"` 的分类横轴去掉PD采样剖面的n，不能将这些n当成原始患者数。
+
+```r
+vpd_log31b <- MLR::get_exp(vpd_data31b, vars = vpd_vars31b, surv = "Outcome")
+vpd_shared31b <- MLR::get_vpd(vpd_log31b, c("Sex", "Group"), tidy_plot = "shared",
+  xlab = "Risk group", ylab = "P(Outcome = Yes)", ylim = c(0, 1), palette = NULL)
+RegR::save_plt(vpd_shared31b, file.path(tempdir(), "20261031b-update-vpd-shared.pdf"),
+  width = attr(vpd_shared31b, "plot_size")[["width"]], height = attr(vpd_shared31b, "plot_size")[["height"]])
+vpd_full31b <- MLR::plt_vpd_log(vpd_log31b, "Group", mean_label = "full", ylim = c(0, 1))
+vpd_none31b <- MLR::plt_vpd_log(vpd_log31b, "Group", mean_label = "none", ylim = c(0, 1))
+RegR::save_plt(patchwork::wrap_plots(vpd_full31b, vpd_none31b, nrow = 1),
+  file.path(tempdir(), "20261031b-update-vpd-labels.pdf"), width = 10, height = 7)
+```
+
+![分类分组VPD使用同一纵轴，行列标题统一。](images/vpd-guide/20261031b-update-vpd-shared.png){fig-alt="120行合成Logistic解释器，Female和Male作为列标题，VD和PD作为行标题，全部面板使用零到一概率观察窗。"}
+
+[原生 PDF](images/vpd-guide/20261031b-update-vpd-shared.pdf)
+
+![同一解释器的full和none均值标签对比。](images/vpd-guide/20261031b-update-vpd-labels.png){fig-alt="左列均值标签保留符号，右列去除标签但仍显示均值点，分类颜色与概率坐标一致。"}
+
+[原生 PDF](images/vpd-guide/20261031b-update-vpd-labels.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+vpd_y31b <- lapply(seq_len(length(vpd_shared31b)), function(i)
+  ggplot2::ggplot_build(vpd_shared31b[[i]])$layout$panel_params[[1]]$y.range)
+vpd_labels31b <- function(p) unlist(lapply(seq_len(length(p)), function(i)
+  unlist(lapply(p[[i]]$layers, function(z)
+    if (inherits(z$geom, "GeomLabelRepel") && is.data.frame(z$data) && "expression" %in% names(z$data)) as.character(z$data$expression)))))
+stopifnot(length(vpd_y31b) == 4L,
+  all(vapply(vpd_y31b, function(z) isTRUE(all.equal(z, vpd_y31b[[1]])), FALSE)),
+  length(vpd_labels31b(vpd_shared31b)) > 0L,
+  !any(grepl("widehat", vpd_labels31b(vpd_shared31b))),
+  any(grepl("widehat", vpd_labels31b(vpd_full31b))),
+  length(vpd_labels31b(vpd_none31b)) == 0L)
+vpd_palette_error31b <- tryCatch(MLR::plt_vpd_log(vpd_log31b, "Group", palette = "nord_frost"), error = identity)
+stopifnot(inherits(vpd_palette_error31b, "error"),
+  grepl(".resolve_color", conditionMessage(vpd_palette_error31b), fixed = TRUE))
+validation_values <- list(palette_error = conditionMessage(vpd_palette_error31b),
+  rows = nrow(vpd_data31b), positives = sum(vpd_data31b$Outcome == "Yes"),
+  y_ranges = vpd_y31b, plot_size = attr(vpd_shared31b, "plot_size"),
+  label_counts = c(value = length(vpd_labels31b(vpd_shared31b)),
+    full = length(vpd_labels31b(vpd_full31b)), none = length(vpd_labels31b(vpd_none31b))))
+```
+:::
+
+<!-- /update-20261031b: mlr_vpd_log -->
+
+#### Cox：默认颜色与非空palette的待修问题
+
+<!-- update-20261031b: mlr_vpd_sur -->
+
+仍先运行本节120行数据。这里time单位为月，预测24个月的生存概率S(24)，没有转成事件风险。分类关注变量按其水平着色；分组连续变量按组着色；单个连续变量按结局值着色。`palette=NULL` 保留原有Dark2/Lancet，均值点与单个连续变量的平滑线保留自身颜色。
+
+```r
+vpd_sur31b <- MLR::get_exp(vpd_data31b, vars = vpd_vars31b, surv = 24)
+vpd_sur_plot31b <- MLR::plt_vpd_sur(vpd_sur31b, c("Sex", "Age"), cores = 1,
+  xlab = "Age (years)", ylab = "S(24 months)", ylim = c(0, 1),
+  save = list(filename = file.path(tempdir(), "20261031b-update-vpd-sur-palette.pdf")))
+```
+
+![同一Cox模型的VD和PD按Sex保持颜色一致。](images/vpd-guide/20261031b-update-vpd-sur-palette.png){fig-alt="120行Cox模型的年龄与24月生存概率，Female和Male沿用默认Lancet颜色，共用概率观察窗。"}
+
+[原生 PDF](images/vpd-guide/20261031b-update-vpd-sur-palette.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+vpd_sur_y31b <- lapply(seq_len(length(vpd_sur_plot31b)), function(i)
+  ggplot2::ggplot_build(vpd_sur_plot31b[[i]])$layout$panel_params[[1]]$y.range)
+vpd_sur_colors31b <- lapply(seq_len(length(vpd_sur_plot31b)), function(i)
+  unname(vpd_sur_plot31b[[i]]$scales$get_scales("colour")$map(c("Female", "Male"))))
+stopifnot(inherits(vpd_sur31b, "exp.obj.sur"),
+  all(vapply(vpd_sur_y31b, function(z) isTRUE(all.equal(z, vpd_sur_y31b[[1]])), FALSE)),
+  all(vapply(vpd_sur_colors31b, identical, FALSE, vpd_sur_colors31b[[1]])))
+validation_values <- list(rows = nrow(vpd_data31b), events = sum(vpd_data31b$DSS), landmark = 24,
+  y_ranges = vpd_sur_y31b, colors = vpd_sur_colors31b, plot_size = attr(vpd_sur_plot31b, "plot_size"))
+```
+:::
+
+**非空palette待包修复：** MLR `49cdb4c` 的配色分支调用 `RegR:::.resolve_color()`；RegR `5067cdf` 已删除该本地副本，改从UtilsR导入。当前固定组合实际报 `object '.resolve_color' not found`，不是数据或所选色板不受支持。本节用 `palette=NULL` 保留可用输出；待MLR改为正确访问共享解析器后再补非空palette的成功图。该分支设计为分类关注变量按水平、分组连续变量按组、单个连续变量按结局着色，尚不能把此组合写成已验证可用。
+
+每面板的默认物理尺寸现为4×3英寸，再加坐标文字、条带和图例的测量尺寸；示例保留返回的 `plot_size`，不是把整页固定成4×3英寸。下方历史图保留原尺寸和坐标；需要当前共轴呈现时应按本节快照重跑。VD/PD与[分组一阶ALE](function-modules.qmd#ale-layout-20261031b)使用不同统计量，不能把ALE纵轴强行解释成概率。
+
+<!-- /update-20261031b: mlr_vpd_sur -->
+
 ## 参数调整、保存与使用边界 {#parameters}
 
 | 需求 | 参数 | 是否需要重算 |
@@ -884,6 +1000,7 @@ get_all现在有13个分析入口。ale2.args必须显式提供才启用；仅�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[同步共享坐标与配色](#layout-20261031b)，核对均值标签、Cox生存概率与实际画布尺寸。
 - 2026-10-27：按 `6ea0111` 补齐[预测列与训练类型](#prediction-schema-20261027b)、[Cox 尺度与独立进程回读](#cox-scales-20261027b)。
 - 2026-10-27：补充[生存缓存与累计风险](#survival-cache-20261027)的 36 行 Cox/ranger 数值核对。
 - 2026-10-27：补充[原始预测列与 RDS 回读](#explainer-reload-20261027)的 48 行独立进程核对。
