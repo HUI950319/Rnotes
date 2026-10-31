@@ -14,6 +14,8 @@ directory:
 本页接[交互分析](interaction-guide.qmd)，讲加性尺度的绝对风险与交互结果核对。代码沿用该页[示例数据与分析尺度](interaction-guide.qmd#data)准备的 `inter_data` 和 `cohort`，请先运行那一节。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31 追加按已推送 RegR `5067cdf`（0.1.3）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 :::
@@ -28,7 +30,7 @@ get_inter_abs(
   data, exposure_names, adj_var = NULL,
   surv = TRUE, sur_time = 120, poi_time = 12 * 1000,
   conf_level = 0.95, split_var = NULL, ref_idx = NULL,
-  multicat_model = c("separate", "interaction"),
+  multicat_model = c("interaction", "separate"),
   ci_method = c("delta", "boot"),
   cif_args = list(model = c("FGR", "CSC", "CRR")),
   n_boot = 500, n_cores = 1, binary_ref = NULL
@@ -44,7 +46,7 @@ get_inter_abs(
 | `sur_time` | 固定时点，单位与 `time` 一致；默认 120。不能把其他时间单位的数据直接称为“10 年风险” |
 | `poi_time` | 显式传入即切换为完整随访的人时发生率；`sur_time = NULL` 也会切换到发生率尺度 |
 | 两个时间参数 | 生存模式下，不能同时显式传入非空的 `sur_time` 与 `poi_time`；Logistic 不使用这两个参数 |
-| `multicat_model` | **默认 `"separate"`**，与 `get_inter()` 的默认值不同；完整模型与逐对子集模型的标准化人群也不同 |
+| `multicat_model` | **默认 `"interaction"`**，与 `get_inter()` 一致；二分类×多水平使用完整模型，`"separate"` 按参考组逐对拟合，标准化人群也不同 |
 | `ci_method` | 默认 `"delta"`，Fine–Gray 调整分支使用 mets 的联合影响函数协方差；`"boot"` 为联合 bootstrap 百分位区间，两种设置均使用 mets 拟合与标准化 |
 | `n_boot, n_cores` | bootstrap 次数与核数，默认 500 次、1 核；Fine–Gray 的 `delta` 分支不抽样，这两个参数不控制其耗时。较小抽样次数适合运行检查，正式区间需检查重复次数与稳定性 |
 | `cif_args` | 固定时点CIF默认FGR/mets；可选CSC或CRR，调整分支使用联合bootstrap，`delta` 会警告并回退；后端及模型假设见[当前说明](get-eff-cif-benchmark.qmd#current-backend) |
@@ -81,6 +83,71 @@ validation_values <- list(rows = vapply(inter_cohorts31, nrow, 0L), class = clas
 多结局、分层或多水平的原有内层形状仍保留。列表只决定“在哪份数据上重复运行”，不会把 `sur_time`、`poi_time`、参考组或置信区间方法按数据名自动改变。查看一个子集用 `abs_lists31$B`；[导出页](interaction-export-guide.qmd#subset-word-20261031)展示原生flextable和逐子集Word文件。真正生存结局的固定时点风险、CIF与人时发生率仍按本页原有尺度说明选择。
 
 <!-- /update-20261031: regr_abs_lists -->
+
+### 多水平默认完整模型与标准化人群（2026-10-31） {#default-20261031b}
+
+<!-- update-20261031b: regr_abs_default -->
+
+RegR `b0d7437` 起，`get_inter_abs()` 的 `multicat_model` 默认顺序改为 `c("interaction", "separate")`，与 `get_inter()` 一致。二分类×多水平现在默认用**一个完整模型**覆盖所有联合水平，再对各非参考水平计算 IC；`attr(result, "global_interaction")` 保存加性对比的总体 Wald 检验。显式 `"separate"` 仍按“参考水平＋一个非参考水平”分别拟合。调整分支据此使用不同的标准化人群，估计值不应被当成相同结果的不同排版。
+
+以下是360行合成二分类结局，Tx有2水平、Marker有3水平，每个联合单元60行。只运行Logistic的delta区间，没有生存时点或bootstrap。
+
+```r
+set.seed(103101)
+abs_default31b <- expand.grid(Tx = c("No", "Yes"), Marker = c("Low", "Mid", "High"),
+  replicate = seq_len(60), KEEP.OUT.ATTRS = FALSE)
+abs_default31b$Age <- round(rnorm(360, 57, 9))
+abs_default31b$Sex <- factor(rep(c("F", "M"), each = 6, length.out = 360))
+abs_default31b$Outcome <- rbinom(360, 1, plogis(-1.5 +
+  0.3 * (abs_default31b$Tx == "Yes") + 0.5 * (abs_default31b$Marker == "Mid") +
+  0.9 * (abs_default31b$Marker == "High") + 0.02 * (abs_default31b$Age - 57) +
+  0.5 * (abs_default31b$Tx == "Yes" & abs_default31b$Marker == "High")))
+abs_full31b <- RegR::run_quiet(RegR::get_inter_abs(abs_default31b,
+  c("Tx", "Marker"), adj_var = "Age", surv = "Outcome"))
+abs_separate31b <- RegR::run_quiet(RegR::get_inter_abs(abs_default31b,
+  c("Tx", "Marker"), adj_var = "Age", surv = "Outcome", multicat_model = "separate"))
+attr(abs_full31b, "global_interaction")
+gt::gtsave(RegR::fmt_inter_gt(abs_full31b),
+  file.path(tempdir(), "20261031b-update-abs-full.html"))
+```
+
+![默认完整Logistic模型产生的原生gt绝对风险交互表。](images/interaction-abs-guide/20261031b-update-abs-full.png){fig-alt="360行合成数据的完整模型，列出Low、Mid、High联合风险和相对参考水平的IC，含未调整和Age调整结果。"}
+
+[原生 HTML 表格](images/interaction-abs-guide/20261031b-update-abs-full.html)
+
+此例完整模型的标准化输入是全部360行；逐对模型分别使用Low＋Mid、Low＋High各240行。完整结果的 `inter_type` 为 `"multicat"`，逐对结果为 `"mul"`。总体Wald检验自由度为2；它检验加性对比是否共同为零，不等于逐个IC区间，也不能代替乘法尺度的检验。各联合风险不要求等于逐对模型的风险。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+abs_explicit31b <- RegR::run_quiet(RegR::get_inter_abs(abs_default31b,
+  c("Tx", "Marker"), adj_var = "Age", surv = "Outcome", multicat_model = "interaction"))
+abs_binary31b <- RegR::run_quiet(RegR::get_inter_abs(abs_default31b,
+  c("Tx", "Sex"), adj_var = "Age", surv = "Outcome"))
+abs_binary_sep31b <- RegR::run_quiet(RegR::get_inter_abs(abs_default31b,
+  c("Tx", "Sex"), adj_var = "Age", surv = "Outcome", multicat_model = "separate"))
+abs_many31b <- RegR::run_quiet(RegR::get_inter_abs(abs_default31b,
+  c("Tx", "Marker", "Sex"), adj_var = "Age", surv = "Outcome"))
+abs_pair_rows31b <- vapply(c("Mid", "High"), function(z)
+  sum(abs_default31b$Marker %in% c("Low", z)), 0L)
+stopifnot(isTRUE(all.equal(abs_full31b, abs_explicit31b)),
+  identical(attr(abs_full31b, "inter_type"), "multicat"),
+  identical(attr(abs_separate31b, "inter_type"), "mul"),
+  all(vapply(attr(abs_full31b, "global_interaction"), function(z) z$df == 2, FALSE)),
+  isTRUE(all.equal(abs_binary31b, abs_binary_sep31b)),
+  identical(attr(abs_binary31b, "inter_type"), "single"),
+  identical(attr(abs_many31b, "inter_type"), "mul"),
+  length(abs_many31b) == 3L, all(abs_pair_rows31b == 240L))
+validation_values <- list(rows = nrow(abs_default31b), pair_rows = abs_pair_rows31b,
+  global = attr(abs_full31b, "global_interaction"),
+  shape = c(full = attr(abs_full31b, "inter_type"), separate = attr(abs_separate31b, "inter_type"),
+    binary = attr(abs_binary31b, "inter_type"), many = attr(abs_many31b, "inter_type")),
+  default_matches_explicit = TRUE, binary_unchanged = TRUE)
+```
+:::
+
+两个二分类暴露仍走单个结果路径。**超过两个暴露**且未传 `multicat_model` 时自动沿用逐对的 `"separate"` 路径；显式指定 `"interaction"` 仍要求恰好两个暴露，且多水平完整模型要求二分类×多水平。`ref_idx` 先合并水平，分层则在每层内独立建模。下方旧图和2026-10-31较早的数据列表示例保留原 `e2926a6` 执行结果；若这些输入含多水平变量，按新默认重跑时应重新核对返回形状、人群和估计。
+
+<!-- /update-20261031b: regr_abs_default -->
 
 ### 四种尺度设置
 
@@ -758,7 +825,7 @@ stopifnot(isTRUE(from_eff[["consistent"]]), isTRUE(from_facet[["consistent"]]),
 ```
 :::
 
-上例显式用 `multicat_model="separate"` 生成 Tx×Sex、Tx×Site 逐对结果；当前默认的 `"interaction"` 只接受两个暴露。`target` 只按 Sex 分层时，函数自动选择 Sex。`get_facet()` 从分层列推断，`get_eff()` / `get_eff_cat()` 从 `sub_var` 推断。若两个候选修饰变量都出现在目标对象中，仍须明确写 `modifier="Sex"` 或 `"Site"`；它不会逐项猜选，也不会改成三重交互模型。
+上例显式用 `multicat_model="separate"` 生成 Tx×Sex、Tx×Site 逐对结果；未指定 `multicat_model` 且超过两个暴露时自动用 `"separate"`；显式 `"interaction"` 要求恰好两个暴露。`target` 只按 Sex 分层时，函数自动选择 Sex。`get_facet()` 从分层列推断，`get_eff()` / `get_eff_cat()` 从 `sub_var` 推断。若两个候选修饰变量都出现在目标对象中，仍须明确写 `modifier="Sex"` 或 `"Site"`；它不会逐项猜选，也不会改成三重交互模型。
 
 #### 差异提示来自单元模式，仍须回查分析设置
 
@@ -888,6 +955,7 @@ stopifnot(identical(unname(validation_values[["compared"]]), c(4L, 4L, 6L, 6L)),
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[核对多水平默认完整模型](#default-20261031b)，区分360行完整标准化与240行逐对标准化。
 - 2026-10-31：[补充绝对尺度的数据列表返回与独立调用核对](#subsets-20261031)。
 - 2026-10-23：[绝对交互：逐模型计算与导出](#abs-models-20261023)
 - 2026-10-22：[自动选分层变量与差异提示](#check-target-20261022)
