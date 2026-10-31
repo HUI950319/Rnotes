@@ -16,6 +16,8 @@ date-modified: 2026-11-01
 **历史版本与执行范围：** 以下原有31个参数示例按 UtilsR **0.6.8** 核对；31 个示例已在 WSL R 4.4.3 中实际执行，其中 31 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `5cab2565`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `5cab2565`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `129c5a71`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `129c5a71`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -58,16 +60,16 @@ dat_empty <- dat[dat[["stage"]] != "III", , drop = FALSE]
 | 堆积或并排 | `position = "stack"` | `"dodge"` 并排；不是将百分比分母改为全样本 |
 | 颜色 | `palette = NULL`、`alpha = 0.8` | 配色名或颜色向量；因子水平顺序决定颜色对应 |
 | 标签 | `label = FALSE`、`label.size = 3.5` | `label.fg`、`label.bg`、`label.bg.r` 控制标签外观 |
-| 背景分组 | `bg.by = NULL`、`bg_palette = NULL`、`bg_alpha = 0.15` | 标准并排图使用；每个分组须唯一归属一个背景组 |
+| 背景分组 | `bg.by = NULL`、`bg_palette = NULL`、`bg_alpha = 0.15` | 有group.by的bar/trend/dot并排图使用；其他分支在列验证前忽略 |
 | 缺失 | `NA_stat = FALSE`、`NA_color = "grey80"` | 默认去除涉及列中的缺失行；开启后把 NA 作为类别 |
 | 空水平 | `keep_empty = FALSE` | 保留空因子水平及零计数；旧图有版本差异，当前行为见[修复后实测](#empty-fixed-20261031b) |
 | 集合成员 | `stat_level = NULL` | 只用于 Venn/UpSet；显式指定各列的阳性水平更易复核 |
 | 布局 | `flip = FALSE`、`aspect.ratio = NULL` | 翻转和面板高宽比；极坐标类型默认等比 |
-| 分层排版 | `facet_nrow`、`facet_ncol`、`facet_byrow = TRUE` | 控制 `split.by` 生成的组合图 |
+| 分层排版 | `facet_nrow`、`facet_ncol`、`facet_byrow = TRUE` | 正整数且网格足以容纳全部面板；控制 `split.by` 组合图 |
 | 图例与字号 | `legend.position = "right"`、`legend.direction = "vertical"`、`base_size = 14` | 只改变显示 |
 | 高基数限制 | `force = FALSE` | 变量超过 100 水平默认拒绝；适宜先整理水平再画图 |
 
-标准类型包括 `bar/rose/ring/pie/trend/area/dot`；`sankey/chord/venn/upset` 则有不同的数据准备。集合类型会忽略 `group.by`，不能把标准图的所有参数都按相同含义套用。
+标准类型包括 `bar/rose/ring/pie/trend/area/dot`；`sankey/chord/venn/upset` 则有不同的数据准备。集合类型会忽略 `group.by/bg.by`，不能把标准图的所有参数都按相同含义套用。Venn最多七列；UpSet每层最多显示20种交集，见[显示边界](#upset-bounds-20261101b)。
 
 ## 计数、比例与方向
 
@@ -427,6 +429,74 @@ plt_cat(dat_empty, "stage", type = "bar", stat = "count", keep_empty = TRUE, lab
 
 :::
 
+### 分层总标题、共享图例与空字符串配色（2026-11-01） {#layout-20261101b}
+
+<!-- update-20261101: utils_cat_latest_layout -->
+
+UtilsR `5cab2565` 将 `title/subtitle` 放在分层整图上各一次，层名仍保留为面板标题。分类图的共享图例按全图实际类别统一，不用给各层补造零计数行。命名色板的空名称可以匹配真实空字符串类别；真正缺失仍由 `NA_stat/NA_color` 单独处理。
+
+```r
+cat_layoutB01 <- data.frame(category = factor(c("A", "B", "A", "C"),
+  levels = c("C", "B", "A", "unused")), site = c("one", "one", "two", "two"))
+cat_layout_plotB01 <- UtilsR::plt_cat(cat_layoutB01, "category", split.by = "site", stat = "count",
+  palette = c(C = "#009E73", B = "#3B5488", A = "#D55E00"), facet_ncol = 2,
+  title = "One overall heading", subtitle = "Shared categories, unchanged panel counts",
+  save = list(filename = file.path(tempdir(), "20261101-update-cat-latest-layout.pdf"), width = 8, height = 4.5))
+cat_emptyB01 <- data.frame(category = c("", "A", "", NA))
+cat_empty_colorsB01 <- stats::setNames(c("#D55E00", "#3B5488"), c("", "A"))
+cat_empty_plotB01 <- UtilsR::plt_cat(cat_emptyB01, "category", stat = "count", NA_stat = TRUE,
+  palette = cat_empty_colorsB01, label = TRUE, title = "Empty string and missing are distinct",
+  save = list(filename = file.path(tempdir(), "20261101-update-cat-latest-empty-colour.pdf")))
+```
+
+::: {.panel-tabset}
+#### 分层整图 {.unnumbered}
+
+![两层共享C B A图例，总标题只出现一次，未观测unused不加入图例。](images/categorical-guide/20261101-update-cat-latest-layout.png){fig-alt="四行数据按one和two分层，每层仍只有两个计数行；共享图例按原全局因子顺序显示C B A。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-latest-layout.pdf)
+
+#### 空字符串与真实缺失 {.unnumbered}
+
+![空字符串类别的两行用橙色显示，A为蓝色，真正缺失另用灰色。](images/categorical-guide/20261101-update-cat-latest-empty-colour.png){fig-alt="四行合成输入保留空字符串二行、A一行和真正缺失一行；命名色板中的空名称只匹配空字符串。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-latest-empty-colour.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_textB01 <- function(g) c(if (inherits(g, "text")) as.character(g$label),
+  unlist(lapply(g$grobs, cat_textB01), use.names = FALSE),
+  unlist(lapply(g$children, cat_textB01), use.names = FALSE))
+cat_grobB01 <- patchwork::patchworkGrob(cat_layout_plotB01)
+cat_labelsB01 <- cat_textB01(cat_grobB01)
+cat_guideB01 <- cat_textB01(cat_grobB01$grobs[[which(cat_grobB01$layout$name == "guide-box")]])
+cat_empty_buildB01 <- ggplot2::ggplot_build(cat_empty_plotB01)$data[[1]]
+cat_layout_errorsB01 <- list(
+  tryCatch(UtilsR::plt_cat(cat_layoutB01, "category", split.by = "site", facet_nrow = 0), error = identity),
+  tryCatch(UtilsR::plt_cat(cat_layoutB01, "category", split.by = "site", facet_ncol = 1.5), error = identity),
+  tryCatch(UtilsR::plt_cat(cat_layoutB01, "category", split.by = "site", facet_nrow = 1, facet_ncol = 1), error = identity))
+cat_ignored_bgB01 <- UtilsR::plt_cat(cat_emptyB01, "category", stat = "count", NA_stat = TRUE,
+  palette = cat_empty_colorsB01, label = TRUE, title = "Empty string and missing are distinct", bg.by = "absent")
+stopifnot(sum(cat_labelsB01 == "One overall heading") == 1L,
+  sum(cat_labelsB01 == "Shared categories, unchanged panel counts") == 1L,
+  identical(cat_guideB01[cat_guideB01 %in% c("A", "B", "C", "unused")], c("C", "B", "A")),
+  all(vapply(seq_len(2), function(i) nrow(cat_layout_plotB01[[i]]$data) == 2L, FALSE)),
+  sum(cat_empty_plotB01$data$n) == 4,
+  cat_empty_buildB01$fill[as.character(cat_empty_plotB01$data$stat_var) == ""] == "#D55E00",
+  sum(cat_empty_buildB01$fill == "grey80") == 1L,
+  all(vapply(cat_layout_errorsB01, inherits, FALSE, "error")),
+  isTRUE(all.equal(ggplot2::ggplot_build(cat_empty_plotB01)$data, ggplot2::ggplot_build(cat_ignored_bgB01)$data)))
+validation_values <- list(panel_rows = vapply(seq_len(2), function(i) nrow(cat_layout_plotB01[[i]]$data), 1L),
+  legend = cat_guideB01[cat_guideB01 %in% c("A", "B", "C")], empty_counts = cat_empty_plotB01$data$n,
+  rejected_layouts = vapply(cat_layout_errorsB01, conditionMessage, ""))
+```
+:::
+
+`facet_nrow/facet_ncol` 需为正整数，同时填写时须能容纳全部面板；无效值在绘图前报错。`bg.by` 仅在有group.by的bar/trend/dot并排图中生效，其他分支会警告并在列验证前忽略，所以上面不存在的背景列不影响结果；在真正启用背景的分支，列名仍必须存在。
+
+<!-- /update-20261101: utils_cat_latest_layout -->
+
 ## 极坐标：玫瑰、环形与饼图
 
 ::: {.panel-tabset}
@@ -529,6 +599,48 @@ plt_cat(dat, "stage", "cohort", type = "dot", stat = "percent", label = TRUE)
 ![点的大小编码组内比例；用标签辅助读值，避免把点直径当作比例。](images/categorical-guide/dot.png){fig-alt="分类变量：plt_cat 的 11 种图形与重要参数；气泡点图；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 并排趋势图的面积与计数（2026-11-01） {#trend-20261101b}
+
+<!-- update-20261101: utils_cat_latest_trend -->
+
+并排趋势图的底部面积使用已经计算好的类别位置，不再重复dodge。下面4行每组各有A、B一行：两类高度均为1，标签对齐各自柱形。`flip` 参数按帮助只用于bar；右图通过 `coord_flip(ylim=c(0, 1.3))` 显式翻转，并为计数标签保留观察窗空间。堆积模式仍按两类合计到2。
+
+```r
+cat_trendB01 <- data.frame(category = c("A", "B", "A", "B"),
+  group = c("G1", "G1", "G2", "G2"), region = c("North", "North", "South", "South"))
+cat_trend_plotB01 <- UtilsR::plt_cat(cat_trendB01, "category", "group", type = "trend", stat = "count",
+  position = "dodge", label = TRUE, bg.by = "region", title = "Dodged trend")
+cat_trend_flipB01 <- cat_trend_plotB01 + ggplot2::coord_flip(ylim = c(0, 1.3)) +
+  ggplot2::labs(title = "Same counts, coord_flip")
+RegR::save_plt(patchwork::wrap_plots(cat_trend_plotB01, cat_trend_flipB01, nrow = 1),
+  file.path(tempdir(), "20261101-update-cat-latest-trend.pdf"), width = 9, height = 4.5)
+```
+
+![并排趋势图及翻转图的面积局限于两个类别位置，各类计数为一。](images/categorical-guide/20261101-update-cat-latest-trend.png){fig-alt="四行数据的两幅趋势图，右图通过coord_flip显式翻转；A B分别位于组内并排位置，标签对齐柱形，类别计数不变。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-latest-trend.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_trend_buildsB01 <- lapply(list(cat_trend_plotB01, cat_trend_flipB01), ggplot2::ggplot_build)
+for (builtB01 in cat_trend_buildsB01) {
+  stopifnot(all(builtB01$data[[2]]$x >= 0.69 & builtB01$data[[2]]$x <= 2.31),
+    identical(range(builtB01$data[[2]]$ymax), c(0, 1)),
+    identical(as.numeric(builtB01$data[[3]]$x), as.numeric(builtB01$data[[4]]$x)))
+}
+cat_trend_stackB01 <- UtilsR::plt_cat(cat_trendB01, "category", "group", type = "trend", stat = "count")
+stopifnot(max(ggplot2::ggplot_build(cat_trend_stackB01)$data[[1]]$ymax) == 2,
+  sum(cat_trend_plotB01$data$n) == 4, identical(cat_trend_plotB01$data, cat_trend_flipB01$data),
+  inherits(cat_trend_flipB01$coordinates, "CoordFlip"), !inherits(cat_trend_plotB01$coordinates, "CoordFlip"),
+  max(cat_trend_buildsB01[[2]]$layout$panel_params[[1]]$x.range) > 1.25)
+validation_values <- list(rows = nrow(cat_trendB01), counts = cat_trend_plotB01$data$n,
+  dodged_height = 1, stacked_height = 2,
+  area_x_range = range(cat_trend_buildsB01[[1]]$data[[2]]$x))
+```
+:::
+
+<!-- /update-20261101: utils_cat_latest_trend -->
 
 ### 面积图的显示位置与选列（2026-11-01） {#area-20261101}
 
@@ -642,6 +754,50 @@ plt_cat(dat, c("stage", "cohort"), type = "venn",
 
 :::
 
+### Sankey的列名与重复路径（2026-11-01） {#sankey-20261101b}
+
+<!-- update-20261101: utils_cat_latest_sankey -->
+
+当前 `plt_cat(type="sankey")` 将用户的阶段名与后端临时字段分开，`node/value/.stage1` 等名字可以直接使用。同一完整路径先合并为频数，再生成阶段长表；表的行数减少，路径权重和原始人数不减少。
+
+```r
+cat_sankeyB01 <- data.frame(node = factor(c("a", "b", "a", "a", NA), levels = c("b", "a", "unused")),
+  value = c("x", "y", "x", "x", "x"), .stage1 = c("u", "v", "u", "u", "v"))
+cat_sankey_originalB01 <- cat_sankeyB01
+cat_sankey_dropB01 <- UtilsR::plt_cat(cat_sankeyB01, names(cat_sankeyB01), type = "sankey",
+  label = TRUE, title = "Drop missing: 4 rows")
+cat_sankey_keepB01 <- UtilsR::plt_cat(cat_sankeyB01, names(cat_sankeyB01), type = "sankey",
+  label = TRUE, NA_stat = TRUE, title = "Keep missing: 5 rows")
+RegR::save_plt(patchwork::wrap_plots(cat_sankey_dropB01, cat_sankey_keepB01, nrow = 1),
+  file.path(tempdir(), "20261101-update-cat-latest-sankey.pdf"), width = 10, height = 4.5)
+```
+
+![相同路径合并权重后，去掉缺失为四人，保留缺失为五人。](images/categorical-guide/20261101-update-cat-latest-sankey.png){fig-alt="三阶段Sankey横轴显示用户列名node value .stage1；重复的a x u路径权重为三，另一区别是是否保留一条真正缺失路径。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-latest-sankey.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (plotB01 in list(cat_sankey_dropB01, cat_sankey_keepB01)) {
+  expandedB01 <- plotB01
+  expandedB01$data <- plotB01$data[rep(seq_len(nrow(plotB01$data)), plotB01$data$value), , drop = FALSE]
+  expandedB01$data$value <- 1L
+  stopifnot(isTRUE(all.equal(ggplot2::ggplot_build(plotB01)$data, ggplot2::ggplot_build(expandedB01)$data)))
+}
+stopifnot(identical(cat_sankeyB01, cat_sankey_originalB01),
+  nrow(cat_sankey_dropB01$data) == 6L, nrow(cat_sankey_keepB01$data) == 9L,
+  sum(cat_sankey_dropB01$data$value[cat_sankey_dropB01$data$x == "node"]) == 4,
+  sum(cat_sankey_keepB01$data$value[cat_sankey_keepB01$data$x == "node"]) == 5,
+  identical(ggplot2::ggplot_build(cat_sankey_keepB01)$layout$panel_params[[1]]$x$get_labels(), names(cat_sankeyB01)))
+validation_values <- list(input_rows = nrow(cat_sankeyB01), long_rows = c(6L, 9L),
+  first_stage_weights = c(4, 5), compressed_and_expanded_flows_equal = TRUE)
+```
+:::
+
+复核框将权重展开回逐行形式，与压缩路径的实际图层逐项比较；这不是新增输入权重参数。三阶段表的6或9行不是患者数，应在某一阶段合计value，而不能将全部阶段的权重重复相加。这里只验证结果一致，没有另报性能倍数。
+
+<!-- /update-20261101: utils_cat_latest_sankey -->
+
 ### 单行UpSet、透明度与被忽略列（2026-11-01） {#upset-20261101}
 
 <!-- update-20261101: utils_cat_upset -->
@@ -699,6 +855,65 @@ validation_values <- list(input_rows = nrow(cat_sets01), represented_rows = sum(
 集合类型先移除被忽略的 `group.by/bg.by`，再检查实际用到的列，不会因为被忽略列是list或含缺失而拒绝数据。标准图只使用 `stat.by` 的第一列；弦图只使用前两列，忽略项会警告，但不应参与高基数检查或缺失行筛选。`plt_upset()` 是另一入口，其返回数据及分母规则见[集合教程](sets-guide.qmd#cat-upset-20261101)，不要混用两者的约定。
 
 <!-- /update-20261101: utils_cat_upset -->
+
+### UpSet截断提示与空分层（2026-11-01） {#upset-bounds-20261101b}
+
+<!-- update-20261101: utils_cat_latest_upset -->
+
+这一入口每个面板最多画最常见的20个非空交集；超过时现在警告报告显示数、总交集数和省略数。31种交集各出现一次的例子只显示20根柱，不能把柱高合计20当成完整输入人数31。同频交集的入选顺序不作额外约定。空层的中文占位在Windows默认PDF字体中可能缺字，下面只为该文字层指定本机已安装的中文字体；其他机器需换成当地可用字体，不改成员或计数。
+
+```r
+cat_manyB01 <- expand.grid(A = c(FALSE, TRUE), B = c(FALSE, TRUE), C = c(FALSE, TRUE),
+  D = c(FALSE, TRUE), E = c(FALSE, TRUE))[-1, ]
+cat_many_plotB01 <- UtilsR::plt_cat(cat_manyB01, names(cat_manyB01), type = "upset",
+  stat_level = TRUE, label = TRUE, title = "20 displayed intersections out of 31",
+  save = list(filename = file.path(tempdir(), "20261101-update-cat-latest-upset-limit.pdf"), width = 10.5, height = 5))
+cat_sitesB01 <- data.frame(A = c(TRUE, FALSE), B = c(TRUE, FALSE), site = c("positive", "negative"))
+cat_sites_plotB01 <- UtilsR::plt_cat(cat_sitesB01, c("A", "B"), type = "upset", stat_level = TRUE,
+  split.by = "site", title = "All observed sites", facet_ncol = 2)
+cat_site_fontB01 <- if (.Platform[["OS.type"]] == "windows") "Microsoft YaHei" else "WenQuanYi Zen Hei"
+cat_sites_plotB01[[2]]$layers[[1]]$aes_params$family <- cat_site_fontB01
+RegR::save_plt(cat_sites_plotB01, file.path(tempdir(), "20261101-update-cat-latest-upset-empty.pdf"),
+  width = 9, height = 4.5)
+```
+
+::: {.panel-tabset}
+#### 31种交集中的20种 {.unnumbered}
+
+![输入31种非空交集，当前只展示20种。](images/categorical-guide/20261101-update-cat-latest-upset-limit.png){fig-alt="五集合合成输入含31行互不相同的非空交集，图上20根柱高均为一，另11种由警告提示省略。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-latest-upset-limit.pdf)
+
+#### 无匹配成员的层 {.unnumbered}
+
+![positive保留交集柱，negative保留无匹配成员占位与层名。](images/categorical-guide/20261101-update-cat-latest-upset-empty.png){fig-alt="两行分层输入中的negative行不属于任何集合，其面板仍显示无匹配成员；positive显示一个AB交集，不伪造negative的零交集柱。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-latest-upset-empty.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_many_buildB01 <- ggplot2::ggplot_build(cat_many_plotB01)
+cat_empty_panelB01 <- ggplot2::ggplot_build(cat_sites_plotB01[[2]])$data[[1]]
+cat_single_emptyB01 <- tryCatch(UtilsR::plt_cat(cat_sitesB01[2, ], c("A", "B"),
+  type = "upset", stat_level = TRUE), error = identity)
+cat_eightB01 <- as.data.frame(stats::setNames(rep(list(c(TRUE, FALSE, TRUE)), 8), LETTERS[1:8]))
+cat_venn_errorB01 <- tryCatch(UtilsR::plt_cat(cat_eightB01, names(cat_eightB01), type = "venn"), error = identity)
+stopifnot(nrow(cat_manyB01) == 31L, nrow(cat_many_plotB01$data) == 31L,
+  nrow(cat_many_buildB01$data[[1]]) == 20L, sum(cat_many_buildB01$data[[1]]$count) == 20L,
+  nrow(cat_sites_plotB01[[2]]$data) == 0L, identical(cat_empty_panelB01$label, "无匹配成员"),
+  identical(cat_sites_plotB01[[2]]$layers[[1]]$aes_params$family, cat_site_fontB01),
+  inherits(cat_single_emptyB01, "error"), grepl("No rows match", conditionMessage(cat_single_emptyB01)),
+  inherits(cat_venn_errorB01, "error"), grepl("seven.*upset", conditionMessage(cat_venn_errorB01)))
+validation_values <- list(input_rows = 31L, displayed_intersections = 20L, omitted_intersections = 11L,
+  empty_panel_rows = nrow(cat_sites_plotB01[[2]]$data), empty_panel_label = cat_empty_panelB01$label,
+  unsupported_venn_message = conditionMessage(cat_venn_errorB01))
+```
+:::
+
+无匹配成员的占位仅用于保留分层图中的该层，不代表产生一个新的空集成员；单独输入全无成员时仍明确报错。Venn最多支持七列集合，超过时提示改用UpSet；七集合的形状复杂度和UpSet的20交集显示上限是两件不同的事，`force=TRUE` 不会改变这两个规则。
+
+<!-- /update-20261101: utils_cat_latest_upset -->
 
 ### 弦图的命名颜色、保存与回放（2026-11-01） {#chord-20261101}
 
@@ -886,6 +1101,10 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：[说明UpSet截断和空分层](#upset-bounds-20261101b)，明确Venn七集合上限。
+- 2026-11-01：[补充Sankey的保留列名与重复路径](#sankey-20261101b)，压缩权重与逐行图层一致。
+- 2026-11-01：[核对并排趋势面积位置](#trend-20261101b)，保留原始计数并显式翻转返回图。
+- 2026-11-01：[补充分层标题、共享图例与空名称配色](#layout-20261101b)，核对布局预检和忽略背景列。
 - 2026-11-01：[核对弦图命名颜色、文件保存和回放](#chord-20261101)，分别检查原生PDF和像素内容。
 - 2026-11-01：[补充单行UpSet和透明度](#upset-20261101)，忽略列不参与验证和筛选。
 - 2026-11-01：[补充面积图预检与有效选列](#area-20261101)，核对零计数和未使用输入列。
