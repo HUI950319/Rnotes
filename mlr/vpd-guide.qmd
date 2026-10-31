@@ -884,25 +884,33 @@ validation_values <- list(palette_error = conditionMessage(vpd_palette_error31b)
 ```r
 vpd_sur31b <- MLR::get_exp(vpd_data31b, vars = vpd_vars31b, surv = 24)
 vpd_sur_plot31b <- MLR::plt_vpd_sur(vpd_sur31b, c("Sex", "Age"), cores = 1,
-  xlab = "Age (years)", ylab = "S(24 months)", ylim = c(0, 1),
-  save = list(filename = file.path(tempdir(), "20261031b-update-vpd-sur-palette.pdf")))
+  xlab = "Age (years)", ylab = "S(24 months)", ylim = c(0, 1))
+vpd_sur_size31b <- attr(vpd_sur_plot31b, "plot_size")
+vpd_sur_plot31b <- UtilsR::fmt_strip2(vpd_sur_plot31b, top_label = "Sex groups",
+  right_label = c("VD", "PD"), ncol = 1)
+RegR::save_plt(vpd_sur_plot31b, file.path(tempdir(), "20261031b-update-vpd-sur-palette.pdf"),
+  width = 6.8, height = 8.2)
 ```
 
-![同一Cox模型的VD和PD按Sex保持颜色一致。](images/vpd-guide/20261031b-update-vpd-sur-palette.png){fig-alt="120行Cox模型的年龄与24月生存概率，Female和Male沿用默认Lancet颜色，共用概率观察窗。"}
+返回图用 `fmt_strip2()` 统一短条带，保存画布明确为6.8×8.2英寸，避免长英文条带裁切。本例蓝色为Female，红色为Male。VD使用整体模型预测；这条分组生存PD路径按Sex拆分后分别重建组内解释器，不是同一整体模型的按组PDP。排版不改变这两条计算路径。
+
+![VD与分组重建的生存PD按Sex保持颜色一致。](images/vpd-guide/20261031b-update-vpd-sur-palette.png){fig-alt="120行生存解释示例，上方整体Cox的年龄与24月生存概率，下方按Sex重建组内模型的PD，Female蓝、Male红，共用概率观察窗。"}
 
 [原生 PDF](images/vpd-guide/20261031b-update-vpd-sur-palette.pdf)
 
 ::: {.callout-note collapse="true" title="复核代码"}
 ```r
-vpd_sur_y31b <- lapply(seq_len(length(vpd_sur_plot31b)), function(i)
-  ggplot2::ggplot_build(vpd_sur_plot31b[[i]])$layout$panel_params[[1]]$y.range)
-vpd_sur_colors31b <- lapply(seq_len(length(vpd_sur_plot31b)), function(i)
-  unname(vpd_sur_plot31b[[i]]$scales$get_scales("colour")$map(c("Female", "Male"))))
+vpd_sur_build31b <- lapply(seq_len(length(vpd_sur_plot31b)), function(i)
+  ggplot2::ggplot_build(vpd_sur_plot31b[[i]]))
+vpd_sur_y31b <- lapply(vpd_sur_build31b, function(b) b$layout$panel_params[[1]]$y.range)
+vpd_sur_colors31b <- lapply(vpd_sur_build31b, function(b)
+  unname(b$plot$scales$get_scales("colour")$map(c("Female", "Male"))))
 stopifnot(inherits(vpd_sur31b, "exp.obj.sur"),
   all(vapply(vpd_sur_y31b, function(z) isTRUE(all.equal(z, vpd_sur_y31b[[1]])), FALSE)),
-  all(vapply(vpd_sur_colors31b, identical, FALSE, vpd_sur_colors31b[[1]])))
+  all(vapply(vpd_sur_colors31b, identical, FALSE, as.character(UtilsR::pal_lancet)[1:2])))
 validation_values <- list(rows = nrow(vpd_data31b), events = sum(vpd_data31b$DSS), landmark = 24,
-  y_ranges = vpd_sur_y31b, colors = vpd_sur_colors31b, plot_size = attr(vpd_sur_plot31b, "plot_size"))
+  y_ranges = vpd_sur_y31b, colors = vpd_sur_colors31b, model_page_size = vpd_sur_size31b,
+  example_page_size = c(width = 6.8, height = 8.2))
 ```
 :::
 
@@ -919,7 +927,10 @@ validation_values <- list(rows = nrow(vpd_data31b), events = sum(vpd_data31b$DSS
 | 修改预测时间 | get_exp 的数值 surv | 重建解释器，再作图 |
 | 改模型 | model | 重新训练 |
 | 选择变量/分组 | exp_var | 重算相应剖面，分组生存还会重建组内模型 |
-| 整理组合图 | tidy_plot | 改呈现 |
+| 整理组合图 | tidy_plot = TRUE / FALSE / "shared" | TRUE共同纵轴；shared进一步合并行列和轴标题 |
+| 轴标题与范围 | xlab / ylab / ylim | 标题及观察窗，不删除范围外观测 |
+| 分类均值标签 | mean_label = "value" / "full" / "none" | 默认只显示数值；none保留均值点 |
+| 自选颜色 | palette | 新接口；当前固定RegR组合的非空设置待包修复，见[实测](#layout-20261031b) |
 | 控制计算线程 | cores | 生存有效；分类忽略 |
 | 检查曲线非线性 | get_vpd_pnl 的 N | 重新抽样/计算曲线 |
 
