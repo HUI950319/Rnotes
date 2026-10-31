@@ -2,18 +2,20 @@
 title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖"
 description: "排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局；28 个实际参数示例。"
 date: 2026-10-01
-date-modified: 2026-10-24
+date-modified: 2026-10-31
 lightbox: true
 toc-depth: 2
 directory:
   title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖，28 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-10-24
+  updated: 2026-10-31
 ---
 
 排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；28 个示例已在 WSL R 4.4.3 中实际执行，其中 25 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 :::
 
@@ -267,6 +269,66 @@ PlotRankCor(cor_signed, "feature", "score", "cell", "method", use_rank = FALSE,
 ![变换为 sign(x)×log1p(abs(x))，允许负数；Pearson 在变换后显示值上计算，可能改变相关。](images/rank-guide/cor-log.png){fig-alt="排名与共享特征：Rank、方法一致性和圆形棒棒糖；带符号 log1p；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 分组身份、方法顺序与极端数值（2026-10-31） {#identity-20261031b}
+
+<!-- update-20261031b: utils_rank_identity -->
+
+0.6.19按“特征、组、方法”列元组聚合和对齐，名称里的点号或分隔符不会把不同组合合并。`method.by` 为因子时按**观测到的因子水平顺序**决定横纵轴；字符则按首次出现顺序。缺失组独立保留，已有文字 `<NA>` 时为真正缺失生成不冲突的名字。以下32行、4组、4特征、2方法同时包含特殊列名及原先会与内部临时列重名的 `.plot_val`。
+
+```r
+rank_id31b <- expand.grid(item = c("C", "B.C", "D", "E"),
+  group = c("A.B", "A", "<NA>", NA), method = c("First", "Second"),
+  KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+rank_id31b$method <- factor(rank_id31b$method, levels = c("unused", "Second", "First"))
+rank_id31b[[".plot_val"]] <- rep(c(8, 3, 6, 1), 4)[seq_len(32) %% 16 + 1]
+rank_id31b[[".plot_val"]][rank_id31b$method == "Second"] <- rep(c(9, 4, 2, 1), 4)
+rank_id31b[["size / n"]] <- seq_len(32)
+names(rank_id31b)[1:3] <- c("feature / id", "group / batch", "method + id")
+rank_palette31b <- c("<NA>.1" = "#7E6148", "A" = "#E64B35", "<NA>" = "#00A087", "A.B" = "#3B5488")
+rank_plot31b <- UtilsR::PlotRankCor(rank_id31b, "feature / id", ".plot_val", "group / batch", "method + id",
+  size_by = "size / n", palette = rank_palette31b, legend.position = "none", show.label = FALSE)
+rank_plot31b <- rank_plot31b + ggplot2::labs(subtitle = "4 distinct groups; x = Second, y = First")
+RegR::save_plt(rank_plot31b, file.path(tempdir(), "20261031b-update-rank-identity.pdf"), width = 8, height = 5)
+rank_extreme31b <- data.frame(feature = rep(letters[1:4], 2),
+  method = rep(c("First", "Second"), each = 4),
+  score = c(-1e308, -5e307, 5e307, 1e308, -1e308, -1e307, 1e307, 1e308))
+rank_scaled31b <- UtilsR::PlotRankCor(rank_extreme31b, "feature", "score", method.by = "method",
+  use_rank = FALSE, scale_x = "minmax", scale_y = "zscore", show.label = TRUE)
+RegR::save_plt(rank_scaled31b, file.path(tempdir(), "20261031b-update-rank-extreme.pdf"), width = 7, height = 4)
+```
+
+![分组键和方法顺序保持独立，命名色板与真实组对应。](images/rank-guide/20261031b-update-rank-identity.png){fig-alt="四个组分别为A A点B、文字NA及真实缺失NA点一，横轴Second、纵轴First，显式隐藏图例。"}
+
+[原生 PDF](images/rank-guide/20261031b-update-rank-identity.pdf)
+
+![极端有限分数经过稳定缩放后绘制，未因直接求范围或方差溢出而丢失。](images/rank-guide/20261031b-update-rank-extreme.png){fig-alt="四对数量级为十的三百零八次方的有限分数，横轴minmax、纵轴zscore，显示变换后Pearson相关。"}
+
+[原生 PDF](images/rank-guide/20261031b-update-rank-extreme.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+rank_cor31b <- attr(rank_plot31b, "cor_results")
+rank_build31b <- ggplot2::ggplot_build(rank_plot31b)
+rank_extreme_build31b <- ggplot2::ggplot_build(rank_scaled31b)
+rank_labs31b <- ggplot2::get_labs(rank_plot31b)
+stopifnot(nrow(rank_plot31b$data) == 16L, nrow(rank_cor31b) == 4L,
+  setequal(rank_cor31b$group, c("A", "A.B", "<NA>", "<NA>.1")),
+  all(is.finite(rank_cor31b$rho)),
+  identical(unname(rank_build31b$plot$scales$get_scales("colour")$map(names(rank_palette31b))), unname(rank_palette31b)),
+  identical(rank_labs31b$x, "Second (rank)"), identical(rank_labs31b$y, "First (rank)"),
+  identical(rank_plot31b$theme$legend.position, "none"),
+  all(is.finite(rank_extreme_build31b$data[[1]]$x)),
+  all(is.finite(rank_extreme_build31b$data[[1]]$y)))
+validation_values <- list(rows = nrow(rank_id31b), plotted_pairs = nrow(rank_plot31b$data),
+  correlations = rank_cor31b, method_axes = c(x = rank_labs31b$x, y = rank_labs31b$y),
+  scaled_correlation = attr(rank_scaled31b, "cor_results"))
+```
+:::
+
+秩先在组×方法内按每条观测计算，同特征重复项之后再取均值，不等于“先平均原分数再排秩”。原始数值相关只使用有限配对，少于3对或任一轴无变异时相关统计为缺失。极端分数缩放仍保持原转换定义；非线性转换可能改变Pearson相关。SPSS用户缺失先按原类识别；integer64的秩保留精度，原始值或大小/透明度映射超出双精度精确整数范围时明确报错。映射列没有任何有限组均值时会警告，不能用任意值补点。显式 `legend.position="none"` 优先于大小映射自动图例。
+
+<!-- /update-20261031b: utils_rank_identity -->
 
 ### 相关图：缺失分数与稀疏缩放（2026-10-24） {#rank-missing-20261024}
 
@@ -623,5 +685,6 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[核对分组身份与稳定缩放](#identity-20261031b)，明确方法顺序、有限配对和命名配色。
 - 2026-10-24：[相关图：缺失分数与稀疏缩放](#rank-missing-20261024)
 :::
