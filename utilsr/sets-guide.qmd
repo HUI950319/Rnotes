@@ -14,6 +14,8 @@ directory:
 plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；22 个示例已在 WSL R 4.4.3 中实际执行，其中 17 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
@@ -198,6 +200,59 @@ validation_values <- list(input_rows = nrow(members31), union_rows = 4L,
 集合名、选列和映射键须唯一且非空；`intersect_group` 已存在时，`data/all` 会要求先改名，避免覆盖。Venn最多7集合；超过7个时 `both/all` 返回UpSet并提示，明确请求 `venn` 会报错。无成员时仍可返回合法空分组数据，但不画空图。
 
 <!-- /update-20261031: utils_sets -->
+
+### 分层前固定成员定义与混合因子标签（2026-10-31） {#facets-20261031b}
+
+<!-- update-20261031b: utils_sets_facets -->
+
+`plt_cat(type="venn"/"upset")` 在分层前确定每列的阳性水平，再沿用到所有层，避免某层只有FALSE时把FALSE误认成阳性。`group.by` 对集合类型被忽略，不据此删除行；`split.by` 才控制分层。下面4行在negative层A全FALSE，positive层A全TRUE，而B始终TRUE。
+
+```r
+set_facets31b <- data.frame(A = c(FALSE, FALSE, TRUE, TRUE), B = TRUE,
+  site = c("negative", "negative", "positive", "positive"), ignored_group = NA_character_)
+set_default31b <- UtilsR::plt_cat(set_facets31b, c("A", "B"), type = "upset",
+  split.by = "site", group.by = "ignored_group", label = TRUE,
+  save = list(filename = file.path(tempdir(), "20261031b-update-sets-facets.pdf")))
+set_explicit31b <- UtilsR::plt_cat(set_facets31b, c("A", "B"), type = "upset", split.by = "site",
+  stat_level = list(A = FALSE, B = TRUE), label = TRUE,
+  save = list(filename = file.path(tempdir(), "20261031b-update-sets-explicit.pdf")))
+mixed_sets31b <- list(A = factor(c("id2", "id10"), levels = c("id10", "id2")),
+  B = c("id10", "id30"))
+mixed_members31b <- UtilsR::plt_upset(mixed_sets31b, output = "data")
+text_members31b <- UtilsR::plt_upset(list(A = as.character(mixed_sets31b$A), B = mixed_sets31b$B), output = "data")
+```
+
+::: {.panel-tabset}
+#### 默认TRUE为成员 {.unnumbered}
+
+![negative层只有B，positive层为A与B的交集。](images/sets-guide/20261031b-update-sets-facets.png){fig-alt="两个分层各两行，默认逻辑TRUE为阳性，negative层不能因A全FALSE而把它改成阳性。"}
+
+[原生 PDF](images/sets-guide/20261031b-update-sets-facets.pdf)
+
+#### 显式A的FALSE为成员 {.unnumbered}
+
+![显式成员定义在两层统一应用，negative层为AB，positive层只有B。](images/sets-guide/20261031b-update-sets-explicit.png){fig-alt="使用stat_level指定A的FALSE与B的TRUE为成员，两层交集按同一定义反转。"}
+
+[原生 PDF](images/sets-guide/20261031b-update-sets-explicit.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(set_default31b[[1]]$data$intersection, list("B", "B")),
+  identical(set_default31b[[2]]$data$intersection, rep(list(c("A", "B")), 2)),
+  identical(set_explicit31b[[1]]$data$intersection, rep(list(c("A", "B")), 2)),
+  identical(set_explicit31b[[2]]$data$intersection, list("B", "B")),
+  isTRUE(all.equal(mixed_members31b, text_members31b)),
+  setequal(mixed_members31b[[".element"]], c("id2", "id10", "id30")))
+validation_values <- list(rows = nrow(set_facets31b), default = lapply(seq_len(2), function(i)
+  set_default31b[[i]]$data$intersection), explicit = lapply(seq_len(2), function(i)
+  set_explicit31b[[i]]$data$intersection), mixed_member_ids = mixed_members31b[[".element"]])
+```
+:::
+
+混合“因子成员＋字符成员”列表时，`plt_upset()` 使用因子**标签**作为成员ID，不把内部整数代码当成员。返回的3个并集成员与预先转为字符的结果一致；`output="data"` 只生成成员表。集合阳性定义改变的是集合含义，应显式写进图注；单纯改分层或显示标签不应改变它。
+
+<!-- /update-20261031b: utils_sets_facets -->
 
 ## Venn 填色和标签
 
@@ -651,6 +706,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[固定分层前成员定义](#facets-20261031b)，补充显式阳性水平和混合因子成员ID。
 - 2026-10-31：[补充集合身份、原始缺失、透明填色和完整组合图](#identity-20261031)。
 - 2026-10-24：[Jaccard：缺失成员与多组条带](#jaccard-20261024)
 :::
