@@ -7,8 +7,8 @@ toc-depth: 2
 directory:
   title: "分类变量：plt_cat 的 11 种图形与重要参数"
   topic: 绘图与格式化
-  updated: 2026-10-31
-date-modified: 2026-10-31
+  updated: 2026-11-01
+date-modified: 2026-11-01
 ---
 
 `plt_cat()` 用一个公共入口组织 11 种分类图形。本页先比较同一张频数表的显示方式，再分别展示流向、弦图和集合交集。图形选项放在标签页中，点击结果图可放大。
@@ -16,6 +16,8 @@ date-modified: 2026-10-31
 **历史版本与执行范围：** 以下原有31个参数示例按 UtilsR **0.6.8** 核对；31 个示例已在 WSL R 4.4.3 中实际执行，其中 31 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `129c5a71`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `129c5a71`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -528,6 +530,49 @@ plt_cat(dat, "stage", "cohort", type = "dot", stat = "percent", label = TRUE)
 
 :::
 
+### 面积图的显示位置与选列（2026-11-01） {#area-20261101}
+
+<!-- update-20261101: utils_cat_area -->
+
+面积图要连接不同分组位置，各面板至少需要两个**显示的**分组水平。未提供 `group.by`、只显示一个组或拆分后某层仅一个显示组时，函数现在明确报错；需要保留空因子位置时可显式用 `keep_empty=TRUE`。下面6行用G1、G2、G3三个位置，G2的B计数为0，仍保留该顶点。
+
+```r
+cat_area01 <- data.frame(category = factor(c("A", "B", "A", "A", "B", "B")),
+  group = factor(c("G1", "G1", "G2", "G3", "G3", "G3")))
+cat_area_plot01 <- UtilsR::plt_cat(cat_area01, "category", "group", type = "area", stat = "count",
+  palette = c(A = "#3B5488", B = "#E64B35"), label = TRUE,
+  save = list(filename = file.path(tempdir(), "20261101-update-cat-area.pdf")))
+```
+
+![三个分组位置的分类面积图保留G2的零计数。](images/categorical-guide/20261101-update-cat-area.png){fig-alt="六行合成数据在G1 G2 G3的计数依次为二、一、三，B在G2为零，面积图没有跳过这个位置。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-area.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_area_errors01 <- list(
+  tryCatch(UtilsR::plt_cat(cat_area01, "category", type = "area"), error = identity),
+  tryCatch(UtilsR::plt_cat(cat_area01[1:2, ], "category", "group", type = "area"), error = identity),
+  tryCatch(UtilsR::plt_cat(cat_area01, "category", "group", type = "area", split.by = "group"), error = identity))
+cat_first_only01 <- UtilsR::plt_cat(cat_area01, c("category", "absent"), stat = "count")
+cat_with_unused01 <- cat_area01
+cat_with_unused01$unused <- I(lapply(seq_len(6), function(i) rep(i, 500)))
+cat_plain01 <- UtilsR::plt_cat(cat_area01, "category", "group")
+cat_trimmed01 <- UtilsR::plt_cat(cat_with_unused01, "category", "group")
+stopifnot(all(vapply(cat_area_errors01, inherits, FALSE, "error")),
+  all(vapply(cat_area_errors01, function(e) grepl("at least two displayed", conditionMessage(e)), FALSE)),
+  sum(cat_first_only01$data$n) == 6, sum(cat_area_plot01$data$n) == 6,
+  cat_area_plot01$data$n[cat_area_plot01$data$group_var == "G2" & cat_area_plot01$data$stat_var == "B"] == 0,
+  isTRUE(all.equal(ggplot2::ggplot_build(cat_plain01)$data, ggplot2::ggplot_build(cat_trimmed01)$data)))
+validation_values <- list(rows = nrow(cat_area01), counts = cat_area_plot01$data$n,
+  rejected_layouts = vapply(cat_area_errors01, conditionMessage, ""), unused_columns_change_plot = FALSE)
+```
+:::
+
+未使用的输入列不进入分类统计与绘图；上面额外加入一列list后，图层数据与未加列时一致。源码中的百分比刻度函数使用精简环境，减少保留未使用输入的闭包引用；这条只按固定源码核对，未把ggplot2包装后的函数环境当成稳定接口。此处没有另作文件体积或速度倍数声明。
+
+<!-- /update-20261101: utils_cat_area -->
+
 ## 流向、弦图与集合
 
 ::: {.panel-tabset}
@@ -596,6 +641,109 @@ plt_cat(dat, c("stage", "cohort"), type = "venn",
 ![用命名 list 指定每列的成员条件；一个集合是 II/III 期，另一个是 cohort A。](images/categorical-guide/venn-per-variable.png){fig-alt="分类变量：plt_cat 的 11 种图形与重要参数；各列选择不同成员；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 单行UpSet、透明度与被忽略列（2026-11-01） {#upset-20261101}
+
+<!-- update-20261101: utils_cat_upset -->
+
+UtilsR `129c5a71` 的 `plt_cat(type="upset")` 可处理单行输入及每层只有一行的分层图；`alpha` 传给交集柱，不改变成员定义和计数。下面8行中，第8行不属于任何集合，按这一入口原有规则排除，柱高合计7；两种透明度使用完全相同的数据。
+
+```r
+cat_sets01 <- data.frame(A = c(TRUE, TRUE, TRUE, TRUE, FALSE, FALSE, FALSE, FALSE),
+  B = c(TRUE, TRUE, FALSE, FALSE, TRUE, TRUE, TRUE, FALSE))
+cat_faint01 <- UtilsR::plt_cat(cat_sets01, c("A", "B"), type = "upset", stat_level = TRUE,
+  alpha = 0.25, label = TRUE, title = "alpha = 0.25")
+cat_opaque01 <- UtilsR::plt_cat(cat_sets01, c("A", "B"), type = "upset", stat_level = TRUE,
+  alpha = 1, label = TRUE, title = "alpha = 1")
+RegR::save_plt(patchwork::wrap_plots(cat_faint01, cat_opaque01, nrow = 1),
+  file.path(tempdir(), "20261101-update-cat-upset-alpha.pdf"), width = 9, height = 5)
+cat_singletons01 <- data.frame(A = c(TRUE, FALSE), B = TRUE, site = c("one", "two"))
+cat_single_split01 <- UtilsR::plt_cat(cat_singletons01, c("A", "B"), type = "upset",
+  stat_level = TRUE, split.by = "site", label = TRUE,
+  save = list(filename = file.path(tempdir(), "20261101-update-cat-upset-singletons.pdf")))
+```
+
+::: {.panel-tabset}
+#### 透明度只改变柱形 {.unnumbered}
+
+![相同8行输入，两种alpha的交集计数相同。](images/categorical-guide/20261101-update-cat-upset-alpha.png){fig-alt="两幅UpSet仅交集柱透明度不同，三根柱的计数为二、二、三，完全不属于集合的第八行不计入柱高。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-upset-alpha.pdf)
+
+#### 每层一行 {.unnumbered}
+
+![one层为AB交集，two层只有B，各层柱高为一。](images/categorical-guide/20261101-update-cat-upset-singletons.png){fig-alt="两行合成数据分成两个单行面板，one保留AB交集、two保留B，均正常生成交集矩阵及一根计数柱。"}
+
+[原生 PDF](images/categorical-guide/20261101-update-cat-upset-singletons.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_bar_low01 <- ggplot2::ggplot_build(cat_faint01)$data[[1]]
+cat_bar_high01 <- ggplot2::ggplot_build(cat_opaque01)$data[[1]]
+cat_one01 <- data.frame(A = TRUE, B = TRUE, ignored = I(list(1:2)))
+cat_one_plot01 <- UtilsR::plt_cat(cat_one01, c("A", "B"), group.by = "ignored",
+  type = "upset", stat_level = TRUE)
+stopifnot(identical(cat_bar_low01$count, cat_bar_high01$count),
+  identical(sort(cat_bar_low01$count), c(2, 2, 3)),
+  all(cat_bar_low01$alpha == 0.25), all(cat_bar_high01$alpha == 1),
+  identical(cat_one_plot01$data$intersection, list(c("A", "B"))),
+  !"ignored" %in% names(cat_one_plot01$data),
+  identical(cat_single_split01[[1]]$data$intersection, list(c("A", "B"))),
+  identical(cat_single_split01[[2]]$data$intersection, list("B")))
+validation_values <- list(input_rows = nrow(cat_sets01), represented_rows = sum(cat_bar_low01$count),
+  counts = cat_bar_low01$count, alpha = c(0.25, 1), singleton_rows = c(1L, 1L), ignored_column_retained = FALSE)
+```
+:::
+
+集合类型先移除被忽略的 `group.by/bg.by`，再检查实际用到的列，不会因为被忽略列是list或含缺失而拒绝数据。标准图只使用 `stat.by` 的第一列；弦图只使用前两列，忽略项会警告，但不应参与高基数检查或缺失行筛选。`plt_upset()` 是另一入口，其返回数据及分母规则见[集合教程](sets-guide.qmd#cat-upset-20261101)，不要混用两者的约定。
+
+<!-- /update-20261101: utils_cat_upset -->
+
+### 弦图的命名颜色、保存与回放（2026-11-01） {#chord-20261101}
+
+<!-- update-20261101: utils_cat_chord -->
+
+弦图属于base图形，返回 `recordedplot`。当前快照在绘制前启用显示列表，因此在文件设备上生成后，也能通过 `save` 保存及再次回放，不能只看“文件存在”就认定输出非空。颜色按扇区名字匹配，下面色板顺序刻意与因子水平不同；额外第三列含NA，但弦图只使用前两列，不应据此少计行。
+
+```r
+cat_chord_data01 <- data.frame(A = factor(c("a", "b", "a", "a", "b", "a"),
+  levels = c("a", "unused", "b")), B = factor(c("x", "y", "x", "y", "x", "y"), levels = c("y", "x")),
+  ignored = c("z", NA, "z", NA, "z", NA))
+cat_chord_colors01 <- c(y = "#E69F00", b = "#3B5488", a = "#D55E00", x = "#009E73")
+cat_chord_plot01 <- UtilsR::plt_cat(cat_chord_data01, c("A", "B", "ignored"), type = "chord",
+  palette = cat_chord_colors01, alpha = 1,
+  save = list(filename = file.path(tempdir(), "20261101-update-cat-chord.pdf"), width = 6.5, height = 6.5))
+RegR::save_plt(cat_chord_plot01, file.path(tempdir(), "20261101-update-cat-chord-replay.pdf"), width = 6.5, height = 6.5)
+```
+
+![色板按a、b、x、y名字匹配，六行交叉计数实际保存为PDF。](images/categorical-guide/20261101-update-cat-chord.png){fig-alt="六行合成数据的弦图，a为深橙、b为蓝、x为绿、y为金色，颜色不随色板向量顺序错位。"}
+
+[直接保存的 PDF](images/categorical-guide/20261101-update-cat-chord.pdf) · [返回对象再次回放的 PDF](images/categorical-guide/20261101-update-cat-chord-replay.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_chord_pixels01 <- local({
+  capture01 <- ragg::agg_capture(width = 400, height = 400, units = "px")
+  on.exit(grDevices::dev.off())
+  grDevices::replayPlot(cat_chord_plot01)
+  capture01()
+})
+cat_chord_rgb01 <- grDevices::col2rgb(as.vector(cat_chord_pixels01))
+cat_chord_present01 <- vapply(cat_chord_colors01, function(col)
+  any(colSums(abs(sweep(cat_chord_rgb01, 1, as.numeric(grDevices::col2rgb(col)), "-"))) <= 3), FALSE)
+stopifnot(inherits(cat_chord_plot01, "recordedplot"),
+  sum(table(cat_chord_data01$A, cat_chord_data01$B)) == 6,
+  length(unique(as.vector(cat_chord_pixels01))) > 10, all(cat_chord_present01))
+validation_values <- list(rows = nrow(cat_chord_data01), cross_count = unclass(table(cat_chord_data01$A, cat_chord_data01$B)),
+  plot_class = class(cat_chord_plot01), rendered_colours = as.list(cat_chord_present01),
+  unique_replay_colours = length(unique(as.vector(cat_chord_pixels01))))
+```
+:::
+
+弦图用交叉计数表示类别共现，不是因果流向。`ggsave()` 面向ggplot，保存这个对象应使用当前 `save` 或 `RegR::save_plt()`；不再依赖RStudio图形窗口恰好开启显示列表。两个PDF均由实际运行生成，并另以像素回放检查四种扇区颜色及非空输出。
+
+<!-- /update-20261101: utils_cat_chord -->
 
 ## 返回对象、保存与使用边界 {#output}
 
@@ -738,6 +886,9 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：[核对弦图命名颜色、文件保存和回放](#chord-20261101)，分别检查原生PDF和像素内容。
+- 2026-11-01：[补充单行UpSet和透明度](#upset-20261101)，忽略列不参与验证和筛选。
+- 2026-11-01：[补充面积图预检与有效选列](#area-20261101)，核对零计数和未使用输入列。
 - 2026-10-31：[核对分类身份与几何](#identity-20261031b)，补充SPSS缺失、文字NA、特殊列名和饼环图。
 - 2026-10-31：[验证空水平修复](#empty-fixed-20261031b)，保留零计数及原因子位置。
 - 2026-10-31：[核对较早快照的背景、计数及空水平待修状态](#bands-20261031)。
