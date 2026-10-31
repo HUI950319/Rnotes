@@ -36,6 +36,8 @@ directory: false
 - [fmt_* 优化总结：行为变化与逐函数明细](fmt-optimization-20261018.qmd#behavior-changes)。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 本轮补充按已推送 UtilsR `5a9d8eb`（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。
 
 **历史核对记录：** 2026-10-19 按已推送 UtilsR **0.6.8** 源码 `0bb52b5` 核对 `NAMESPACE`，当时有 **93 个导出名称**（包含 4 个运算符，不重复计入 S3 注册方法）。三张图保留 **2026-09-13** 的 92 个导出名称快照；新增的 `fmt_flatten()` 在下表补齐，它与图中的 `flatten_patchwork()` 是同一函数的两个名称，不代表新增一种算法。参数行为以当前帮助页及具体教程为准。
@@ -65,6 +67,67 @@ directory: false
 
 各轮接口核对的说明，按日期从新到旧排列；模块图保留各自注明的历史快照。
 
+
+### 共享颜色解析与输入映射（2026-10-31） {#palette-20261031b}
+
+<!-- update-20261031b: utils_palette_contract -->
+
+UtilsR 0.6.19新增导出 `.resolve_color()`，供RegR导入并共享颜色解析；RegR `5067cdf` 要求UtilsR至少0.6.19。日常选色仍使用 `pal_get()` 与绘图函数的palette参数。**`pal_get()` 的默认仍是Paired；`pal_get(NULL)` 返回绘图默认Lancet**，两种调用不能混写。
+
+```r
+pal_discrete31b <- UtilsR::pal_get("lancet", x = factor(c("B", "A", NA), levels = c("C", "A", "B")))
+pal_numeric31b <- UtilsR::pal_get(c("#000000", "#FFFFFF"), x = c(1, 100, 2, NA, Inf))
+pal_alpha31b <- UtilsR::pal_get("#FF000080", n = 3)
+pal_view31b <- data.frame(kind = rep(c("Discrete levels", "Numeric values", "Original alpha"), each = 3),
+  key = c(names(pal_discrete31b), "1", "100", "2", "alpha 1", "alpha 2", "alpha 3"),
+  colour = c(unname(pal_discrete31b), unname(pal_numeric31b[1:3]), pal_alpha31b))
+pal_view31b$key <- factor(pal_view31b$key, levels = unique(pal_view31b$key))
+pal_plot31b <- ggplot2::ggplot(pal_view31b, ggplot2::aes(key, 1, fill = colour)) +
+  ggplot2::geom_tile() + ggplot2::scale_fill_identity() +
+  ggplot2::geom_label(ggplot2::aes(label = key), fill = "white", colour = "black", size = 3) +
+  ggplot2::facet_wrap(~kind, scales = "free_x", ncol = 1) + ggplot2::theme_void(base_size = 12)
+RegR::save_plt(pal_plot31b, file.path(tempdir(), "20261031b-update-palette-contract.pdf"), width = 6.5, height = 4.5)
+```
+
+![离散按水平命名，连续按实际数值位置映射，单色重复保留原alpha。](images/function-modules/20261031b-update-palette-contract.png){fig-alt="上排按因子C A B顺序分配颜色，中排一百为白、一和二接近黑，下排三块红色都保留原来的一半透明度。"}
+
+[原生 PDF](images/function-modules/20261031b-update-palette-contract.pdf)
+
+数字 `x=c(1,100,2)` 按实际值放到有限极值之间，不再按行号等距着色；缺失与Inf得到NA颜色，只有一个不同有限值时取中间色。离散x返回按水平命名的向量，因子按其声明水平顺序，其他离散类型按首次出现顺序。名字用于稳定对应类别，不应丢掉后再按行号猜配。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(names(pal_discrete31b), c("C", "A", "B")),
+  identical(unname(pal_numeric31b[c(1, 2)]), c("#000000", "#FFFFFF")),
+  max(grDevices::col2rgb(pal_numeric31b[3])) <= 3,
+  all(is.na(pal_numeric31b[4:5])),
+  all(grDevices::col2rgb(pal_alpha31b, alpha = TRUE)[4, ] == 128),
+  all(grDevices::col2rgb(UtilsR::pal_get("transparent", n = 3), alpha = TRUE)[4, ] == 0),
+  identical(as.character(UtilsR::pal_get(NULL)), as.character(UtilsR::pal_lancet)),
+  !identical(as.character(UtilsR::pal_get()), as.character(UtilsR::pal_get(NULL))),
+  identical(get(".resolve_color", asNamespace("RegR"), inherits = TRUE), UtilsR::.resolve_color),
+  all(grDevices::col2rgb(UtilsR::.resolve_color("#FF000080", n = 3), alpha = TRUE)[4, ] == 128))
+pal_interpolated31b <- UtilsR::pal_get(c("#FF000080", "#0000FF80"), n = 5)
+pal_warnings31b <- character()
+pal_requested31b <- length(UtilsR::pal_lancet) + 1L
+pal_recycled31b <- withCallingHandlers(UtilsR::.resolve_color(NULL, n = pal_requested31b), warning = function(w) {
+  pal_warnings31b <<- c(pal_warnings31b, conditionMessage(w)); invokeRestart("muffleWarning")
+})
+pal_bad31b <- lapply(list(list(n = 1.5), list(reverse = 1), list(alpha = NA_real_)), function(a)
+  tryCatch(do.call(UtilsR::pal_get, a), error = identity))
+stopifnot(all(grDevices::col2rgb(pal_interpolated31b, alpha = TRUE)[4, ] == 128),
+  length(pal_recycled31b) == pal_requested31b, length(pal_warnings31b) >= 1,
+  all(vapply(pal_bad31b, inherits, FALSE, "error")))
+validation_values <- list(discrete = as.list(pal_discrete31b), numeric = as.list(pal_numeric31b),
+  alpha = unname(grDevices::col2rgb(pal_alpha31b, alpha = TRUE)[4, ]),
+  shared_binding = TRUE, repeated_colour_warning = pal_warnings31b,
+  invalid_controls = vapply(pal_bad31b, conditionMessage, ""))
+```
+:::
+
+R能绘制的颜色（如transparent、带空格的颜色名和短十六进制色）按颜色处理，不再提示为未知色板；非法颜色在解析时停止。色板名称拼写错误会给出接近名称，列表色板需明确其字段。单色重复和插值保留原alpha；显式alpha控制仍按参数合同执行。颜色不足而重复到不同组时会警告，不会擅自改变已有颜色。共享解析器不是MLR可通过RegR私有命名空间访问的对象，当前兼容问题见[VPD实测](../mlr/vpd-guide.qmd#layout-20261031b)。
+
+<!-- /update-20261031b: utils_palette_contract -->
 
 ### 绘图、集合身份与打印边界（2026-10-31） {#contracts-20261031}
 
@@ -333,6 +396,7 @@ validation_values <- list(plain = plain_print25, narrow = narrow_print25,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-10-31：[核对共享颜色解析](#palette-20261031b)，区分默认色板、数值映射、命名离散色与透明度。
 - 2026-10-31：[绘图、集合身份和打印边界](#contracts-20261031)。
 - 2026-10-30：[0.6.14打印合同](#printing-20261030)：存储类型、P值界限、SPSS与空列、控制字符。
 - 2026-10-29：[0.6.13固定面板轴色条](#axis-pins-20261029)，说明尺寸比例与 RegR 热图依赖。
