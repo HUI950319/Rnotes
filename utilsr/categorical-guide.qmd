@@ -16,6 +16,8 @@ date-modified: 2026-10-31
 **历史版本与执行范围：** 以下原有31个参数示例按 UtilsR **0.6.8** 核对；31 个示例已在 WSL R 4.4.3 中实际执行，其中 31 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 :::
@@ -56,7 +58,7 @@ dat_empty <- dat[dat[["stage"]] != "III", , drop = FALSE]
 | 标签 | `label = FALSE`、`label.size = 3.5` | `label.fg`、`label.bg`、`label.bg.r` 控制标签外观 |
 | 背景分组 | `bg.by = NULL`、`bg_palette = NULL`、`bg_alpha = 0.15` | 标准并排图使用；每个分组须唯一归属一个背景组 |
 | 缺失 | `NA_stat = FALSE`、`NA_color = "grey80"` | 默认去除涉及列中的缺失行；开启后把 NA 作为类别 |
-| 空水平 | `keep_empty = FALSE` | 接口用于保留空水平；本页单变量实例中两种设置结果相同，需查看下方实际对照 |
+| 空水平 | `keep_empty = FALSE` | 保留空因子水平及零计数；旧图有版本差异，当前行为见[修复后实测](#empty-fixed-20261031b) |
 | 集合成员 | `stat_level = NULL` | 只用于 Venn/UpSet；显式指定各列的阳性水平更易复核 |
 | 布局 | `flip = FALSE`、`aspect.ratio = NULL` | 翻转和面板高宽比；极坐标类型默认等比 |
 | 分层排版 | `facet_nrow`、`facet_ncol`、`facet_byrow = TRUE` | 控制 `split.by` 生成的组合图 |
@@ -187,7 +189,7 @@ plt_cat(dat, "stage", "cohort", aspect.ratio = 0.5, base_size = 16,
 
 <!-- update-20261031: utils_cat_bands -->
 
-下面9行合成数据的输入因子顺序为C、空位、B、A；每个观测组都只有3行。按已推送 `05f4c963` 实跑，`keep_empty=FALSE/TRUE` 都只显示C、B、A，背景与这三个实际显示组对齐。该快照准备数据时再次 `factor()` 丢弃未观测水平，属于包实现待修复；本地后续修复尚未推送，不能把空位补齐写成已发布行为。原始对象、计数和组内百分比保持不变。
+下面9行合成数据的输入因子顺序为C、空位、B、A；每个观测组都只有3行。按已推送 `05f4c963` 实跑，`keep_empty=FALSE/TRUE` 都只显示C、B、A，背景与这三个实际显示组对齐。该快照准备数据时再次 `factor()` 丢弃未观测水平，属于该历史快照的包缺陷；修复现已推送，见[0.6.19重新实测](#empty-fixed-20261031b)。原始对象、计数和组内百分比保持不变。
 
 ```r
 cat_bands31 <- data.frame(category = factor(rep(c("Yes", "No", "Yes"), 3)),
@@ -237,6 +239,122 @@ validation_values <- list(rows = nrow(cat_bands31), counts = unclass(table(cat_b
 同一共享背景处理也用于连续变量图；连续变量的排序和翻转见[独立坐标示例](continuous-guide.qmd#finite-20261031)。背景仅辅助识别分组，不参与百分比分母或统计检验。
 
 <!-- /update-20261031: utils_cat_bands -->
+
+### 空水平修复后的横轴与背景（2026-10-31） {#empty-fixed-20261031b}
+
+<!-- update-20261031b: utils_cat_empty -->
+
+UtilsR `5842c30b` 已修复空因子水平的保留，下面按已推送0.6.19快照重新运行同一9行输入。`keep_empty=FALSE` 显示C、B、A；`TRUE` 显示C、unused、B、A，unused的计数为0。保留空水平不会改变样本数、观测组的百分比分母或因子顺序。
+
+```r
+cat_empty31b <- data.frame(category = factor(rep(c("Yes", "No", "Yes"), 3)),
+  group = factor(rep(c("C", "B", "A"), each = 3), levels = c("C", "unused", "B", "A")),
+  region = rep(c("R3", "R2", "R1"), each = 3))
+cat_observed31b <- UtilsR::plt_cat(cat_empty31b, "category", "group", position = "dodge",
+  bg.by = "region", bg_palette = c(R3 = "#DDEBF7", R2 = "#FCE4D6", R1 = "#E2F0D9"),
+  keep_empty = FALSE, label = TRUE,
+  save = list(filename = file.path(tempdir(), "20261031b-update-cat-observed.pdf")))
+cat_kept31b <- UtilsR::plt_cat(cat_empty31b, "category", "group", position = "dodge",
+  bg.by = "region", bg_palette = c(R3 = "#DDEBF7", R2 = "#FCE4D6", R1 = "#E2F0D9"),
+  keep_empty = TRUE, label = TRUE,
+  save = list(filename = file.path(tempdir(), "20261031b-update-cat-empty.pdf")))
+```
+
+::: {.panel-tabset}
+#### 仅观测水平 {.unnumbered}
+
+![新快照中FALSE显示三个观测组。](images/categorical-guide/20261031b-update-cat-observed.png){fig-alt="九行合成输入的并排百分比图，横轴C B A，Yes各占三分之二，No各占三分之一。"}
+
+[原生 PDF](images/categorical-guide/20261031b-update-cat-observed.pdf)
+
+#### 保留空位 {.unnumbered}
+
+![新快照中TRUE按原因子位置保留unused空位。](images/categorical-guide/20261031b-update-cat-empty.png){fig-alt="同一九行输入保留C unused B A，unused为零计数，B的浅橙色背景跟随其新位置。"}
+
+[原生 PDF](images/categorical-guide/20261031b-update-cat-empty.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_build31b <- lapply(list(observed = cat_observed31b, kept = cat_kept31b), ggplot2::ggplot_build)
+cat_axes31b <- lapply(cat_build31b, function(b) b$layout$panel_params[[1]]$x$get_labels())
+for (b31b in cat_build31b) {
+  labels31b <- b31b$layout$panel_params[[1]]$x$get_labels()
+  rect31b <- Filter(function(z) all(c("xmin", "xmax", "fill") %in% names(z)), b31b$data)[[1]]
+  b_index31b <- match("B", labels31b)
+  stopifnot(identical(as.character(rect31b$fill[
+    rect31b$xmin <= b_index31b & rect31b$xmax >= b_index31b]), "#FCE4D6"))
+}
+stopifnot(identical(cat_axes31b$observed, c("C", "B", "A")),
+  identical(cat_axes31b$kept, c("C", "unused", "B", "A")),
+  sum(cat_kept31b$data$n) == 9,
+  all(cat_kept31b$data$n[cat_kept31b$data$group_var == "unused"] == 0),
+  identical(as.vector(table(cat_empty31b$group)), c(3L, 0L, 3L, 3L)))
+validation_values <- list(rows = nrow(cat_empty31b), axes = cat_axes31b,
+  counts = as.vector(table(cat_empty31b$group)), plot_counts = cat_kept31b$data$n)
+```
+:::
+
+unused没有观测行，也没有可推定的region；背景按实际组的映射定位，不应把相邻组颜色当成空组归属。上方 `05f4c963` 与下方0.6.8的旧图保留历史执行结果，当前空水平行为以本节为准。
+
+<!-- /update-20261031b: utils_cat_empty -->
+
+### 分类缺失身份、特殊列名与饼环几何（2026-10-31） {#identity-20261031b}
+
+<!-- update-20261031b: utils_cat_identity -->
+
+SPSS用户缺失值先按原始类判断，再转为分类；文字 `"NA"` 与真正缺失分别保留身份。含空格、加号或斜线的列名直接按字符串选取。下面8行中，99是SPSS用户缺失；默认排除分类或分组缺失的行后剩4行，`NA_stat=TRUE` 保留全部8行，文字NA组不会并入缺失组。
+
+```r
+cat_identity31b <- data.frame(check.names = FALSE,
+  "Stage / sample" = haven::labelled_spss(c(1, 99, 1, 2, 2, NA, 1, 2),
+    labels = c(Early = 1, Late = 2, Missing = 99), na_values = 99),
+  "Group + arm" = c("NA", "A", NA, "A", "NA", "B", "B", NA))
+cat_drop31b <- UtilsR::plt_cat(cat_identity31b, "Stage / sample", "Group + arm",
+  stat = "count", label = TRUE, palette = c("1" = "#3B5488", "2" = "#E64B35"),
+  title = "Drop missing: 4 rows")
+cat_all31b <- UtilsR::plt_cat(cat_identity31b, "Stage / sample", "Group + arm",
+  stat = "count", label = TRUE, NA_stat = TRUE,
+  palette = c("1" = "#3B5488", "2" = "#E64B35"), title = "Keep missing: 8 rows")
+RegR::save_plt(patchwork::wrap_plots(cat_drop31b, cat_all31b, nrow = 1),
+  file.path(tempdir(), "20261031b-update-cat-identity.pdf"), width = 9, height = 4)
+cat_geometry31b <- data.frame(Type = factor(c(rep("A", 6), rep("B", 3))))
+cat_pie31b <- UtilsR::plt_cat(cat_geometry31b, "Type", type = "pie", label = TRUE, title = "Pie")
+cat_ring31b <- UtilsR::plt_cat(cat_geometry31b, "Type", type = "ring", label = TRUE, title = "Ring")
+RegR::save_plt(patchwork::wrap_plots(cat_pie31b, cat_ring31b, nrow = 1),
+  file.path(tempdir(), "20261031b-update-cat-geometry.pdf"), width = 8, height = 4)
+```
+
+![特殊列名按字符串选取，文字NA和真实缺失分组分开计数。](images/categorical-guide/20261031b-update-cat-identity.png){fig-alt="左图排除缺失后合计四行，右图含真实缺失后合计八行，NA文字组与缺失组分别显示。"}
+
+[原生 PDF](images/categorical-guide/20261031b-update-cat-identity.pdf)
+
+![相同九行输入的饼图与环图具有一致的类别比例。](images/categorical-guide/20261031b-update-cat-geometry.png){fig-alt="A占三分之二、B占三分之一，饼图同心共半径，环图中心留白不生成缺失类别图例。"}
+
+[原生 PDF](images/categorical-guide/20261031b-update-cat-geometry.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_raw31b <- cat_identity31b[["Stage / sample"]]
+cat_missing31b <- is.na(cat_raw31b) | is.na(cat_identity31b[["Group + arm"]])
+cat_labels31b <- as.character(cat_all31b$data$group_var)
+stopifnot(identical(which(cat_missing31b), c(2L, 3L, 6L, 8L)),
+  sum(cat_drop31b$data$n) == 4, sum(cat_all31b$data$n) == 8,
+  all(c("NA", "<NA>") %in% cat_labels31b),
+  !any(as.character(cat_all31b$data$stat_var) == "99"),
+  sum(cat_pie31b$data$n) == 9, sum(cat_ring31b$data$n) == 9,
+  !anyNA(cat_ring31b$data$stat_var),
+  identical(cat_identity31b[["Stage / sample"]], cat_raw31b))
+validation_values <- list(rows = nrow(cat_identity31b), removed_rows = which(cat_missing31b),
+  totals = c(drop = sum(cat_drop31b$data$n), keep = sum(cat_all31b$data$n)),
+  groups = unique(cat_labels31b), categories = unique(as.character(cat_all31b$data$stat_var)),
+  geometry_counts = as.vector(table(cat_geometry31b$Type)))
+```
+:::
+
+这不会自动把SPSS数值代码替换成出版用标签；需要Early、Late等名称时应先明确重标签。日期时间列按其类格式化并保留真实缺失，不能把缺失日期变成文字日期后再统计。饼图/环图在 `6ff8f850` 后修正扇区几何，中心留白不再靠添加伪NA类别构成。并排柱的零计数、比例标签和面积图端点标签也应按本次实际显示位置读取。
+
+<!-- /update-20261031b: utils_cat_identity -->
 
 ## 分层、缺失与空水平
 
@@ -297,13 +415,13 @@ plt_cat(dat_empty, "stage", type = "bar", stat = "count", keep_empty = FALSE, la
 
 ### 开启空水平选项 {.unnumbered}
 
-下面保留0.6.8历史截图，III未显示。当前已推送快照的再核验见[2026-10-31示例](#bands-20261031)；空水平补齐仍属包实现待修复，实际轴标签和原始计数须分别核对。
+下面保留0.6.8历史截图，III未显示。旧快照再核验见[较早示例](#bands-20261031)，已发布修复见[0.6.19新实测](#empty-fixed-20261031b)；实际轴标签和原始计数分别核对。
 
 ```r
 plt_cat(dat_empty, "stage", type = "bar", stat = "count", keep_empty = TRUE, label = TRUE)
 ```
 
-![下面保留0.6.8历史截图，III未显示。当前已推送快照的再核验见[2026-10-31示例](#bands-20261031)；空水平补齐仍属包实现待修复，实际轴标签和原始计数须分别核对。](images/categorical-guide/empty-keep.png){fig-alt="分类变量：plt_cat 的 11 种图形与重要参数；开启空水平选项；固定模拟数据的实际参数对照结果。"}
+![下面保留0.6.8历史截图，III未显示。旧快照再核验见[较早示例](#bands-20261031)，已发布修复见[0.6.19新实测](#empty-fixed-20261031b)；实际轴标签和原始计数分别核对。](images/categorical-guide/empty-keep.png){fig-alt="分类变量：plt_cat 的 11 种图形与重要参数；开启空水平选项；固定模拟数据的实际参数对照结果。"}
 
 :::
 
@@ -620,5 +738,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-10-31：[核对分类身份与几何](#identity-20261031b)，补充SPSS缺失、文字NA、特殊列名和饼环图。
+- 2026-10-31：[验证空水平修复](#empty-fixed-20261031b)，保留零计数及原因子位置。
 - 2026-10-31：[核对背景条带、原始计数及空水平待修状态](#bands-20261031)。
 :::
