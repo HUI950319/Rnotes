@@ -2,18 +2,23 @@
 title: "ggplot 格式化：主题、坐标、图例、条带与面板标签"
 description: "fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化；实际参数对照与嵌套布局示例。"
 date: 2026-10-09
-date-modified: 2026-10-29
+date-modified: 2026-11-01
 lightbox: true
 toc-depth: 2
 directory:
   title: "ggplot格式化：参考线、坐标、分布与箱线"
   topic: 绘图与格式化
-  updated: 2026-10-29
+  updated: 2026-11-01
 ---
 
 fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **核对记录：** 2026-10-18 按已推送 UtilsR `237b839` 重绘轴颜色条与彩色轴文字的六张图，并补充 `fmt_axis()`、`fmt_expand()` 的新警告和 `fmt_scale()` 的副轴说明。此前按已推送 UtilsR `fc078ec` 更新统计比较、背景与图例，修复越界的 label.y.prop 示例，并实际执行新增的配对、单侧与校正 P 值对照。已有轴文字、颜色条、条带及其他图保留各自执行快照；2026-10-12–13新增12张实图：统计、背景与图例按fc078ec执行，后补4张留白图按已推送1eb5faf执行。包版本仍为 0.6.8；输入均为固定种子的模拟数据。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `129c5a71`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `129c5a71`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -745,6 +750,65 @@ p_guides
 
 源码：[统计比较、背景与图例](https://github.com/HUI950319/UtilsR/blob/fc078ec/R/fmt_plot.R)。本次比较了重排前后的单侧P值；配对P值与按ID完成共同缺失处理后的t检验一致。
 
+### 返回图重排类别后的内置背景（2026-11-01） {#background-20261101}
+
+<!-- update-20261101: utils_background_axis -->
+
+UtilsR `129c5a71` 修正了 `plt_con()` / `plt_cat()` 内置 `bg.by` 条带在返回图中重排离散轴后的位置。颜色仍按背景类别名称匹配；新增空位置没有观测，不能据此推定背景类别。此处更新的是绘图入口的内置背景，上面的 `fmt_bg()` 重排示例保留原执行快照。
+
+```r
+bg_axis01 <- data.frame(score = seq_len(12),
+  group = factor(rep(c("A", "B"), each = 6), levels = c("A", "unused", "B")),
+  region = rep(c("North", "South"), each = 6),
+  category = factor(rep(c("Yes", "No"), 6)))
+bg_colors01 <- c(North = "#90CAF9", South = "#FFCC80")
+bg_con01 <- UtilsR::plt_con(bg_axis01, "score", "group", type = "box",
+  bg.by = "region", bg_palette = bg_colors01, bg_alpha = 0.45)
+bg_con_reordered01 <- UtilsR::fmt_scale(bg_con01,
+  x = list(limits = c("B", "unused", "A")))
+RegR::save_plt(patchwork::wrap_plots(bg_con01, bg_con_reordered01, nrow = 1),
+  file.path(tempdir(), "20261101-update-bg-continuous.pdf"), width = 9, height = 4.5)
+bg_cat01 <- UtilsR::plt_cat(bg_axis01, "category", "group", stat = "count",
+  position = "dodge", keep_empty = TRUE, flip = TRUE,
+  bg.by = "region", bg_palette = bg_colors01, bg_alpha = 0.45)
+bg_cat_reordered01 <- UtilsR::fmt_scale(bg_cat01,
+  x = list(limits = c("B", "unused", "A")))
+RegR::save_plt(patchwork::wrap_plots(bg_cat01, bg_cat_reordered01, nrow = 1),
+  file.path(tempdir(), "20261101-update-bg-categorical.pdf"), width = 9, height = 4.5)
+```
+
+![连续图重排前后，A始终对应蓝色North，B始终对应橙色South。](images/format-guide/20261101-update-bg-continuous.png){fig-alt="两幅箱线图对比原类别顺序与B unused A顺序，空位置无背景，A和B的条带与数据同步移动。"}
+
+[连续图原生 PDF](images/format-guide/20261101-update-bg-continuous.pdf)
+
+![翻转分类图重排后，底色仍跟随对应分组。](images/format-guide/20261101-update-bg-categorical.png){fig-alt="两幅翻转计数柱图保留空因子位置，重排只改变类别显示顺序，蓝色North仍对应A，橙色South仍对应B。"}
+
+[分类图原生 PDF](images/format-guide/20261101-update-bg-categorical.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+bg_builds01 <- lapply(list(bg_con_reordered01, bg_cat_reordered01), ggplot2::ggplot_build)
+for (built01 in bg_builds01) {
+  bands01 <- built01$data[[1]]
+  stopifnot(identical(built01$layout$panel_scales_x[[1]]$get_limits(), c("B", "unused", "A")),
+    nrow(bands01) == 2L,
+    as.numeric(bands01$x[as.character(bands01$fill) == bg_colors01[["North"]]]) == 3,
+    as.numeric(bands01$x[as.character(bands01$fill) == bg_colors01[["South"]]]) == 1,
+    !any(bands01$xmin < 2 & bands01$xmax > 2))
+}
+stopifnot(identical(bg_con01$data, bg_con_reordered01$data),
+  identical(bg_cat01$data, bg_cat_reordered01$data), sum(bg_cat01$data$n) == nrow(bg_axis01))
+invisible(lapply(list(bg_con_reordered01, bg_cat_reordered01), ggplot2::ggplotGrob))
+validation_values <- list(rows = nrow(bg_axis01), category_rows = bg_cat01$data$n,
+  new_order = bg_builds01[[1]]$layout$panel_scales_x[[1]]$get_limits(),
+  background_positions = lapply(bg_builds01, function(z) as.numeric(z$data[[1]]$x)))
+```
+:::
+
+两图均使用同一12行合成输入，重排没有改变样本或计数。`flip=TRUE` 改变最终朝向，重排仍传给翻转前的离散x轴。这里显式保留全部观测类别，仅加入空位置；若用scale limits排除真实类别，可能同时移除统计输入，不能从本例推断结果不变。趋势图和面积图使用数值位置，不能照搬这个离散轴重排调用。
+
+<!-- /update-20261101: utils_background_axis -->
+
 ## 留白保留原坐标设置与时间精度 {#expand-current}
 
 已推送UtilsR `b039c51` / `1eb5faf` 让 `fmt_expand()` 保留已有scale的变换、limits、breaks、labels、guide和secondary axis，并区分Date、POSIXct与hms。本节从提交 `1eb5faf` 导出源码到项目外，在WSL R 4.4.3实际绘制；其他图沿用各自执行快照。
@@ -1344,6 +1408,7 @@ width_auto
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：[补充内置背景随类别重排](#background-20261101)，核对连续图、翻转分类图与空位置。
 - 2026-10-29：[固定面板下的轴色条尺寸](#axis-pins-20261029)，核对横纵方向的英寸比例及图层数据不变。
 - 2026-10-27：补充[多面板标签对象隔离](#tag-isolation-20261027)的源码边界，保留原图与参数。
 :::
