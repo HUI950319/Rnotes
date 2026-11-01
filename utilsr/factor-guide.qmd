@@ -753,6 +753,68 @@ stopifnot(all(guards))
 
 ## 组合列：缺失传播与分组水平 {#combine-current-20261023}
 
+### 逐行分组键、时长单位与整数索引（2026-11-01） {#rowwise-20261101c}
+
+<!-- update-20261101c: utils_factor_keys -->
+
+当 `fct_label()` 重命名逐行分组列，或 `fct_to_combine()` 覆盖该列时，返回对象的分组键也随之更新。后续 `summarise()` 应显示新标签。新增组合列则保留原分组键；输入对象不变。
+
+```r
+factor_rowsC <- dplyr::rowwise(tibble::tibble(
+  group = factor(c("a", "a", "b")), category = c("x", "y", "x"), value = 1:3), group)
+factor_originalC <- factor_rowsC
+factor_labelsC <- UtilsR::fct_label(factor_rowsC, "group", c("Low", "High"))
+factor_combinedC <- UtilsR::fct_to_combine(factor_rowsC,
+  c("group", "category"), var_name = "group")
+factor_summaryC <- dplyr::summarise(factor_combinedC, total = sum(value), .groups = "drop")
+gt::gtsave(gt::gt(factor_summaryC),
+  file.path(tempdir(), "20261101c-update-factor-keys.html"))
+```
+
+![后续汇总使用a与x、a与y、b与x三个新组合标签，行值仍为一、二、三。](images/factor-guide/20261101c-update-factor-keys.png){fig-alt="原生汇总表，group依次为a & x、a & y、b & x，total为1、2、3。"}
+
+[原生表格 HTML](images/factor-guide/20261101c-update-factor-keys.html)
+
+`Duration` 与 `Period` 需要先明确单位再合并。以下以秒创建时长并明确转换为秒，保留缺失；月份或年份的 `Period` 不能据此当作固定秒数。
+
+```r
+durationC <- lubridate::dseconds(c(60, 120, NA_real_))
+secondsC <- as.numeric(durationC, units = "seconds")
+duration_groupC <- UtilsR::fct_to_combine(secondsC, factor(rep("A", 3)))
+```
+
+0.6.20还会在处理 `integer64` 因子参数前恢复相应方法。下例验证整数值索引；未加载命名空间时读取序列化对象的恢复路径仅做源码核对，没有在此教程中卸载包。
+
+```r
+integer_indexC <- bit64::as.integer64(c(3, 1))
+integer_factorC <- UtilsR::fct_cat(factor(c("a", "b", "c")), ref_idx = integer_indexC)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(inherits(factor_labelsC, "rowwise_df"), inherits(factor_combinedC, "rowwise_df"),
+  identical(as.character(dplyr::group_keys(factor_labelsC)[["group"]]),
+    as.character(factor_labelsC[["group"]])),
+  identical(as.character(dplyr::group_keys(factor_combinedC)[["group"]]),
+    as.character(factor_combinedC[["group"]])),
+  identical(as.character(factor_summaryC[["group"]]), c("a & x", "a & y", "b & x")),
+  identical(factor_summaryC[["total"]], 1:3), identical(factor_rowsC, factor_originalC))
+factor_addedC <- UtilsR::fct_to_combine(factor_rowsC, c("group", "category"), var_name = "combined")
+stopifnot(identical(dplyr::group_keys(factor_addedC), dplyr::group_keys(factor_rowsC)),
+  identical(as.character(duration_groupC), c("60 & A", "120 & A", NA_character_)),
+  identical(integer_factorC, UtilsR::fct_cat(factor(c("a", "b", "c")), ref_idx = c(3L, 1L))))
+unit_errorsC <- vapply(list(durationC, lubridate::seconds(c(60, 120, NA_real_))), function(x) {
+  tryCatch({ UtilsR::fct_to_combine(x, factor(rep("A", 3))); "NO ERROR" }, error = conditionMessage)
+}, "")
+stopifnot(all(grepl("intended time unit", gsub("[[:space:]]+", " ", unit_errorsC), fixed = TRUE)))
+validation_values <- list(keys = as.character(dplyr::group_keys(factor_combinedC)[["group"]]),
+  totals = factor_summaryC[["total"]], seconds = secondsC,
+  integer_levels = levels(integer_factorC), unit_errors = unit_errorsC)
+```
+:::
+
+<!-- /update-20261101c: utils_factor_keys -->
+
 <!-- update-20261023: factor_stats -->
 
 本节与下方 P 值补充按已推送 UtilsR `23ba378` 在 Windows / WSL R 4.4.3 执行。`fct_to_combine()` 已修复旧版把缺失拼成文字的问题；这里替换旧示例，避免继续建议事后恢复 NA。
@@ -848,6 +910,8 @@ stopifnot(identical(dt, before), !"joint" %in% names(dt), "joint" %in% names(dt_
 
 单个长度至少为 2 的字符向量始终表示列名；在数据掩码外组合一列字符值时，先用 `factor(x)`。分组列不能由 `pick()` 选取，可直接传向量或改用数据框方法。`vars` 必须唯一、非空且不含 NA；重复列名造成的歧义、不同组合拼成同一个标签都会报错。列名 `sep` 与控制参数同名时，用数据框方法。data.table 会先复制再写入，覆盖键或索引列时相关元数据会被清理。
 
+:::
+
 <!-- /update-20261023: factor_stats -->
 
 ## 绘图前整理分类
@@ -892,71 +956,7 @@ plt_cat(d, "age_group", "sex", label = TRUE, palette = c("#0072B2", "#E69F00", "
 
 :::
 
-### 逐行分组键、时长单位与整数索引（2026-11-01） {#rowwise-20261101c}
-
-<!-- update-20261101c: utils_factor_keys -->
-
-当 `fct_label()` 重命名逐行分组列，或 `fct_to_combine()` 覆盖该列时，返回对象的分组键也随之更新。后续 `summarise()` 应显示新标签。新增组合列则保留原分组键；输入对象不变。
-
-```r
-factor_rowsC <- dplyr::rowwise(tibble::tibble(
-  group = factor(c("a", "a", "b")), category = c("x", "y", "x"), value = 1:3), group)
-factor_originalC <- factor_rowsC
-factor_labelsC <- UtilsR::fct_label(factor_rowsC, "group", c("Low", "High"))
-factor_combinedC <- UtilsR::fct_to_combine(factor_rowsC,
-  c("group", "category"), var_name = "group")
-factor_summaryC <- dplyr::summarise(factor_combinedC, total = sum(value), .groups = "drop")
-gt::gtsave(gt::gt(factor_summaryC),
-  file.path(tempdir(), "20261101c-update-factor-keys.html"))
-```
-
-![后续汇总使用a与x、a与y、b与x三个新组合标签，行值仍为一、二、三。](images/factor-guide/20261101c-update-factor-keys.png){fig-alt="原生汇总表，group依次为a & x、a & y、b & x，total为1、2、3。"}
-
-[原生表格 HTML](images/factor-guide/20261101c-update-factor-keys.html)
-
-`Duration` 与 `Period` 需要先明确单位再合并。以下以秒创建时长并明确转换为秒，保留缺失；月份或年份的 `Period` 不能据此当作固定秒数。
-
-```r
-durationC <- lubridate::dseconds(c(60, 120, NA_real_))
-secondsC <- as.numeric(durationC, units = "seconds")
-duration_groupC <- UtilsR::fct_to_combine(secondsC, factor(rep("A", 3)))
-```
-
-0.6.20还会在处理 `integer64` 因子参数前恢复相应方法。下例验证整数值索引；未加载命名空间时读取序列化对象的恢复路径仅做源码核对，没有在此教程中卸载包。
-
-```r
-integer_indexC <- bit64::as.integer64(c(3, 1))
-integer_factorC <- UtilsR::fct_cat(factor(c("a", "b", "c")), ref_idx = integer_indexC)
-```
-
-::: {.callout-note collapse="true" title="复核代码"}
-```r
-stopifnot(inherits(factor_labelsC, "rowwise_df"), inherits(factor_combinedC, "rowwise_df"),
-  identical(as.character(dplyr::group_keys(factor_labelsC)[["group"]]),
-    as.character(factor_labelsC[["group"]])),
-  identical(as.character(dplyr::group_keys(factor_combinedC)[["group"]]),
-    as.character(factor_combinedC[["group"]])),
-  identical(as.character(factor_summaryC[["group"]]), c("a & x", "a & y", "b & x")),
-  identical(factor_summaryC[["total"]], 1:3), identical(factor_rowsC, factor_originalC))
-factor_addedC <- UtilsR::fct_to_combine(factor_rowsC, c("group", "category"), var_name = "combined")
-stopifnot(identical(dplyr::group_keys(factor_addedC), dplyr::group_keys(factor_rowsC)),
-  identical(as.character(duration_groupC), c("60 & A", "120 & A", NA_character_)),
-  identical(integer_factorC, UtilsR::fct_cat(factor(c("a", "b", "c")), ref_idx = c(3L, 1L))))
-unit_errorsC <- vapply(list(durationC, lubridate::seconds(c(60, 120, NA_real_))), function(x) {
-  tryCatch({ UtilsR::fct_to_combine(x, factor(rep("A", 3))); "NO ERROR" }, error = conditionMessage)
-}, "")
-stopifnot(all(grepl("intended time unit", gsub("[[:space:]]+", " ", unit_errorsC), fixed = TRUE)))
-validation_values <- list(keys = as.character(dplyr::group_keys(factor_combinedC)[["group"]]),
-  totals = factor_summaryC[["total"]], seconds = secondsC,
-  integer_levels = levels(integer_factorC), unit_errors = unit_errorsC)
-```
-:::
-
-<!-- /update-20261101c: utils_factor_keys -->
-
 ## 区间与 P 值文本
-
-::: {.panel-tabset}
 
 ### 极端比值区间的稳定解析（2026-11-01） {#extreme-ci-20261101c}
 
@@ -988,6 +988,8 @@ validation_values <- list(intervals = extreme_ciC, p = extreme_pC, expected_p = 
 :::
 
 <!-- /update-20261101c: utils_factor_ci -->
+
+::: {.panel-tabset}
 
 ### CI 的位数和分隔符 {.unnumbered}
 
@@ -1369,7 +1371,7 @@ loaded via a namespace (and not attached):
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
 - 2026-11-01：补充极端比值区间的稳定对数计算与近似检验边界。
-- 2026-11-01：补充逐行分组键同步、明确时长单位和integer64值索引。
+- 2026-11-01：补充分组键、时长单位与integer64；闭合旧组合节标签页，保证新节锚点独立可访问。
 - 2026-10-25：[ref_idx=0：保持多水平](#zero-reference-20261025)
 - 2026-10-24：[参考组与区间文本合同](#ref-ci-20261024)
 :::
