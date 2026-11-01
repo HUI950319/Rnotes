@@ -14,6 +14,8 @@ directory:
 plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -46,10 +48,10 @@ strip_cols <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7")
 |:--|:--|:--|
 | 元素集合输入 | `plt_upset(data=命名list)` | 每个元素是成员向量；vars/levels 被忽略；同一元素值定义交集 |
 | 指示列输入 | `vars`、`levels=c("Yes","yes")` | 以行号定义共同元素；0/1 数据须明确 levels=1；levels=NA 表示缺失集合 |
-| 输出 | `output="both"` | venn/upset/both/data/all；UpSet 实际为 upset_plot/aplot；data 增加 intersect_group |
+| 输出 | `output="both"` | venn/upset/both/data/all；UpSet实际为upset_plot/aplot；data增加intersect_group。交集枚举最多16集合，Venn为2–7集合 |
 | 区域标签 | `label="both"`、`label_geom="label"`、`label_size/color/alpha` | 主要控制 Venn 的区域标签，不控制 UpSet 顶柱标签 |
-| Venn 填色 | `venn.fill="gradient"`、`colors` | gradient/gradient_rev/none；category 当前使用 RdBu 区域色阶，colors 用于边界色 |
-| 现有无效设置 | `venn.alpha=0.5` | 当前函数体没有将其用于图层，不把它作为有效透明度控制演示 |
+| Venn 填色 | `venn.fill="gradient"`、`colors` | gradient/gradient_rev/none；category 当前按集合填色并用venn.alpha混合，见当前组合图示例 |
+| 分类填色透明度 | `venn.alpha=0.5` | 当前用于 `venn.fill="category"` 的集合区域；历史0.6.8截图不展示该修复 |
 | UpSet 配色 | `colors` | 顺序为集合边柱、交集顶柱、交集点阵三色 |
 | 边界与名称 | `edge.color/edge.size/set.name.size/set.labels` | set.labels 为原集合名到显示名的命名向量 |
 | Jaccard 输入 | `group_col="cell_type"`、`name_col="gene"` | 长表每行给一个组内成员，计算交集大小/并集大小；重复成员不增加权重 |
@@ -261,6 +263,49 @@ UtilsR `129c5a71` 的 `plt_cat(type="upset")` 修复单行及每层单行绘制�
 后续已推送 `5cab2565` 补充[分类入口的20交集提示和空分层占位](categorical-guide.qmd#upset-bounds-20261101b)：31种交集只显示20种时明确警告，无匹配成员的层保留占位。
 
 这不是本页 `plt_upset()` 的新参数或返回合同：`plt_cat(type="upset")` 排除完全不属于任何集合的行，而 `plt_upset(output="data")` 保留完整返回行。两者的成员和分母仍按各自入口解释；本节只链接已执行示例，不重复生成同一组图。
+
+### 完整交集水平与集合数边界（2026-11-01） {#limits-20261101c}
+
+<!-- update-20261101c: utils_sets_cap -->
+
+`plt_upset()` 为返回因子建立完整交集水平，未观察到的组合仍可保留为零计数。因此 `output="data"` 也受最多16个集合的限制；17个集合会在枚举交集前报错。Venn 仍只支持2–7个集合。这个限制与 `plt_cat(type="upset")` 只展示前20个交集的规则不同，不能互相替代。
+
+```r
+set_membersC <- UtilsR::plt_upset(list(A = 1:2, B = 1:2), output = "data")
+set_countsC <- as.data.frame(table(set_membersC[["intersect_group"]]),
+  stringsAsFactors = FALSE)
+names(set_countsC) <- c("Combination", "Count")
+gt::gtsave(gt::gt(set_countsC),
+  file.path(tempdir(), "20261101c-update-set-levels.html"))
+```
+
+![两名成员均在A与B中；A、B和None水平保留为零计数。](images/sets-guide/20261101c-update-set-levels.png){fig-alt="实际返回因子的频数表，A和B各零人，A/B两人，None零人。"}
+
+[原生表格 HTML](images/sets-guide/20261101c-update-set-levels.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(setequal(levels(set_membersC[["intersect_group"]]), c("A", "B", "A/B", "None")),
+  identical(as.character(set_membersC[["intersect_group"]]), c("A/B", "A/B")),
+  sum(set_countsC[["Count"]]) == 2L)
+too_manyC <- setNames(rep(list(1:2), 17), paste0("S", 1:17))
+set_errorsC <- vapply(c("data", "upset", "both", "all"), function(mode) {
+  tryCatch({ UtilsR::plt_upset(too_manyC, output = mode); "NO ERROR" },
+    error = conditionMessage)
+}, "")
+stopifnot(all(grepl("at most 16 sets", set_errorsC, fixed = TRUE)))
+set_frameC <- as.data.frame(setNames(rep(list(c("Yes", "No")), 17), names(too_manyC)))
+frame_errorC <- tryCatch({ UtilsR::plt_upset(set_frameC, names(set_frameC), output = "data");
+  "NO ERROR" }, error = conditionMessage)
+stopifnot(grepl("at most 16 sets", frame_errorC, fixed = TRUE))
+validation_values <- list(counts = set_countsC, rejected_modes = names(set_errorsC),
+  indicator_columns = ncol(set_frameC))
+```
+:::
+
+本节实跑两集合返回值与17集合拒绝路径，没有实际枚举16集合的65,536个含空组合；16的上界来自该固定版本的源码和帮助页。
+
+<!-- /update-20261101c: utils_sets_cap -->
 
 ## Venn 填色和标签
 
@@ -714,6 +759,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：补充完整交集因子水平、零计数和最多16集合的枚举边界。
 - 2026-11-01：[区分分类UpSet入口](#cat-upset-20261101)，补充单行、透明度与忽略列的链接。
 - 2026-10-31：[固定分层前成员定义](#facets-20261031b)，补充显式阳性水平和混合因子成员ID。
 - 2026-10-31：[补充集合身份、原始缺失、透明填色和完整组合图](#identity-20261031)。
