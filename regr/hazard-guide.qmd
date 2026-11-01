@@ -7,13 +7,21 @@ toc-depth: 2
 directory:
   title: "瞬时风险：平滑方法、分组与协变量标准化"
   topic: 回归与生存分析
-  updated: 2026-10-01
+  updated: 2026-11-01
+date-modified: 2026-11-01
 ---
 
 
 瞬时风险率描述某时点仍在险者的事件发生强度，单位是每单位时间，而不是累计死亡概率。这个页面先比较非参数/平滑展示，再比较柔性参数生存模型的分组与协变量标准化曲线。
 
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+双平台复核：本例拟合风险率及区间的最大绝对差约6.2×10^-9，颜色映射一致；拟合数值按相对容差1e-6核对，未要求模型区间逐字一致。
+
+2026-11-01 追加按已推送 RegR `5eda8523`（0.1.3）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 数据准备与复现
 
@@ -323,6 +331,50 @@ data.frame(group = as.character(u[["strata"]]), time = u[["time"]],
 :::
 
 
+### 分组风险率按组名固定颜色（2026-11-01） {#colors-20261101c}
+
+<!-- update-20261101c: regr_hazard_colors -->
+
+`get_hzd_group()` 与 `get_hzd_adj()` 的命名 `color` 现在按实际因子组名匹配。字典可包含额外组，但不能遗漏显示组，也不能有空键、重复键或缺失键。无名颜色仍按原组序分配。
+
+```r
+set.seed(20261102)
+hazard_colors_dataC <- data.frame(group = factor(rep(c("A", "B"), each = 40)),
+  age = rep(40:79, 2))
+event_timeC <- rexp(80, rate = rep(c(.03, .045), each = 40))
+censor_timeC <- rexp(80, rate = .012)
+hazard_colors_dataC[["time"]] <- pmin(event_timeC, censor_timeC) + .1
+hazard_colors_dataC[["DSS"]] <- as.integer(event_timeC <= censor_timeC)
+hazard_paletteC <- c(B = "#D55E00", A = "#0072B2")
+hazard_groupC <- RegR::get_hzd_group(hazard_colors_dataC, cat_var = "group",
+  df = 2L, tvc_df = NULL, n_grid = 20L, color = hazard_paletteC)
+hazard_adjustedC <- RegR::get_hzd_adj(hazard_colors_dataC, cat_var = "group", adj_var = "age",
+  df = 2L, tvc_df = NULL, n_grid = 20L, color = hazard_paletteC)
+RegR::save_plt(patchwork::wrap_plots(hazard_groupC, hazard_adjustedC, ncol = 2),
+  file.path(tempdir(), "20261101c-update-hazard-colors.pdf"), width = 10, height = 4.8)
+```
+
+![80条合成随访的两组风险率曲线，未标准化和年龄标准化两图都按A蓝B橙显示。](images/hazard-guide/20261101c-update-hazard-colors.png){fig-alt="实际柔性参数生存模型输出，两个面板分别为分组瞬时风险率与年龄标准化风险率，颜色由组名匹配。"}
+
+[原生 PDF](images/hazard-guide/20261101c-update-hazard-colors.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (p in list(hazard_groupC, hazard_adjustedC)) {
+  actual <- p[["scales"]]$get_scales("colour")$palette(2L)
+  stopifnot(identical(unname(actual), unname(hazard_paletteC[c("A", "B")])),
+    all(is.finite(p[["data"]][["hazard_rate"]])))
+}
+validation_values <- list(n = nrow(hazard_colors_dataC), events = sum(hazard_colors_dataC[["DSS"]]),
+  group_colors = hazard_paletteC[c("A", "B")],
+  grouped = hazard_groupC[["data"]], standardized = hazard_adjustedC[["data"]])
+```
+:::
+
+本例显式选择PH组效应（`tvc_df=NULL`），只验证命名配色及有效输出，不替代上文时变效应的模型选择，也不把模型标准化关联解释为因果效应。
+
+<!-- /update-20261101c: regr_hazard_colors -->
+
 ## 使用边界、保存与复现记录
 
 
@@ -346,3 +398,9 @@ data.frame(group = as.character(u[["strata"]]), time = u[["time"]],
 packageVersion("RegR")
 sessionInfo()
 ```
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：补充分组与协变量标准化风险率按组名匹配颜色的合成示例。
+:::
