@@ -16,6 +16,8 @@ date-modified: 2026-11-01
 **历史版本与执行范围：** 以下原有31个参数示例按 UtilsR **0.6.8** 核对；31 个示例已在 WSL R 4.4.3 中实际执行，其中 31 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `5cab2565`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `5cab2565`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-01 追加按已推送 UtilsR `129c5a71`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `129c5a71`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -360,6 +362,75 @@ validation_values <- list(rows = nrow(cat_identity31b), removed_rows = which(cat
 
 <!-- /update-20261031b: utils_cat_identity -->
 
+### 精确类别、阳性键与UpSet集合名（2026-11-01） {#identity-20261101c}
+
+<!-- update-20261101c: utils_cat_identity -->
+
+0.6.20在短文本标签碰撞时增加数值精度，避免把不同double、AsIs、haven标签值或complex类别合并；这不是改变数值本身。命名stat_level向量与命名list都按列名匹配，须恰好覆盖选中列；无名向量仍按列序。
+
+```r
+cat_preciseC <- data.frame(value = c(1, 1 + .Machine$double.eps, NA_real_))
+cat_precise_plotC <- UtilsR::plt_cat(cat_preciseC, "value", stat = "count", NA_stat = TRUE,
+  flip = TRUE, label = TRUE, palette = "#3B5488")
+RegR::save_plt(cat_precise_plotC, file.path(tempdir(), "20261101c-update-cat-precise.pdf"), width = 7, height = 3.8)
+cat_setsC <- data.frame(A = c(TRUE, FALSE, FALSE), B = c(TRUE, FALSE, FALSE), C = c(FALSE, TRUE, TRUE))
+names(cat_setsC)[3] <- "A-__-__-_-B"
+cat_names_plotC <- UtilsR::plt_cat(cat_setsC, names(cat_setsC), type = "upset", stat_level = TRUE, label = TRUE)
+RegR::save_plt(cat_names_plotC, file.path(tempdir(), "20261101c-update-cat-set-names.pdf"), width = 7, height = 4.8)
+```
+
+::: {.panel-tabset}
+#### 精确数值类别 {.unnumbered}
+
+![两个接近1的不同值保留各自计数，缺失为第三类。](images/categorical-guide/20261101c-update-cat-precise.png){fig-alt="三个计数均为一的横向柱，两个非缺失类别以足够精度区分，不将一加机器精度合并到一。"}
+
+[原生 PDF](images/categorical-guide/20261101c-update-cat-precise.pdf)
+
+#### 集合名含连接符 {.unnumbered}
+
+![第三个集合名称与后端连接符相似，仍与A、B两个集合的交集区分。](images/categorical-guide/20261101c-update-cat-set-names.png){fig-alt="三行成员数据产生两个交集柱，A与B共同成员数一，名称含连接符的独立集合成员数二，合计三。"}
+
+[原生 PDF](images/categorical-guide/20261101c-update-cat-set-names.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(cat_precise_plotC$data$n, c(1L, 1L, 1L)),
+  length(unique(cat_precise_plotC$data$stat_var)) == 3L,
+  identical(as.numeric(as.character(cat_precise_plotC$data$stat_var)[1:2]), cat_preciseC$value[1:2]),
+  identical(sort(ggplot2::ggplot_build(cat_names_plotC)$data[[1]]$count), c(1, 2)))
+cat_posC <- data.frame(A = c("Yes", "No", "Yes"), B = c("No", "No", "Yes"))
+cat_namedC <- UtilsR::plt_cat(cat_posC, c("A", "B"), type = "upset", stat_level = c(B = "No", A = "Yes"))
+cat_listC <- UtilsR::plt_cat(cat_posC, c("A", "B"), type = "upset", stat_level = list(A = "Yes", B = "No"))
+stopifnot(identical(cat_namedC$data$intersection, cat_listC$data$intersection))
+cat_classedC <- list(I(c(1e15, 1e15 + 1, NA_real_)),
+  haven::labelled_spss(c(1e15, 1e15 + 1, 99), na_values = 99),
+  c(1 + 1i, (1 + .Machine$double.eps) + 1i, NA_complex_))
+for (vC in cat_classedC) {
+  dC <- data.frame(row = 1:3); dC$value <- vC
+  pC <- UtilsR::plt_cat(dC, "value", stat = "count", NA_stat = TRUE)
+  stopifnot(identical(pC$data$n, c(1L, 1L, 1L)))
+}
+cat_retainedC <- data.frame(value = factor(c("a1", "a2"), levels = paste0("a", 1:101)), group = c("G1", "G2"))
+cat_capC <- tryCatch(UtilsR::plt_cat(cat_retainedC, "value", "group", keep_empty = TRUE), error = identity)
+cat_gridC <- data.frame(value = factor(c("a1", "a2"), levels = paste0("a", 1:50000)),
+  group = factor(c("g1", "g2"), levels = paste0("g", 1:50000)))
+cat_grid_errorC <- tryCatch(UtilsR::plt_cat(cat_gridC, "value", "group", keep_empty = TRUE, force = TRUE), error = identity)
+cat_key_errorC <- tryCatch(UtilsR::plt_cat(cat_posC, c("A", "B"), type = "upset", stat_level = c(A = "Yes")), error = identity)
+stopifnot(inherits(cat_capC, "error"), grepl("100 levels", conditionMessage(cat_capC)),
+  inherits(cat_grid_errorC, "error"), grepl("2^31", conditionMessage(cat_grid_errorC), fixed = TRUE),
+  inherits(cat_key_errorC, "error"), grepl("missing", conditionMessage(cat_key_errorC)))
+validation_values <- list(rows = 3L, precise_labels = as.character(cat_precise_plotC$data$stat_var),
+  upset_counts = sort(ggplot2::ggplot_build(cat_names_plotC)$data[[1]]$count),
+  named_membership = cat_namedC$data$intersection,
+  errors = vapply(list(cat_capC, cat_grid_errorC, cat_key_errorC), conditionMessage, ""))
+```
+:::
+
+keep_empty=TRUE时，标准图的100水平预检会计入保留的未观察因子水平；force只绕过该预检，不绕过频数格数保护。两列各保留五万水平的例子只有两行观察，仍在分配频数表之前拒绝其超过2^31的格数；本例没有创建那张大表。集合名的修复也不改变UpSet的20个交集显示上限。
+
+<!-- /update-20261101c: utils_cat_identity -->
+
 ## 分层、缺失与空水平
 
 ::: {.panel-tabset}
@@ -496,6 +567,71 @@ validation_values <- list(panel_rows = vapply(seq_len(2), function(i) nrow(cat_l
 `facet_nrow/facet_ncol` 需为正整数，同时填写时须能容纳全部面板；无效值在绘图前报错。`bg.by` 仅在有group.by的bar/trend/dot并排图中生效，其他分支会警告并在列验证前忽略，所以上面不存在的背景列不影响结果；在真正启用背景的分支，列名仍必须存在。
 
 <!-- /update-20261101: utils_cat_latest_layout -->
+
+### 分层数量尺度、背景与Venn标签（2026-11-01） {#quantity-20261101c}
+
+<!-- update-20261101c: utils_cat_quantity -->
+
+分层dot的圆面积与Venn的计数填色都使用该次调用的共同数量范围，不能再把每层最大的圆或最深的色当作同一计数。背景类别也先建立整份输入的颜色字典，同一个South不会因面板内次序不同而变色。
+
+```r
+cat_quantityC <- data.frame(Category = rep(c("A", "B", "A", "B"), c(1, 2, 10, 20)),
+  Site = rep(c("Small", "Large"), c(3, 30)))
+cat_dotsC <- UtilsR::plt_cat(cat_quantityC, "Category", split.by = "Site", type = "dot", stat = "count", label = TRUE)
+RegR::save_plt(cat_dotsC, file.path(tempdir(), "20261101c-update-cat-dot-scale.pdf"), width = 8.5, height = 4.8)
+cat_vennC <- data.frame(A = TRUE, B = TRUE, Site = rep(c("Small", "Large"), c(1, 10)))
+cat_venn_plotC <- UtilsR::plt_cat(cat_vennC, c("A", "B"), split.by = "Site", type = "venn",
+  stat_level = TRUE, label = TRUE, alpha = 0.4, label.bg = "#FFF1CC", label.bg.r = 0.4)
+RegR::save_plt(cat_venn_plotC, file.path(tempdir(), "20261101c-update-cat-venn-scale.pdf"), width = 8.5, height = 4.8)
+```
+
+::: {.panel-tabset}
+#### 共同圆面积尺度 {.unnumbered}
+
+![Small的计数为1和2，Large为10和20，圆面积按同一尺度映射。](images/categorical-guide/20261101c-update-cat-dot-scale.png){fig-alt="两个分类点图使用一至二十的共同数量范围，Large中的十倍计数对应十倍圆面积。"}
+
+[原生 PDF](images/categorical-guide/20261101c-update-cat-dot-scale.pdf)
+
+#### 共同填色与标签底框 {.unnumbered}
+
+![Venn分别有1与10个共同成员，使用0至10的共同填色，区域透明度与标签底色独立。](images/categorical-guide/20261101c-update-cat-venn-scale.png){fig-alt="左右两张二集合Venn共享计数填色，区域透明度零点四，标签使用淡黄底框。"}
+
+[原生 PDF](images/categorical-guide/20261101c-update-cat-venn-scale.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_dot_buildC <- lapply(1:2, function(i) ggplot2::ggplot_build(cat_dotsC[[i]]))
+cat_venn_buildC <- lapply(1:2, function(i) ggplot2::ggplot_build(cat_venn_plotC[[i]]))
+for (iC in 1:2) {
+  stopifnot(identical(cat_dot_buildC[[iC]]$plot$scales$get_scales("size")$get_limits(), c(1, 20)),
+    identical(cat_venn_buildC[[iC]]$plot$scales$get_scales("fill")$get_limits(), c(0, 10)),
+    identical(unique(cat_venn_buildC[[iC]]$data[[1]]$alpha), 0.4))
+  atC <- which(vapply(cat_venn_plotC[[iC]]$layers, function(z) inherits(z$geom, "GeomLabel"), FALSE))
+  stopifnot(identical(unique(cat_venn_buildC[[iC]]$data[[atC]]$fill), "#FFF1CC"),
+    as.numeric(cat_venn_plotC[[iC]]$layers[[atC]]$geom_params$label.r) == 0.4)
+}
+stopifnot(isTRUE(all.equal(cat_dot_buildC[[2]]$data[[1]]$size / cat_dot_buildC[[1]]$data[[1]]$size, rep(sqrt(10), 2))))
+cat_bgC <- data.frame(Category = rep(c("A", "B"), 4),
+  Group = rep(c("G1", "G2", "G2", "G3"), each = 2),
+  Region = rep(c("North", "South", "South", "East"), each = 2), Site = rep(c("one", "two"), each = 4))
+cat_bg_plotC <- UtilsR::plt_cat(cat_bgC, "Category", "Group", split.by = "Site", type = "bar",
+  position = "dodge", bg.by = "Region", bg_palette = c("red", "blue", "green"))
+cat_southC <- vapply(1:2, function(i) {
+  d <- cat_bg_plotC[[i]]$layers[[1]]$data; d$fill[d$bg == "South"]
+}, "")
+cat_emptyC <- UtilsR::plt_cat(data.frame(A = c(FALSE, FALSE), B = c(FALSE, FALSE)),
+  c("A", "B"), type = "venn", stat_level = TRUE, label = TRUE)
+cat_empty_labelsC <- unique(unlist(lapply(ggplot2::ggplot_build(cat_emptyC)$data, function(d) as.character(d$label))))
+stopifnot(identical(cat_southC[1], cat_southC[2]), setequal(cat_empty_labelsC, c("A", "B", "0")))
+validation_values <- list(dot_counts = list(c(1, 2), c(10, 20)), size_limits = c(1, 20),
+  venn_fill_limits = c(0, 10), same_south_colour = cat_southC, empty_venn_labels = sort(cat_empty_labelsC))
+```
+:::
+
+Venn的alpha控制区域填充，label.bg和label.bg.r控制数值标签框；固定计数不变。没有任何阳性成员时，label=TRUE只显示0，不生成分母为零的百分比；分层中有成员的面板仍按自己的集合成员计算百分比。
+
+<!-- /update-20261101c: utils_cat_quantity -->
 
 ## 极坐标：玫瑰、环形与饼图
 
@@ -960,6 +1096,60 @@ validation_values <- list(rows = nrow(cat_chord_data01), cross_count = unclass(t
 
 <!-- /update-20261101: utils_cat_chord -->
 
+### 弦图未用水平与空白类别（2026-11-01） {#chord-20261101c}
+
+<!-- update-20261101c: utils_cat_chord -->
+
+弦图先去掉未观察因子水平再构造交叉频数，避免因遗留水平扩成巨表。空字符串与一个空格仍是两个类别；后端需要非空扇区名时只替换内部键，颜色继续按原类别匹配。下面分别用两行遗留五万水平的输入和四行空白类别输入，实际保存并回放。
+
+```r
+cat_unusedC <- data.frame(A = factor(c("a1", "a2"), levels = paste0("a", 1:50000)),
+  B = factor(c("b1", "b2"), levels = paste0("b", 1:50000)))
+cat_unused_plotC <- UtilsR::plt_cat(cat_unusedC, c("A", "B"), type = "chord",
+  palette = c(a1 = "#3B5488", a2 = "#D55E00", b1 = "#009E73", b2 = "#E69F00"), alpha = 1,
+  save = list(filename = file.path(tempdir(), "20261101c-update-chord-unused.pdf"), width = 6, height = 6))
+cat_blankC <- data.frame(A = c("", "a", " ", ""), B = c("b", "c", "b", ""))
+cat_blank_paletteC <- stats::setNames(c("red", "blue", "green", "orange", "purple"), c("", "a", " ", "b", "c"))
+cat_blank_plotC <- UtilsR::plt_cat(cat_blankC, c("A", "B"), type = "chord", palette = cat_blank_paletteC, alpha = 1)
+RegR::save_plt(cat_blank_plotC, file.path(tempdir(), "20261101c-update-chord-blank.pdf"), width = 6, height = 6)
+```
+
+::: {.panel-tabset}
+#### 只画观察水平 {.unnumbered}
+
+![原来每列五万个水平，实际仅构造两乘二观察频数。](images/categorical-guide/20261101c-update-chord-unused.png){fig-alt="两行输入只显示a1 a2 b1 b2四个观察扇区，未观察因子水平不进入弦图频数表。"}
+
+[原生 PDF](images/categorical-guide/20261101c-update-chord-unused.pdf)
+
+#### 空串与空格分开 {.unnumbered}
+
+![空字符串为红色、一个空格为绿色，两个空白类别没有合并。](images/categorical-guide/20261101c-update-chord-blank.png){fig-alt="四行空白类别弦图，空字符串和一个空格的扇区分别用红与绿显示，其余a b c使用蓝橙紫。"}
+
+[回放 PDF](images/categorical-guide/20261101c-update-chord-blank.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cat_small_tableC <- table(droplevels(cat_unusedC$A), droplevels(cat_unusedC$B))
+cat_blank_pixelsC <- local({
+  capture <- ragg::agg_capture(width = 400, height = 400, units = "px")
+  on.exit(grDevices::dev.off())
+  grDevices::replayPlot(cat_blank_plotC); capture()
+})
+cat_blank_rgbC <- grDevices::col2rgb(as.vector(cat_blank_pixelsC))
+cat_presentC <- vapply(cat_blank_paletteC, function(col)
+  any(colSums(abs(sweep(cat_blank_rgbC, 1, as.numeric(grDevices::col2rgb(col)), "-"))) <= 3), FALSE)
+stopifnot(inherits(cat_unused_plotC, "recordedplot"), inherits(cat_blank_plotC, "recordedplot"),
+  identical(dim(cat_small_tableC), c(2L, 2L)), sum(cat_small_tableC) == 2L, all(cat_presentC))
+validation_values <- list(rows = c(2L, 4L), retained_input_levels = c(50000L, 50000L),
+  observed_frequency_dimensions = dim(cat_small_tableC), blank_and_space_colours_present = unname(cat_presentC))
+```
+:::
+
+若观察类别本身的交叉格数已达2^31，仍会在分配频数表前报错，force不绕过该保护。复核代码只对droplevels后的两乘二表计数，没有对原五万乘五万因子调用table。空白扇区的文字本身不可见，应结合原类别字典与固定颜色阅读。
+
+<!-- /update-20261101c: utils_cat_chord -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 标准类型返回 ggplot；`split.by` 通常返回 patchwork。弦图分支返回 recordedplot，并已经在当前设备绘制，不能将它直接传给 `ggsave()`。
@@ -1101,6 +1291,9 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：[补充弦图的未用水平与空白类别](#chord-20261101c)，核对实际保存和颜色回放。
+- 2026-11-01：[补充分层数量与背景字典](#quantity-20261101c)，核对Venn透明度、标签底框及空成员。
+- 2026-11-01：[补充高精度类别与命名阳性键](#identity-20261101c)，保留UpSet集合身份并预检频数容量。
 - 2026-11-01：[说明UpSet截断和空分层](#upset-bounds-20261101b)，明确Venn七集合上限。
 - 2026-11-01：[补充Sankey的保留列名与重复路径](#sankey-20261101b)，压缩权重与逐行图层一致。
 - 2026-11-01：[核对并排趋势面积位置](#trend-20261101b)，保留原始计数并显式翻转返回图。
