@@ -2,17 +2,19 @@
 title: "条件生存：已存活多久、再存活多久与固定终点"
 description: "get_cs 与 get_cs_time 的实际曲线、KM 比值核对、固定终点/额外时长区别，以及当前图例方向修正。"
 date: 2026-10-01
-date-modified: 2026-10-27
+date-modified: 2026-11-01
 lightbox: true
 toc-depth: 2
 directory:
   title: "条件生存：已存活多久、再存活多久与固定终点"
   topic: 回归与生存分析
-  updated: 2026-10-27
+  updated: 2026-11-01
 ---
 条件生存把“从诊断起的生存”换成“已存活到某时点之后的生存”。先明确已存活时间 s、额外时长 u 与固定终点，再用 KM 比值读图。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 RegR `5eda8523`（0.1.3）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-27 按已推送 RegR **0.1.3** `212a156`、UtilsR **0.6.12** `45a162d` 核对，新增示例在 Windows / WSL R 4.4.3 运行。当前包已修正曲线、组名与标签顺序，无需旧版 `label_cs_time()`；旧图与修正代码在页末封存，仅代表 2026-10-01 的快照。
 :::
 
@@ -87,6 +89,53 @@ validation_values <- list(curve = cs_curve27[["data"]], points = cs_points27[["d
 :::
 
 <!-- /update-20261027: regr_conditional -->
+### 按条件曲线名称固定颜色（2026-11-01） {#colors-20261101c}
+
+<!-- update-20261101c: regr_cs_colors -->
+
+命名 `color` 向量现在按完整图例标签匹配，而不是按向量位置取色。`get_cs()` 使用 `cs (x-s|s)`，`get_cs_time()` 使用 `cs(max_time-x|x)` 与 `cs(extra_alive|x)`；注意空格也属于名称。每条显示曲线都须有唯一、非空且非缺失的键，可以多提供不使用的键。
+
+```r
+cs_colors_dataC <- data.frame(time = c(.5, 1, 2, 3, 4, 6, 7, 10),
+  DSS = c(1L, 1L, 0L, 1L, 1L, 0L, 1L, 0L))
+cs_paletteC <- c("cs (x-4|4)" = "#D55E00", "cs (x-1|1)" = "#009E73",
+  "cs (x-0|0)" = "#0072B2")
+cs_namedC <- RegR::get_cs(cs_colors_dataC, times = c(0, 1, 4), max_time = 8, color = cs_paletteC)
+cs_time_paletteC <- c("cs(2|x)" = "#D55E00", "cs(8-x|x)" = "#0072B2")
+cs_time_namedC <- RegR::get_cs_time(cs_colors_dataC, times = c(0, 1, 4), max_time = 8,
+  extra_alive = 2, add_label = FALSE, color = cs_time_paletteC)
+RegR::save_plt(patchwork::wrap_plots(cs_namedC, cs_time_namedC, ncol = 2),
+  file.path(tempdir(), "20261101c-update-cs-colors.pdf"), width = 11, height = 4.8)
+```
+
+![字典故意按反序书写，条件曲线仍按完整标签取得预设颜色。](images/conditional-survival-guide/20261101c-update-cs-colors.png){fig-alt="八条合成记录的实际条件生存图，左图三个landmark为0、1、4，右图对照固定终点8和额外2；颜色由命名标签匹配。"}
+
+[原生 PDF](images/conditional-survival-guide/20261101c-update-cs-colors.pdf)
+
+无名颜色仍按位置；只有装饰性名称的现成调色板需要显式 `unname()` 才选择位置映射。这个操作不会改变KM估计或时间单位。缺少曲线键时应补全字典，不要自动去名掩盖拼写错误。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cs_labelsC <- c("cs (x-0|0)", "cs (x-1|1)", "cs (x-4|4)")
+cs_time_labelsC <- c("cs(8-x|x)", "cs(2|x)")
+stopifnot(identical(cs_namedC[["scales"]]$get_scales("colour")$palette(3L)[cs_labelsC],
+    cs_paletteC[cs_labelsC]),
+  identical(cs_time_namedC[["scales"]]$get_scales("colour")$palette(2L)[cs_time_labelsC],
+    cs_time_paletteC[cs_time_labelsC]))
+cs_positionalC <- RegR::get_cs(cs_colors_dataC, times = c(0, 1, 4), max_time = 8,
+  color = unname(cs_paletteC[cs_labelsC]))
+stopifnot(identical(cs_namedC[["data"]], cs_positionalC[["data"]]))
+cs_missingC <- tryCatch({ RegR::get_cs(cs_colors_dataC, times = c(0, 1, 4), max_time = 8,
+  color = cs_paletteC[1]); "NO ERROR" }, error = conditionMessage)
+stopifnot(grepl("missing", cs_missingC, fixed = TRUE))
+validation_values <- list(curve_colors = cs_paletteC[cs_labelsC],
+  series_colors = cs_time_paletteC[cs_time_labelsC], n = nrow(cs_colors_dataC),
+  cs = cs_namedC[["data"]][["cs"]])
+```
+:::
+
+<!-- /update-20261101c: regr_cs_colors -->
+
 
 ## 共用计算与返回对象
 
@@ -460,5 +509,6 @@ p[["data"]][, c("x", "y", "xy", "group", "cs")]
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：补充完整条件曲线标签的命名颜色字典、缺键报错与无名位置映射。
 - 2026-10-27：以[8 行合成数据](#km-steps-20261027)核对原生 KM 阶梯、两组条件概率和终点；旧修正代码单独封存。
 :::
