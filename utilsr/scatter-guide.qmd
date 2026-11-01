@@ -7,12 +7,18 @@ toc-depth: 2
 directory:
   title: "组合散点图：边际分布、双分组与配对差值，23 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-10-01
+  updated: 2026-11-01
+date-modified: 2026-11-01
 ---
 
 PlotScatter1/2/3 的点、椭圆、回归、相关、边际布局、栅格化和配对差值插图。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 23 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -35,6 +41,8 @@ paired[["group"]] <- factor(ifelse(abs(paired[["Treat"]] - paired[["Control"]]) 
 
 ## 函数选择与重要参数 {#parameters}
 
+::: {.table-responsive tabindex="0" role="region" aria-label="散点图参数速查，可横向滚动"}
+
 | 任务 | 函数及重点参数 | 条件与区别 |
 |:--|:--|:--|
 | 单分组散点 | `PlotScatter1(data,x,y,group)` | 主散点、上侧与右侧边际图、注释面板；颜色与形状都映射同一个组 |
@@ -50,6 +58,8 @@ paired[["group"]] <- factor(ifelse(abs(paired[["Treat"]] - paired[["Control"]]) 
 | 差值直方图 | `hist_bins=30`、`hist_x_limits/breaks`、`median_label_size` | 3 的差值为 y−x，线与标签是整体差值中位数 |
 | 插图位置 | `inset_left/bottom/right/top`、`inset_angle=-45`、`plot_margin` | 3 的旋转插图依赖画布空间，修改后检查导出结果 |
 | 保存 | `filename=NULL`、`width/height/dpi` | 三者均支持自身保存参数，默认不保存；外部 ggsave 也可用于返回图 |
+
+:::
 
 ## 单分组和边际分布
 
@@ -339,6 +349,61 @@ PlotScatter3(paired, inset_left = 0.55, inset_bottom = 0.62,
 
 :::
 
+### 默认映射上限与显式扩展（2026-11-01） {#mapping-20261101c}
+
+<!-- update-20261101c: utils_scatter_mapping -->
+
+默认颜色和形状的容量现在提前检查。`PlotScatter1()` 超过12组须同时提供 `colors` 与 `shapes`；`PlotScatter2()` 的颜色超过12组须提供 `colors`，形状超过6组须同时提供 `shapes` 与边际填色 `fill_colors_shape`。完整命名映射可以扩展组数；这些上限约束默认映射，不代表统计可识别性或推荐展示组数。
+
+```r
+scatter_manyC <- data.frame(x = rep(1:13, each = 2),
+  y = rep(1:13, each = 2) + rep(c(-.3, .3), 13),
+  group = rep(sprintf("G%02d", 1:13), each = 2))
+scatter_colorsC <- setNames(grDevices::hcl.colors(13, "Dark 3"), unique(scatter_manyC[["group"]]))
+scatter_shapesC <- setNames(0:12, names(scatter_colorsC))
+scatter_explicitC <- UtilsR::PlotScatter1(scatter_manyC, "x", "y", "group",
+  colors = scatter_colorsC, shapes = scatter_shapesC, show_ellipse = FALSE,
+  box_jitter = FALSE, legend_pos = "bottom", point_size = 3, layout_ratio = c(2, 4),
+  legend_theme = ggplot2::theme(legend.text = ggplot2::element_text(size = 8),
+    legend.key.width = grid::unit(.45, "cm"), legend.spacing.x = grid::unit(.05, "cm")))
+RegR::save_plt(scatter_explicitC, file.path(tempdir(), "20261101c-update-scatter-mapping.pdf"),
+  width = 10, height = 9.5)
+```
+
+![13组均用显式颜色和形状映射，边际箱线与主散点一同显示。](images/scatter-guide/20261101c-update-scatter-mapping.png){fig-alt="26条合成记录的单分组散点和边际箱线，每组两条记录，13组使用命名颜色及形状并显示紧凑图例。"}
+
+[原生 PDF](images/scatter-guide/20261101c-update-scatter-mapping.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+scatter_errorC <- function(expr) tryCatch({ force(expr); "NO ERROR" }, error = conditionMessage)
+single_errorC <- scatter_errorC(UtilsR::PlotScatter1(scatter_manyC, "x", "y", "group"))
+color_errorC <- scatter_errorC(UtilsR::PlotScatter2(scatter_manyC, "x", "y", "group"))
+stopifnot(grepl("More than 12 groups", single_errorC, fixed = TRUE),
+  grepl("More than 12 colour groups", color_errorC, fixed = TRUE))
+scatter_dualC <- data.frame(x = 1:28, y = (1:28) + rep(c(-1, 1), 14),
+  group = rep(c("A", "B"), each = 14), shape = rep(paste0("S", 1:7), 4))
+shape_errorC <- scatter_errorC(UtilsR::PlotScatter2(scatter_dualC, "x", "y", "group", "shape"))
+shape_mapC <- setNames(0:6, paste0("S", 1:7))
+fill_mapC <- setNames(grDevices::hcl.colors(7, "Dark 3"), names(shape_mapC))
+shape_partialC <- scatter_errorC(UtilsR::PlotScatter2(scatter_dualC, "x", "y", "group", "shape",
+  shapes = shape_mapC))
+shape_plotC <- UtilsR::PlotScatter2(scatter_dualC, "x", "y", "group", "shape",
+  shapes = shape_mapC, fill_colors_shape = fill_mapC)
+stopifnot(grepl("More than 6 shape groups", shape_errorC, fixed = TRUE),
+  grepl("fill_colors_shape", shape_partialC, fixed = TRUE), inherits(shape_plotC, "patchwork"),
+  inherits(patchwork::patchworkGrob(patchwork::wrap_plots(list(scatter_explicitC))), "gtable"),
+  inherits(patchwork::patchworkGrob(shape_plotC), "gtable"))
+validation_values <- list(single_n = nrow(scatter_manyC), single_groups = length(scatter_colorsC),
+  dual_n = nrow(scatter_dualC), shape_groups = length(shape_mapC),
+  rejected_defaults = c(single_errorC, color_errorC, shape_errorC, shape_partialC))
+```
+:::
+
+本例关闭椭圆、相关与回归，仅验证映射容量和图形构建。13组的区分仍可能困难，实际报告可优先分面或减少同时展示的组数。
+
+<!-- /update-20261101c: utils_scatter_mapping -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 三个函数返回 patchwork。`filename = NULL` 不保存；给出文件名时由函数按 width/height/dpi 导出。当前接口使用 filename，并非统一 save list。
@@ -456,3 +521,9 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：补充默认映射容量、完整显式映射和提前报错；参数表在手机宽度下独立横向滚动。
+:::
