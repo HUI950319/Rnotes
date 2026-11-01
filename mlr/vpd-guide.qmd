@@ -4,18 +4,20 @@ description: "get_exp、get_vpd、get_vpd_pnl 与 get_ale2 的工作流；比较
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-10-31
+date-modified: 2026-11-01
 directory:
   title: "变量分布、PDP与二阶ALE：网格与统一入口"
   topic: 模型解释
-  updated: 2026-10-31
+  updated: 2026-11-01
 ---
 
 `get_exp()` 构建预测解释器，`get_vpd()` 将变量分布（VD）与部分依赖（PD）放在一起。本页用实际图形解释两块面板的差别，并对照主要任务和分组路径。
 
-**版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出原主教程 **12 张参数对照图**。Cox、Logistic 和生存随机森林均实际训练，图形来自公开入口；使用已有临床示例和模拟二分类数据，未执行外部临床验证。
-
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+**历史版本与执行范围：** 按当时的 MLR 0.1.13 源码核对，使用 WSL R 4.4.3 实际导出原主教程 **12 张参数对照图**。Cox、Logistic 和生存随机森林均实际训练，图形来自公开入口；使用已有临床示例和模拟二分类数据，未执行外部临床验证。
+
+2026-11-01 追加按已推送 MLR `2b5c9154`（0.1.13）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `ec2b136f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。两端的ggplot2 / patchwork / ggrastr / ragg / DALEX / survex分别为4.0.3 / 1.3.2 / 1.0.2 / 1.5.2 / 2.4.3 / 1.2.0。Windows的ggstatsplot / tidyplots / statsExpressions为0.13.1 / 0.2.2 / 1.7.0，WSL为0.12.4 / 0.3.1 / 1.5.5。本站预览来自WSL原生PDF；旧图保留原执行快照，此次没有重跑历史模型或安装包。
+
 2026-10-31 追加按已推送 MLR `49cdb4c`（0.1.13）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 :::
@@ -62,6 +64,25 @@ set.seed(246)
 erf <- get_exp(d, vars = vars, surv = 60, model = "ranger")
 ```
 
+
+### 本轮采样对照的合成输入（2026-11-01） {#sample-data-20261101b}
+
+下面80行只用于本轮新增示例：Common为64行、Rare为16行，分类正类是Yes，生存时间单位为月。三个新小节复用这一输入，各自拟合小型Logistic或Cox；上方历史模型和图片保留原执行快照。
+
+<!-- update-20261101b: mlr_vpd_input_b -->
+```r
+set.seed(110102)
+vpd_dataB <- data.frame(Group = factor(c(rep("Common", 64), rep("Rare", 16)), levels = c("Common", "Rare")),
+  Tumour_size_group = factor(rep(c("Early", "Early", "Late", "Late"), 20), levels = c("Early", "Late")))
+vpd_dataB$Baseline_marker <- rnorm(80) + 0.25 * (vpd_dataB$Tumour_size_group == "Late")
+vpd_dataB$Outcome <- factor(rep(c("No", "Yes", "Yes", "Yes", "No", "No", "No", "Yes"), 10), levels = c("No", "Yes"))
+vpd_followupB <- rexp(80, rate = exp(0.35 * vpd_dataB$Baseline_marker +
+  0.55 * (vpd_dataB$Tumour_size_group == "Late")) / 30)
+vpd_dataB$time <- pmin(vpd_followupB, 48)
+vpd_dataB$DSS <- as.integer(vpd_followupB < 48)
+vpd_varsB <- c("Group", "Tumour_size_group", "Baseline_marker")
+```
+<!-- /update-20261101b: mlr_vpd_input_b -->
 
 ## get_ale2()：去除主效应后的二阶 ALE {#get-ale2}
 
@@ -588,6 +609,50 @@ get_vpd(e60, exp_var = c("Sex", "Age"), cores = 1)
 :::
 
 
+### 生存分组的采样范围（2026-11-01） {#sample-sur-20261101b}
+
+<!-- update-20261101b: mlr_vpd_sample_sur -->
+
+先运行[80行输入](#sample-data-20261101b)。生存入口的 `pd_by` 默认为且只接受 `"group"`；分组PD仍逐组重建模型，再在该组抽背景行。`get_vpd()` 不填写pd_by时由后端选用对应默认值。这里VD用整体Cox的24月生存概率，PD用各组重建的Cox，不能称作同一模型按组求均值。
+
+```r
+vpd_surB <- MLR::get_exp(vpd_dataB, vars = vpd_varsB, surv = 24, cores = 1)
+set.seed(110104)
+vpd_sur_sampleB <- MLR::get_vpd(vpd_surB, c("Group", "Baseline_marker"), cores = 1,
+  palette = c("#3B5488", "#D55E00"), ylim = c(0, 1),
+  xlab = "Baseline marker", ylab = "S(24 months)", sample_args = list(vd = 4, pd = 20))
+RegR::save_plt(vpd_sur_sampleB, file.path(tempdir(), "20261101b-update-vpd-sur-sample.pdf"),
+  width = attr(vpd_sur_sampleB, "plot_size")[["width"]], height = attr(vpd_sur_sampleB, "plot_size")[["height"]])
+```
+
+![生存VD显示每组四个点，PD分别使用Common的20行与Rare的16行。](images/vpd-guide/20261101b-update-vpd-sur-sample.png){fig-alt="八十行合成Cox解释器，上方VD使用整体模型且仅显示八点，下方按两组重建并计算二十与十六行背景的生存PD，蓝橙颜色对应Common和Rare。"}
+
+[原生 PDF](images/vpd-guide/20261101b-update-vpd-sur-sample.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+vpd_sur_point_layerB <- which(vapply(vpd_sur_sampleB[[1]]$layers, function(z) inherits(z$geom, "GeomPoint"), FALSE))[1]
+vpd_sur_buildB <- lapply(seq_len(length(vpd_sur_sampleB)), function(i) ggplot2::ggplot_build(vpd_sur_sampleB[[i]]))
+vpd_sur_idsB <- tapply(vpd_sur_sampleB[[2]]$data$ids, as.character(vpd_sur_sampleB[[2]]$data$groups),
+  function(z) length(unique(z)))
+vpd_sur_badB <- tryCatch(MLR::plt_vpd_sur(vpd_surB, c("Group", "Baseline_marker"),
+  sample_args = list(pd_by = "overall")), error = identity)
+stopifnot(nrow(vpd_sur_buildB[[1]]$data[[vpd_sur_point_layerB]]) == 8L,
+  identical(as.integer(vpd_sur_idsB), c(20L, 16L)),
+  all(vapply(vpd_sur_buildB, function(z) identical(unname(z$plot$scales$get_scales("colour")$map(c("Common", "Rare"))),
+    c("#3B5488", "#D55E00")), FALSE)),
+  all(vpd_surB$dat$yhat >= 0 & vpd_surB$dat$yhat <= 1),
+  inherits(vpd_sur_badB, "error"), grepl("pd_by", conditionMessage(vpd_sur_badB)))
+validation_values <- list(rows = nrow(vpd_dataB), events = sum(vpd_dataB$DSS), time_months = 24,
+  vd_points = nrow(vpd_sur_buildB[[1]]$data[[vpd_sur_point_layerB]]), pd_ids_per_group = as.list(vpd_sur_idsB),
+  unsupported_sampling = conditionMessage(vpd_sur_badB))
+```
+:::
+
+数值、正整数或Inf的含义与二分类相同，但默认配额不同；VD点限制不改变整体模型预测或全量平滑线。这里默认只将点图层栅格化，PD曲线及文字仍保持矢量。线程参数与采样参数分别控制计算资源和背景行数，不应混为提速倍数。
+
+<!-- /update-20261101b: mlr_vpd_sample_sur -->
+
 ## 预测时间与布局
 
 数值 `surv` 是预测时间，单位跟随数据的 time。`tidy_plot` 只整理组合图坐标，`cores` 控制生存剖面的计算线程。
@@ -691,6 +756,127 @@ get_vpd(ec, exp_var = c("Sex", "Age"))
 
 :::
 
+
+### VD显示点与PD背景样本（2026-11-01） {#sample-log-20261101b}
+
+MLR `2b5c9154` 为两个绘图入口及 `get_vpd()` 增加 `sample_args`。`vd` 只减少VD显示点，均值、箱线、密度和趋势仍用全量数据；`pd` 则决定计算PD的背景行，因此会影响曲线、分布和均值标签。省略字段或设置NULL保留该路径的原默认值，Inf使用全量行，不能将二者混写。
+
+先运行[80行输入](#sample-data-20261101b)。以下两组调用分开运行，使用同一整体Logistic模型；VD在每组的每个分类水平最多显示4点。本节显式用矢量点，默认栅格化另见[导出对照](#raster-20261101b)。
+
+
+默认配额按下表使用；这些是源码规定的上限，样本不足时使用可用行，不是每幅图都固定取同一个N。下方小样本特意显式指定配额。
+
+::: {.table-responsive tabindex="0" role="region" aria-label="VD与PD默认采样配额，可横向滚动"}
+
+| 路径 | VD可见点默认上限 | PD背景行默认上限 |
+|:--|:--|:--|
+| 单个分类变量 | 每水平1000 | 共500 |
+| 单个连续变量 | 共3000 | 共500 |
+| 分组分类，Logistic | 每组每水平1000 | 整体1000，再分组 |
+| 分组连续，Logistic | 每组500 | 整体500，再分组 |
+| 分组分类，生存 | 每组每水平1000 | 每组500 |
+| 分组连续，生存 | 每组500 | 每组100 |
+
+:::
+
+二分类若显式设置 `pd_by="group"`，PD配额改为逐组应用；生存分组只接受group。读取配置请用 `sample_args[["pd"]]`：R的 `$pd` 会部分匹配到仅有的pd_by字段；当前源码已精确读取，只有pd_by的list也会保留原PD配额。
+
+#### 整体抽样后分组 {.unnumbered}
+
+<!-- update-20261101b: mlr_vpd_sample_log -->
+
+二分类的 `pd_by="overall"` 先在整体抽20行，再按Group拆开。训练模型和原始组人数不变。
+
+```r
+vpd_logB <- MLR::get_exp(vpd_dataB, vars = vpd_varsB, surv = "Outcome")
+set.seed(110103)
+vpd_overallB <- MLR::get_vpd(vpd_logB, c("Group", "Tumour_size_group"), ylim = c(0, 1),
+  palette = c("#3B5488", "#D55E00"), sample_args = list(vd = 4, pd = 20, pd_by = "overall"), raster = FALSE)
+RegR::save_plt(vpd_overallB, file.path(tempdir(), "20261101b-update-vpd-overall.pdf"),
+  width = attr(vpd_overallB, "plot_size")[["width"]], height = attr(vpd_overallB, "plot_size")[["height"]])
+```
+
+![整体PD背景共20行，先抽样再按原组别分配。](images/vpd-guide/20261101b-update-vpd-overall.png){fig-alt="同一八十行Logistic模型的VD与PD，Common和Rare人数为六十四和十六，整体PD背景抽二十行后分给两组。"}
+
+[原生 PDF](images/vpd-guide/20261101b-update-vpd-overall.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+vpd_pd_rowsB <- vapply(3:4, function(i) nrow(vpd_overallB[[i]]$data), 1L)
+vpd_vd_rowsB <- vapply(1:2, function(i) nrow(vpd_overallB[[i]]$data), 1L)
+vpd_vd_pointsB <- vapply(1:2, function(i) {
+  p <- vpd_overallB[[i]]
+  layer <- which(vapply(p$layers, function(z) inherits(z$geom, "GeomPoint"), FALSE))[1]
+  nrow(ggplot2::ggplot_build(p)$data[[layer]])
+}, 1L)
+vpd_colorsB <- lapply(seq_len(length(vpd_overallB)), function(i)
+  unname(ggplot2::ggplot_build(vpd_overallB[[i]])$plot$scales$get_scales("colour")$map(c("Early", "Late"))))
+stopifnot(sum(vpd_pd_rowsB) == 40L, identical(vpd_vd_rowsB, c(64L, 16L)),
+  identical(vpd_vd_pointsB, c(8L, 8L)),
+  all(vapply(3:4, function(i) length(unique(table(vpd_overallB[[i]]$data$x))) == 1L, FALSE)),
+  all(vapply(vpd_colorsB, identical, FALSE, c("#3B5488", "#D55E00"))))
+vpd_bad_argsB <- list(
+  tryCatch(MLR::plt_vpd_log(vpd_logB, "Tumour_size_group", sample_args = list(pd_by = "group")), error = identity),
+  tryCatch(MLR::plt_vpd_log(vpd_logB, "Tumour_size_group", sample_args = list(pd = 0)), error = identity),
+  tryCatch(MLR::plt_vpd_log(vpd_logB, "Tumour_size_group", sample_args = list(unknown = 10)), error = identity))
+stopifnot(all(vapply(vpd_bad_argsB, inherits, FALSE, "error")))
+validation_values <- list(rows = nrow(vpd_dataB), group_rows = as.list(table(vpd_dataB$Group)),
+  pd_background_rows = vpd_pd_rowsB / 2L, pd_counterfactual_rows = vpd_pd_rowsB,
+  vd_stat_rows = vpd_vd_rowsB, vd_drawn_points = vpd_vd_pointsB, colours = vpd_colorsB)
+```
+:::
+
+
+分类PD的整理后面板只保留x、yhat与内部行序号；这里按每个水平的反事实行数核对背景行。两个分类水平会为每条背景行生成两次预测，不能把图上总点数直接写成背景人数。本轮整体抽样的Common / Rare背景行在WSL为18 / 2，在Windows为13 / 7，两端均合计20；分组抽样则均为20 / 16。依赖版本和绘图调用的随机数消耗也需一起固定，不能仅凭同一个seed保证跨环境抽到完全相同的行。
+
+<!-- /update-20261101b: mlr_vpd_sample_log -->
+
+#### 每组分别抽样 {.unnumbered}
+
+<!-- update-20261101b: mlr_vpd_sample_group -->
+
+`pd_by="group"` 在Common抽20行、Rare使用其全部16行，仍用同一整体模型和相同的全数据关注变量网格。
+
+```r
+vpd_logB <- MLR::get_exp(vpd_dataB, vars = vpd_varsB, surv = "Outcome")
+set.seed(110103)
+vpd_per_groupB <- MLR::get_vpd(vpd_logB, c("Group", "Tumour_size_group"), ylim = c(0, 1),
+  palette = c("#3B5488", "#D55E00"), sample_args = list(vd = 4, pd = 20, pd_by = "group"), raster = FALSE)
+RegR::save_plt(vpd_per_groupB, file.path(tempdir(), "20261101b-update-vpd-per-group.pdf"),
+  width = attr(vpd_per_groupB, "plot_size")[["width"]], height = attr(vpd_per_groupB, "plot_size")[["height"]])
+```
+
+![Common使用20行背景，Rare保留全部16行背景，VD统计仍用全量。](images/vpd-guide/20261101b-update-vpd-per-group.png){fig-alt="每组PD分别取样后，Common二十行与Rare十六行各在两个分类水平上生成反事实预测；VD仅限制显示点。"}
+
+[原生 PDF](images/vpd-guide/20261101b-update-vpd-per-group.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+vpd_pd_rowsB <- vapply(3:4, function(i) nrow(vpd_per_groupB[[i]]$data), 1L)
+vpd_vd_rowsB <- vapply(1:2, function(i) nrow(vpd_per_groupB[[i]]$data), 1L)
+vpd_vd_pointsB <- vapply(1:2, function(i) {
+  p <- vpd_per_groupB[[i]]
+  layer <- which(vapply(p$layers, function(z) inherits(z$geom, "GeomPoint"), FALSE))[1]
+  nrow(ggplot2::ggplot_build(p)$data[[layer]])
+}, 1L)
+vpd_colorsB <- lapply(seq_len(length(vpd_per_groupB)), function(i)
+  unname(ggplot2::ggplot_build(vpd_per_groupB[[i]])$plot$scales$get_scales("colour")$map(c("Early", "Late"))))
+stopifnot(identical(vpd_pd_rowsB, c(40L, 32L)), identical(vpd_vd_rowsB, c(64L, 16L)),
+  identical(vpd_vd_pointsB, c(8L, 8L)),
+  all(vapply(3:4, function(i) length(unique(table(vpd_per_groupB[[i]]$data$x))) == 1L, FALSE)),
+  all(vapply(vpd_colorsB, identical, FALSE, c("#3B5488", "#D55E00"))))
+validation_values <- list(rows = nrow(vpd_dataB), group_rows = as.list(table(vpd_dataB$Group)),
+  pd_background_rows = vpd_pd_rowsB / 2L, pd_counterfactual_rows = vpd_pd_rowsB,
+  vd_stat_rows = vpd_vd_rowsB, vd_drawn_points = vpd_vd_pointsB, colours = vpd_colorsB)
+```
+:::
+
+
+按组抽样可减轻小组背景过少的问题，不代表患者比例改变，也不是新的置信区间或因果效应。二分类只有一个关注变量时，不允许 `pd_by="group"`：按该关注变量各水平等量抽样会改变背景人群构成。
+
+非空palette在这一快照改为从UtilsR访问共享解析器；本例原始点的构建颜色为Early蓝、Late橙。箱线与小提琴的边框、深红均值点和PD的红色连接路径保留各自固定颜色；点少或重叠时不要将这些固定元素当作palette未生效。`49cdb4c` 的报错复核保留为下方历史记录，不能继续作为当前接口不可用的结论。
+
+<!-- /update-20261101b: mlr_vpd_sample_group -->
 
 ## 模型后端与对象输入
 
@@ -803,7 +989,7 @@ stopifnot(length(size) == 2L, all(is.finite(size)), all(size > 0))
 
 ### 共享纵轴、均值标签与配色（2026-10-31） {#layout-20261031b}
 
-0.1.13的 `49cdb4c` 快照新增 `xlab/ylab/ylim/mean_label/palette`。其中非空 `palette` 与最新RegR存在包间兼容缺陷，见下方复核；本节成功输出均使用默认配色。`tidy_plot=TRUE` 现在让全部面板采用同一纵轴范围，避免隐藏后列坐标轴时误读不同量程；`"shared"` 还合并行列标题、轴标题与间距。显式 `ylim` 是观察窗，范围外的数据保留。下面仅用120行合成数据拟合Logistic和Cox，不重跑上方历史模型。
+0.1.13的 `49cdb4c` 历史快照新增 `xlab/ylab/ylim/mean_label/palette`，当时非空palette存在包间兼容错误，本节成功输出使用默认配色；错误复核须使用该旧快照。MLR `2b5c9154` 已修复共享解析器访问，成功图见[分类采样](#sample-log-20261101b)与[生存分组](#sample-sur-20261101b)。`tidy_plot=TRUE` 让全部面板采用同一纵轴范围，`"shared"` 进一步合并标题与间距；ylim仅设置观察窗，范围外数据仍保留。以下120行历史Logistic/Cox图没有按新采样或栅格默认值重新生成。
 
 <!-- update-20261031b: mlr_vpd_input -->
 
@@ -849,7 +1035,7 @@ RegR::save_plt(patchwork::wrap_plots(vpd_full31b, vpd_none31b, nrow = 1),
 
 [原生 PDF](images/vpd-guide/20261031b-update-vpd-labels.pdf)
 
-::: {.callout-note collapse="true" title="复核代码"}
+::: {.callout-note collapse="true" title="复核代码（49cdb4c历史快照）"}
 ```r
 vpd_y31b <- lapply(seq_len(length(vpd_shared31b)), function(i)
   ggplot2::ggplot_build(vpd_shared31b[[i]])$layout$panel_params[[1]]$y.range)
@@ -875,7 +1061,7 @@ validation_values <- list(palette_error = conditionMessage(vpd_palette_error31b)
 
 <!-- /update-20261031b: mlr_vpd_log -->
 
-#### Cox：默认颜色与非空palette的待修问题
+#### Cox：默认颜色与历史palette错误 {#cox默认颜色与非空palette的待修问题}
 
 <!-- update-20261031b: mlr_vpd_sur -->
 
@@ -914,7 +1100,7 @@ validation_values <- list(rows = nrow(vpd_data31b), events = sum(vpd_data31b$DSS
 ```
 :::
 
-**非空palette待包修复：** MLR `49cdb4c` 的配色分支调用 `RegR:::.resolve_color()`；RegR `5067cdf` 已删除该本地副本，改从UtilsR导入。当前固定组合实际报 `object '.resolve_color' not found`，不是数据或所选色板不受支持。本节用 `palette=NULL` 保留可用输出；待MLR改为正确访问共享解析器后再补非空palette的成功图。该分支设计为分类关注变量按水平、分组连续变量按组、单个连续变量按结局着色，尚不能把此组合写成已验证可用。
+**历史palette错误已修复：** MLR `49cdb4c` 配合RegR `5067cdf` 时实际报 `object '.resolve_color' not found`，来自旧的 `RegR:::` 访问。本节保留当时 `palette=NULL` 的结果；MLR `2b5c9154` 已改为 `UtilsR::.resolve_color()`，新增[分类与生存示例](#sample-log-20261101b)使用非空颜色向量，并核对各面板的水平映射。它不改变VD、分组PD的统计计算路径。
 
 每面板的默认物理尺寸现为4×3英寸，再加坐标文字、条带和图例的测量尺寸；示例保留返回的 `plot_size`，不是把整页固定成4×3英寸。下方历史图保留原尺寸和坐标；需要当前共轴呈现时应按本节快照重跑。VD/PD与[分组一阶ALE](function-modules.qmd#ale-layout-20261031b)使用不同统计量，不能把ALE纵轴强行解释成概率。
 
@@ -930,7 +1116,10 @@ validation_values <- list(rows = nrow(vpd_data31b), events = sum(vpd_data31b$DSS
 | 整理组合图 | tidy_plot = TRUE / FALSE / "shared" | TRUE共同纵轴；shared进一步合并行列和轴标题 |
 | 轴标题与范围 | xlab / ylab / ylim | 标题及观察窗，不删除范围外观测 |
 | 分类均值标签 | mean_label = "value" / "full" / "none" | 默认只显示数值；none保留均值点 |
-| 自选颜色 | palette | 新接口；当前固定RegR组合的非空设置待包修复，见[实测](#layout-20261031b) |
+| 自选颜色 | palette | 按分类水平、连续分组或单连续变量的结局值映射；[非空设置已实测](#sample-log-20261101b) |
+| VD显示点 | sample_args$vd | 只抽可见点，全量统计保留 |
+| PD背景 | sample_args$pd / pd_by | 改变PD计算样本；[区分整体与逐组抽样](#sample-log-20261101b) |
+| 点图层导出 | raster = TRUE / FALSE | 默认300dpi栅格点；线、文字与坐标轴仍为矢量 |
 | 控制计算线程 | cores | 生存有效；分类忽略 |
 | 检查曲线非线性 | get_vpd_pnl 的 N | 重新抽样/计算曲线 |
 
@@ -945,6 +1134,73 @@ ggplot2::ggsave("age-pdp-60-months.pdf", p, width = 9, height = 7)
 ```
 
 多数 VD/PD 图由内部平滑层显示趋势；原始剖面、统计尺度和共享轴应结合条带与本文说明阅读。get_exp 控制台打印的训练分数是表观性能，需要另外的重采样或外部数据评估。
+
+### 默认点栅格化、矢量导出与长条带（2026-11-01） {#raster-20261101b}
+
+<!-- update-20261101b: mlr_vpd_raster -->
+
+当前 `raster=TRUE` 为默认值：点图层包括均值点按300dpi绘制，线、文字和坐标轴仍为矢量。`FALSE` 保留矢量点；缺少ggrastr或ragg时提示并保留完整矢量图。点很少时，栅格PDF可能更大，不能把默认设置写成保证压缩文件。
+
+先运行[80行输入](#sample-data-20261101b)。本例令vd和pd都用Inf，固定背景为完整80行；两图仅比较渲染方式。VD有80个观察点，分类PD为每行在两个水平上预测，共160个反事实点。长的PD条带自动换行；分组条带的group by另起一行，`get_ale()` 也使用相同的标题排版规则，历史ALE图没有在本节重跑。
+
+```r
+vpd_render_expB <- MLR::get_exp(vpd_dataB, vars = vpd_varsB, surv = "Outcome")
+set.seed(110105)
+vpd_rasterB <- MLR::plt_vpd_log(vpd_render_expB, "Tumour_size_group", ylim = c(0, 1),
+  palette = c("#3B5488", "#D55E00"), sample_args = list(vd = Inf, pd = Inf))
+RegR::save_plt(vpd_rasterB, file.path(tempdir(), "20261101b-update-vpd-raster.pdf"),
+  width = attr(vpd_rasterB, "plot_size")[["width"]], height = attr(vpd_rasterB, "plot_size")[["height"]])
+set.seed(110105)
+vpd_vectorB <- MLR::plt_vpd_log(vpd_render_expB, "Tumour_size_group", ylim = c(0, 1),
+  palette = c("#3B5488", "#D55E00"), sample_args = list(vd = Inf, pd = Inf), raster = FALSE)
+RegR::save_plt(vpd_vectorB, file.path(tempdir(), "20261101b-update-vpd-vector.pdf"),
+  width = attr(vpd_vectorB, "plot_size")[["width"]], height = attr(vpd_vectorB, "plot_size")[["height"]])
+```
+
+::: {.panel-tabset}
+#### 默认点栅格化 {.unnumbered}
+
+![完整背景下只改变点图层的渲染方式，长条带按宽度换行。](images/vpd-guide/20261101b-update-vpd-raster.png){fig-alt="默认栅格点的两行VPD，上方八十个观察点、下方一百六十个反事实点，分类均值点也栅格化，标题和坐标文字保持矢量。"}
+
+[原生 PDF](images/vpd-guide/20261101b-update-vpd-raster.pdf)
+
+#### 显式保留矢量点 {.unnumbered}
+
+![同一模型、同一完整背景改为矢量点，统计值保留。](images/vpd-guide/20261101b-update-vpd-vector.png){fig-alt="关闭点栅格化的同一VPD，原数据与PD背景相同，均值、分布及蓝橙分类配色不变。"}
+
+[原生 PDF](images/vpd-guide/20261101b-update-vpd-vector.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+vpd_render_countsB <- vapply(seq_len(2), function(i) {
+  p <- vpd_rasterB[[i]]
+  layer <- which(vapply(p$layers, function(z) inherits(z$geom, "GeomPoint"), FALSE))[1]
+  nrow(ggplot2::ggplot_build(p)$data[[layer]])
+}, 1L)
+for (iB in seq_len(2)) {
+  stopifnot(isTRUE(all.equal(vpd_rasterB[[iB]]$data, vpd_vectorB[[iB]]$data)))
+  for (layerB in vpd_rasterB[[iB]]$layers) {
+    stopifnot(identical(!is.null(layerB$fmt_raster_source), inherits(layerB$geom, "GeomPoint")))
+  }
+  stopifnot(!any(vapply(vpd_vectorB[[iB]]$layers, function(z) !is.null(z$fmt_raster_source), FALSE)))
+}
+vpd_textB <- function(g) c(if (inherits(g, "text")) as.character(g$label),
+  unlist(lapply(g$grobs, vpd_textB), use.names = FALSE), unlist(lapply(g$children, vpd_textB), use.names = FALSE))
+vpd_render_labelsB <- vpd_textB(patchwork::patchworkGrob(vpd_rasterB))
+stopifnot(identical(vpd_render_countsB, c(80L, 160L)),
+  any(grepl("Partial dependence plot for\nTumour_size_group", vpd_render_labelsB, fixed = TRUE)),
+  isTRUE(formals(MLR::plt_vpd_log)[["raster"]]),
+  identical(eval(formals(MLR::plt_vpd_log)[["sample_args"]])$pd_by, "overall"),
+  identical(eval(formals(MLR::plt_vpd_sur)[["sample_args"]])$pd_by, "group"))
+validation_values <- list(rows = 80L, vd_points = vpd_render_countsB[1], pd_points = vpd_render_countsB[2],
+  statistical_data_equal = TRUE, raster_dpi = 300L, strip_wrapped = TRUE)
+```
+:::
+
+可分别用两个PDF评估编辑需求和文件大小；本次没有复现上游的大样本性能基准，也不沿用其文件体积作为本机结果。`sample_args` 是VD/PD的采样控制，不能直接当作 `get_ale(N=...)` 的参数或改变ALE的中心化含义。
+
+<!-- /update-20261101b: mlr_vpd_raster -->
 
 ## 相关页面与源码 {#references}
 
@@ -1011,6 +1267,10 @@ get_all现在有13个分析入口。ale2.args必须显式提供才启用；仅�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：[补充默认点栅格化和矢量导出](#raster-20261101b)，核对全量背景、均值点和长条带。
+- 2026-11-01：[补充VD显示点与PD背景采样](#sample-log-20261101b)，验证整体和按组两条路径及非空配色。
+- 2026-11-01：[补充生存分组采样](#sample-sur-20261101b)，区分整体模型VD与组内重建PD。
+- 2026-11-01：[给出本轮采样对照的80行合成输入](#sample-data-20261101b)。
 - 2026-10-31：[同步共享坐标与配色](#layout-20261031b)，核对均值标签、Cox生存概率与实际画布尺寸。
 - 2026-10-27：按 `6ea0111` 补齐[预测列与训练类型](#prediction-schema-20261027b)、[Cox 尺度与独立进程回读](#cox-scales-20261027b)。
 - 2026-10-27：补充[生存缓存与累计风险](#survival-cache-20261027)的 36 行 Cox/ranger 数值核对。
