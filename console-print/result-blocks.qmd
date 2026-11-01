@@ -7,13 +7,15 @@ execute:
 directory:
   title: "标题、设定与注释：pr_head / pr_kv / pr_section / pr_note / pr_badge"
   topic: 打印信息
-  updated: 2026-10-31
-date-modified: 2026-10-31
+  updated: 2026-11-01
+date-modified: 2026-11-01
 ---
 
 一个 print 方法通常由这五个函数拼成：`pr_head()` 写首行，`pr_kv()` 列设定，`pr_section()` 把结果分节，`pr_note()` 在末尾写注意事项和下一步，`pr_badge()` 在同一行并排显示几个状态。除 `pr_badge()` 外，它们都直接写到标准输出，并不可见地返回所打印的行。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 本轮补充按已推送 UtilsR `5a9d8eb`（0.6.14）导出源码，在 Windows / WSL R 4.4.3 独立运行。新增预览来自真实控制台输出；原有截图保留各自注明的历史快照。
@@ -85,6 +87,66 @@ cat(pr_badge("model", "cox"), pr_badge("PH", "violated", bg = "red"),
 - 原子向量用 `", "` 连接，超过 20 个时只列前 20 个，再写 `… (总数)`；数字同样按 `print()` 的 7 位有效数字显示（0.6.12 起，此前 `1/3` 显示为 `0.333333333333333`）。
 - 其他对象写成类型和大小，例如 `<data.frame 32 x 11>`、`<lm>`，不会把整个对象倒出来。
 - 长值按控制台宽度折行，续行对齐到值所在的列；值里的 `\n` 同样另起一行并对齐。
+
+### 多行值和注释保留ANSI样式（2026-11-01） {#ansi-20261101c}
+
+<!-- update-20261101c: utils_print_colors -->
+
+`pr_kv()`、由键值构成的 `pr_box()` 与 `pr_note()` 现在按保留ANSI样式的方式拆行。连续两个换行仍产生空白行，后续文字继续使用原样式；无色日志保留相同文字、缩进和注释标记。空白分隔行不应被补成文字，也不代表丢失记录。
+
+```r
+color_linesC <- withr::with_options(list(cli.num_colors = 256L, width = 60), {
+  red_textC <- cli::col_red("first\n\nsecond")
+  list(kv = capture.output(UtilsR::pr_kv(list(value = red_textC))),
+    note = capture.output(UtilsR::pr_note(red_textC)),
+    box = capture.output(UtilsR::pr_box(list(value = red_textC))))
+})
+plain_linesC <- withr::with_options(list(cli.num_colors = 1L),
+  capture.output(UtilsR::pr_kv(list(value = red_textC))))
+```
+
+![实际输出保留三处多行红色文字与空白行，无色键值也保留缩进。](images/result-blocks/20261101c-update-print-colors.png){fig-alt="键值、注释和摘要框的真实ANSI输出，first与second均红色，中间空白行保留；末尾无色键值内容一致。"}
+
+[原生 HTML](images/result-blocks/20261101c-update-print-colors.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+网页预览只转写实际stdout。后两页的打印示例复用此辅助函数，普通终端调用无需运行它。
+
+```r
+save_consoleC <- function(lines, filename) {
+  pin <- function(line) {
+    chars <- stringi::stri_split_boundaries(line, type = "character")[[1]]
+    for (i in seq_along(chars)) {
+      u <- utf8ToInt(chars[i])
+      if (any(u > 127L) && !all(u >= 0x2500L & u <= 0x257FL)) {
+        w <- cli::ansi_nchar(chars[i], type = "width")
+        if (w %in% 1:2) chars[i] <- sprintf('<span style="display:inline-block;width:%dch">%s</span>', w, chars[i])
+      }
+    }
+    paste(chars, collapse = "")
+  }
+  body <- paste(fansi::sgr_to_html(vapply(htmltools::htmlEscape(lines), pin, "")), collapse = "\n")
+  writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
+    'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
+    'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre;display:inline-block}',
+    '</style><pre data-native-console>', body, '</pre>'),
+    file.path(tempdir(), filename), useBytes = TRUE)
+}
+stopifnot(length(color_linesC[["kv"]]) == 3L, length(color_linesC[["note"]]) == 3L,
+  all(grepl("\033[31m", color_linesC[["kv"]][c(1, 3)], fixed = TRUE)),
+  all(grepl("\033[31m", color_linesC[["note"]][c(1, 3)], fixed = TRUE)),
+  any(grepl("\033[31msecond", color_linesC[["box"]], fixed = TRUE)),
+  identical(plain_linesC, c("  value  first", "         ", "         second")))
+save_consoleC(c("Key-value", color_linesC[["kv"]], "", "Notes", color_linesC[["note"]],
+  "", "Box", color_linesC[["box"]], "", "Plain log", plain_linesC),
+  "20261101c-update-print-colors.html")
+validation_values <- list(kv = cli::ansi_strip(color_linesC[["kv"]]),
+  note = cli::ansi_strip(color_linesC[["note"]]), plain = plain_linesC)
+```
+:::
+
+<!-- /update-20261101c: utils_print_colors -->
 
 ## pr_section()：分节线 {#pr-section}
 
@@ -232,6 +294,7 @@ validation_values <- list(width = 40L, maximum_width = max(cli::ansi_nchar(c(blo
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：补充多行键值、注释与摘要框的ANSI样式及空白行。
 - 2026-10-31：[补充40列宽度、带类向量、缺失片段及盒内换行](#width-types-20261031)。
 - 2026-10-30：[单行字段转义](#controls-20261030)：核对六种控制字符，并保留键值内容与注释的有意换行。
 - 2026-10-25：按 UtilsR 0.6.12 说明 [pr_head()](#pr-head) 与 [pr_kv()](#pr-kv) 的数字位数、[pr_note()](#pr-note) 的换行。
