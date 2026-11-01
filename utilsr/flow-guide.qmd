@@ -2,18 +2,20 @@
 title: "分类分布与流向：堆积柱、Alluvial 和 Sankey"
 description: "plt_dist 的分派，plt_alluvial 的比例、间隔和命名 list，plt_sankey 的节点次序与标签；26 个实际图形示例。"
 date: 2026-10-20
-date-modified: 2026-10-31
+date-modified: 2026-11-01
 lightbox: true
 toc-depth: 2
 directory:
   title: "分类流向：Sankey命名list、标签映射与保存"
   topic: 绘图与格式化
-  updated: 2026-10-31
+  updated: 2026-11-01
 ---
 
 plt_dist 的分派，plt_alluvial 的比例、间隔和命名 list，plt_sankey 的节点次序与标签。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **核对记录：** 2026-10-12 按已推送 UtilsR `fc078ec` 执行的 26 张历史图保留；下方当前示例已于 2026-10-25 按 UtilsR 0.6.10 `0e4cffe` 重绘。全页调用迁到 list 参数；历史图片仍按各自标明的执行日期阅读。
@@ -680,6 +682,108 @@ stopifnot(file.exists(pdf_sankey))
 
 `label_args$size` 为 mm，`base_size` 为 pt，`node_args$space` 为计数单位，`min_pct` 为0–1比例。`lineheight` 是相对文字字号的倍数，不是标签框内边距。保存只接受 filename、width、height，后两者为英寸；空 list 或 NULL 不保存。
 
+### 类定义缺失与分布分母（2026-11-01） {#missing-20261101c}
+
+<!-- update-20261101c: utils_flow_missing -->
+
+`plt_dist()` 现在逐列调用类自身的 `is.na()`。例如SPSS把99声明为用户缺失时，99与普通NA都不进入分布分母；堆积柱、流带和三列矩阵采用同一有效行定义。转换为普通数值会丢失这项缺失声明，应先确定数据含义。
+
+```r
+dist_missingC <- data.frame(stage = rep("A", 4), cell = letters[1:4])
+dist_missingC[["response"]] <- haven::labelled_spss(c(1, 99, 2, NA),
+  labels = c(No = 1, Yes = 2, Missing = 99), na_values = 99)
+dist_originalC <- dist_missingC
+dist_barC <- UtilsR::plt_dist(dist_missingC, c("stage", "response"), type = "bar")
+dist_flowC <- UtilsR::plt_dist(dist_missingC, c("stage", "response"), type = "alluvial")
+RegR::save_plt(patchwork::wrap_plots(dist_barC, dist_flowC, ncol = 2),
+  file.path(tempdir(), "20261101c-update-dist-missing.pdf"), width = 9, height = 4.8)
+```
+
+![SPSS用户缺失和NA去除后，柱图与流带均只保留No与Yes各一人、各50%。](images/flow-guide/20261101c-update-dist-missing.png){fig-alt="同一有效分母下的两图对照，两名有效记录中No和Yes各占一半，没有把99列为第三个有效类别。"}
+
+[原生 PDF](images/flow-guide/20261101c-update-dist-missing.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+dist_heatC <- UtilsR::plt_dist(dist_missingC, c("stage", "cell", "response"))
+for (p in list(dist_barC, dist_flowC)) {
+  count <- p[["data"]][[if (identical(p, dist_barC)) "n" else "count"]]
+  proportion <- p[["data"]][[if (identical(p, dist_barC)) "prop" else "percent"]]
+  stopifnot(sum(count) == 2, all(proportion[count > 0] == .5))
+}
+stopifnot(sum(dist_heatC[["data"]][["n"]]) == 2,
+  setequal(as.character(dist_heatC[["data"]][["response"]]), c("No", "Yes")),
+  identical(dist_missingC, dist_originalC))
+dist_timeC <- data.frame(group = c("F", "M", "F"), cell = "A")
+dist_timeC[["time"]] <- as.POSIXlt(as.POSIXct(c("2020-01-01", "2020-01-02", NA), tz = "UTC"))
+time_countsC <- vapply(c("bar", "alluvial"), function(mode) {
+  p <- UtilsR::plt_dist(dist_timeC, c("time", "group"), type = mode)
+  sum(p[["data"]][[if (mode == "bar") "n" else "count"]])
+}, 0)
+stopifnot(all(time_countsC == 2))
+validation_values <- list(effective_n = 2, proportions = dist_barC[["data"]][["prop"]],
+  datetime_counts = time_countsC)
+```
+:::
+
+<!-- /update-20261101c: utils_flow_missing -->
+
+### Sankey生成列与实际节点（2026-11-01） {#sankey-20261101c}
+
+<!-- update-20261101c: utils_flow_fields -->
+
+输入含 `A_label`、`.n`、`.pct` 或 `..r` 时，内部生成字段不再覆盖所选路径列。默认颜色数按实际显示节点计算，包括显示的NA节点，未用因子水平不占用颜色。未选中的大型载荷列不再随图对象保留；这不改变路径人数。
+
+```r
+sankey_fieldsC <- data.frame(A = c("a", "a", "b", "b"),
+  A_label = c("x", "y", "x", "y"))
+sankey_originalC <- sankey_fieldsC
+sankey_plotC <- UtilsR::plt_sankey(sankey_fieldsC,
+  vars = c(A = "First", A_label = "Second"), reverse_levels = FALSE, show_text = "name")
+RegR::save_plt(sankey_plotC, file.path(tempdir(), "20261101c-update-sankey-fields.pdf"),
+  width = 7, height = 4.8)
+```
+
+![输入A与A_label形成四条不同路径，显示轴名为First与Second。](images/flow-guide/20261101c-update-sankey-fields.png){fig-alt="两阶段Sankey，a和b分别连向x和y，各一人，列名A_label未被内部标签列覆盖。"}
+
+[原生 PDF](images/flow-guide/20261101c-update-sankey-fields.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+sankey_pathsC <- function(p) {
+  d <- p[["data"]]; keep <- !is.na(d[["next_x"]])
+  paste(d[["node"]][keep], d[["next_node"]][keep])
+}
+stopifnot(length(unique(sankey_pathsC(sankey_plotC))) == 4L,
+  identical(sankey_fieldsC, sankey_originalC))
+for (columns in list(c(".n", "B"), c(".pct", "B"), c("..r", "B"))) {
+  renamed <- setNames(sankey_fieldsC, columns)
+  p <- UtilsR::plt_sankey(renamed, names(renamed), reverse_levels = FALSE, show_text = "name")
+  stopifnot(length(unique(sankey_pathsC(p))) == 4L)
+}
+sankey_nodesC <- data.frame(A = factor(c("a", NA, "a", NA), levels = c("a", "unused", "other")),
+  B = factor(c("x", "y", "x", "y")))
+node_plotC <- UtilsR::plt_sankey(sankey_nodesC, names(sankey_nodesC))
+node_buildC <- ggplot2::ggplot_build(node_plotC)[["data"]]
+stopifnot(length(unique(node_buildC[[2]][["fill"]])) == 4L,
+  isTRUE(all.equal(node_buildC, ggplot2::ggplot_build(
+    UtilsR::plt_sankey(droplevels(sankey_nodesC), names(sankey_nodesC)))[["data"]])))
+sankey_payloadC <- function(extra) {
+  d <- sankey_originalC
+  if (extra) d[["unused"]] <- I(rep(list(as.raw(1:100)), 4))
+  UtilsR::plt_sankey(d, c("A", "A_label"), show_text = "name", reverse_levels = FALSE)
+}
+stopifnot(isTRUE(all.equal(ggplot2::ggplot_build(sankey_payloadC(TRUE))[["data"]],
+  ggplot2::ggplot_build(sankey_payloadC(FALSE))[["data"]])))
+validation_values <- list(paths = unique(sankey_pathsC(sankey_plotC)),
+  displayed_node_colors = length(unique(node_buildC[[2]][["fill"]])))
+```
+:::
+
+本节仅用4行输入验证路径与节点结果；载荷列裁剪的实现另经固定源码核对，没有据此给出内存或速度提升百分比。
+
+<!-- /update-20261101c: utils_flow_fields -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 三个入口返回 ggplot，当前均支持非空 `save` 转交 `RegR::save_plt()` 保存 PDF；省略尺寸时按内容估算，见[当前保存示例](#save-20261020)。上方历史保存示例显式给出宽高，其输出保留原记录。
@@ -753,7 +857,7 @@ UtilsR 的绘图本身不以 RegR 为硬依赖；当前 RegR 可用时才会提�
 
 ## 当前完整接口 {#interfaces}
 
-下方签名按本轮UtilsR0.6.18固定源码核对；历史图片的执行环境保留在版本记录。
+下方签名与本轮UtilsR0.6.20固定源码一致；历史图片的执行环境保留在版本记录。
 
 <details>
 <summary>公共函数签名</summary>
@@ -860,6 +964,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-01：补充分布入口的类定义缺失分母，以及Sankey列名隔离、显示节点配色和载荷边界。
 - 2026-10-31：[补充fmt_text在保存前应用标题与坐标名的两种原生PDF](#text-save-20261031)。
 - 2026-10-25：[list 参数与值标签](#distribution-lists-20261025)
 - 2026-10-24：[分布：样本、颜色与标签位置](#distribution-20261024)
