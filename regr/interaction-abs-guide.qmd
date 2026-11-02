@@ -2,18 +2,20 @@
 title: "交互分析：绝对风险与结果核对"
 description: "get_inter_abs 的固定时点风险、人时发生率与 Logistic 概率，mets 联合 CIF 的区间方法与加速实测，以及 check_inter 把交互结果与分层、亚组或联合结果逐单元核对。"
 date: 2026-10-25
-date-modified: 2026-10-31
+date-modified: 2026-11-02
 lightbox: true
 toc-depth: 2
 directory:
   title: "交互分析：绝对风险、mets CIF 与 check_inter 核对"
   topic: 回归与生存分析
-  updated: 2026-10-31
+  updated: 2026-11-02
 ---
 
 本页接[交互分析](interaction-guide.qmd)，讲加性尺度的绝对风险与交互结果核对。代码沿用该页[示例数据与分析尺度](interaction-guide.qmd#data)准备的 `inter_data` 和 `cohort`，请先运行那一节。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 RegR `c3dfef1e`（0.1.3）导出源码；配套依赖固定为 RegR `c3dfef1e`、UtilsR `4e9d5e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31 追加按已推送 RegR `5067cdf`（0.1.3）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -338,6 +340,104 @@ validation_values <- list(risks_sur = attr(abs_multi[["sur"]], "risks"),
 本节的无协变量示例用于验证接口，未改写已调整 CIF 的 mets 联合 delta / bootstrap 方法；[推断方法与限制](#cif-mets-update)继续适用。`plt_inter()` 仍接受单个合适的比值交互表，不能直接画多模型列表或绝对交互对象；`get_eff_inter()`、`get_int()` 的 `surv` 仍一次选择一个模型，需分别调用。
 
 <!-- /update-20261023: abs_models -->
+
+## plt_inter_abs()：联合组标准化风险森林图 {#plt-inter-abs}
+
+### 默认排序、参考行与组内差（2026-11-02） {#risk-forest-20261102c}
+
+<!-- update-20261102c: regr_abs_forest -->
+
+新入口 `plt_inter_abs()` 读取一份 `get_inter_abs()` 结果，把联合组的事件数、粗风险、标准化风险与区间、相对参考组的风险差放在同一张森林图中。它展示联合组的风险及差值；交互检验仍读取分析结果中的交互指标。
+
+| 参数 | 当前默认与含义 |
+|:--|:--|
+| `res` | 一份两暴露联合模型结果；二分类×二分类，或二分类×多水平的默认完整模型 |
+| `group_order` | `NULL`按标准化风险从低到高排列，第一行作参考；指定时必须完整列出所有联合组 |
+| `group_labels` | 命名向量可只替换部分显示名；无名向量须与全部显示行一一对应 |
+| `show_cols` | `c("events","crude","dif")`；标准化风险始终显示，`within`须显式加入 |
+| `header_list` | 可只覆盖部分列头；组、事件、粗风险、标准化风险、参考差、组内差及横轴分别设置 |
+| `digits` | 1；`xlim/ticks_at/ticks_digits=NULL`自动确定，风险尺度的坐标使用百分数 |
+| `forest_width` | 1.8英寸，只控制最右侧森林列 |
+| `core_size` | `NULL`按行数取内边距；宽2毫米，高随≤4、≤6、≤8、>8行分别为7、5、4、3毫米 |
+| `fill_col/ci_col/base_size` | `"#EFEFEF"`、`"#2C5F7C"`、12；可用`forest_theme_args=list()`覆盖主题项 |
+| `save` | `list()`不保存；提供`filename`可按推荐尺寸直接保存，省略宽高时沿用`plot_size` |
+
+风险/CIF使用 **%**，相应差值使用 **百分点（pp）**；发生率保留结果对象的单位。生存分析的`Event/total`是整个随访内的事件数，而风险来自指定`sur_time`，不能用前者直接当固定时点风险。下面是128行Logistic合成例，因而没有生存时点。
+
+```r
+library(RegR)
+set.seed(1202)
+risk_data <- expand.grid(i = 1:32, A = factor(c("No", "Yes")), B = factor(c("Low", "High")))
+risk_data[["Age"]] <- rep(40:71, 4)
+risk_data[["Y"]] <- unlist(lapply(c(6, 10, 12, 20), function(events) {
+  sample(c(rep(1, events), rep(0, 32 - events)))
+}))
+risk_result <- get_inter_abs(risk_data, c("A", "B"), adj_var = "Age", surv = "Y")
+risk_default <- plt_inter_abs(risk_result,
+  save = list(filename = file.path(tempdir(), "20261102c-update-absolute-default.pdf")))
+risk_order <- c("No & High", "No & Low", "Yes & High", "Yes & Low")
+risk_within <- plt_inter_abs(risk_result, group_order = risk_order,
+  group_labels = c("No & High" = "Reference group", "Yes & Low" = "A yes / B low"),
+  show_cols = c("events", "crude", "dif", "within"),
+  save = list(filename = file.path(tempdir(), "20261102c-update-absolute-within.pdf")))
+```
+
+::: {.panel-tabset}
+#### 默认：最低标准化风险作参考 {.unnumbered}
+
+![四个联合组按标准化风险升序，最低风险组为参考，最右列绘制标准化风险区间。](images/interaction-abs-guide/20261102c-update-absolute-default.png){fig-alt="128行Logistic原生森林图，No与Low为参考，四组每组32行，风险约18.8%、31.3%、37.5%和62.5%；RD使用百分点。"}
+
+[原生 PDF](images/interaction-abs-guide/20261102c-update-absolute-default.pdf)
+
+#### 指定顺序并显示组内差 {.unnumbered}
+
+![指定No与High为首行参考，并加入A在B每个水平内的风险差。](images/interaction-abs-guide/20261102c-update-absolute-within.png){fig-alt="自定义顺序的原生森林图，首行Reference group为参考；within列在A=No行显示Reference，A=Yes行显示同一B水平内Yes相对No的风险差及区间。"}
+
+[原生 PDF](images/interaction-abs-guide/20261102c-update-absolute-within.pdf)
+:::
+
+`within`表示**第一暴露的第二水平相对第一水平**，在第二暴露每个水平内分别比较；它与“每行相对整表首行”的`dif`不同。改变行顺序会改变`dif`参考组，重命名显示标签不改变统计比较。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+counts <- attr(risk_result, "cell_counts")
+risks <- attr(risk_result, "risks")
+adjusted <- risks[risks[["model"]] == "Adjus", ]
+default_table <- attr(risk_default, "table_data")
+ordered_table <- attr(risk_within, "table_data")
+stopifnot(nrow(risk_data) == 128L, all(counts[["n"]] == 32L), sum(counts[["events"]]) == 48L,
+  identical(default_table[[1]], counts[["group"]][order(adjusted[["estimate"]])]),
+  default_table[[5]][1] == "Reference", ordered_table[[5]][1] == "Reference",
+  ncol(default_table) == 6L, ncol(ordered_table) == 7L,
+  all(trimws(default_table[[6]]) == ""), is.null(attr(risk_result, "info")[["sur_time"]]),
+  eval(formals(plt_inter_abs)[["forest_width"]]) == 1.8,
+  is.null(formals(plt_inter_abs)[["core_size"]]))
+for (i in seq_len(nrow(adjusted))) {
+  row <- match(counts[["group"]][i], default_table[[1]])
+  stopifnot(default_table[[4]][row] == sprintf("%.1f (%.1f, %.1f)",
+    100 * adjusted[["estimate"]][i], 100 * adjusted[["conf.low"]][i], 100 * adjusted[["conf.high"]][i]))
+}
+within_col <- ordered_table[["Yes vs No,\npp (95% CI)"]]
+stopifnot(identical(within_col[1:2], rep("Reference", 2L)),
+  grepl("+25.0", within_col[3], fixed = TRUE), grepl("+12.5", within_col[4], fixed = TRUE))
+older_result <- risk_result
+attr(older_result, "cell_counts") <- attr(older_result, "cell_uncertainty") <- NULL
+older_messages <- character()
+older_plot <- withCallingHandlers(plt_inter_abs(older_result), message = function(m) {
+  older_messages <<- c(older_messages, conditionMessage(m)); invokeRestart("muffleMessage")
+})
+stopifnot(!"Event/total" %in% names(attr(older_plot, "table_data")),
+  "RD vs reference,\npp" %in% names(attr(older_plot, "table_data")),
+  grepl("Event/total", paste(older_messages, collapse = " "), fixed = TRUE))
+validation_values <- list(n = 128L, counts = counts, default = default_table,
+  within = ordered_table, sizes = lapply(list(risk_default, risk_within), attr, "plot_size"),
+  older_messages = older_messages)
+```
+:::
+
+旧结果缺少新增的`cell_counts`/`cell_uncertainty`属性时，会提示并省略事件列和差值区间，不能补造精度。分层、逐对模型及模型/数据列表不能作为一张共同联合模型图直接输入；列表应先取一个有效元素。这轮执行Logistic和旧对象兼容例，未重跑本页历史Cox、CIF或发生率模型。
+
+<!-- /update-20261102c: regr_abs_forest -->
 
 ## 竞争风险更新：mets 联合 CIF 与加速实测 {#cif-mets-update}
 
@@ -955,6 +1055,7 @@ stopifnot(identical(unname(validation_values[["compared"]]), c(4L, 4L, 6L, 6L)),
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[新增plt_inter_abs联合风险森林图](#risk-forest-20261102c)，核对排序、参考差、组内差与原生PDF保存。
 - 2026-10-31：[核对多水平默认完整模型](#default-20261031b)，区分360行完整标准化与240行逐对标准化。
 - 2026-10-31：[补充绝对尺度的数据列表返回与独立调用核对](#subsets-20261031)。
 - 2026-10-23：[绝对交互：逐模型计算与导出](#abs-models-20261023)
