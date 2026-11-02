@@ -2,18 +2,22 @@
 title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖"
 description: "排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局；28 个实际参数示例。"
 date: 2026-10-01
-date-modified: 2026-10-31
+date-modified: 2026-11-02
 lightbox: true
 toc-depth: 2
 directory:
   title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖，28 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-10-31
+  updated: 2026-11-02
 ---
 
 排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+本轮在 Windows / WSL 复核发现，当前 `PlotCircleLollipop(filename="*.pdf")` 的输出包含空白首页，属于待修复的包端缺陷。本次新增圆图采用函数直接保存的 PNG；未删页或重绘修饰 PDF。
+
 2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；28 个示例已在 WSL R 4.4.3 中实际执行，其中 25 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
@@ -140,6 +144,75 @@ PlotRank(score_mat[, "A"], top_n = 3, max_show = 6)
 ![max_show=6 才把图和返回数据缩减为排名前六；其余特征未展示。](images/rank-guide/truncate.png){fig-alt="排名与共享特征：Rank、方法一致性和圆形棒棒糖；截断显示行；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 分数类型、缺失值与空组（2026-11-02） {#score-boundaries-20261102}
+
+<!-- update-20261102: utils_rank_scores -->
+
+`PlotRank()` 在筛选分组后，先移除缺失分数和空组，再计算缩放范围与绘图。未使用的因子水平、全缺失的组不会留下空面板；若选中组内已经没有有效分数，会明确报错。下面的 B 组全缺失，unused 只是未使用水平，输出只包含 A 组的三个分数。
+
+```r
+library(UtilsR)
+rank_boundary <- data.frame(
+  cell_type = factor(rep(c("A", "B"), each = 3), levels = c("A", "B", "unused")),
+  gene = letters[1:6], importance = c(3, 1, 2, NA, NA, NA))
+rank_original <- rank_boundary
+rank_valid <- PlotRank(rank_boundary, top_n = 1, value_scale = "group",
+  clean_names = FALSE, return_type = "both")
+ggplot2::ggsave(file.path(tempdir(), "20261102-update-rank-empty-groups.pdf"),
+  rank_valid[["plot"]], width = 5, height = 4, bg = "white")
+
+spss_score <- haven::labelled_spss(c(1, 99, 2, NA), na_values = 99)
+names(spss_score) <- letters[1:4]
+spss_original <- spss_score
+spss_rank <- PlotRank(spss_score, top_n = 1, clean_names = FALSE, return_type = "data")
+gt::gtsave(gt::gt(spss_rank[, c("Rank", "Label", "Score", "IsTop")]),
+  file.path(tempdir(), "20261102-update-rank-labelled.html"))
+```
+
+![排名图只保留A组，按组完整范围把三个分数缩放到一、零点五和零，最高项a高亮。](images/rank-guide/20261102-update-rank-empty-groups.png){fig-alt="原生排名图，A组中a、c、b依次排名，缩放分数为1、0.5、0，没有B或unused面板。"}
+
+[原生 PDF](images/rank-guide/20261102-update-rank-empty-groups.pdf)
+
+![SPSS自定义缺失值99和普通缺失被排除，c的分数二排名第一，a的分数一排名第二。](images/rank-guide/20261102-update-rank-labelled.png){fig-alt="原生排名表只包含c与a两行，Score为2和1，只有c的IsTop为TRUE。"}
+
+[原生表格 HTML](images/rank-guide/20261102-update-rank-labelled.html)
+
+分数应为一维实数数值向量；命名向量、数值矩阵和长表仍按各自输入形式使用。`haven_labelled` / `haven_labelled_spss` 会保留有效分数并识别其缺失定义，输入本身不被改写。`integer64`、日期时间、复数及长表中的矩阵列或 list 列会被拒绝；需要转换时，先自行核对单位、缺失定义与精度，不能把底层存储值直接当作排名分数。全为 NA 的逻辑分数可作为缺失数值处理。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(rank_boundary, rank_original), identical(spss_score, spss_original),
+  identical(levels(rank_valid[["data"]][["Group"]]), "A"),
+  identical(rank_valid[["data"]][["Score"]], c(1, 0.5, 0)),
+  identical(spss_rank[["Label"]], c("c", "a")),
+  identical(spss_rank[["Label"]][spss_rank[["IsTop"]]], "c"))
+for (scaling in c("none", "group", "top_n")) {
+  full <- PlotRank(rank_boundary, value_scale = scaling, return_type = "data")
+  retained <- PlotRank(droplevels(rank_boundary[1:3, ]),
+    value_scale = scaling, return_type = "data")
+  stopifnot(identical(full, retained))
+}
+rank_error <- function(expr) tryCatch(force(expr), error = conditionMessage)
+stopifnot(grepl("No valid scores", rank_error(PlotRank(rank_boundary,
+  group_levels = "B", return_type = "data"))))
+bad_scores <- list(stats::setNames(bit64::as.integer64(1:3), letters[1:3]),
+  stats::setNames(as.Date("2026-01-01") + 0:2, letters[1:3]),
+  stats::setNames(c(1+1i, 2+0i), letters[1:2]))
+for (bad_score in bad_scores) {
+  stopifnot(is.character(rank_error(PlotRank(bad_score, return_type = "data"))))
+}
+matrix_rank <- PlotRank(matrix(c(3, 1, 2, NA, NA, NA), nrow = 3,
+  dimnames = list(letters[1:3], c("A", "B"))), return_type = "data")
+stopifnot(nrow(matrix_rank) == 3L, identical(levels(matrix_rank[["Group"]]), "A"))
+validation_values <- list(valid = rank_valid[["data"]],
+  labelled = list(labels = spss_rank[["Label"]], scores = as.numeric(spss_rank[["Score"]]),
+    top = spss_rank[["IsTop"]]),
+  matrix_rows = nrow(matrix_rank), skipped = c("B", "unused"))
+```
+:::
+
+<!-- /update-20261102: utils_rank_scores -->
 
 ## 排名缩放与返回
 
@@ -505,6 +578,70 @@ PlotCircleLollipop(circle_dat, top_n = 5, value_scale = "top_n",
 
 :::
 
+### 常数分数与绘图状态恢复（2026-11-02） {#circle-state-20261102}
+
+<!-- update-20261102: utils_rank_circle -->
+
+`PlotCircleLollipop(value_scale="none")` 只在数值超出 `[0,1]` 时做全局归一化。若全局范围是常数且在区间外（例如全部为 5 或 -1），现在可以画图，使用最小棒高 0.05；全部为 0.3 时仍保留 0.3。最小棒高用于保持可见，不能解释为归一化后仍有非零差异。
+
+```r
+library(UtilsR)
+circle_constant <- data.frame(group = rep(c("A", "B"), each = 3),
+  name = c("Shared", "A1", "A2", "Shared", "B1", "B2"), value = 5)
+PlotCircleLollipop(circle_constant, value_scale = "none", show_yaxis = FALSE,
+  filename = file.path(tempdir(), "20261102-update-circle-constant.png"), width = 6, height = 6, dpi = 180)
+circle_unit <- circle_constant
+circle_unit[["value"]] <- 0.3
+PlotCircleLollipop(circle_unit, value_scale = "none", show_yaxis = FALSE,
+  filename = file.path(tempdir(), "20261102-update-circle-unit.png"), width = 6, height = 6, dpi = 180)
+```
+
+![全部分数为五时圆图的各棒均使用最小显示高度，Shared在两组间连线。](images/rank-guide/20261102-update-circle-constant.png){fig-alt="原生圆形棒棒糖图，A与B各三个特征，常数5归一化后各棒均为最小显示高度0.05。"}
+
+[常数 5 的原生 PNG](images/rank-guide/20261102-update-circle-constant.png)
+
+![全部分数为零点三时各棒保留零点三的显示高度。](images/rank-guide/20261102-update-circle-unit.png){fig-alt="相同六个特征的原生圆图，所有输入都在单位区间内，棒高仍为0.3。"}
+
+[常数 0.3 的原生 PNG](images/rank-guide/20261102-update-circle-unit.png)
+
+函数仍直接绘制并隐式返回 NULL。绘制成功或中途报错后，边距 `par("mar")` 会恢复，circlize 状态会清理；保存时只关闭自己打开的设备并恢复调用前的当前设备。下面在独立 R 进程中新建空设备，检查成功、保存及失败路径，不需要操作 RStudio 当前图形窗口。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+circle_state <- local({
+  grDevices::pdf(NULL)
+  first_device <- grDevices::dev.cur()
+  grDevices::pdf(NULL)
+  second_device <- grDevices::dev.cur()
+  on.exit({
+    for (device in c(second_device, first_device)) {
+      if (device %in% grDevices::dev.list()) grDevices::dev.off(device)
+    }
+  })
+  grDevices::dev.set(first_device)
+  graphics::par(mar = c(2, 3, 4, 5))
+  devices_before <- grDevices::dev.list()
+  margins_before <- graphics::par("mar")
+  state_ok <- function() identical(grDevices::dev.list(), devices_before) &&
+    identical(grDevices::dev.cur(), first_device) &&
+    identical(graphics::par("mar"), margins_before) &&
+    length(circlize::get.all.sector.index()) == 0L
+  result <- PlotCircleLollipop(circle_constant, show_labels = FALSE)
+  stopifnot(is.null(result), state_ok())
+  PlotCircleLollipop(circle_constant, show_labels = FALSE,
+    filename = file.path(tempdir(), "circle-state-check.png"), width = 4, height = 4)
+  stopifnot(state_ok())
+  failure <- tryCatch(PlotCircleLollipop(circle_constant, unique_color = "not-a-colour",
+    filename = file.path(tempdir(), "circle-failure-check.pdf")), error = identity)
+  stopifnot(inherits(failure, "error"), state_ok())
+  list(devices_preserved = TRUE, margins_preserved = TRUE, failure_cleaned = TRUE)
+})
+validation_values <- circle_state
+```
+:::
+
+<!-- /update-20261102: utils_rank_circle -->
+
 ## 圆形标签与布局
 
 ::: {.panel-tabset}
@@ -685,6 +822,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：补充圆图常数分数的最小显示高度及成功、保存和报错后的图形状态恢复。
+- 2026-11-02：补充分数类型、SPSS用户缺失值、空因子水平和全缺失组的排名边界。
 - 2026-10-31：[核对分组身份与稳定缩放](#identity-20261031b)，明确方法顺序、有限配对和命名配色。
 - 2026-10-24：[相关图：缺失分数与稀疏缩放](#rank-missing-20261024)
 :::
