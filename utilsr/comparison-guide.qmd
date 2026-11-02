@@ -7,12 +7,17 @@ toc-depth: 2
 directory:
   title: "双侧比较图：Butterfly、分布镜像与 Dumbbell，21 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-10-01
+  updated: 2026-11-02
+date-modified: 2026-11-02
 ---
 
 堆积与并排双侧柱形、min-max 和透明度映射、镜像分布、蜂群与配对哑铃插图。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；21 个示例已在 WSL R 4.4.3 中实际执行，其中 21 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -39,6 +44,8 @@ custom_inset <- ggplot(paired, aes(start, end)) + geom_point(color = "#0072B2", 
 
 ## 函数选择与重要参数 {#parameters}
 
+::: {.table-responsive tabindex="0" role="region" aria-label="双侧比较图参数速查，可横向滚动"}
+
 | 目标 | 参数 | 语义 |
 |:--|:--|:--|
 | 双侧柱形 | `PlotButterfly(type="bar")`、`stat.by/fill.by/value.by/group.by` | 长表给出已计算数值，group.by 必须恰好两组；两侧不自动代表正负效应 |
@@ -56,6 +63,8 @@ custom_inset <- ggplot(paired, aes(start, end)) + geom_point(color = "#0072B2", 
 | 自动插图 | `inset_plot="auto"`、`inset_type`、`inset_test` | boxplot/violin；t.test/wilcox/none，使用双侧配对检验 |
 | 插图布局 | `inset_left/bottom/right/top`、`inset_paired_line/inset_jitter` | panel 的相对位置；或传入自定义 ggplot |
 | 配色与保存 | `palette/legend.position` 或 `color_x/color_xend/legend_pos`；`filename` | 各函数沿用自身接口，下方签名提供全部默认值 |
+
+:::
 
 ## 双侧柱形比较
 
@@ -117,6 +126,101 @@ PlotButterfly(bar_dat, stat.by = "term", fill.by = "response", value.by = "value
 ![柱形高度编码 value，颜色透明度另外编码 weight；两者不能混读。](images/comparison-guide/bar-alpha.png){fig-alt="双侧比较图：Butterfly、分布镜像与 Dumbbell；透明度映射；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 极端数值缩放、两侧同色与保存一致性（2026-11-02） {#butterfly-consistency-20261102}
+
+<!-- update-20261102: utils_compare_butterfly -->
+
+`PlotButterfly(minmax=TRUE)` 仍在每个 `group.by × fill.by` 组合内缩放。现在极小跨度不再被当成常数；正负大数相减溢出时，也能得到稳定结果。真正的常数范围映射为 0。下面三组输入各复制到左右两侧，结果分别为 `0,0.5,1`、全零和 `0,0.5,1`；输入数据保持原值。
+
+```r
+library(UtilsR)
+scale_inputs <- list(Tiny = c(1e-14, 2e-14, 3e-14),
+  Constant = rep(7, 3), Huge = c(-1e308, 0, 1e308))
+scale_data <- lapply(scale_inputs, function(values) data.frame(
+  term = rep(c("T1", "T2", "T3"), 2), fill = "F",
+  cohort = rep(c("Left", "Right"), each = 3), value = rep(values, 2)))
+scale_original <- scale_data
+scale_plots <- lapply(names(scale_data), function(name) PlotButterfly(scale_data[[name]],
+  stat.by = "term", fill.by = "fill", value.by = "value", group.by = "cohort",
+  minmax = TRUE, levels = c("T1", "T2", "T3"), title = name, base_size = 10))
+ggplot2::ggsave(file.path(tempdir(), "20261102-update-butterfly-minmax.pdf"),
+  patchwork::wrap_plots(scale_plots, nrow = 1), width = 12, height = 3.5, bg = "white")
+
+mirror_data <- data.frame(term = "M", value = 1:12,
+  cohort = rep(c("Left", "Right"), each = 6),
+  subtype = factor(rep(c("A", "B", "B", "C"), each = 3), levels = c("A", "B", "C")))
+mirror_box <- PlotButterfly2(mirror_data, stat.by = "term", value.by = "value",
+  group.by = "cohort", fill.by = "subtype", type = "box",
+  palette = c("#0072B2", "#009E73", "#D55E00"),
+  filename = file.path(tempdir(), "20261102-update-butterfly-shared-colour.pdf"),
+  width = 8, height = 3.8)
+mirror_plain <- PlotButterfly2(mirror_data, stat.by = "term", value.by = "value",
+  group.by = "cohort", type = "box",
+  filename = file.path(tempdir(), "20261102-update-butterfly-box-only.pdf"),
+  width = 8, height = 3.8)
+gradient_data <- mirror_data
+gradient_data[["value"]] <- c(-1, -0.5, 0, 0.3, 0.7, 1, -4, -2, 0, 1, 2, 4)
+gradient_plot <- PlotButterfly2(gradient_data, stat.by = "term", value.by = "value",
+  group.by = "cohort", fill.by = "subtype", type = "beeswarm",
+  color_by = "logFC", cex = 2.5, filename = file.path(tempdir(), "20261102-update-butterfly-gradient.pdf"),
+  width = 8, height = 4)
+```
+
+![从左到右为极小跨度、常数和极大数值的双侧柱形图，非恒定输入都保留零、零点五、一的相对位置。](images/comparison-guide/20261102-update-butterfly-minmax.png){fig-alt="原生缩放图，Tiny与Huge两组每侧三项缩放为0、0.5、1，Constant两侧均为0。"}
+
+[缩放示例原生 PDF](images/comparison-guide/20261102-update-butterfly-minmax.pdf)
+
+![A只在左侧、C只在右侧，B在两侧始终使用绿色。](images/comparison-guide/20261102-update-butterfly-shared-colour.png){fig-alt="原生镜像箱线图，A为蓝色，B为绿色，C为橙色；缺少某个类别不会使另一侧的同名类别换色。"}
+
+[分类同色原生 PDF](images/comparison-guide/20261102-update-butterfly-shared-colour.pdf)
+
+![未设置fill.by时type等于box也只绘制箱线层，保存结果不再残留小提琴层。](images/comparison-guide/20261102-update-butterfly-box-only.png){fig-alt="原生无填充分组的左右箱线图，两侧均只有箱线层，没有小提琴分布层。"}
+
+[箱线层原生 PDF](images/comparison-guide/20261102-update-butterfly-box-only.pdf)
+
+![蜂群图左右两侧共用负四到四的连续色标。](images/comparison-guide/20261102-update-butterfly-gradient.png){fig-alt="原生镜像蜂群图，左右值域不同，但相同数值映射到相同颜色，连续色标覆盖负4到4。"}
+
+[共享连续色标原生 PDF](images/comparison-guide/20261102-update-butterfly-gradient.pdf)
+
+`PlotButterfly2()` 从完整分类水平生成两侧共用配色，`color_by="logFC"` 从所选数据的整体有限值域生成连续色标；数值语义仍由传入的 `value.by` 决定。没有 `fill.by` 时，`type="box"`、`"violin"`、`"violin_box"` 和 `violin.scale` 也会作用于最终返回及保存对象，保存发生在图层调整完成之后。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(scale_data, scale_original))
+for (i in seq_along(scale_plots)) {
+  expected <- if (names(scale_data)[[i]] == "Constant") rep(0, 3) else c(0, 0.5, 1)
+  for (side in 1:2) {
+    bars <- ggplot2::ggplot_build(scale_plots[[i]][[side]])[["data"]][[1]]
+    stopifnot(isTRUE(all.equal(sort(abs(bars[["x"]])), expected)))
+  }
+}
+for (side in 1:2) {
+  colour_scale <- ggplot2::ggplot_build(mirror_box[[side]])[["plot"]][["scales"]]$get_scales("fill")
+  stopifnot(identical(unname(colour_scale$map("B")), "#009E73"))
+}
+gradient_scales <- lapply(1:2, function(side)
+  ggplot2::ggplot_build(gradient_plot[[side]])[["plot"]][["scales"]]$get_scales("colour"))
+stopifnot(identical(gradient_scales[[1]][["limits"]], c(-4, 4)),
+  identical(gradient_scales[[2]][["limits"]], c(-4, 4)),
+  identical(gradient_scales[[1]]$map(1), gradient_scales[[2]]$map(1)))
+for (kind in c("box", "violin", "violin_box")) {
+  checked <- PlotButterfly2(mirror_data, stat.by = "term", value.by = "value",
+    group.by = "cohort", type = kind, violin.scale = "count")
+  for (side in 1:2) {
+    layers <- checked[[side]][["layers"]]
+    has_violin <- vapply(layers, function(layer) inherits(layer[["geom"]], "GeomViolin"), logical(1))
+    has_box <- vapply(layers, function(layer) inherits(layer[["geom"]], "GeomBoxplot"), logical(1))
+    stopifnot(any(has_violin) == (kind != "box"), any(has_box) == (kind != "violin"))
+    if (any(has_violin)) stopifnot(identical(layers[[which(has_violin)[[1]]]][["stat_params"]][["scale"]], "count"))
+  }
+}
+validation_values <- list(minmax = list(Tiny = c(0, 0.5, 1), Constant = c(0, 0, 0),
+  Huge = c(0, 0.5, 1)), shared_B = "#009E73", gradient_limits = c(-4, 4))
+```
+:::
+
+<!-- /update-20261102: utils_compare_butterfly -->
 
 ## 宽表镜像分布
 
@@ -327,6 +431,68 @@ PlotDumbbell(paired, inset_plot = custom_inset, legend_pos = "bottom",
 
 :::
 
+### 重名字段与按行配对的插图（2026-11-02） {#dumbbell-pairs-20261102}
+
+<!-- update-20261102: utils_compare_dumbbell -->
+
+`PlotDumbbell()` 的内部差值字段会避开输入列名；数据中已有 `.delta`、`.delta_label` 或 `.delta_x`，或直接用这些列作为测量值与分类标签时，都不会被内部计算覆盖。自动插图按保留下来的每一行建立配对编号，分类文字重复也不会把不同记录连成一组。
+
+```r
+library(UtilsR)
+dumbbell_rows <- data.frame(start = 1:4, end = c(2, 4, 5, 7),
+  category = c("A", "A", "B", "B"))
+dumbbell_original <- dumbbell_rows
+dumbbell_repeated <- PlotDumbbell(dumbbell_rows, "start", "end", "category",
+  sort_by = "none", inset_plot = "auto", inset_test = "none", inset_jitter = FALSE,
+  inset_right = 0.45, inset_bottom = 0.55,
+  filename = file.path(tempdir(), "20261102-update-dumbbell-row-pairs.pdf"),
+  width = 7, height = 4.5)
+dumbbell_fields <- data.frame(.delta = 1:4, .delta_label = c(2, 4, 5, 7),
+  .delta_x = paste0("Row ", 1:4))
+dumbbell_fields_original <- dumbbell_fields
+dumbbell_collision <- PlotDumbbell(dumbbell_fields, ".delta", ".delta_label", ".delta_x",
+  sort_by = "delta", show_delta = TRUE,
+  filename = file.path(tempdir(), "20261102-update-dumbbell-fields.pdf"),
+  width = 7, height = 4)
+```
+
+![分类A与B各重复两行，自动箱线插图中仍有四条独立配对线。](images/comparison-guide/20261102-update-dumbbell-row-pairs.png){fig-alt="原生哑铃图，相同分类在主图中共用纵轴位置，插图四条连线分别对应1到2、2到4、3到5、4到7。"}
+
+[按行配对原生 PDF](images/comparison-guide/20261102-update-dumbbell-row-pairs.pdf)
+
+![直接用三个原本可能重名的字段绘制哑铃与差值，四行端点和差值均保留。](images/comparison-guide/20261102-update-dumbbell-fields.png){fig-alt="原生字段重名示例，端点为1到2、2到4、3到5、4到7，差值为1、2、2、3，按差值排序。"}
+
+[重名字段原生 PDF](images/comparison-guide/20261102-update-dumbbell-fields.pdf)
+
+主图的相同分类仍共用同一个纵轴位置；要逐行辨认受试者，应传入唯一显示标签。这里关闭插图检验和抖动点以便核对四条线，配对结构没有根据分类名称重新汇总。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(dumbbell_rows, dumbbell_original),
+  identical(dumbbell_fields, dumbbell_fields_original))
+inset_lines <- ggplot2::ggplot_build(dumbbell_repeated[[2]])[["data"]][[2]]
+paired_values <- split(inset_lines[["y"]], inset_lines[["group"]])
+stopifnot(length(paired_values) == 4L,
+  identical(unname(paired_values), list(c(1, 2), c(2, 4), c(3, 5), c(4, 7))))
+unique_rows <- dumbbell_rows
+unique_rows[["category"]] <- letters[1:4]
+unique_plot <- PlotDumbbell(unique_rows, "start", "end", "category", sort_by = "none",
+  inset_plot = "auto", inset_test = "none", inset_jitter = FALSE)
+unique_lines <- ggplot2::ggplot_build(unique_plot[[2]])[["data"]][[2]]
+stopifnot(identical(inset_lines, unique_lines))
+collision_layers <- ggplot2::ggplot_build(dumbbell_collision)[["data"]]
+stopifnot(identical(sort(collision_layers[[2]][["x"]]), as.numeric(1:4)),
+  identical(sort(collision_layers[[3]][["x"]]), c(2, 4, 5, 7)),
+  identical(sort(collision_layers[[which(vapply(collision_layers,
+    function(layer) "label" %in% names(layer), logical(1)))]] [["label"]]), c(1, 2, 2, 3)))
+validation_values <- list(pairs = unname(paired_values),
+  start = collision_layers[[2]][["x"]], end = collision_layers[[3]][["x"]],
+  delta = sort(vapply(paired_values, diff, numeric(1))))
+```
+:::
+
+<!-- /update-20261102: utils_compare_dumbbell -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 Butterfly 返回 patchwork；Dumbbell 不可见返回 ggplot/patchwork。可赋值后使用外部 ggsave，或给 filename 使用函数自身保存入口。
@@ -439,3 +605,10 @@ loaded via a namespace (and not attached):
 ```
 
 </details>
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：补充内部差值字段避让和自动插图按行配对，核对重名分类与输入不变。
+- 2026-11-02：补充极小与极大数值缩放、两侧共享分类/连续色标，以及无填充分组时的图层与保存一致性。
+:::
