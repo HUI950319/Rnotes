@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、比值尺度与统一画布"
 description: "交互分析的数据准备、get_fit_ms 整体检验、get_inter 的比值尺度与模型组织、get_eff_inter 合并表，以及 get_int / get_all 的统一画布、H 统计量与随机种子；绝对风险与核对、表格导出见同组另外两页。"
 date: 2026-10-09
-date-modified: 2026-10-31
+date-modified: 2026-11-02
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：比值尺度、合并表与统一画布"
   topic: 回归与生存分析
-  updated: 2026-10-31
+  updated: 2026-11-02
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -31,6 +31,8 @@ directory:
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 RegR `c3dfef1e`（0.1.3）导出源码；配套依赖固定为 RegR `c3dfef1e`、UtilsR `4e9d5e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **版本与执行范围：** 接口按 RegR **0.1.3** 的本机源码快照 `0add2bb` 核对，使用 WSL R **4.4.3** 实际拟合模型，生成 **21 张不同的结果图**，并验证 3 份 Word 导出文件。页面展示已保存的汇总结果；代码可在装有相应版本 RegR 及依赖的 R 环境中复现。
@@ -308,6 +310,50 @@ validation_values[["warnings"]] <- warning_records29
 
 <!-- /update-20261029: regr_binary_wald -->
 
+
+### 发散交互显示为不可估计（2026-11-02） {#diverged-20261102c}
+
+<!-- update-20261102c: regr_inter_diverged -->
+
+Logistic分离会产生极大的联合效应及无穷区间。当前二分类、逐对和完整多水平路径将发散的联合效应、简单效应及依赖它们的交互指标显示为 `Not estimable`，可估计单元继续保留；不会把无限大区间显示成普通数值。结果属性中的原始交互估计仍可供诊断，不能据此当成可报告的稳定效应。
+
+本例66行，Group=B且Ext=Yes的10行全部发生结局。A内Ext效应仍为4.00，B内及依赖该发散对比的乘法、RERI、AP、SI不可估计。`plt_inter()` 会拒绝用该结果绘制加性交互分解图，应先检查数据与模型。
+
+```r
+library(RegR)
+cell_data <- expand.grid(Y = 0:1, Ext = c("No", "Yes"), Group = c("A", "B"))
+cell_data[["n"]] <- c(12, 6, 6, 12, 10, 10, 0, 10)
+diverged_data <- cell_data[rep(seq_len(nrow(cell_data)), cell_data[["n"]]), c("Y", "Ext", "Group")]
+diverged_data[["Ext"]] <- factor(diverged_data[["Ext"]], levels = c("No", "Yes"))
+diverged_data[["Group"]] <- factor(diverged_data[["Group"]])
+diverged_result <- get_inter(diverged_data, c("Ext", "Group"), surv = "Y")
+gt::gtsave(fmt_inter_gt(diverged_result), file.path(tempdir(), "20261102c-update-diverged-interaction.html"))
+```
+
+![仍可估计的联合与简单效应保留，发散及依赖该对比的交互项显示Not estimable。](images/interaction-guide/20261102c-update-diverged-interaction.png){fig-alt="66行二分类Logistic交互原生表，A内Ext的OR为4.00，B内、乘法尺度、RERI、AP和SI显示Not estimable。"}
+
+[原生交互表 HTML](images/interaction-guide/20261102c-update-diverged-interaction.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+diverged_table <- diverged_result[["Unadj"]]
+raw_interaction <- attr(diverged_table, "interaction_effect")
+plot_error <- tryCatch({plt_inter(diverged_table); ""}, error = conditionMessage)
+stopifnot(nrow(diverged_data) == 66L,
+  grepl("4.00", diverged_table[[2]][3], fixed = TRUE),
+  diverged_table[[3]][3] == "Not estimable",
+  diverged_table[[3]][4] == "Not estimable",
+  all(diverged_table[[2]][5:8] == "Not estimable"),
+  is.finite(raw_interaction[["estimate"]]), !is.finite(raw_interaction[["conf.high"]]),
+  grepl("not estimable", plot_error, fixed = TRUE))
+validation_values <- list(n = 66L, table = as.data.frame(diverged_table),
+  raw_interaction = raw_interaction, plot_error = plot_error)
+```
+:::
+
+`Not estimable` 表示本次模型不能提供稳定估计，既不表示无效应，也不是P值不显著的同义词。更改参考编码应有分析依据，不能只为消除提示。
+
+<!-- /update-20261102c: regr_inter_diverged -->
 
 <!-- update-20261029c: regr_ordered_full -->
 
@@ -827,6 +873,8 @@ validation_values <- list(rows = vapply(inter_cohorts31, nrow, 0L),
 
 ## get_eff_inter()：把亚组效应与交互放进一张表 {#get-eff-inter}
 
+Logistic亚组中的常量调整项与完全共线列处理，见[240行合成示例及独立glm核对](forest-guide.qmd#logistic-subgroup-20261102c)。有效调整集可随亚组变化，应连同提示一起阅读结果。
+
 本节于 2026-10-01 按当前源码补充，使用前文同一 RegR MTC 完整病例队列，实际运行以下 Cox 示例。get_eff_inter 将 get_eff 的亚组效应与 get_inter 的乘法交互、RERI 整理到同一张表；它不是 get_inter_abs 的绝对风险输出。
 
 cat_var 必须是单个二分类暴露，sub_var 指定一个或多个分类修饰变量。默认 subgroup_model="separate" 的亚组效应分别拟合；本节显式设为 "interaction"，从同一完整交互模型提取简单效应和交互指标。Age_group 的每行 HR 均表示该年龄层内 Male 对 Female 的效应，不能读成该年龄层本身的 HR。
@@ -1249,6 +1297,7 @@ fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充分离导致的不可估计交互](#diverged-20261102c)，保留原始诊断属性并说明绘图拒绝。
 - 2026-10-31：[补充同一方案逐数据子集的get_inter调用与独立拟合核对](#subsets-20261031)。
 - **2026-10-29**：[完整模型的有序编码](#ordered-full-20261029c)核对 Cox、Fine–Gray、Logistic 及批量筛查，保留原参考与总体检验。
 - **2026-10-29**：[固定画布的设备尺寸](#fmt-page-device-20261029c)同步 fmt_page 的 PNG 字体测量与扩展规则。
