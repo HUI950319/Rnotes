@@ -7,13 +7,15 @@ execute:
 directory:
   title: "标题、设定与注释：pr_head / pr_kv / pr_section / pr_note / pr_badge"
   topic: 打印信息
-  updated: 2026-11-01
-date-modified: 2026-11-01
+  updated: 2026-11-02
+date-modified: 2026-11-02
 ---
 
 一个 print 方法通常由这五个函数拼成：`pr_head()` 写首行，`pr_kv()` 列设定，`pr_section()` 把结果分节，`pr_note()` 在末尾写注意事项和下一步，`pr_badge()` 在同一行并排显示几个状态。除 `pr_badge()` 外，它们都直接写到标准输出，并不可见地返回所打印的行。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `859b2506`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -165,6 +167,55 @@ validation_values <- list(kv = cli::ansi_strip(color_linesC[["kv"]]),
 
 所以要把数据放进注释时，写成 `pr_note("Label: {lab}")`，让 cli 代入变量，不要先 `paste()` 进模板：代入的值不会再被当成 glue 表达式解析，而拼进模板的花括号会。
 
+### 极窄宽度不再多出续行（2026-11-02） {#overwide-20261102}
+
+<!-- update-20261102: utils_print_wrap -->
+
+UtilsR 0.6.21 修复了极窄控制台下的额外空续行。宽字素簇放不进剩余列宽时，仍按既有规则显示省略标记；处理完最后一个字素后，不会再输出一条无内容的续行。输入中有意保留的空行仍保留，注释、键值块和摘要框遵循同一换行规则。
+
+```r
+library(UtilsR)
+narrow_notes <- withr::with_options(list(cli.width = 3, cli.num_colors = 1L,
+  cli.unicode = TRUE), capture.output(pr_note("中文")))
+narrow_blank <- withr::with_options(list(cli.width = 3, cli.num_colors = 1L,
+  cli.unicode = TRUE), capture.output(pr_note("中\n\n文")))
+narrow_box <- withr::with_options(list(cli.width = 3, cli.num_colors = 1L,
+  cli.unicode = TRUE), capture.output(pr_box("中文")))
+narrow_kv <- withr::with_options(list(cli.width = 4, cli.num_colors = 1L,
+  cli.unicode = TRUE), capture.output(pr_kv(list(v = "中文"), indent = 0)))
+narrow_notes
+narrow_blank
+```
+
+![真实stdout显示三列宽度下两行省略注释，有意空行仍在中间；摘要框和四列宽度键值没有多余续行。](images/result-blocks/20261102-update-print-overwide.png){fig-alt="原生控制台预览，普通注释两行，含空行的注释三行，摘要框四行，键值两行。"}
+
+[原生 HTML](images/result-blocks/20261102-update-print-overwide.html)
+
+这是宽度边界复核，不建议日常把控制台缩到三列。恢复正常宽度后按完整文本阅读，不能把省略标记当作原始数据内容。
+
+::: {.callout-note collapse="true" title="复核代码"}
+HTML预览复用[多行ANSI示例](#ansi-20261101c)的 `save_consoleC()`，重建图片前先运行其定义；上面的控制台调用不依赖该辅助函数。
+
+```r
+stopifnot(identical(cli::ansi_strip(narrow_notes), c("# …", "# …")),
+  identical(cli::ansi_strip(narrow_blank), c("# …", "# ", "# …")),
+  length(narrow_box) == 4L, length(narrow_kv) == 2L)
+for (colours in c(1L, 256L)) {
+  check_notes <- withr::with_options(list(cli.width = 3, cli.num_colors = colours,
+    cli.unicode = TRUE), capture.output(pr_note("中文")))
+  stopifnot(identical(cli::ansi_strip(check_notes), c("# …", "# …")))
+}
+save_consoleC(c("Notes: width 3", narrow_notes, "", "Intentional blank line", narrow_blank,
+  "", "Box: width 3", narrow_box, "", "Key-value: width 4", narrow_kv),
+  "20261102-update-print-overwide.html")
+validation_values <- list(notes = cli::ansi_strip(narrow_notes),
+  intentional_blank = cli::ansi_strip(narrow_blank), box_lines = length(narrow_box),
+  key_value_lines = length(narrow_kv))
+```
+:::
+
+<!-- /update-20261102: utils_print_wrap -->
+
 ## pr_badge()：徽标 {#pr-badge}
 
 `pr_badge(key, value, bg = "blue", fg = "br_white")` 生成形如状态徽标的两段式标签：键在深灰底上，值在 `bg` 颜色上，颜色可以表达含义（如违反比例风险假设用红底）。
@@ -294,6 +345,7 @@ validation_values <- list(width = 40L, maximum_width = max(cli::ansi_nchar(c(blo
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充极窄宽度的宽字素续行](#overwide-20261102)，保留输入中有意的空行。
 - 2026-11-01：补充多行键值、注释与摘要框的ANSI样式及空白行。
 - 2026-10-31：[补充40列宽度、带类向量、缺失片段及盒内换行](#width-types-20261031)。
 - 2026-10-30：[单行字段转义](#controls-20261030)：核对六种控制字符，并保留键值内容与注释的有意换行。
