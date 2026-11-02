@@ -2,18 +2,20 @@
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
 description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
-date-modified: 2026-11-01
+date-modified: 2026-11-02
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-11-01
+  updated: 2026-11-02
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `ec2b136f`（0.6.19）导出源码，KNN例子使用VIM及下文实际调用的类型与表格依赖，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -749,6 +751,48 @@ ggplot(show_dat, aes(age, fill = source)) + geom_histogram(binwidth = 5, alpha =
 ![区分原始观察和本次填充值，检查分布；两组人数不同，直方图用计数刻度。](images/missing-guide/imputed-distribution.png){fig-alt="数据检视与缺失：摘要、缺失模式和 KNN 插补；观察值与填充值；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 先识别标签缺失，再检查供体（2026-11-02） {#knn-cold-20261102b}
+
+<!-- update-20261102b: utils_knn_cold -->
+
+`impute_na_knn()` 现在在识别待插补变量、检查供体数量之前加载标签缺失的方法。这样，从 RDS 恢复的 SPSS 用户缺失码不会在新 R 进程中被误判为普通观测值。下面三行中，99 是用户缺失，第三行按 predictor 找到第一行的供体，填为 1；缺失定义和标签属性保留。
+
+```r
+library(UtilsR)
+knn_start <- data.frame(target = haven::labelled_spss(c(1, 3, 99),
+  labels = c(Unknown = 99), na_values = 99), predictor = c(0, 1, 0))
+knn_before <- knn_start
+knn_result <- impute_na_knn(knn_start, k = 1, verbose = FALSE)
+knn_preview <- data.frame(Row = 1:3, Before = vctrs::vec_data(knn_start[["target"]]),
+  Missing_before = is.na(knn_start[["target"]]),
+  After = vctrs::vec_data(knn_result[["target"]]))
+gt::gtsave(gt::gt(knn_preview),
+  file.path(tempdir(), "20261102b-update-knn-donor.html"))
+```
+
+![三行输入的用户缺失码99被识别为缺失并填为一，另外两行仍为一和三。](images/missing-guide/20261102b-update-knn-donor.png){fig-alt="原生KNN结果表，Before为1、3、99，Missing_before为FALSE、FALSE、TRUE，After为1、3、1。"}
+
+[原生表格 HTML](images/missing-guide/20261102b-update-knn-donor.html)
+
+若三个 target 中有两个都是用户缺失，实际只有一个供体，`k=2` 应报供体不足，不能把99补进供体数。正文创建对象时已经加载 haven；本轮另在 Windows / WSL 执行固定源码的 RDS 冷启动测试，确认未预先加载 haven 时，插补、供体不足提示及输入属性也一致。这里没有声称重新运行了旧教程的全部插补分析。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(knn_start, knn_before),
+  identical(vctrs::vec_data(knn_result[["target"]]), c(1, 3, 1)),
+  identical(attributes(knn_result[["target"]]), attributes(knn_start[["target"]])))
+few_donors <- knn_start
+few_donors[["target"]][2:3] <- 99
+few_donors[["predictor"]][2] <- NA_real_
+donor_error <- tryCatch(impute_na_knn(few_donors, k = 2, verbose = FALSE), error = conditionMessage)
+stopifnot(is.character(donor_error), grepl("Not enough observed donors", donor_error))
+validation_values <- list(after = vctrs::vec_data(knn_result[["target"]]),
+  missing_before = is.na(knn_start[["target"]]), donor_error = donor_error)
+```
+:::
+
+<!-- /update-20261102b: utils_knn_cold -->
 
 ### SPSS缺失与标签原值恢复（2026-11-01） {#knn-labels-20261101b}
 
@@ -1658,6 +1702,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[核对标签缺失的供体检查](#knn-cold-20261102b)，补充独立RDS冷启动证据。
 - 2026-11-01：[补充时间类型与行身份](#knn-time-20261101b)，记录VIM版本适配范围。
 - 2026-11-01：[核对加权均值与整数恢复](#knn-numeric-20261101b)，明确全缺失行、精度和输入诊断。
 - 2026-11-01：[补充SPSS缺失与标签原值恢复](#knn-labels-20261101b)，保留存储和标签属性。
