@@ -2,18 +2,20 @@
 title: "集合比较：Venn、UpSet、成员分组与 Jaccard 热图"
 description: "plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵；含历史参数对照与当前集合身份、透明填色和组合图示例。"
 date: 2026-10-20
-date-modified: 2026-11-01
+date-modified: 2026-11-02
 lightbox: true
 toc-depth: 2
 directory:
   title: "集合比较：Venn、UpSet、成员分组与 Jaccard 热图"
   topic: 绘图与格式化
-  updated: 2026-11-01
+  updated: 2026-11-02
 ---
 
 plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31 追加按已推送 UtilsR `dd654ef1`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -579,6 +581,52 @@ validation_values <- list(matrix = unclass(jac[["matrix"]]), matrix17 = unclass(
 
 <!-- /update-20261024: jaccard -->
 
+### 标签缺失、矩阵直返与精简图形对象（2026-11-02） {#jaccard-cache-20261102b}
+
+<!-- update-20261102b: utils_jaccard_sets -->
+
+`PlotHeatmapJaccard()` 在组列与成员列中识别类定义缺失，包括 SPSS 用户缺失码。每组先缓存唯一成员，重复行不增加集合大小；空并集仍按 0 处理。下面 A 的有效集合为 `{1,2}`，B 为 `{2,3}`，两侧的99都被排除，交并比为 1/3。
+
+```r
+library(UtilsR)
+jaccard_input <- data.frame(group = rep(c("A", "B"), each = 3),
+  feature = haven::labelled_spss(c(1, 2, 99, 2, 3, 99), na_values = 99))
+jaccard_before <- jaccard_input
+jaccard_matrix <- PlotHeatmapJaccard(jaccard_input, "group", "feature",
+  group_levels = c("A", "B", "empty"), return_type = "data")
+jaccard_saved <- PlotHeatmapJaccard(jaccard_input, "group", "feature",
+  group_levels = c("A", "B", "empty"), return_type = "data", show_diag = TRUE,
+  filename = file.path(tempdir(), "20261102b-update-jaccard-labelled.pdf"),
+  width = 5.5, height = 5)
+```
+
+![A与B的Jaccard相似度为三分之一，空集合整行整列为零，非空组对角线为一。](images/sets-guide/20261102b-update-jaccard-labelled.png){fig-alt="原生三组Jaccard热图，A与B为0.33，A与B的对角线为1，empty的所有单元均为0。"}
+
+[原生 PDF](images/sets-guide/20261102b-update-jaccard-labelled.pdf)
+
+`return_type="data", filename=NULL` 直接返回完整矩阵并跳过图形构建；若明确给 `filename`，仍会绘图、保存，返回值仍是矩阵。返回的图只保留热图所需的数据与绘图环境，不携带未选择的原始输入列。此项减少了不必要的构建和对象保留，没有改变交集、并集或对角线定义，也没有在本页宣称速度倍数。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+expected_jaccard <- matrix(c(1, 1/3, 0, 1/3, 1, 0, 0, 0, 0), 3,
+  dimnames = list(c("A", "B", "empty"), c("A", "B", "empty")))
+stopifnot(identical(jaccard_input, jaccard_before),
+  identical(jaccard_matrix, expected_jaccard), identical(jaccard_saved, jaccard_matrix))
+duplicate_jaccard <- PlotHeatmapJaccard(rbind(jaccard_input, jaccard_input),
+  "group", "feature", group_levels = c("A", "B", "empty"), return_type = "data")
+missing_groups <- data.frame(group = haven::labelled_spss(c(1, 2, 99), na_values = 99),
+  feature = c("a", "b", "orphan"))
+group_matrix <- PlotHeatmapJaccard(missing_groups, "group", "feature", return_type = "data")
+stopifnot(identical(duplicate_jaccard, jaccard_matrix),
+  identical(rownames(group_matrix), c("1", "2")), identical(unname(group_matrix), diag(2)))
+validation_values <- list(matrix = unclass(jaccard_matrix), group_matrix = unclass(group_matrix))
+```
+:::
+
+本轮另运行固定源码测试：在未加载 haven 的新 R 进程中读取标签 RDS；核对矩阵直返没有调用图形构建、请求文件确实保存，以及带未使用原始列与精简输入的图形构建和序列化结果一致。没有用已加载 haven 的正文示例代替冷启动证据。
+
+<!-- /update-20261102b: utils_jaccard_sets -->
+
 ## 矩阵返回与数值核对
 
 ::: {.panel-tabset}
@@ -759,6 +807,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充标签集合与矩阵直返](#jaccard-cache-20261102b)，核对请求保存和返回图不保留原始载荷。
 - 2026-11-01：补充交集水平与16集合边界；同步参数表和返回说明中的当前透明填色行为。
 - 2026-11-01：[区分分类UpSet入口](#cat-upset-20261101)，补充单行、透明度与忽略列的链接。
 - 2026-10-31：[固定分层前成员定义](#facets-20261031b)，补充显式阳性水平和混合因子成员ID。
