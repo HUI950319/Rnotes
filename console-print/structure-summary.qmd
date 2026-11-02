@@ -7,13 +7,15 @@ execute:
 directory:
   title: "结构树、摘要框与分布：pr_tree / pr_box / pr_spark"
   topic: 打印信息
-  updated: 2026-11-01
-date-modified: 2026-11-01
+  updated: 2026-11-02
+date-modified: 2026-11-02
 ---
 
 这三个函数不是每个 print 方法都要用：`pr_tree()` 看清一个嵌套结果里有什么，`pr_box()` 把模型设定这类短摘要框起来，`pr_spark()` 在建模前快速看一眼各列分布。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `859b2506`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -126,6 +128,50 @@ validation_values <- list(period = period_treeC, duration = duration_treeC,
 恢复序列化S4值的方法现在早于长度检查，并通过命名空间加载避免附加包；这是固定源码核对结果。本节实跑使用已加载的lubridate对象，没有模拟卸载包后读RDS的启动路径，也没有给出性能倍数。
 
 <!-- /update-20261101c: utils_print_tree -->
+
+### 极大的整数预览上限（2026-11-02） {#tree-limits-20261102}
+
+<!-- update-20261102: utils_print_limits -->
+
+UtilsR 0.6.21 修复了 `pr_tree()` 在 `max_items` 接近整数上限时的中间加法溢出。下面仍只打印三个小组件，用最大的整数上限与 `Inf` 核对同一结果，不会分配数十亿个元素，也不代表建议展开大型对象。`max_items`、`max_lines` 和 `max_depth` 的原有截断含义不变。
+
+```r
+library(UtilsR)
+tiny_tree <- list(a = 1, b = list(c = 2))
+large_limit <- as.integer(.Machine[["integer.max"]])
+tree_limit_lines <- withr::with_options(list(cli.num_colors = 1L, cli.width = 60),
+  capture.output(pr_tree(tiny_tree, max_items = large_limit)))
+tree_limit_lines
+```
+
+![真实结构树正常列出a、一层列表b及其子项c，最大整数预览上限没有导致报错。](images/structure-summary/20261102-update-print-tree-limit.png){fig-alt="原生结构树，根节点有两个元素，a为1，b含一个元素c且值为2。"}
+
+[原生 HTML](images/structure-summary/20261102-update-print-tree-limit.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+HTML预览复用[多行ANSI示例](result-blocks.qmd#ansi-20261101c)的 `save_consoleC()`；重建预览前先运行其定义。
+
+```r
+reference_tree <- withr::with_options(list(cli.num_colors = 1L, cli.width = 60),
+  capture.output(pr_tree(tiny_tree, max_items = Inf)))
+tree_warnings <- character()
+for (limit in c(.Machine[["integer.max"]] - 49L, .Machine[["integer.max"]])) {
+  checked_tree <- withr::with_options(list(cli.num_colors = 1L, cli.width = 60),
+    withCallingHandlers(capture.output(pr_tree(tiny_tree, max_items = as.integer(limit))),
+      warning = function(w) {
+        tree_warnings <<- c(tree_warnings, conditionMessage(w)); invokeRestart("muffleWarning")
+      }))
+  stopifnot(identical(checked_tree, reference_tree))
+}
+stopifnot(length(tree_warnings) == 0L, identical(tree_limit_lines, reference_tree))
+save_consoleC(c("Integer max_items = 2147483647", tree_limit_lines),
+  "20261102-update-print-tree-limit.html")
+validation_values <- list(lines = cli::ansi_strip(tree_limit_lines),
+  warnings = tree_warnings, identical_to_Inf = TRUE)
+```
+:::
+
+<!-- /update-20261102: utils_print_limits -->
 
 ## pr_box()：摘要框 {#pr-box}
 
@@ -267,6 +313,7 @@ validation_values <- list(rows = nrow(spark31), distribution = spark_lines31,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充整数上限附近的树形预览](#tree-limits-20261102)，与Inf输出核对且无溢出警告。
 - 2026-11-01：补充根S4继承存储、Period与Duration槽及有界宽表列名。
 - 2026-10-31：[补充日期、极端数值、重名列与有界结构预览](#scales-20261031)。
 - 2026-10-30：[SPSS与空列](#missing-20261030)：统一缺失掩码，区分空、全缺失、非有限及显式NA水平。
