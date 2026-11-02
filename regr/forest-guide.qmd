@@ -2,18 +2,20 @@
 title: "效应估计：get_eff、结果表与 set_eff"
 description: "get_eff 的模型、亚组、分层、方法与返回表详解，set_eff 改写结果与区间，数值同步核对、累计调整路线和筛选后的空水平；使用 598 人 M1 PTC 队列，森林图绘制见下一页。"
 date: 2026-10-09
-date-modified: 2026-10-31
+date-modified: 2026-11-02
 lightbox: true
 toc-depth: 2
 directory:
   title: "效应估计：get_eff、set_eff 与数值核对"
   topic: 回归与生存分析
-  updated: 2026-10-31
+  updated: 2026-11-02
 ---
 
 先用 `get_eff()` 生成效应表，再根据展示目的选择森林图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的方式：每个绘图入口配实际图形和代码，关键参数放在标签页中比较；点击图片可以放大。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 RegR `c3dfef1e`（0.1.3）导出源码；配套依赖固定为 RegR `c3dfef1e`、UtilsR `4e9d5e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 本轮补充按已推送 RegR `6d15ecd`（0.1.3）及 UtilsR `ce17def`（0.6.13）导出源码，使用 Windows / WSL R 4.4.3 独立运行；合成数据与新增输出在对应小节说明，既有图表保留原执行快照。
@@ -281,6 +283,73 @@ validation_values[["separation"]] <- lapply(separated_result29[c("haz_unadj", "h
 两例只执行了 Cox 亚组路径和 Logistic 分离例；没有重新运行本页的历史 CIF、匹配、加权或概率差结果。
 
 <!-- /update-20261029: regr_eff_boundaries -->
+
+### Logistic 亚组中的常量与共线调整项（2026-11-02） {#logistic-subgroup-20261102c}
+
+<!-- update-20261102c: regr_subgroup -->
+
+一个调整变量在全队列有多个水平，在某个亚组的完整病例中却可能只有一个值。当前 Logistic 路径会提示并从该次拟合中移除该常量；完全共线的列会留下别名提示，效应、区间与 P 值按实际可估计的系数名对齐。`get_eff()` 和 `get_eff_inter()` 不再因为这种亚组而中断整张表。这不表示两个亚组使用了完全相同的有效调整集，阅读结果时仍应保留提示。
+
+下面240行合成数据中，E2的Mul全为Unknown；Race=B时Inc由Mul完全决定。每个亚组120行，两种暴露各60行。展示的是实际合并结果中的已调整列；这是一例可估计的OR，不是分离问题的通用修复。
+
+```r
+library(RegR)
+set.seed(220826)
+subgroup_data <- data.frame(Y = rbinom(240, 1, .4),
+  Ext = factor(rep(c("No", "Gross"), 120), levels = c("No", "Gross")),
+  Era = factor(rep(c("E1", "E2"), each = 120)),
+  Race = factor(rep(rep(c("A", "B"), each = 60), 2)),
+  Mul = factor(sample(c("No", "Yes", "Unknown"), 240, TRUE)),
+  Inc = factor(sample(c("L", "H"), 240, TRUE)))
+subgroup_data[["Mul"]][subgroup_data[["Era"]] == "E2"] <- "Unknown"
+in_b <- subgroup_data[["Race"]] == "B"
+subgroup_data[["Inc"]][in_b] <- ifelse(subgroup_data[["Mul"]][in_b] == "Unknown", "H", "L")
+subgroup_messages <- subgroup_warnings <- character()
+subgroup_results <- withCallingHandlers({
+  eff <- get_eff(subgroup_data, cat_var = "Ext", sub_var = c("Era", "Race"),
+    adj_var = c("Mul", "Inc"), surv = "Y", methods = "direct", all = NULL)
+  merged <- get_eff_inter(subgroup_data, cat_var = "Ext", sub_var = c("Era", "Race"),
+    adj_var = c("Mul", "Inc"), surv = "Y", all = NULL)
+  list(eff = eff, merged = merged)
+}, message = function(m) {
+  subgroup_messages <<- c(subgroup_messages, conditionMessage(m)); invokeRestart("muffleMessage")
+}, warning = function(w) {
+  subgroup_warnings <<- c(subgroup_warnings, conditionMessage(w)); invokeRestart("muffleWarning")
+})
+subgroup_table <- as.data.frame(subgroup_results[["merged"]])[, c("variable", "subgroup",
+  "n", "event", "OR_multivariable", "Multiplicative_multivariable", "RERI_multivariable")]
+gt::gtsave(gt::gt(subgroup_table), file.path(tempdir(), "20261102c-update-subgroup-adjustment.html"))
+```
+
+![常量与共线调整项处理后，两个分层变量的四个亚组仍给出可估计OR。](images/forest-guide/20261102c-update-subgroup-adjustment.png){fig-alt="240行合成Logistic分析，Era和Race各两个120行亚组；E2和B的调整OR分别为0.83和0.84，原始合并表保留乘法及RERI列。"}
+
+[原生结果表 HTML](images/forest-guide/20261102c-update-subgroup-adjustment.html)。本例会提示E2的常量Mul被移除、B的Inc列共线；还会保留预防性暴露及SI未定义的警告。不能把这些警告解释成“所有交互指标都可用”。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+eff_table <- subgroup_results[["eff"]][["haz_direct"]]
+stopifnot(nrow(subgroup_data) == 240L,
+  grepl("Dropped.*Mul", paste(subgroup_messages, collapse = " ")),
+  grepl("coefficient is NA", paste(subgroup_messages, collapse = " ")),
+  all(as.integer(table(subgroup_data[["Era"]], subgroup_data[["Ext"]])) == 60L))
+for (level in c("E1", "E2", "A", "B")) {
+  variable <- if (level %in% c("E1", "E2")) "Era" else "Race"
+  rows <- subgroup_data[[variable]] == level
+  formula <- if (level == "E2") Y ~ Inc + Ext else if (level == "B") Y ~ Mul + Ext else Y ~ Mul + Inc + Ext
+  fit <- stats::glm(formula, data = droplevels(subgroup_data[rows, ]), family = stats::binomial())
+  estimate <- summary(fit)[["coefficients"]]["ExtGross", ]
+  observed <- eff_table[eff_table[["label"]] == level, ]
+  expected <- exp(estimate[[1]] + c(0, -1, 1) * stats::qnorm(.975) * estimate[[2]])
+  stopifnot(isTRUE(all.equal(unname(unlist(observed[c("estimate", "conf.low", "conf.high")])),
+    unname(expected), tolerance = 1e-10)),
+    subgroup_results[["merged"]][["OR_multivariable"]][subgroup_results[["merged"]][["subgroup"]] == level] == observed[["effect"]])
+}
+validation_values <- list(n = 240L, table = subgroup_table, messages = subgroup_messages,
+  warnings = unique(subgroup_warnings))
+```
+:::
+
+<!-- /update-20261102c: regr_subgroup -->
 
 ### 多个分期方案分别调整 {#cat-var-rpa}
 
@@ -943,6 +1012,7 @@ tryCatch(
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充Logistic亚组常量与共线调整项](#logistic-subgroup-20261102c)，逐层与独立glm核对。
 - 2026-10-31：[验证未attach时的命名空间列表调用与独立拟合一致](#namespace-20261031)。
 - 2026-10-29：[数据列表](#data-list-20261029e)：两个160行合成子集逐份拟合，核对嵌套模型、返回类及参考样本重叠。
 - 2026-10-29：[亚组缺失、单臂、无事件及有限极端区间](#subgroup-boundaries-20261029)，核对 grouped / rowwise 与普通数据输入。
