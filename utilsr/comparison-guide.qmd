@@ -14,6 +14,8 @@ date-modified: 2026-11-02
 堆积与并排双侧柱形、min-max 和透明度映射、镜像分布、蜂群与配对哑铃插图。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；21 个示例已在 WSL R 4.4.3 中实际执行，其中 21 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
@@ -54,7 +56,7 @@ custom_inset <- ggplot(paired, aes(start, end)) + geom_point(color = "#0072B2", 
 | 透明度 | `alpha.by=NULL`、`alpha.range=c(0.3,1)` | 以指定列映射柱形透明度，覆盖固定 alpha |
 | 镜像分布 | `data.left/data.right`、`add_box/add_point/ref.line` | 两张宽表；行数可以不同，不自动进行配对检验 |
 | 长表分布 | `PlotButterfly2(stat.by,value.by,group.by,fill.by=NULL)` | fill.by 增加每侧内部子组；两主组按数据首次出现顺序确定 |
-| 五种 type | `violin_box/violin/box/beeswarm/beeswarm_quasirandom` | 不带 fill.by 的 box 当前转发为小提琴叠箱线；本页独立箱线示例明确给 fill.by |
+| 五种 type | `violin_box/violin/box/beeswarm/beeswarm_quasirandom` | box、violin 和 violin_box 均按所选类型绘制，不带 fill.by 时同样适用；渐变蜂群最多四个观察类别 |
 | 点与子组布局 | `dodge.width/violin.scale/box.width/pt.size/pt.alpha/cex` | 点密度、子组避让与分布宽度分别控制 |
 | 蜂群颜色 | `color_by="fixed"/"logFC"`、`fixed_color/gradient_colors` | logFC 选项按 value.by 着色，没有自动计算 log fold change |
 | 哑铃排序 | `sort_by="end"`、`sort_descending=FALSE`、`top_n=NULL` | 当前先排序，再保留尾部 top_n；降序时尾部是较小值 |
@@ -311,6 +313,58 @@ PlotButterfly2(long, "term", "value", "cohort", fill.by = "subtype",
 ![这里颜色按模拟 value 渐变，形状表示 subtype；logFC 是选项名，没有计算任何折叠变化。](images/comparison-guide/quasirandom.png){fig-alt="双侧比较图：Butterfly、分布镜像与 Dumbbell；数值渐变准随机点；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 蜂群两侧形状与观察类别上限（2026-11-02） {#beeswarm-shapes-20261102b}
+
+<!-- update-20261102b: utils_beeswarm_shapes -->
+
+`PlotButterfly2(color_by="logFC")` 的渐变蜂群现在按完整输入中实际观察到的类别分配形状，两侧的同名类别保持相同形状；未使用的因子水平不占名额。两种蜂群模式最多支持四个观察类别，超过时提前报错，避免点因缺失形状而被丢弃。这个上限只针对渐变蜂群的分类形状，不是所有填色模式的共同上限。
+
+```r
+library(UtilsR)
+shape_input <- data.frame(term = "M", cohort = rep(c("Left", "Right"), each = 6),
+  subtype = factor(rep(c("A", "B", "B", "C"), each = 3),
+    levels = c("A", "unused", "B", "C")),
+  value = c(-.8, -.4, 0, .2, .4, .8, -2, -1, 0, 1, 2, 3))
+shape_plot <- PlotButterfly2(shape_input, "term", "value", "cohort", fill.by = "subtype",
+  type = "beeswarm_quasirandom", color_by = "logFC", pt.size = 3, pt.alpha = 1,
+  left.title = "Left: A / B", right.title = "Right: B / C", base_size = 12,
+  filename = file.path(tempdir(), "20261102b-update-beeswarm-shapes.pdf"),
+  width = 8, height = 4)
+```
+
+![A只在左侧、C只在右侧，B在两侧都用三角形，十二个点均保留。](images/comparison-guide/20261102b-update-beeswarm-shapes.png){fig-alt="原生渐变蜂群，A为圆点、B为三角形、C为方块，左右各六点，unused不占形状名额。"}
+
+[原生 PDF](images/comparison-guide/20261102b-update-beeswarm-shapes.pdf)
+
+函数还会在分组箱线、无填充分组和蜂群路径中只保留所选绘图列，避免返回图捕获未使用的原始列。本轮另用固定源码测试核对三条路径的构建结果和序列化对象，没有报告内存或速度倍数。形状、颜色和分类名称仍应按传入数据解释，`logFC` 这个选项名不会计算折叠变化。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (side in 1:2) {
+  built_shape <- ggplot2::ggplot_build(shape_plot[[side]])
+  stopifnot(identical(built_shape[["plot"]][["scales"]]$get_scales("shape")$map("B"), 17),
+    sum(!is.na(built_shape[["data"]][[1]][["shape"]])) == 6L)
+}
+five_shapes <- data.frame(term = "M", cohort = rep(c("L", "R"), each = 15),
+  subtype = factor(rep(rep(LETTERS[1:5], each = 3), 2)), value = seq_len(30) / 10)
+shape_error <- tryCatch(PlotButterfly2(five_shapes, "term", "value", "cohort",
+  fill.by = "subtype", type = "beeswarm_quasirandom", color_by = "logFC"), error = conditionMessage)
+stopifnot(is.character(shape_error), grepl("at most 4 observed", shape_error))
+four_shapes <- five_shapes[five_shapes[["subtype"]] != "D", ]
+four_plot <- PlotButterfly2(four_shapes, "term", "value", "cohort", fill.by = "subtype",
+  type = "beeswarm_quasirandom", color_by = "logFC")
+for (side in 1:2) {
+  built_four <- ggplot2::ggplot_build(four_plot[[side]])
+  stopifnot(identical(built_four[["plot"]][["scales"]]$get_scales("shape")$map("E"), 18),
+    sum(!is.na(built_four[["data"]][[1]][["shape"]])) == 12L)
+}
+validation_values <- list(B_shape = 17, E_shape_with_four_observed = 18,
+  points_per_side = 6L, five_category_error = shape_error)
+```
+:::
+
+<!-- /update-20261102b: utils_beeswarm_shapes -->
 
 ## 哑铃排序和差值
 
@@ -609,6 +663,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充两侧形状与观察类别上限](#beeswarm-shapes-20261102b)，核对未使用水平和返回图的精简数据。
 - 2026-11-02：补充内部差值字段避让和自动插图按行配对，核对重名分类与输入不变。
 - 2026-11-02：补充极小与极大数值缩放、两侧共享分类/连续色标，以及无填充分组时的图层与保存一致性。
 :::
