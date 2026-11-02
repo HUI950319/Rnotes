@@ -14,6 +14,8 @@ directory:
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -960,6 +962,44 @@ plt_cat(d, "age_group", "sex", label = TRUE, palette = c("#0072B2", "#E69F00", "
 
 ## 区间与 P 值文本
 
+### 标准误本身超出浮点范围（2026-11-02） {#se-overflow-20261102b}
+
+<!-- update-20261102b: utils_ci_se -->
+
+当差值区间极宽时，即使估计和两端均有限，推算出的标准误本身也可能大于双精度最大值。`stat_ci_parse()` 现在在工作尺度上再次缩放，保留有限、非零的近似 P 值。下面比较两个极端区间与等比例缩小后的参考区间，同时核对 `level` 的调整路径。
+
+```r
+library(UtilsR)
+wide_ci <- c("1.790e308 (-1.790e308, 1.797e308)",
+             "-1.790e308 (-1.797e308, 1.790e308)")
+small_ci <- c("1.790 (-1.790, 1.797)", "-1.790 (-1.797, 1.790)")
+ci_levels <- list(NULL, .95, .9, .99)
+ci_rows <- lapply(seq_along(ci_levels), function(i) data.frame(
+  Input = c("Positive", "Negative"), Level = c("default", "0.95", "0.90", "0.99")[[i]],
+  P = stat_ci_parse(wide_ci, output = "p", exp = FALSE, level = ci_levels[[i]]),
+  Rescaled_P = stat_ci_parse(small_ci, output = "p", exp = FALSE, level = ci_levels[[i]])))
+wide_ci_result <- do.call(rbind, ci_rows)
+gt::gtsave(gt::fmt_number(gt::gt(wide_ci_result), columns = c(P, Rescaled_P), decimals = 6),
+  file.path(tempdir(), "20261102b-update-ci-se-overflow.html"))
+```
+
+![两个方向的极宽差值区间，在各level设置下都与缩小后的参考值一致，P值保持有限且位于零与一之间。](images/factor-guide/20261102b-update-ci-se-overflow.png){fig-alt="原生八行解析表，两种估计方向分别在默认、0.95、0.90、0.99设置下，P与Rescaled_P逐行一致。"}
+
+[原生表格 HTML](images/factor-guide/20261102b-update-ci-se-overflow.html)
+
+这两个区间不对称，函数仍会给出对应警告；修复数值计算不等于证明 Wald 假设成立。仍明确使用 `exp=FALSE`，`level` 沿用函数既有的区间调整规则，不能把该近似 P 值写成原始模型的精确检验。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(all(is.finite(wide_ci_result[["P"]])),
+  all(wide_ci_result[["P"]] > 0 & wide_ci_result[["P"]] < 1),
+  isTRUE(all.equal(wide_ci_result[["P"]], wide_ci_result[["Rescaled_P"]], tolerance = 1e-12)))
+validation_values <- list(result = wide_ci_result)
+```
+:::
+
+<!-- /update-20261102b: utils_ci_se -->
+
 ### 极大差值区间与自动尺度判断（2026-11-02） {#difference-ci-20261102}
 
 <!-- update-20261102: utils_factor_difference -->
@@ -1428,6 +1468,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充标准误溢出的差值区间](#se-overflow-20261102b)，核对置信水平调整与缩小参考值。
 - 2026-11-02：补充极大差值区间的稳定解析、等比例缩放复核，以及输入位数对自动尺度判断的影响。
 - 2026-11-01：补充极端比值区间的稳定对数计算与近似检验边界。
 - 2026-11-01：补充分组键、时长单位与integer64；闭合旧组合节标签页，保证新节锚点独立可访问。
