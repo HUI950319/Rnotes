@@ -14,6 +14,8 @@ directory:
 排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 本轮在 Windows / WSL 复核发现，当前 `PlotCircleLollipop(filename="*.pdf")` 的输出包含空白首页，属于待修复的包端缺陷。本次新增圆图采用函数直接保存的 PNG；未删页或重绘修饰 PDF。
@@ -276,6 +278,45 @@ res[["data"]][1:8, ]
 ::::
 
 :::
+
+### 极端有限分数的两种缩放范围（2026-11-02） {#rank-ranges-20261102b}
+
+<!-- update-20261102b: utils_rank_ranges -->
+
+`PlotRank()` 在极端有限范围上先缩放再作差，避免中间运算溢出。`value_scale="group"` 仍按截断前完整组范围计算；`"top_n"` 按实际显示值的范围计算，此处的显示截断由 `max_show` 控制，不是只拿高亮的 `top_n` 个点作分母。
+
+```r
+library(UtilsR)
+extreme_scores <- stats::setNames(c(-1e308, 0, 1e308, NA_real_), letters[1:4])
+extreme_before <- extreme_scores
+rank_full <- PlotRank(extreme_scores, value_scale = "group", max_show = 2,
+  top_n = 1, title = "Full group range", return_type = "both")
+rank_shown <- PlotRank(extreme_scores, value_scale = "top_n", max_show = 2,
+  top_n = 1, title = "Shown range", return_type = "both")
+ggplot2::ggsave(file.path(tempdir(), "20261102b-update-rank-ranges.pdf"),
+  patchwork::wrap_plots(rank_full[["plot"]], rank_shown[["plot"]], nrow = 1),
+  width = 9, height = 3.7, bg = "white")
+```
+
+![只显示最高两项时，完整组范围得到一和零点五，显示范围得到一和零，缺失项不参与排序。](images/rank-guide/20261102b-update-rank-ranges.png){fig-alt="原生排名对照图，c与b两项在group模式下为1和0.5，在top_n模式下为1和0。"}
+
+[原生 PDF](images/rank-guide/20261102b-update-rank-ranges.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(extreme_scores, extreme_before),
+  identical(rank_full[["data"]][["Score"]], c(1, 0.5)),
+  identical(rank_shown[["data"]][["Score"]], c(1, 0)))
+for (mode in c("group", "top_n")) {
+  large_rank <- PlotRank(extreme_scores, value_scale = mode, return_type = "data")
+  small_rank <- PlotRank(extreme_scores / 1e308, value_scale = mode, return_type = "data")
+  stopifnot(all(is.finite(large_rank[["Score"]])), isTRUE(all.equal(large_rank, small_rank)))
+}
+validation_values <- list(full = rank_full[["data"]], shown = rank_shown[["data"]])
+```
+:::
+
+<!-- /update-20261102b: utils_rank_ranges -->
 
 ## 秩相关与数值相关
 
@@ -642,6 +683,59 @@ validation_values <- circle_state
 
 <!-- /update-20261102: utils_rank_circle -->
 
+### 极端范围与绘图前分组校验（2026-11-02） {#circle-groups-20261102b}
+
+<!-- update-20261102b: utils_circle_groups -->
+
+`PlotCircleLollipop()` 同样稳定处理跨越正负极大数值的有限范围。`group` 使用每组原始完整范围，`top_n` 使用保留下来的特征范围；这与 `PlotRank()` 中控制显示条数的 `max_show` 是不同接口。下面每组原有三个分数，只保留最高两项，完整范围中的中点仍是 0.5，而所选范围的最低点变为 0。
+
+```r
+library(UtilsR)
+circle_extreme <- data.frame(group = factor(rep(c("A", "B"), each = 3),
+  levels = c("B", "unused", "A")),
+  name = c("A_low", "A_mid", "A_high", "B_low", "B_mid", "B_high"),
+  value = rep(c(-1e308, 0, 1e308), 2))
+circle_before <- circle_extreme
+PlotCircleLollipop(circle_extreme, top_n = 2, value_scale = "group",
+  group_levels = c("B", "unused", "A"), show_yaxis = FALSE, show_links = FALSE,
+  filename = file.path(tempdir(), "20261102b-update-circle-full-range.png"),
+  width = 6, height = 6, dpi = 180)
+PlotCircleLollipop(circle_extreme, top_n = 2, value_scale = "top_n",
+  group_levels = c("B", "unused", "A"), show_yaxis = FALSE, show_links = FALSE,
+  filename = file.path(tempdir(), "20261102b-update-circle-selected-range.png"),
+  width = 6, height = 6, dpi = 180)
+```
+
+![按完整组范围缩放时，两组保留的最高项和中点高度分别为一与零点五。](images/rank-guide/20261102b-update-circle-full-range.png){fig-alt="原生圆形棒棒糖图，每组保留high与mid，按原始范围缩放为1与0.5，unused没有形成空扇区。"}
+
+[完整范围原生 PNG](images/rank-guide/20261102b-update-circle-full-range.png)
+
+![按所选范围缩放时，两组最高项为一，中点成为所选最低项且高度为零。](images/rank-guide/20261102b-update-circle-selected-range.png){fig-alt="相同四个特征的原生圆图，top_n缩放为1和0，只保留实际观察到的B与A两个扇区。"}
+
+[所选范围原生 PNG](images/rank-guide/20261102b-update-circle-selected-range.png)
+
+未使用的因子水平和 `group_levels` 中未观察到的组会省略；`group_levels` 必须覆盖全部观察组，不能把它当作筛选参数。缺失分组、漏列观察组及零行输入会在绘图、打开输出设备之前报错。本轮固定源码聚焦测试另核对了三种缩放模式的实际绘制高度、NA保留与扇区顺序。圆图PDF的空白首页问题仍沿用上方待修记录，本节提供直接保存的PNG。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+device_before <- grDevices::dev.cur()
+invalid_circle <- circle_extreme
+invalid_circle[["group"]][1] <- NA
+invalid_file <- file.path(tempdir(), "invalid-circle-group.pdf")
+circle_error <- function(expr) tryCatch(force(expr), error = conditionMessage)
+stopifnot(grepl("Group labels.*missing", circle_error(PlotCircleLollipop(invalid_circle,
+  filename = invalid_file))), !file.exists(invalid_file),
+  grepl("Group labels.*excluded", circle_error(PlotCircleLollipop(circle_extreme,
+    group_levels = "A"))),
+  grepl("No observations", circle_error(PlotCircleLollipop(circle_extreme[FALSE, ]))),
+  identical(grDevices::dev.cur(), device_before), identical(circle_extreme, circle_before))
+validation_values <- list(observed_order = c("B", "A"), original_levels = levels(circle_extreme[["group"]]),
+  invalid_file_created = file.exists(invalid_file), device_preserved = TRUE)
+```
+:::
+
+<!-- /update-20261102b: utils_circle_groups -->
+
 ## 圆形标签与布局
 
 ::: {.panel-tabset}
@@ -822,6 +916,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充圆图极端范围与分组预检](#circle-groups-20261102b)，省略未使用水平并拒绝缺失或漏列组。
+- 2026-11-02：[补充极端分数的缩放范围](#rank-ranges-20261102b)，区分完整组与实际显示值。
 - 2026-11-02：补充圆图常数分数的最小显示高度及成功、保存和报错后的图形状态恢复。
 - 2026-11-02：补充分数类型、SPSS用户缺失值、空因子水平和全缺失组的排名边界。
 - 2026-10-31：[核对分组身份与稳定缩放](#identity-20261031b)，明确方法顺序、有限配对和命名配色。
