@@ -7,12 +7,17 @@ toc-depth: 2
 directory:
   title: "配色系统：检索、颜色映射与离散和连续色阶，21 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-10-31
+  updated: 2026-11-02
+date-modified: 2026-11-02
 ---
 
 pal_list、pal_get、pal_show 及 Brewer、HCL、ggsci、viridis 色卡，命名映射与热图应用。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `4e9d5e95`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；21 个示例已在 WSL R 4.4.3 中实际执行，其中 19 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。`pal_get()` 的输入、透明度、`x` 映射和报错按 UtilsR **0.6.19**（`261a7644`）更新，相关示例于 2026-10-31 在 WSL R 4.4.3 重新执行。
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -41,10 +46,10 @@ p_heat <- ggplot(grid_dat, aes(x, y, fill = score)) + geom_tile() + coord_equal(
 | 提取颜色 | `pal_get(palette="Paired", n=NULL, x=NULL)` | NULL（`pal_lancet`）、名称、R 能绘制的颜色、颜色向量或完整命名的色板 list；x 与 n 同时给出时优先 x |
 | 稳定类别映射 | `x` 为 factor/character/logical | 返回按水平命名的颜色；factor 按 levels，其余按首次出现顺序，缺失值不占颜色 |
 | 按数值取色 | `x` 为 numeric | 每个元素按数值在色板上取色；NA、Inf 返回 NA，所有值相同时取中间色 |
-| 颜色数量 | `n` | 非负整数；n 不超过已有长度时取前 n 色，超过时插值；连续色板的短截取不自动覆盖全部色域 |
+| 颜色数量 | `n` | pal_get 的 n 可为0，保留取前缀或插值规则；pal_show/来源查看函数要求正整数，连续预览覆盖完整色域 |
 | 顺序与透明度 | `reverse=FALSE`、`alpha=1` | 返回颜色顺序反转和透明通道，数值 x 时 reverse 翻转色标、元素位置不变；alpha 范围 0–1，默认 1 保留颜色自带的透明度 |
 | 色卡输出 | `pal_show(output="gt")` | 默认 gt 表格；本页图形用 output="gg"；console 输出控制台色卡 |
-| 色卡布局 | `max_colors=20`、`index=NULL`、`label=TRUE`、`label_size=3`、`ncol=NULL` | index 选择色板；自定义颜色向量可控制标签和每行列数 |
+| 色卡布局 | `max_colors=20`、`index=NULL`、`label=TRUE`、`label_size=3`、`ncol=NULL` | index 为唯一正整数索引；ncol/label/label_size用于ggplot，max_colors限制实际预览数 |
 | Brewer | `type="all"`、`n=NULL` | qual/seq/div 分类；最大原生颜色数受该色板限制 |
 | HCL | `n=8`、`type="all"` | qualitative/sequential/diverging；从指定方案生成 n 色 |
 | ggsci | `pattern/index`、`n`、`reverse/alpha` | 使用完整色板名或正则；如 ggsci_npg_nrc，而不是只有期刊缩写 |
@@ -105,6 +110,51 @@ pal_show(pal_heat[c("blue_red", "purple_teal", "indigo_gold")], output = "gg")
 ![展示精选三套发散色板，中间颜色为白色。](images/palette-guide/heat-catalog.png){fig-alt="配色系统：检索、颜色映射与离散和连续色阶；发散色板集合；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 控制台色卡与注册集合的范围（2026-11-02） {#palette-console-20261102c}
+
+<!-- update-20261102c: utils_palette_console -->
+
+`pal_list()` 仍在控制台打印注册集合的名称与可选色块，不返回Viewer表格；gt预览用 `pal_show()`。窄控制台保留完整色板名，放不下的数量、类型另行换行。`show_color()` 按stdout支持的颜色深度渲染，透明背景合成到白底，但RGBA标签和可复制的原始向量保留；无色日志跳过ANSI样式构建。图形预览与无色/256色/真彩终端的视觉效果不能直接等同。
+
+```r
+console_colours <- c("#FF000080", "transparent", "steelblue")
+plain_palette <- withr::with_options(list(width = 34, cli.width = 34, cli.num_colors = 1L),
+  capture.output(plain_value <- withVisible(show_color(console_colours))))
+true_palette <- withr::with_options(list(width = 34, cli.width = 34, cli.num_colors = 16777216L),
+  capture.output(true_value <- withVisible(show_color(console_colours))))
+catalogue_lines <- withr::with_options(list(width = 34, cli.width = 34, cli.num_colors = 1L),
+  capture.output(catalogue_value <- pal_list(pattern = "^ggsci_material_red$", show = FALSE)))
+continuous_catalogue <- capture.output(continuous_value <- pal_list(
+  pattern = "^ggsci_(gsea|material|bs5|tw3)_", type = "continuous", show = FALSE))
+```
+
+![真实stdout分别展示无色日志、真彩色卡和窄宽度目录，RGBA代码和完整色板名保留。](images/palette-guide/20261102c-update-palette-console.png){fig-alt="原生控制台输出，无色与真彩色卡的代码一致，透明色块按白底合成，注册色板名称完整显示。"}
+
+[原生控制台 HTML](images/palette-guide/20261102c-update-palette-console.html)
+
+注册表只含 `palette_list` 的条目；`pal_heat` 以及未注册的 `pal_other` 项应直接传入颜色向量或命名列表，不能只传其对象内部的名称字符串。GSEA、Material、Bootstrap与Tailwind顺序色板按连续类型检索，dichromat的Categorical.12按离散类型检索。构建脚本会检查来源集合和条目完整性；本轮只核对固定注册数据与隔离测试，没有重建项目的色板库。
+
+::: {.callout-note collapse="true" title="复核代码"}
+HTML复用[打印预览辅助函数](../console-print/result-blocks.qmd#ansi-20261101c)中的 `save_consoleC()`，生成预览前先运行其定义。
+
+```r
+stopifnot(identical(plain_value[["value"]], console_colours), !plain_value[["visible"]],
+  identical(true_value[["value"]], console_colours), !true_value[["visible"]],
+  !any(grepl("\033", plain_palette, fixed = TRUE)),
+  any(grepl("#FF000080", plain_palette, fixed = TRUE)),
+  any(grepl("ggsci_material_red", catalogue_lines, fixed = TRUE)))
+stopifnot(length(continuous_value) > 0L,
+  all(vapply(continuous_value, function(p) identical(attr(p, "type"), "continuous"), logical(1))))
+save_consoleC(c("Uncoloured stdout", plain_palette, "", "True-colour stdout", true_palette,
+  "", "Console registry listing", catalogue_lines), "20261102c-update-palette-console.html")
+validation_values <- list(original = plain_value[["value"]],
+  plain = cli::ansi_strip(plain_palette), true_colour = cli::ansi_strip(true_palette),
+  matched_continuous = names(continuous_value))
+```
+:::
+
+<!-- /update-20261102c: utils_palette_console -->
 
 ## 颜色数量、顺序与透明度
 
@@ -202,6 +252,49 @@ pal_get("light blue", n = 2)
 | `pal_get("lancet", n = 2.5)` | `n` 必须是单个非负整数或 `NULL` |
 | `pal_get("lancet", alpha = 2)` | `alpha` 必须是 0 到 1 之间的单个数字 |
 
+### 极端数值与标签缺失的颜色映射（2026-11-02） {#palette-mapping-20261102c}
+
+<!-- update-20261102c: utils_palette_mapping -->
+
+`pal_get()` 对跨越正负极大数值的有限范围先缩放再作差，避免中间跨度溢出。标签数值向量沿用其缺失定义，SPSS缺失码和缺失区间不会被当作色标端点；缺失位置仍返回 NA。显式NA因子水平不占颜色，普通未观察水平仍按原顺序保留。`integer64` 则先报错，需自行确认精度和类别含义后再转换。
+
+```r
+library(UtilsR)
+huge_values <- c(-1e308, 0, 1e308, NA, Inf)
+huge_colours <- pal_get(c("black", "white"), x = huge_values)
+labelled_values <- haven::labelled_spss(c(1, 2, 90, 95, 99, NA),
+  na_values = 99, na_range = c(90, 95))
+labelled_colours <- pal_get(c("black", "white"), x = labelled_values)
+mapping_preview <- data.frame(Input = c("-1e308", "0", "1e308", "NA", "Inf", "SPSS: 1", "SPSS: 2", "SPSS: 90", "SPSS: 95", "SPSS: 99", "SPSS: NA"),
+  Colour = c(huge_colours, labelled_colours))
+gt::gtsave(gt::gt(mapping_preview), file.path(tempdir(), "20261102c-update-palette-mapping.html"))
+```
+
+![极大范围的三个有效数值映射为黑、灰、白，普通缺失、无穷值和SPSS用户缺失均没有颜色。](images/palette-guide/20261102c-update-palette-mapping.png){fig-alt="原生映射表，极大有限值依次为黑、灰、白，SPSS有效值1和2为黑白，缺失码90、95、99及NA对应NA颜色。"}
+
+[原生表格 HTML](images/palette-guide/20261102c-update-palette-mapping.html)
+
+颜色列表会在截取或插值前校验每个颜色及完整、唯一的列表名称；`"2"`、`"2.5"`、`"2e0"` 等数字字符串是R可变色板索引，不作为字面颜色接受。直接写颜色或明确的注册色板名，不能依赖当前会话的 `palette()`。本轮另用固定源码测试核对RDS冷启动的标签缺失与integer64拒绝路径，正文创建标签对象本身已加载haven。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(huge_colours, c("#000000", "#7F7F7F", "#FFFFFF", NA, NA)),
+  identical(labelled_colours, c("#000000", "#FFFFFF", rep(NA_character_, 4))))
+factor_values <- factor(c("b", NA, "a"), levels = c("b", "a", "unused", NA), exclude = NULL)
+factor_colours <- pal_get("lancet", x = factor_values)
+stopifnot(identical(names(factor_colours), c("b", "a", "unused")))
+palette_error <- function(expr) tryCatch(force(expr), error = conditionMessage)
+stopifnot(grepl("integer64", palette_error(pal_get("viridis", x = structure(c(0, 0), class = "integer64")))))
+for (index_colour in c("2", "2.5", "2e0")) {
+  stopifnot(is.character(palette_error(pal_get(list(custom = c("red", index_colour)), n = 0))))
+}
+validation_values <- list(huge = huge_colours, labelled = labelled_colours,
+  discrete_names = names(factor_colours))
+```
+:::
+
+<!-- /update-20261102c: utils_palette_mapping -->
+
 ## 来源色卡
 
 ::: {.panel-tabset}
@@ -257,6 +350,64 @@ pal_show_ggsci(pattern = "(npg_nrc|lancet_lanonc|nejm_default)$", n = 6, output 
 ![用完整名称末尾筛选三套 ggsci 色板，避免缩写造成匹配失败。](images/palette-guide/ggsci.png){fig-alt="配色系统：检索、颜色映射与离散和连续色阶；ggsci 名称筛选；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 可见图表、透明度与预览色域（2026-11-02） {#palette-preview-20261102c}
+
+<!-- update-20261102c: utils_palette_graphics -->
+
+`pal_show()` 及来源查看函数会可见地返回 gt 或 ggplot 对象，不在函数内部另行打印。在Quarto可执行代码块末尾直接放返回对象即可显示；本节保存真实返回的gt表格与图形。R颜色名会转为浏览器可用的hex，RGBA透明通道保留；已有名称逐个保留，缺失或纯空白的标签改用对应hex。
+
+```r
+preview_colours <- c(First = "red", " " = "#00FF0080", Last = "#0000FF00")
+palette_table <- pal_show(preview_colours, output = "gt")
+gt::gtsave(palette_table, file.path(tempdir(), "20261102c-update-palette-rgba.html"))
+palette_plot <- pal_show(preview_colours, output = "gg")
+ggplot2::ggsave(file.path(tempdir(), "20261102c-update-palette-rgba-plot.pdf"),
+  palette_plot, width = 7, height = 2.4, bg = "white")
+preview_types <- list(
+  Continuous = structure(c("#000000", "#FFFFFF"), type = "continuous"),
+  Discrete = structure(c("#000000", "#FFFFFF"), type = "discrete"))
+capped_table <- pal_show(preview_types, n = 1000000, max_colors = 3, output = "gt")
+gt::gtsave(capped_table, file.path(tempdir(), "20261102c-update-palette-cap.html"))
+```
+
+![原生gt预览保留红色、半透明绿色和全透明蓝色，空白名称回退为对应hex。](images/palette-guide/20261102c-update-palette-rgba.png){fig-alt="原生三色预览表，First为红色，半透明绿色的空白名称显示为其RGBA hex，Last为全透明蓝色。"}
+
+[原生表格 HTML](images/palette-guide/20261102c-update-palette-rgba.html)
+
+![相同三种颜色的ggplot预览，透明色在白底显示，标签保留。](images/palette-guide/20261102c-update-palette-rgba-plot.png){fig-alt="原生ggplot色块，R颜色名red规范为hex，透明通道未被丢弃，First与Last的名称保留。"}
+
+[原生 PDF](images/palette-guide/20261102c-update-palette-rgba-plot.pdf)
+
+![请求一百万色而只显示三色时，连续色板覆盖黑灰白完整范围，离散扩展预览保留插值序列的前三项。](images/palette-guide/20261102c-update-palette-cap.png){fig-alt="原生两行色卡，N均为3除以1000000，Continuous覆盖黑灰白，Discrete显示所请求插值序列的前三个近黑颜色。"}
+
+[原生表格 HTML](images/palette-guide/20261102c-update-palette-cap.html)
+
+连续预览按完整色域均匀抽样，单色预览取中部；离散扩展保留所请求序列的可见前缀。`max_colors` 限制实际生成和显示的颜色数，不会为了这三格先分配一百万个颜色。它是预览规则；`pal_get(n=...)` 的取色规则见前节，不能混同。`pal_show` 的 `n` 要求正整数，`max_colors=Inf` 可取消显示上限；重复选择的色板只显示一次，字面颜色向量的重复颜色保留。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(inherits(palette_table, "gt_tbl"),
+  identical(palette_table[["_data"]][["hex"]], c("#FF0000", "#00FF0080", "#0000FF00")),
+  identical(palette_table[["_data"]][["name"]], c("First", "#00FF0080", "Last")))
+internal_print <- capture.output(visible_palette <- withVisible(pal_show(preview_colours, output = "gt")))
+stopifnot(isTRUE(visible_palette[["visible"]]), length(internal_print) == 0L)
+cap_plot <- pal_show(preview_types, n = 1000000, max_colors = 3, output = "gg")
+stopifnot(nrow(cap_plot[["data"]]) == 6L,
+  identical(cap_plot[["data"]][["color"]][1:3], c("#000000", "#7F7F7F", "#FFFFFF")),
+  all(capped_table[["_data"]][["n_colors"]] == "3 / 1000000"))
+once <- pal_show(c("Set1", "Set1"), output = "gt")
+stopifnot(nrow(once[["_data"]]) == 1L)
+for (expr in list(quote(pal_show("Set1", n = 0)), quote(pal_show("Set1", index = c(1, 1))),
+                  quote(pal_show(factor("Set1"))))) {
+  stopifnot(inherits(tryCatch(eval(expr), error = identity), "error"))
+}
+validation_values <- list(hex = palette_table[["_data"]][["hex"]],
+  labels = palette_table[["_data"]][["name"]], displayed = cap_plot[["data"]][["color"]])
+```
+:::
+
+<!-- /update-20261102c: utils_palette_graphics -->
 
 ## viridis 的色域控制
 
@@ -455,5 +606,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充stdout色卡与注册范围](#palette-console-20261102c)，保留可复制颜色并区分终端显示能力。
+- 2026-11-02：[补充可见返回、RGBA与预览色域](#palette-preview-20261102c)，区分pal_get取色和pal_show显示上限。
+- 2026-11-02：[补充极端数值与标签缺失映射](#palette-mapping-20261102c)，保留缺失与普通未使用水平。
 - 2026-10-31：[pal_get 接受 NULL 和更多字面颜色，保留透明度，报错给出提示](#pal-get-20261031)；`x` 返回命名向量，数值 `x` 按数值取色。
 :::
