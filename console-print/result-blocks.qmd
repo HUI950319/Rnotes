@@ -14,6 +14,8 @@ date-modified: 2026-11-02
 一个 print 方法通常由这五个函数拼成：`pr_head()` 写首行，`pr_kv()` 列设定，`pr_section()` 把结果分节，`pr_note()` 在末尾写注意事项和下一步，`pr_badge()` 在同一行并排显示几个状态。除 `pr_badge()` 外，它们都直接写到标准输出，并不可见地返回所打印的行。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 UtilsR `859b2506`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -128,7 +130,14 @@ save_consoleC <- function(lines, filename) {
     }
     paste(chars, collapse = "")
   }
-  body <- paste(fansi::sgr_to_html(vapply(htmltools::htmlEscape(lines), pin, "")), collapse = "\n")
+  markup <- fansi::sgr_to_html(htmltools::htmlEscape(lines))
+  pin_html <- function(line) {
+    tokens <- regmatches(line, gregexpr("<[^>]*>|[^<]+", line, perl = TRUE))[[1]]
+    paste(vapply(tokens, function(token) {
+      if (startsWith(token, "<")) token else pin(token)
+    }, ""), collapse = "")
+  }
+  body <- paste(vapply(markup, pin_html, ""), collapse = "\n")
   writeLines(paste0('<!doctype html><meta charset="utf-8"><style>',
     'body{margin:0;background:white;color:#222}pre{margin:0;padding:20px;',
     'font:15px/1.6 Consolas,"DejaVu Sans Mono",monospace;white-space:pre;display:inline-block}',
@@ -215,6 +224,55 @@ validation_values <- list(notes = cli::ansi_strip(narrow_notes),
 :::
 
 <!-- /update-20261102: utils_print_wrap -->
+
+### 长ASCII段与带样式零宽字素（2026-11-02） {#wrap-paths-20261102b}
+
+<!-- update-20261102b: utils_wrap_paths -->
+
+长的不间断 ASCII 文本现在按固定列数切分，不再反复扫描剩余后缀；带 ANSI 样式的零显示宽度字素也能保留，避免进入不适用的换行路径。下面用1024个ASCII字符核对拼接还原，并用一个独立组合重音符核对注释、键值和摘要框。零显示宽度不等于空字符串，不能把它直接丢弃。
+
+```r
+library(UtilsR)
+plain_run <- paste(rep("AB12", 256), collapse = "")
+plain_notes <- withr::with_options(list(cli.width = 34, cli.num_colors = 1L),
+  capture.output(pr_note(plain_run)))
+zero_width_lines <- withr::with_options(list(cli.width = 12, cli.num_colors = 256L), {
+  accent <- cli::col_red("\u0301")
+  list(note = capture.output(pr_note(accent)),
+    kv = capture.output(pr_kv(list(v = accent))), box = capture.output(pr_box(accent)))
+})
+head(plain_notes, 3)
+```
+
+![真实stdout预览显示长ASCII段的首尾行，以及保留组合重音符样式的注释、键值和摘要框。](images/result-blocks/20261102b-update-print-wrap-paths.png){fig-alt="原生控制台预览，长ASCII按列宽分行；带红色样式的独立组合重音符保留在注释、键值和三行摘要框中。"}
+
+[原生 HTML](images/result-blocks/20261102b-update-print-wrap-paths.html)
+
+预览只摘录长文本的前三行和最后两行；完整stdout由代码中的 `plain_notes` 保留。组合重音符的实际外观受终端字体影响，本节用原始字符与ANSI序列断言保留情况，不以截图代替字符验证，也不根据这次小例子推算提速倍数。
+
+::: {.callout-note collapse="true" title="复核代码"}
+本轮同步修正预览辅助函数：先解释ANSI，再仅对HTML文本节点固定字形列宽，避免组合重音符与ANSI结束字符粘连而破坏颜色序列。重建HTML时复用[多行ANSI示例](#ansi-20261101c)的 `save_consoleC()`；先运行其定义，普通控制台调用不需要该辅助函数。
+
+```r
+plain_body <- sub("^# ", "", cli::ansi_strip(plain_notes))
+stopifnot(identical(paste(plain_body, collapse = ""), plain_run),
+  max(cli::ansi_nchar(plain_notes, type = "width")) <= 34L,
+  identical(cli::ansi_strip(zero_width_lines[["note"]]), "# \u0301"),
+  identical(cli::ansi_strip(zero_width_lines[["kv"]]), "  v  \u0301"),
+  length(zero_width_lines[["box"]]) == 3L,
+  any(grepl("\033[31m", zero_width_lines[["box"]], fixed = TRUE)))
+save_consoleC(c("ASCII: first 3 of actual output", head(plain_notes, 3),
+  "", "ASCII: final 2 of actual output", tail(plain_notes, 2),
+  "", "Styled combining accent", zero_width_lines[["note"]], zero_width_lines[["kv"]],
+  zero_width_lines[["box"]]), "20261102b-update-print-wrap-paths.html")
+validation_values <- list(input_characters = nchar(plain_run), lines = length(plain_notes),
+  maximum_width = max(cli::ansi_nchar(plain_notes, type = "width")),
+  plain_rejoined = paste(plain_body, collapse = ""),
+  accent_codepoint = utf8ToInt(cli::ansi_strip(zero_width_lines[["note"]])))
+```
+:::
+
+<!-- /update-20261102b: utils_wrap_paths -->
 
 ## pr_badge()：徽标 {#pr-badge}
 
@@ -345,6 +403,7 @@ validation_values <- list(width = 40L, maximum_width = max(cli::ansi_nchar(c(blo
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：[补充长ASCII与带样式零宽字素](#wrap-paths-20261102b)，核对完整字符和ANSI保留。
 - 2026-11-02：[补充极窄宽度的宽字素续行](#overwide-20261102)，保留输入中有意的空行。
 - 2026-11-01：补充多行键值、注释与摘要框的ANSI样式及空白行。
 - 2026-10-31：[补充40列宽度、带类向量、缺失片段及盒内换行](#width-types-20261031)。
