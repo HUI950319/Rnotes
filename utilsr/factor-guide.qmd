@@ -2,18 +2,20 @@
 title: "因子与统计文本：排序、合并、分箱和区间格式化"
 description: "fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界；参数对照及重编码、缺失和分箱边界。"
 date: 2026-10-20
-date-modified: 2026-11-01
+date-modified: 2026-11-02
 lightbox: true
 toc-depth: 2
 directory:
   title: "因子与统计文本：排序、合并、分箱和区间格式化及数据边界"
   topic: 数据准备与筛选
-  updated: 2026-11-01
+  updated: 2026-11-02
 ---
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **版本与执行范围：** 原有 33 个参数示例按 UtilsR **0.6.8** 执行，3 张预览保留原次导出。2026-10-20 按已推送 `cea978f4` 补充下方数据边界，并在 Windows / WSL R 4.4.3 执行新旧示例；本轮未重新导出原有图片。使用固定随机种子的模拟数据。
@@ -958,6 +960,62 @@ plt_cat(d, "age_group", "sex", label = TRUE, palette = c("#0072B2", "#E69F00", "
 
 ## 区间与 P 值文本
 
+### 极大差值区间与自动尺度判断（2026-11-02） {#difference-ci-20261102}
+
+<!-- update-20261102: utils_factor_difference -->
+
+`stat_ci_parse()` 对差值尺度的区间也避免了中间加减溢出：即使估计与上下界都有限，直接相加求中点、相减求宽度仍可能超出浮点范围。下面把三个区间同时缩小到普通量级，核对解析出的近似 P 值一致；第三行的完整宽度已经大于双精度最大值。
+
+```r
+library(UtilsR)
+difference_ci <- c("1e308 (8e307, 1.2e308)",
+                   "-1e308 (-1.2e308, -8e307)",
+                   "1.00e307 (-1.00e308, 1.20e308)")
+reference_ci <- c("1 (0.8, 1.2)", "-1 (-1.2, -0.8)", "0.10 (-1.00, 1.20)")
+difference_p <- stat_ci_parse(difference_ci, output = "p", exp = FALSE)
+reference_p <- stat_ci_parse(reference_ci, output = "p", exp = FALSE)
+difference_result <- data.frame(Interval = difference_ci,
+  P = difference_p, Rescaled_P = reference_p)
+gt::gtsave(gt::fmt_scientific(gt::gt(difference_result),
+  columns = c(P, Rescaled_P), decimals = 4),
+  file.path(tempdir(), "20261102-update-difference-ci.html"))
+```
+
+![三个极大差值区间与等比例缩小的参考区间得到相同的近似P值。](images/factor-guide/20261102-update-difference-ci.png){fig-alt="原生解析表，前三个极大差值区间的P值分别与缩小后的参考值一致，均为有限数值。"}
+
+[原生表格 HTML](images/factor-guide/20261102-update-difference-ci.html)
+
+已知是差值、回归系数或其他以零为原假设的尺度时，明确写 `exp=FALSE`。默认自动判断仍受输入位数影响：`1e308 (8e307, 1.2e308)` 的舍入范围不足以唯一排除比值尺度，会警告并按比值处理；增加位数的 `1.00e308 (8.00e307, 1.20e308)` 可识别为差值尺度。不能根据数值很大就推断效应类型。这里仍假定 95% Wald 区间、双侧正态近似；非对称区间会提示，不能据此恢复原模型的精确检验。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(all(is.finite(difference_p)), all(difference_p > 0),
+  isTRUE(all.equal(log(difference_p), log(reference_p), tolerance = 1e-12)))
+capture_ci <- function(text, exp = "auto") {
+  notes <- character()
+  value <- withCallingHandlers(stat_ci_parse(text, output = "p", exp = exp),
+    warning = function(w) {
+      notes <<- c(notes, conditionMessage(w)); invokeRestart("muffleWarning")
+    })
+  list(value = value, notes = notes)
+}
+ambiguous_ci <- capture_ci(difference_ci[[1]])
+precise_ci <- capture_ci("1.00e308 (8.00e307, 1.20e308)")
+asymmetric_ci <- capture_ci("1.00e308 (-1.00e308, 1.20e308)", exp = FALSE)
+stopifnot(any(grepl("treated as ratio", ambiguous_ci[["notes"]])),
+  isTRUE(all.equal(ambiguous_ci[["value"]],
+    stat_ci_parse(difference_ci[[1]], output = "p", exp = TRUE))),
+  length(precise_ci[["notes"]]) == 0L,
+  isTRUE(all.equal(precise_ci[["value"]], difference_p[[1]])),
+  any(grepl("not symmetric", asymmetric_ci[["notes"]])))
+validation_values <- list(interval = difference_ci, p = difference_p,
+  reference_p = reference_p, ambiguous = ambiguous_ci, precise = precise_ci,
+  asymmetric = asymmetric_ci)
+```
+:::
+
+<!-- /update-20261102: utils_factor_difference -->
+
 ### 极端比值区间的稳定解析（2026-11-01） {#extreme-ci-20261101c}
 
 <!-- update-20261101c: utils_factor_ci -->
@@ -1370,6 +1428,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：补充极大差值区间的稳定解析、等比例缩放复核，以及输入位数对自动尺度判断的影响。
 - 2026-11-01：补充极端比值区间的稳定对数计算与近似检验边界。
 - 2026-11-01：补充分组键、时长单位与integer64；闭合旧组合节标签页，保证新节锚点独立可访问。
 - 2026-10-25：[ref_idx=0：保持多水平](#zero-reference-20261025)
