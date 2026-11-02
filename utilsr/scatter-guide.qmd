@@ -7,8 +7,8 @@ toc-depth: 2
 directory:
   title: "组合散点图：边际分布、双分组与配对差值，23 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-11-01
-date-modified: 2026-11-01
+  updated: 2026-11-02
+date-modified: 2026-11-02
 ---
 
 PlotScatter1/2/3 的点、椭圆、回归、相关、边际布局、栅格化和配对差值插图。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -16,6 +16,8 @@ PlotScatter1/2/3 的点、椭圆、回归、相关、边际布局、栅格化和
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 23 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 :::
@@ -349,6 +351,55 @@ PlotScatter3(paired, inset_left = 0.55, inset_bottom = 0.62,
 
 :::
 
+### 差值直方图的自动范围（2026-11-02） {#histogram-range-20261102}
+
+<!-- update-20261102: utils_scatter_hist -->
+
+`PlotScatter3()` 的主图展示两次测量，插图展示 `y-x`。`hist_x_limits=NULL` 现在按有限配对差值的最大绝对值取对称范围，再扩展 20%，不再借用主图坐标范围。把两次测量同时平移到 100 附近，不应改变差值直方图；六个差值都为 2 时，插图自动范围是 `[-2.4,2.4]`，而非 100 附近。
+
+```r
+library(UtilsR)
+paired_shift <- data.frame(Control = 100 + 0:5, Treat = 102 + 0:5,
+  group = rep(c("NS", "S"), 3))
+paired_original <- paired_shift
+paired_hist <- PlotScatter3(paired_shift, test_method = "none", cor_method = "none",
+  show_refline = FALSE, hist_bins = 12, inset_angle = 0,
+  filename = file.path(tempdir(), "20261102-update-scatter-shifted.pdf"),
+  width = 6, height = 6.5)
+paired_zero <- paired_shift
+paired_zero[["Treat"]] <- paired_zero[["Control"]]
+zero_hist <- PlotScatter3(paired_zero, test_method = "none", cor_method = "none",
+  show_refline = FALSE, hist_bins = 12, inset_angle = 0,
+  filename = file.path(tempdir(), "20261102-update-scatter-zero.pdf"),
+  width = 6, height = 6.5)
+```
+
+![主图在一百附近，插图仍在差值二处显示两组各三条记录，中位数为二。](images/scatter-guide/20261102-update-scatter-shifted.png){fig-alt="原生配对散点图，Control为100至105，Treat为102至107，插图差值集中在2，中位数标记2。"}
+
+[平移数据原生 PDF](images/scatter-guide/20261102-update-scatter-shifted.pdf)
+
+![两次测量完全相同时，零差值直方图仍有非零显示范围，中位数为零。](images/scatter-guide/20261102-update-scatter-zero.png){fig-alt="原生零差值配对图，所有测量对位于相等线上，插图在零处显示六条记录，自动范围不会退化。"}
+
+[零差值原生 PDF](images/scatter-guide/20261102-update-scatter-zero.pdf)
+
+全零差值使用 `[-1.2,1.2]` 的非零显示范围；显式设置的 `hist_x_limits` 仍按原值使用，主图范围由 `axis_limits` 单独控制。这里关闭检验与相关标注，只核对绘图坐标；修复没有改变配对检验、中位数或分组定义。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+shift_points <- ggplot2::ggplot_build(paired_hist[[1]])[["data"]][[1]]
+zero_points <- ggplot2::ggplot_build(zero_hist[[1]])[["data"]][[1]]
+stopifnot(identical(paired_shift, paired_original), nrow(shift_points) == 6L,
+  nrow(zero_points) == 6L, all(is.finite(shift_points[["x"]])),
+  identical(shift_points[["y"]] - shift_points[["x"]], rep(2, 6)),
+  identical(zero_points[["y"]] - zero_points[["x"]], rep(0, 6)))
+validation_values <- list(pairs = 6L,
+  shifted_median = stats::median(paired_shift[["Treat"]] - paired_shift[["Control"]]),
+  zero_median = stats::median(paired_zero[["Treat"]] - paired_zero[["Control"]]))
+```
+:::
+
+<!-- /update-20261102: utils_scatter_hist -->
+
 ### 默认映射上限与显式扩展（2026-11-01） {#mapping-20261101c}
 
 <!-- update-20261101c: utils_scatter_mapping -->
@@ -525,5 +576,6 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-02：补充配对差值直方图的独立自动范围、平移不变性及零差值示例。
 - 2026-11-01：补充默认映射容量、完整显式映射和提前报错；参数表在手机宽度下独立横向滚动。
 :::
