@@ -2,18 +2,20 @@
 title: "分类分布与流向：堆积柱、Alluvial 和 Sankey"
 description: "plt_dist 的分派，plt_alluvial 的比例、间隔和命名 list，plt_sankey 的节点次序与标签；26 个实际图形示例。"
 date: 2026-10-20
-date-modified: 2026-11-01
+date-modified: 2026-11-03
 lightbox: true
 toc-depth: 2
 directory:
   title: "分类流向：Sankey命名list、标签映射与保存"
   topic: 绘图与格式化
-  updated: 2026-11-01
+  updated: 2026-11-03
 ---
 
 plt_dist 的分派，plt_alluvial 的比例、间隔和命名 list，plt_sankey 的节点次序与标签。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 UtilsR `680ef17d`（0.6.22）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 UtilsR `05f4c963`（0.6.18）导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -430,6 +432,75 @@ plt_alluvial(dat, "stage", "response", facet = "cohort", y_type = "count",
 ![自由纵轴帮助看小样本层内部构成；跨层不能凭图形高度直接比较人数。](images/flow-guide/free-count.png){fig-alt="分类分布与流向：堆积柱、Alluvial 和 Sankey；分面计数与自由纵轴；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 部分主题的标签字号继承（2026-11-03） {#partial-font-20261103b}
+
+<!-- update-20261103b: utils_dist_fonts -->
+
+`plt_dist()`的柱图和三列热图遇到部分主题未指定base字号时，现在从当前ggplot2主题继承。默认柱图标签取base字号减4 pt，热图取减2 pt；显式`label_args$size`仍按ggplot文字层的mm单位优先。完整主题保留自己的base字号。
+
+下面四行输入在局部作用域把当前主题设为30 pt，再只传文字颜色这个部分主题，实际标签分别为26/28 pt。退出后恢复原主题。Alluvial继续采用自身主题与标签默认值，这次没有把柱图/热图的继承规则扩展过去。
+
+```r
+library(UtilsR)
+font_data <- data.frame(x = rep(c("A", "B"), each = 2), y = rep(c("C", "D"), 2),
+  group = rep(c("F", "M"), 2))
+previous_theme <- ggplot2::theme_get()
+font_result <- local({
+  old <- ggplot2::theme_set(ggplot2::theme_bw(base_size = 30))
+  on.exit(ggplot2::theme_set(old))
+  partial <- ggplot2::theme(text = ggplot2::element_text(colour = "grey20"))
+  bar <- plt_dist(font_data, c("x", "group"), type = "bar", theme_use = partial,
+    label_args = list(style = "count", box = FALSE))
+  heat <- plt_dist(font_data, c("x", "y", "group"), theme_use = partial,
+    label_args = list(box = FALSE))
+  ggplot2::ggsave(file.path(tempdir(), "20261103b-update-dist-bar-font.pdf"),
+    bar, width = 6.5, height = 4.5, device = grDevices::cairo_pdf)
+  ggplot2::ggsave(file.path(tempdir(), "20261103b-update-dist-heat-font.pdf"),
+    heat, width = 6.5, height = 4.5, device = grDevices::cairo_pdf)
+  list(bar = bar, heat = heat)
+})
+```
+
+::: {.panel-tabset}
+#### 柱图标签26 pt {.unnumbered}
+
+![部分主题下柱图标签继承30 pt基础字号后减4 pt。](images/flow-guide/20261103b-update-dist-bar-font.png){fig-alt="四行合成数据的分布柱图，标签是实际计数1，文字层字号26 pt，分母和计数没有变化。"}
+
+[原生 PDF](images/flow-guide/20261103b-update-dist-bar-font.pdf)
+
+#### 热图标签28 pt {.unnumbered}
+
+![三列热图的类别文字继承30 pt基础字号后减2 pt。](images/flow-guide/20261103b-update-dist-heat-font.png){fig-alt="四个热图单元格，真实类别F与M以28 pt显示；三列热图的标签为类别名。"}
+
+[原生 PDF](images/flow-guide/20261103b-update-dist-heat-font.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+font_checks <- local({
+  old <- ggplot2::theme_set(ggplot2::theme_bw(base_size = 30))
+  on.exit(ggplot2::theme_set(old))
+  partial <- ggplot2::theme(text = ggplot2::element_text(colour = "grey20"))
+  label_pt <- function(p) unique(ggplot2::layer_data(p, 2)[["size"]]) * ggplot2::.pt
+  complete <- plt_dist(font_data, c("x", "group"), type = "bar",
+    theme_use = ggplot2::theme_bw(base_size = 18))
+  explicit <- plt_dist(font_data, c("x", "group"), type = "bar", theme_use = partial,
+    label_args = list(size = 4.5))
+  alluvial <- plt_dist(font_data, c("x", "group"), theme_use = ggplot2::theme())
+  list(bar_pt = label_pt(font_result[["bar"]]), heat_pt = label_pt(font_result[["heat"]]), complete_pt = label_pt(complete),
+    explicit_mm = unique(ggplot2::layer_data(explicit, 2)[["size"]]),
+    alluvial_mm = unique(ggplot2::layer_data(alluvial, 3)[["size"]]))
+})
+stopifnot(identical(ggplot2::theme_get(), previous_theme),
+  isTRUE(all.equal(font_checks[["bar_pt"]], 26)), isTRUE(all.equal(font_checks[["heat_pt"]], 28)),
+  isTRUE(all.equal(font_checks[["complete_pt"]], 14)), font_checks[["explicit_mm"]] == 4.5,
+  font_checks[["alluvial_mm"]] == 3)
+validation_values <- c(list(n = nrow(font_data)), font_checks)
+```
+:::
+
+<!-- /update-20261103b: utils_dist_fonts -->
 
 ## 流带、节点与间隔
 
@@ -964,6 +1035,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补充分布柱图与热图的部分主题字号继承](#partial-font-20261103b)。
 - 2026-11-01：补充分布入口的类定义缺失分母，以及Sankey列名隔离、显示节点配色和载荷边界。
 - 2026-10-31：[补充fmt_text在保存前应用标题与坐标名的两种原生PDF](#text-save-20261031)。
 - 2026-10-25：[list 参数与值标签](#distribution-lists-20261025)
