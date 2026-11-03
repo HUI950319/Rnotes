@@ -14,6 +14,8 @@ directory:
 plt_dist 的分派，plt_alluvial 的比例、间隔和命名 list，plt_sankey 的节点次序与标签。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 UtilsR `7bf81d05`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `7bf81d05`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 UtilsR `680ef17d`（0.6.22）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -501,6 +503,65 @@ validation_values <- c(list(n = nrow(font_data)), font_checks)
 :::
 
 <!-- /update-20261103b: utils_dist_fonts -->
+
+### 全局主题也不完整时的字号回退（2026-11-03） {#font-fallback-20261103c}
+
+<!-- update-20261103c: late_dist_fonts -->
+
+UtilsR `7bf81d05`进一步处理当前全局主题也没有base文字设置的情况：柱图与热图先补齐当前主题，仍缺少文字元素时使用ggplot2默认11 pt，然后分别减4/2 pt。它补齐的是标签字号计算所需的设置，不改变计数、比例或Alluvial默认标签。
+
+```r
+library(UtilsR)
+fallback_data <- data.frame(x = rep(c("A", "B"), each = 2), y = rep(c("C", "D"), 2),
+  group = rep(c("F", "M"), 2))
+before_fallback <- ggplot2::theme_get()
+fallback_plots <- local({
+  old <- ggplot2::theme_set(ggplot2::theme())
+  on.exit(ggplot2::theme_set(old))
+  partial <- ggplot2::theme(axis.text = ggplot2::element_text(colour = "grey20"))
+  bar <- plt_dist(fallback_data, c("x", "group"), type = "bar", theme_use = partial,
+    label_args = list(style = "count", box = FALSE))
+  heat <- plt_dist(fallback_data, c("x", "y", "group"), theme_use = partial,
+    label_args = list(box = FALSE))
+  ggplot2::ggsave(file.path(tempdir(), "20261103c-update-dist-font-fallback.pdf"),
+    patchwork::wrap_plots(bar, heat, nrow = 1), width = 9, height = 4,
+    device = grDevices::cairo_pdf)
+  list(bar = bar, heat = heat)
+})
+```
+
+![全局与传入主题都缺少base文字时，标签仍可按默认字号绘制。](images/flow-guide/20261103c-update-dist-font-fallback.png){fig-alt="四行实际分布图，左侧计数标签为7 pt，右侧热图类别标签为9 pt；两图均在全局部分主题下直接导出。"}
+
+[原生 PDF](images/flow-guide/20261103c-update-dist-font-fallback.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+label_font <- function(plot) unique(ggplot2::layer_data(plot, 2)[["size"]]) * ggplot2::.pt
+grob_font <- function(grob, labels) {
+  own <- if (inherits(grob, "text") && any(as.character(grob[["label"]]) %in% labels)) grob[["gp"]][["fontsize"]]
+  c(own, unlist(lapply(c(grob[["grobs"]], as.list(grob[["children"]])), grob_font,
+    labels = labels), use.names = FALSE))
+}
+fallback_check <- local({
+  old <- ggplot2::theme_set(ggplot2::theme())
+  on.exit(ggplot2::theme_set(old))
+  sizes <- vapply(fallback_plots, label_font, 0)
+  actual_grob_sizes <- lapply(fallback_plots, function(plot) {
+    labels <- ggplot2::layer_data(plot, 2)[["label"]]
+    unique(grob_font(ggplot2::ggplotGrob(plot), labels))
+  })
+  stopifnot(isTRUE(all.equal(unname(sizes), c(7, 9))),
+    isTRUE(all.equal(actual_grob_sizes[["bar"]], 7)), isTRUE(all.equal(actual_grob_sizes[["heat"]], 9)))
+  sizes
+})
+stopifnot(identical(ggplot2::theme_get(), before_fallback))
+validation_values <- list(n = nrow(fallback_data), label_pt = fallback_check)
+```
+:::
+
+这一示例同时检查实际grob字号和主题恢复。上一节30 pt全局主题下的26/28 pt结果保留自己的固定快照，仍可用于对照。
+
+<!-- /update-20261103c: late_dist_fonts -->
 
 ## 流带、节点与间隔
 
@@ -1035,6 +1096,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补齐全局部分主题下的默认字号回退](#font-fallback-20261103c)。
 - 2026-11-03：[补充分布柱图与热图的部分主题字号继承](#partial-font-20261103b)。
 - 2026-11-01：补充分布入口的类定义缺失分母，以及Sankey列名隔离、显示节点配色和载荷边界。
 - 2026-10-31：[补充fmt_text在保存前应用标题与坐标名的两种原生PDF](#text-save-20261031)。
