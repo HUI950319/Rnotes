@@ -2,19 +2,21 @@
 title: "临床表格：基线、分层、事件构成与生存摘要"
 description: "get_tb_gtsummary、get_gt_cat、get_tb_autoreg 和 get_tb_survival 的实际表格；百分比分母、输出类型与期刊格式。"
 date: 2026-10-05
-date-modified: 2026-10-24
+date-modified: 2026-11-03
 lightbox: true
 toc-depth: 2
 directory:
   title: "临床表格：基线、分层、事件构成与生存摘要"
   topic: 临床表格
-  updated: 2026-10-24
+  updated: 2026-11-03
 ---
 
 
 先明确表格描述什么、百分比分母是什么，再选择展示和导出形式。下面比较同一队列的中位数、均数、列/行百分比、分层基线和生存摘要；每个标签页展示实际生成的表格。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 RegR `415c6453`（0.1.3）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
 :::
 
@@ -222,6 +224,55 @@ validation_values <- list(default = default_digits[["table_body"]], custom = cus
 省略 `com_var` 与传空向量都可触发回退，但条件是自动加入的结局列也不存在。已有 DSS/OS/status/event 等列时，默认只比较这些结局；不会自动追加全部协变量。分层变量和 `cat_var` 从回退列中排除。明确的研究表格仍建议显式给 `com_var`，避免新增列后表格范围随输入改变。
 
 <!-- /update-20261024: table_precision -->
+
+### 模拟Fisher脚注与Word制表符（2026-11-03） {#fisher-footnote-20261103}
+
+<!-- update-20261103: regr_fisher_note -->
+
+`get_tb_gtsummary(simulate_fisher=TRUE)` 将Fisher模拟检验名称里的换行/制表符规范成一行，保留模拟次数。`save_tb()` 也会把任意页脚中的制表符写成空格，避免Word出现字面`<tab>`。这里只修复展示文字；没有改变Fisher模拟方法或P值定义。
+
+下面200行、四组的稀疏分类表示例，网页和Word均由实际函数生成。固定相同模拟种子后，两个后端的分析设置相同。
+
+```r
+library(RegR)
+set.seed(20261102)
+fisher_data <- data.frame(G = factor(sample(c("g1", "g2", "g3", "g4"), 200, TRUE)),
+  S = factor(sample(c("s1", "s2", "s3", "s4", "s5"), 200, TRUE, c(.9, .04, .03, .02, .01))))
+set.seed(1103)
+fisher_ft <- get_tb_gtsummary(fisher_data, group_var = "G", com_var = "S",
+  simulate_fisher = TRUE, output_format = "flextable")
+set.seed(1103)
+fisher_gt <- get_tb_gtsummary(fisher_data, group_var = "G", com_var = "S",
+  simulate_fisher = TRUE, output_format = "gt")
+gt::gtsave(fisher_gt, file.path(tempdir(), "20261103-update-fisher.html"))
+save_tb(fisher_ft, path = tempdir(), title = "20261103-update-fisher.docx")
+```
+
+![实际生成的稀疏分类基线表，Fisher脚注保留2000次模拟说明。](images/table-guide/20261103-update-fisher.png){fig-alt="200行四组的原生基线表，Fisher模拟检验名称显示为一行，包含based on 2000 replicates。"}
+
+[原生表格 HTML](images/table-guide/20261103-update-fisher.html) · [原生 Word 表格](images/table-guide/20261103-update-fisher.docx)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+fisher_chunks <- flextable::information_data_chunk(fisher_ft)
+fisher_notes <- fisher_chunks[["txt"]][fisher_chunks[[".part"]] == "footer"]
+word_text <- paste(readLines(unz(file.path(tempdir(), "20261103-update-fisher.docx"),
+  "word/document.xml"), warn = FALSE), collapse = "")
+stopifnot(nrow(fisher_data) == 200L,
+  any(grepl("simulated p-value (based on 2000 replicates)", fisher_notes, fixed = TRUE)),
+  !any(fisher_notes %in% c("<tab>", "<br>")),
+  !grepl("&lt;tab&gt;", word_text, fixed = TRUE),
+  grepl("based on 2000 replicates", word_text, fixed = TRUE))
+tab_footer <- flextable::add_footer_lines(flextable::flextable(data.frame(x = 1)), "first\n\tsecond")
+save_tb(tab_footer, path = tempdir(), title = "20261103-update-footer-space.docx")
+footer_word <- paste(readLines(unz(file.path(tempdir(), "20261103-update-footer-space.docx"),
+  "word/document.xml"), warn = FALSE), collapse = "")
+stopifnot(!grepl("&lt;tab&gt;", footer_word, fixed = TRUE), grepl("second", footer_word, fixed = TRUE))
+validation_values <- list(n = 200L, counts = as.list(table(fisher_data[["G"]])), notes = fisher_notes)
+```
+:::
+
+<!-- /update-20261103: regr_fisher_note -->
 
 ## 分层与期刊风格
 
@@ -438,5 +489,6 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补充Fisher模拟脚注与Word制表符修复](#fisher-footnote-20261103)，保留真实表格与导出文件。
 - 2026-10-24：[精度与自动选列](#precision-columns-20261024)
 :::
