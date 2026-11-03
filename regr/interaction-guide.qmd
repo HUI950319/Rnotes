@@ -2,7 +2,7 @@
 title: "交互分析：get_inter、比值尺度与统一画布"
 description: "交互分析的数据准备、get_fit_ms 整体检验、get_inter 的比值尺度与模型组织、get_eff_inter 合并表，以及 get_int / get_all 的统一画布、H 统计量与随机种子；绝对风险与核对、表格导出见同组另外两页。"
 date: 2026-10-09
-date-modified: 2026-11-02
+date-modified: 2026-11-03
 lightbox: true
 toc-depth: 2
 format:
@@ -23,7 +23,7 @@ format:
 directory:
   title: "交互分析：比值尺度、合并表与统一画布"
   topic: 回归与生存分析
-  updated: 2026-11-02
+  updated: 2026-11-03
 ---
 
 先选择交互分析的尺度，再把原始结果交给格式化、保存或绘图函数。本页沿用 [SHAP 示例页](../mlr/shap-guide.qmd) 的展示方式：关键参数放在标签页中对照，每个示例配代码和实际结果，点击图片可以放大。
@@ -31,6 +31,8 @@ directory:
 Word 保存函数的正式名称是 **`save_tb_inter()`**；当前没有 `save_inter_tb` 这个别名。下文统一使用实际接口。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 RegR `415c6453`（0.1.3）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 RegR `c3dfef1e`（0.1.3）导出源码；配套依赖固定为 RegR `c3dfef1e`、UtilsR `4e9d5e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31补充按已推送 RegR `e2926a6`（0.1.3）与 UtilsR `05f4c963`导出源码，在 Windows / WSL R4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -193,6 +195,63 @@ $$
 风险 / CIF 模式的 IC 是**概率差的差**，无加性交互值为 0。例如 IC 为 0.05 表示额外 5 个百分点；发生率模式的 IC 带有人时发生率单位。绝对结果中的 RERI 是 IC 相对 $p_{00}$ 的归一化量，AP 是 IC 相对 $p_{11}$ 的归一化量，两者均不同于 IC 本身。
 
 ## get_inter()：比值尺度与模型组织 {#get-inter}
+
+### Logistic 列头与实际置信水平（2026-11-03） {#logistic-header-20261103}
+
+<!-- update-20261103: regr_logistic_header -->
+
+`get_inter()` 不再把Logistic表头里的95格式化成95.00，原生结果和下游Word/网页表均使用 `OR (95% CI)`。按本项目既定显示约定，列头的95%固定；`conf_level`仍决定实际区间宽度。以下同一128行数据分别计算95%与90%区间，点估计不变；不能只看固定列头判断实际计算水平。
+
+```r
+library(RegR)
+set.seed(1202)
+header_data <- expand.grid(i = 1:32, A = factor(c("No", "Yes")),
+  B = factor(c("Low", "High"), levels = c("Low", "High")))
+header_data[["Age"]] <- rep(40:71, 4)
+header_data[["Y"]] <- unlist(lapply(c(6, 10, 12, 20), function(events) {
+  sample(c(rep(1, events), rep(0, 32 - events)))
+}))
+header_results <- lapply(c(.95, .90), function(level) {
+  get_inter(header_data, c("A", "B"), adj_var = "Age", surv = "Y", conf_level = level)
+})
+for (i in seq_along(header_results)) {
+  gt::gtsave(fmt_inter_gt(header_results[[i]]), file.path(tempdir(),
+    paste0("20261103-update-logistic-header-", c("95", "90")[i], ".html")))
+}
+```
+
+::: {.panel-tabset}
+#### 实际95%区间 {.unnumbered}
+
+![Logistic原生交互表，OR列头中的95保持整数。](images/interaction-guide/20261103-update-logistic-header-95.png){fig-alt="128行Logistic交互表，列头OR与95% CI格式正常，参考组保持1.00，小数估计仍保留两位。"}
+
+[原生表格 HTML](images/interaction-guide/20261103-update-logistic-header-95.html)
+
+#### 实际90%区间 {.unnumbered}
+
+![相同数据的90%区间更窄，固定列头仍按项目约定显示95% CI。](images/interaction-guide/20261103-update-logistic-header-90.png){fig-alt="同一128行数据的Logistic结果，实际conf_level为0.90，点估计保持，显示列头仍为固定95% CI。"}
+
+[原生表格 HTML](images/interaction-guide/20261103-update-logistic-header-90.html)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (result in header_results) {
+  for (table in result[c("Unadj", "Adjus")]) {
+    stopifnot(all(unlist(table[1, 2:4]) == "OR (95% CI)"),
+      any(grepl("1.00 (Reference)", unlist(table), fixed = TRUE)))
+  }
+}
+wald95 <- attr(header_results[[1]][["Adjus"]], "interaction_effect")
+wald90 <- attr(header_results[[2]][["Adjus"]], "interaction_effect")
+stopifnot(isTRUE(all.equal(wald95[["estimate"]], wald90[["estimate"]])),
+  wald90[["conf.high"]] - wald90[["conf.low"]] < wald95[["conf.high"]] - wald95[["conf.low"]])
+validation_values <- list(n = nrow(header_data), tables = lapply(header_results, function(x) as.data.frame(x[["Adjus"]])),
+  wald = list(wald95, wald90))
+```
+:::
+
+<!-- /update-20261103: regr_logistic_header -->
 
 ### 当前接口
 
@@ -1298,6 +1357,7 @@ fmt_page(Plot = all_knit[["interCanvas"]][["combined"]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[修正Logistic列头格式并核对实际置信水平](#logistic-header-20261103)，点估计与参考值保留。
 - 2026-11-02：[补充分离导致的不可估计交互](#diverged-20261102c)，保留原始诊断属性并说明绘图拒绝；函数总览增加联合风险森林图入口。
 - 2026-10-31：[补充同一方案逐数据子集的get_inter调用与独立拟合核对](#subsets-20261031)。
 - **2026-10-29**：[完整模型的有序编码](#ordered-full-20261029c)核对 Cox、Fine–Gray、Logistic 及批量筛查，保留原参考与总体检验。
