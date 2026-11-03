@@ -7,13 +7,18 @@ toc-depth: 2
 directory:
   title: "单多因素分析：手工模型、自动筛选与绝对效应"
   topic: 回归与生存分析
-  updated: 2026-10-20
+  updated: 2026-11-03
+date-modified: 2026-11-03
 ---
 
 
 get_um() 用同一单因素行模板对齐多个多因素模型，适合清楚展示调整集合的变化。页面先展示预先指定模型，再展示自动筛选和绝对效应，最后比较 autoReg 的表格/绘图入口。
 
-**版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 RegR `f80e0e95`（0.1.3）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+原页模型和图表保留2026-10-01的RegR 0.1.3、WSL R4.4.3执行快照；下方新增小样本核对另记固定提交。示例用于理解接口和输出，不构成外部验证或临床效果结论。
+:::
 
 ## 数据准备与复现
 
@@ -289,6 +294,64 @@ plt_eff(um_manual[["tables"]], display = "v",
 
 :::
 
+
+### 特殊列名与内部名称避让（2026-11-03） {#literal-names-20261103b}
+
+<!-- update-20261103b: regr_literal_names -->
+
+`get_um()`将实际列名按字面处理，包括空格、冒号、加号和反引号。`"x:z"`若就是数据中的一列，不会被拆成交互项；结局列名同样按字面读取。预测列名`event`或`.__w`也保留原值，人数/事件数从真正的结局列计算。
+
+以下120行合成数据仅改变列名；P值筛选阈值设为1，以核对两项候选都保留时与原名完整模型的一致性。这里展示实际返回模型表的相关列。
+
+```r
+library(RegR)
+set.seed(1987)
+literal_data <- data.frame(y = rbinom(120, 1, .4), x = rnorm(120),
+  z = rnorm(120), g = factor(rep(c("A", "B", "C"), length.out = 120)))
+renamed_data <- literal_data
+names(renamed_data)[match(c("y", "x", "g"), names(renamed_data))] <- c("out come", "x:z", "g name")
+um_literal <- get_um(renamed_data, c("x:z", "g name"), surv = "out come",
+  var_mul = "p", p_args = list(p_threshold = 1), abs_args = list(enabled = TRUE))
+literal_table <- um_literal[["tables"]][["select_p"]]
+literal_view <- gt::gt(as.data.frame(literal_table[c("variable", "label", "row_type",
+  "estimate", "conf.low", "conf.high")])) |>
+  gt::fmt_number(columns = c(estimate, conf.low, conf.high), decimals = 3)
+gt::gtsave(literal_view, file.path(tempdir(), "20261103b-update-um-literal-names.html"))
+```
+
+![特殊列名保持原样，因子标题、参考行及水平效应分别对应。](images/um-guide/20261103b-update-um-literal-names.png){fig-alt="120行合成Logistic结果，变量x冒号z按单列拟合，g name的标题与三个因子水平分别显示。"}
+
+[实际结果表 HTML](images/um-guide/20261103b-update-um-literal-names.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+um_original <- get_um(literal_data, c("x", "g"), surv = "y", abs_args = list(enabled = TRUE))
+stopifnot(identical(um_literal[["var_mul"]][["select_p"]], c("x:z", "g name")))
+for (model in c("univariable", "select_p")) {
+  original_model <- if (model == "select_p") "full" else model
+  stopifnot(isTRUE(all.equal(um_literal[["tables"]][[model]][["estimate"]],
+    um_original[["tables"]][[original_model]][["estimate"]])),
+    isTRUE(all.equal(um_literal[["absolute"]][["tables"]][[model]][["estimate_sur"]],
+      um_original[["absolute"]][["tables"]][[original_model]][["estimate_sur"]])))
+}
+reserved_data <- literal_data
+names(reserved_data)[match(c("x", "g"), names(reserved_data))] <- c("event", ".__w")
+um_reserved <- get_um(reserved_data, c("event", ".__w"), surv = "y")
+for (model in c("univariable", "full")) {
+  stopifnot(isTRUE(all.equal(um_reserved[["tables"]][[model]][["estimate"]],
+    um_original[["tables"]][[model]][["estimate"]])),
+    identical(um_reserved[["tables"]][[model]][["eve1"]],
+      um_original[["tables"]][[model]][["eve1"]]))
+}
+validation_values <- list(n = nrow(literal_data), selected = um_literal[["var_mul"]],
+  estimates = literal_table[["estimate"]], events = literal_table[["eve1"]],
+  reserved_estimates = um_reserved[["tables"]][["full"]][["estimate"]])
+```
+:::
+
+本例验证字面列名、保留变量与模型对齐；独立筛选入口见[特殊名称的P值筛选](variable-selection-guide.qmd#literal-selection-20261103b)。
+
+<!-- /update-20261103b: regr_literal_names -->
 
 ## 自动筛选与拟合状态
 
@@ -571,6 +634,54 @@ stage</td>
 
 :::
 
+
+### 变量名与因子水平同名时的绝对风险（2026-11-03） {#absolute-rows-20261103b}
+
+<!-- update-20261103b: regr_abs_rows -->
+
+当变量`g`的参考水平也叫`g`时，标题行和水平行的显示文字相同。当前合并按`variable/row_type/label`定位，标题行留空，三条水平行各有标准化风险；参考差为0并标记`reference`。不能只按文字标签连接表格。
+
+```r
+library(RegR)
+set.seed(1987)
+row_data <- data.frame(y = rbinom(120, 1, .4), x = rnorm(120), z = rnorm(120),
+  g = factor(rep(c("g", "B", "C"), length.out = 120), levels = c("g", "B", "C")))
+um_rows <- get_um(row_data, c("g", "z"), surv = "y", abs_args = list(enabled = TRUE))
+absolute_rows <- um_rows[["absolute"]][["tables"]][["full"]]
+g_rows <- absolute_rows[absolute_rows[["variable"]] == "g", ]
+row_view <- gt::gt(as.data.frame(g_rows[c("variable", "label", "row_type",
+  "estimate_sur", "estimate", "absolute_status")])) |>
+  gt::fmt_number(columns = c(estimate_sur, estimate), decimals = 4)
+gt::gtsave(row_view, file.path(tempdir(), "20261103b-update-um-absolute-rows.html"))
+```
+
+![标题g与参考水平g分开，只有三条水平行有风险估计。](images/um-guide/20261103b-update-um-absolute-rows.png){fig-alt="四行真实返回结果，第一行是变量标题，其余为g B C三个水平；参考差为零，其他差值按参考减比较计算。"}
+
+[实际绝对效应表 HTML](images/um-guide/20261103b-update-um-absolute-rows.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+header <- g_rows[["row_type"]] == "label"
+level <- g_rows[["row_type"]] == "level"
+reference <- level & g_rows[["label"]] == "g"
+manual_fit <- glm(y ~ g + z, data = row_data, family = binomial())
+manual_risks <- vapply(levels(row_data[["g"]]), function(value) {
+  newdata <- row_data
+  newdata[["g"]] <- factor(value, levels = levels(row_data[["g"]]))
+  mean(predict(manual_fit, newdata = newdata, type = "response"))
+}, 0)
+stopifnot(sum(header) == 1L, sum(level) == 3L, is.na(g_rows[["estimate_sur"]][header]),
+  identical(g_rows[["absolute_status"]][reference], "reference"),
+  g_rows[["estimate"]][reference] == 0,
+  isTRUE(all.equal(unname(manual_risks), g_rows[["estimate_sur"]][level])),
+  isTRUE(all.equal(unname(manual_risks[1] - manual_risks), g_rows[["estimate"]][level])))
+validation_values <- list(n = nrow(row_data), groups = as.list(table(row_data[["g"]])),
+  rows = as.data.frame(g_rows[c("label", "row_type", "estimate_sur", "estimate", "absolute_status")]),
+  manual_risks = manual_risks)
+```
+:::
+
+<!-- /update-20261103b: regr_abs_rows -->
 
 ## Cox：60 月 S(t) 与参照减比较
 
@@ -930,3 +1041,10 @@ plt_tb_ums(d, co_var = candidate, threshold = 0.1,
 packageVersion("RegR")
 sessionInfo()
 ```
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补齐同名标题与水平的绝对风险对齐](#absolute-rows-20261103b)。
+- 2026-11-03：[核对特殊列名和内部名称避让](#literal-names-20261103b)。
+:::
