@@ -2,13 +2,13 @@
 title: "SHAP：get_shp 与 14 个绘图函数"
 description: "get_shp 的自动分箱、任务、采样、后端与返回对象详解；51张图覆盖14个绘图函数、多行TI、单变量交互与聚类分配。"
 date: 2026-09-30
-date-modified: 2026-10-31
+date-modified: 2026-11-03
 lightbox: true
 toc-depth: 2
 directory:
   title: "SHAP：51张图、聚类分配与TM层级"
   topic: 模型解释
-  updated: 2026-10-31
+  updated: 2026-11-03
 ---
 
 这一页分为两部分：先介绍 `get_shp()` 如何训练树模型、计算 SHAP 并组织结果，再用已经计算好的 `ToyData::toy_shp` 展示全部 14 个 `plt_shp_*()` 函数。图形选项放在各节的标签页中，可切换比较，并点击图片放大。
@@ -16,6 +16,8 @@ directory:
 **核对记录：** 最近核对2026-10-13。复核的已推送MLR基线 `fe46c5f` 包含 `9f3ba6b`，新增按系统选择SHAP引擎的默认值，版本仍为0.1.13。保留原34张SHAP对象绘图及执行范围，没有重新训练模型或计算SHAP；下方说明更新后的默认值与旧安装行为。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 MLR `48bce006`（0.1.13）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-10-31 追加按已推送 MLR `49cdb4c`（0.1.13）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 :::
@@ -712,7 +714,7 @@ validation_values <- list(rows = nrow(shap_s31b), features = ncol(shap_s31b),
 ```
 :::
 
-双环作为组合插图时固定alpha为0.7，让底下的点或线仍可见；独立 `per2` 保持不透明。组合模式的特征值图例改为从面板左侧内部对齐，减少8英寸画布上的裁切。双环内名字按实际尺寸测量，小插图会进一步缩小字号以避开中心洞。`label_args` 控制径向条形标签，双环使用自身的拟合标签；`per_args` 的径向留空设置不作用于双环。组合图仍用全部特征计算份额。条形横轴沿用生成图的 `Normalized scaled value`，并非原始SHAP单位；本节复核框另列原始mean(|SHAP|)及百分比。`bar_per*` 可用的条形细节参数以 `plt_shp_imp()` 为准；不要把mean(|SHAP|)的无方向份额当作贡献的正负方向。
+双环作为组合插图时固定alpha为0.7，让底下的点或线仍可见；独立 `per2` 保持不透明。组合模式的特征值图例改为从面板左侧内部对齐，减少8英寸画布上的裁切。双环内名字按实际尺寸测量，小插图会进一步缩小字号以避开中心洞。`label_args` 控制径向条形标签，双环使用自身的拟合标签；`per_args` 的径向留空设置不作用于双环。组合图仍用全部特征计算份额。这些旧图保留7acb56c快照：当时条形实际使用原始mean(|SHAP|)，轴题仍写Normalized scaled value。当前默认已归一化，见[新版数值核对](#bar-defaults-20261103)；本节复核框保留当时的原始均值和百分比，重新运行上方组合调用会采用新版默认。`bar_per*` 可用的条形细节参数以 `plt_shp_imp()` 为准；不要把mean(|SHAP|)的无方向份额当作贡献的正负方向。
 
 <!-- /update-20261031b: mlr_shap_modes -->
 
@@ -772,12 +774,81 @@ validation_values <- list(mean_absolute_SHAP = means_labels26,
 
 <!-- /update-20261026: mlr_shap_labels -->
 
+### 蜂群颜色优先级与组合图色板（2026-11-03） {#palettes-20261103}
+
+<!-- update-20261103: mlr_shap_palette -->
+
+`plt_shp_sum()`优先使用显式`colors`，组合模式也不再无声覆盖它；省略时才从`bar_per_palette`首项选择蜂群颜色。具名色板在该回退路径按蜂群方向反转，直接颜色向量保留顺序。条形组合现在也使用实际传入的首项色板，不再强制换回Reds。
+
+条形/环图的`bar_per_palette`支持`pal_get()`名称和颜色向量；向量放在list的一项中。与旧HCL名称同名时，条形/环图优先保留原HCL生成规则，而蜂群`colors`按`pal_get()`解释；两个路径不能仅凭同名就假定完全同色。`plt_shp_int()`的对应色板及`bar_int_palette[[1]]`也接受颜色向量。
+
+```r
+library(MLR)
+palette_s <- sweep(matrix(seq_len(160) / 100, 40, 4), 2, c(.1, .25, .5, 1), "*")
+colnames(palette_s) <- c("Age", "Marker", "Treatment", "Score")
+palette_x <- as.data.frame(matrix(seq_len(160) / 17, 40, 4))
+names(palette_x) <- colnames(palette_s)
+palette_shap <- shapviz::shapviz(palette_s, X = palette_x, baseline = 0)
+palette_swarm <- plt_shp_sum(palette_shap, mode = "sum", colors = "viridis", display.ncol = 4)
+ggplot2::ggsave(file.path(tempdir(), "20261103-update-shap-swarm-colors.pdf"),
+  palette_swarm, width = 7, height = 4.5, device = grDevices::cairo_pdf)
+palette_combo <- plt_shp_sum(palette_shap, mode = "bar_per2",
+  bar_per_palette = list("RdYlBu", UtilsR::pal_get("Blues")),
+  save = list(filename = file.path(tempdir(), "20261103-update-shap-combo-colors.pdf")))
+```
+
+::: {.panel-tabset}
+#### 显式蜂群颜色 {.unnumbered}
+
+![蜂群使用显式传入的viridis，而非被默认组合色板替换。](images/shap-guide/20261103-update-shap-swarm-colors.png){fig-alt="40行4特征合成SHAP蜂群图，颜色从viridis紫色到黄色，保持显式colors设置。"}
+
+[原生 PDF](images/shap-guide/20261103-update-shap-swarm-colors.pdf)
+
+#### 条形与双环组合 {.unnumbered}
+
+![组合图采用RdYlBu条形与显式Blues颜色向量的环图。](images/shap-guide/20261103-update-shap-combo-colors.png){fig-alt="同一合成SHAP输入的bar_per2组合，条形归一化并使用RdYlBu，双环使用传入的Blues向量，百分比仍来自原始贡献。"}
+
+[原生 PDF](images/shap-guide/20261103-update-shap-combo-colors.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+colour_scale <- ggplot2::ggplot_build(palette_swarm)[["plot"]][["scales"]]$get_scales("colour")
+stopifnot(identical(unname(colour_scale$palette(c(0, 1))), c("#440154", "#FDE725")),
+  length(attr(palette_combo, "plot_size")) == 2L)
+combined_swarm <- plt_shp_sum(palette_shap, mode = "sum_per", colors = "viridis",
+  bar_per_palette = list("RdYlBu", UtilsR::pal_get("Blues")))
+collect_colours <- function(g) {
+  c(as.character(g$gp$col), as.character(g$gp$fill),
+    unlist(lapply(g$grobs, collect_colours)), unlist(lapply(g$children, collect_colours)))
+}
+rendered_colours <- toupper(collect_colours(ggplot2::ggplotGrob(combined_swarm)))
+stopifnot(any(startsWith(rendered_colours, "#440154"), na.rm = TRUE))
+interaction_s <- array(0, c(40, 4, 4), dimnames = list(NULL, colnames(palette_s), colnames(palette_s)))
+for (j in 1:3) for (k in (j + 1):4) {
+  interaction_s[, j, k] <- interaction_s[, k, j] <- .02 * sin(seq_len(40) * (j + k))
+}
+for (j in 1:4) interaction_s[, j, j] <- palette_s[, j] - rowSums(interaction_s[, j, ])
+palette_shap[["S_inter"]] <- interaction_s
+int_vector_plot <- plt_shp_int(palette_shap, int_var = "Age", mode = "bar_shp", oth_var = "Marker",
+  bar_int_palette = list(UtilsR::pal_get("Blues"), NULL))
+stopifnot(inherits(ggplot2::ggplotGrob(int_vector_plot), "gtable"))
+validation_values <- list(n = nrow(palette_s), explicit_colour_ends = unname(colour_scale$palette(c(0, 1))),
+  rendered_explicit_colour = any(startsWith(rendered_colours, "#440154"), na.rm = TRUE),
+  size = attr(palette_combo, "plot_size"))
+```
+:::
+
+<!-- /update-20261103: mlr_shap_palette -->
+
+本轮ggplot2组合构建仍有重复色标替换和部分colour分组提示；本例已核对实际PDF、蜂群色标端点及组合图中保留的显式颜色，提示记录不作为统计值变化的证据。
+
 ## `plt_shp_imp()`： 全局重要性与百分比 {#plt-shp-imp}
 
 这组图把 $I_j=\mathrm{mean}(|\phi_j|)$ 汇总为排名。它适合回答“模型主要使用哪些信息”，不提供贡献正负方向。
 
 - `mode` 选择 `"bar"`、`"per"` 或 `"bar_per"`。
-- `bar_display = "l"` 画棒棒糖，`"b"` 画柱形；`bar_rescale = TRUE` 将条形数值重新缩放到 0–1。
+- `bar_display = "l"` 画棒棒糖，`"b"` 画柱形；`bar_rescale = TRUE` 当前为默认，将条形数值重新缩放到0–1；原始尺度显式设为FALSE。
 - 当前条形图的默认轴标题会写为 Normalized scaled value；在 `bar_rescale = FALSE` 时应按原始平均绝对 SHAP 读数。
 - `per_position` 调组合插图位置；`per_args` 中的 `empty_bar_ratio` 与 `text_height` 调环形留白和标签偏移，不改变重要性。
 
@@ -788,7 +859,7 @@ validation_values <- list(mean_absolute_SHAP = means_labels26,
 条形数值是原始平均绝对 SHAP，保留该解释对象的单位。
 
 ```r
-plt_shp_imp(shp_labels, mode = "bar", bar_display = "l")
+plt_shp_imp(shp_labels, mode = "bar", bar_display = "l", bar_rescale = FALSE)
 ```
 
 ![plt_shp_imp：原始重要性。条形数值是原始平均绝对 SHAP，保留该解释对象的单位。](images/shap-guide/imp-bar.png){fig-alt="全局重要性与百分比；原始重要性；数据为 toy_shp 的 400 个观测。"}
@@ -827,6 +898,57 @@ plt_shp_imp(shp_labels, mode = "per",
 ![plt_shp_imp：百分比图。增加环形留白，并调整标签偏移；重要性份额保持不变。](images/shap-guide/imp-percent.png){fig-alt="全局重要性与百分比；百分比图；数据为 toy_shp 的 400 个观测。"}
 
 :::
+
+### 默认归一化与按布局尺寸保存（2026-11-03） {#bar-defaults-20261103}
+
+<!-- update-20261103: mlr_shap_defaults -->
+
+`plt_shp_imp()` 当前默认 `bar_rescale=TRUE`，条形使用0–1缩放；`plt_shp_sum(mode="bar_per"/"bar_per2")`沿用这一默认。需要原始mean(|SHAP|)时显式使用`plt_shp_imp(..., bar_rescale=FALSE)`。百分比份额仍根据原始绝对贡献计算，不把归一化条形值当分母。
+
+下面40行、4特征的输入仅用于绘图，没有训练解释模型。表中并列列出原始均值、缩放值与份额，图区使用新的默认。省略保存宽高时，`plt_shp_imp`及两个条形组合模式按图中记录的推荐尺寸保存，已不再误用通用10×11英寸。
+
+```r
+library(MLR)
+shap_s <- sweep(matrix(seq_len(160) / 100, 40, 4), 2, c(.1, .25, .5, 1), "*")
+colnames(shap_s) <- c("Age", "Marker", "Treatment", "Score")
+shap_x <- as.data.frame(matrix(seq_len(160) / 17, 40, 4))
+names(shap_x) <- colnames(shap_s)
+shap_example <- list(S = shap_s, X = shap_x)
+shap_default <- plt_shp_imp(shap_example, mode = "bar", bar_display = "b",
+  save = list(filename = file.path(tempdir(), "20261103-update-shap-default.pdf")))
+shap_raw <- plt_shp_imp(shap_example, mode = "bar", bar_display = "b", bar_rescale = FALSE)
+raw_mean <- sort(colMeans(abs(shap_s)), decreasing = TRUE)
+shap_values <- data.frame(Feature = names(raw_mean), Mean_abs_SHAP = unname(raw_mean),
+  Scaled = (unname(raw_mean) - min(raw_mean)) / (max(raw_mean) - min(raw_mean)),
+  Share_percent = 100 * unname(raw_mean) / sum(raw_mean))
+gt::gtsave(gt::gt(shap_values), file.path(tempdir(), "20261103-update-shap-values.html"))
+```
+
+![默认条形值缩放到0–1，与轴题一致。](images/shap-guide/20261103-update-shap-default.png){fig-alt="40行4特征合成SHAP输入的默认条形图，最大条为1，最小条为0；数值不是原始mean absolute SHAP。"}
+
+[原生 PDF](images/shap-guide/20261103-update-shap-default.pdf)
+
+![相同输入的原始均值、缩放值和重要性百分比。](images/shap-guide/20261103-update-shap-values.png){fig-alt="原生四行核对表，百分比使用原始平均绝对SHAP之和，缩放列只表示条形的0至1显示范围。"}
+
+[原生数值表 HTML](images/shap-guide/20261103-update-shap-values.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+default_layer <- ggplot2::layer_data(shap_default, 1L)
+raw_layer <- ggplot2::layer_data(shap_raw, 1L)
+stopifnot(isTRUE(eval(formals(plt_shp_imp)[["bar_rescale"]])),
+  isTRUE(all.equal(max(default_layer[["xmax"]]), 1)),
+  isTRUE(all.equal(min(default_layer[["xmax"]]), 0)),
+  isTRUE(all.equal(max(raw_layer[["xmax"]]), max(raw_mean))),
+  abs(sum(shap_values[["Share_percent"]]) - 100) < 1e-10,
+  length(attr(shap_default, "plot_size")) == 2L)
+validation_values <- list(n = nrow(shap_s), values = shap_values,
+  default_range = range(default_layer[["xmax"]]), raw_range = range(raw_layer[["xmax"]]),
+  size = attr(shap_default, "plot_size"))
+```
+:::
+
+<!-- /update-20261103: mlr_shap_defaults -->
 
 ## `plt_shp_TM()`： 总贡献与主效应 {#plt-shp-tm}
 
@@ -1555,6 +1677,8 @@ page_shp_new <- RegR::fmt_page(Summary = p_summary, `Total and main` = p_tm_new,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-11-03：[补充蜂群显式颜色、组合色板与向量输入](#palettes-20261103)，保留HCL兼容优先级。
+- 2026-11-03：[同步SHAP条形的0–1默认与推荐尺寸保存](#bar-defaults-20261103)，区分原始均值和百分比分母。
 - 2026-10-31：[新增双环和棒棒糖组合](#modes-20261031b)，补充三个summary模式及独立per2实图。
 - 2026-10-27：补充[独立缩放记录、带标签基线与空分配](#preprocessing-state-20261027b)，复用 60 行模型并解释 8 行新样本，新增三张实图。
 - 2026-10-27：补充[随机状态与同大小簇](#cluster-seed-20261027)的 24 行规则核对。
