@@ -2,18 +2,20 @@
 title: "交互分析：绝对风险与结果核对"
 description: "get_inter_abs 的固定时点风险、人时发生率与 Logistic 概率，plt_inter_abs 联合组风险森林图，mets 联合 CIF 的区间方法，以及 check_inter 对分层、亚组和联合结果的逐单元核对。"
 date: 2026-10-25
-date-modified: 2026-11-02
+date-modified: 2026-11-03
 lightbox: true
 toc-depth: 2
 directory:
   title: "交互分析：绝对风险森林图、mets CIF 与核对"
   topic: 回归与生存分析
-  updated: 2026-11-02
+  updated: 2026-11-03
 ---
 
 本页接[交互分析](interaction-guide.qmd)，讲绝对风险估计、联合组风险森林图与交互结果核对。历史示例沿用该页[示例数据与分析尺度](interaction-guide.qmd#data)准备的 `inter_data` 和 `cohort`；[新增森林图示例](#risk-forest-20261102c)使用独立合成数据，可以单独运行。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 RegR `415c6453`（0.1.3）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 RegR `c3dfef1e`（0.1.3）导出源码；配套依赖固定为 RegR `c3dfef1e`、UtilsR `4e9d5e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-10-31 追加按已推送 RegR `5067cdf`（0.1.3）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `dd654ef1`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -341,6 +343,69 @@ validation_values <- list(risks_sur = attr(abs_multi[["sur"]], "risks"),
 
 <!-- /update-20261023: abs_models -->
 
+### 分层后的常量调整项与Logistic脚注（2026-11-03） {#stratum-constant-20261103}
+
+<!-- update-20261103: regr_abs_strata -->
+
+`get_inter_abs(split_var=...)` 现在会在具体分层的完整病例中识别常量调整项，移除该项并给出提示；仍无法拟合的分层给出包含原因的警告，结果单元留空。各层的有效调整集可能不同，应连同提示阅读，不能只看“Adjusted”表题。
+
+下面128行合成数据分为两个64行层，Later层的Grade全为Unknown。其结果与同一64行中明确只调整Age的独立拟合一致。Word的Logistic风险脚注已改为“standardised absolute risks of the outcome”，不再提不存在的固定时点；Cox/Fine–Gray风险脚注仍保留时点。
+
+```r
+library(RegR)
+set.seed(1202)
+stratum_data <- expand.grid(i = 1:32, A = factor(c("No", "Yes")),
+  B = factor(c("Low", "High"), levels = c("Low", "High")))
+stratum_data[["Age"]] <- rep(40:71, 4)
+stratum_data[["Y"]] <- unlist(lapply(c(6, 10, 12, 20), function(events) {
+  sample(c(rep(1, events), rep(0, 32 - events)))
+}))
+stratum_data[["Period"]] <- factor(ifelse(stratum_data[["i"]] <= 16, "Earlier", "Later"))
+stratum_data[["Grade"]] <- factor(ifelse(stratum_data[["Period"]] == "Later", "Unknown",
+  ifelse(stratum_data[["i"]] %% 2, "I", "II")))
+stratum_messages <- character()
+stratified_abs <- withCallingHandlers(get_inter_abs(stratum_data, c("A", "B"),
+  adj_var = c("Age", "Grade"), surv = "Y", split_var = "Period"), message = function(m) {
+    stratum_messages <<- c(stratum_messages, conditionMessage(m)); invokeRestart("muffleMessage")
+})
+later_abs <- stratified_abs[[1]][["Later"]]
+gt::gtsave(fmt_inter_gt(later_abs), file.path(tempdir(), "20261103-update-absolute-stratum.html"))
+later_ft <- save_tb_inter(later_abs, title = file.path(tempdir(), "20261103-update-absolute-stratum.docx"))
+```
+
+![Later层的64行风险表正常输出；Word脚注见下方原生文件。](images/interaction-abs-guide/20261103-update-absolute-stratum.png){fig-alt="Later层64行原生绝对风险表，常量Grade被提示移除后调整Age，展示标准化风险与交互指标。"}
+
+[原生表格 HTML](images/interaction-abs-guide/20261103-update-absolute-stratum.html) · [原生 Word 表格](images/interaction-abs-guide/20261103-update-absolute-stratum.docx)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+later_data <- droplevels(stratum_data[stratum_data[["Period"]] == "Later", ])
+later_manual <- get_inter_abs(later_data, c("A", "B"), adj_var = "Age", surv = "Y")
+notes <- flextable::information_data_chunk(later_ft)
+notes <- paste(notes[["txt"]][notes[[".part"]] == "footer"], collapse = " ")
+stopifnot(identical(as.integer(table(stratum_data[["Period"]])), c(64L, 64L)),
+  any(grepl("single value", stratum_messages, fixed = TRUE)),
+  identical(as.matrix(later_abs[["Adjus"]]), as.matrix(later_manual[["Adjus"]])),
+  grepl("standardised absolute risks of the outcome", notes, fixed = TRUE),
+  !grepl("reported time point", notes, fixed = TRUE))
+bad_stratum_data <- stratum_data
+bad_stratum_data[["Age"]][bad_stratum_data[["Period"]] == "Later"] <- NA_real_
+stratum_warnings <- character()
+bad_stratum <- withCallingHandlers(get_inter_abs(bad_stratum_data, c("A", "B"),
+  adj_var = "Age", surv = "Y", split_var = "Period"), warning = function(w) {
+    stratum_warnings <<- c(stratum_warnings, conditionMessage(w)); invokeRestart("muffleWarning")
+})
+stopifnot(is.null(bad_stratum[[1]][["Later"]]), any(grepl("not estimable", stratum_warnings, fixed = TRUE)))
+validation_values <- list(n = nrow(stratum_data), groups = as.list(table(stratum_data[["Period"]])),
+  table = as.data.frame(later_abs[["Adjus"]]), messages = stratum_messages,
+  notes = notes, warnings = stratum_warnings)
+```
+:::
+
+本例只演示Logistic分层路径；历史Cox/CIF曲线和表格保留各自的执行快照。旧对象的脚注由当前格式化函数生成，风险估计仍来自原分析。
+
+<!-- /update-20261103: regr_abs_strata -->
+
 ## plt_inter_abs()：联合组标准化风险森林图 {#plt-inter-abs}
 
 ### 默认排序、参考行与组内差（2026-11-02） {#risk-forest-20261102c}
@@ -351,7 +416,7 @@ validation_values <- list(risks_sur = attr(abs_multi[["sur"]], "risks"),
 
 | 参数 | 当前默认与含义 |
 |:--|:--|
-| `res` | 一份两暴露联合模型结果；二分类×二分类，或二分类×多水平的默认完整模型 |
+| `res` | 一份两暴露联合模型结果，或多份结果列表；单元素支持二分类×二分类及默认完整多水平模型 |
 | `group_order` | `NULL`按标准化风险从低到高排列，第一行作参考；指定时必须完整列出所有联合组 |
 | `group_labels` | 命名向量可只替换部分显示名；无名向量须与全部显示行一一对应 |
 | `show_cols` | `c("events","crude","dif")`；标准化风险始终显示，`within`须显式加入 |
@@ -435,9 +500,72 @@ validation_values <- list(n = 128L, counts = counts, default = default_table,
 ```
 :::
 
-旧结果缺少新增的`cell_counts`/`cell_uncertainty`属性时，会提示并省略事件列和差值区间，不能补造精度。分层、逐对模型及模型/数据列表不能作为一张共同联合模型图直接输入；列表应先取一个有效元素。这轮执行Logistic和旧对象兼容例，未重跑本页历史Cox、CIF或发生率模型。
+旧结果缺少新增的`cell_counts`/`cell_uncertainty`属性时，会提示并省略事件列和差值区间，不能补造精度。分层和逐对结果不能直接作为共同联合模型绘图；结果列表现支持[逐元素绘图](#risk-list-20261103)，也可先取一个有效元素。这轮执行Logistic和旧对象兼容例，未重跑本页历史Cox、CIF或发生率模型。
 
 <!-- /update-20261102c: regr_abs_forest -->
+
+### 多份结果逐份绘图与保存（2026-11-03） {#risk-list-20261103}
+
+<!-- update-20261103: regr_abs_lists -->
+
+`plt_inter_abs()` 现可接收 `get_inter_abs()` 返回的数据列表、多模型 `surv_models`，以及普通结果list，逐元素返回同名图列表。每个元素仍须是一份可绘制的共同联合模型；这不会把不同模型或分层拼成一份联合风险估计。
+
+普通参数向量共享，命名list按结果名选择、无名list按顺序选择；`header_list`和`save`中的字段也可分别设置。颜色向量、完整联合组顺序等本来就是向量的设置仍按其原义共享。`save$filename`可给与结果一一对应的文件名向量。
+
+```r
+library(RegR)
+set.seed(1202)
+list_data <- expand.grid(i = 1:32, A = factor(c("No", "Yes")),
+  B = factor(c("Low", "High"), levels = c("Low", "High")))
+list_data[["Age"]] <- rep(40:71, 4)
+list_data[["Y"]] <- unlist(lapply(c(6, 10, 12, 20), function(events) {
+  sample(c(rep(1, events), rep(0, 32 - events)))
+}))
+alternative_data <- list_data
+alternative_data[["Y"]] <- rev(list_data[["Y"]])
+abs_results <- get_inter_abs(list(Original = list_data, Alternative = alternative_data),
+  c("A", "B"), adj_var = "Age", surv = "Y")
+abs_files <- file.path(tempdir(), c("20261103-update-absolute-list-original.pdf",
+  "20261103-update-absolute-list-alternative.pdf"))
+abs_plots <- plt_inter_abs(abs_results, digits = list(Original = 1L, Alternative = 2L),
+  header_list = list(group = list(Original = "Original groups", Alternative = "Alternative groups")),
+  save = list(filename = abs_files))
+```
+
+::: {.panel-tabset}
+#### Original：一位小数 {.unnumbered}
+
+![第一份128行合成结果独立排序、显示一位小数。](images/interaction-abs-guide/20261103-update-absolute-list-original.png){fig-alt="Original结果的联合风险森林图，事件数、粗风险、标准化风险和风险差来自第一份128行合成分析。"}
+
+[原生 PDF](images/interaction-abs-guide/20261103-update-absolute-list-original.pdf)
+
+#### Alternative：两位小数 {.unnumbered}
+
+![第二份128行合成结果单独排序并显示两位小数。](images/interaction-abs-guide/20261103-update-absolute-list-alternative.png){fig-alt="Alternative结果的独立联合风险森林图，按自身风险排序，列头与精度来自按名设置，并非合并分析。"}
+
+[原生 PDF](images/interaction-abs-guide/20261103-update-absolute-list-alternative.pdf)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(inherits(abs_results, "eff_data_list"), inherits(abs_plots, "eff_data_list"),
+  identical(names(abs_plots), c("Original", "Alternative")), all(file.exists(abs_files)),
+  names(attr(abs_plots[[1]], "table_data"))[[1]] == "Original groups",
+  names(attr(abs_plots[[2]], "table_data"))[[1]] == "Alternative groups")
+plain_list_plots <- plt_inter_abs(list(Original = abs_results[[1]], Alternative = abs_results[[2]]))
+list_data[["Y2"]] <- rev(list_data[["Y"]])
+model_results <- get_inter_abs(list_data, c("A", "B"), adj_var = "Age", surv = list("Y", "Y2"))
+model_plots <- plt_inter_abs(model_results)
+stopifnot(identical(names(plain_list_plots), names(abs_results)),
+  inherits(model_results, "surv_models"), identical(names(model_plots), names(model_results)))
+for (p in abs_plots) stopifnot(inherits(p, "ggplot"), attr(p, "table_data")[[5]][1] == "Reference")
+validation_values <- list(n = 128L, names = names(abs_plots),
+  tables = lapply(abs_plots, attr, "table_data"), sizes = lapply(abs_plots, attr, "plot_size"),
+  model_names = names(model_plots))
+```
+:::
+
+<!-- /update-20261103: regr_abs_lists -->
 
 ## 竞争风险更新：mets 联合 CIF 与加速实测 {#cif-mets-update}
 
@@ -1055,6 +1183,8 @@ stopifnot(identical(unname(validation_values[["compared"]]), c(4L, 4L, 6L, 6L)),
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补齐plt_inter_abs结果列表、多模型与逐份保存](#risk-list-20261103)，参数共享和逐结果设置分别说明。
+- 2026-11-03：[补充分层常量调整项与Logistic风险脚注](#stratum-constant-20261103)，核对同层独立拟合与Word导出。
 - 2026-11-02：[新增plt_inter_abs联合风险森林图](#risk-forest-20261102c)，核对排序、参考差、组内差与原生PDF保存。
 - 2026-10-31：[核对多水平默认完整模型](#default-20261031b)，区分360行完整标准化与240行逐对标准化。
 - 2026-10-31：[补充绝对尺度的数据列表返回与独立调用核对](#subsets-20261031)。
