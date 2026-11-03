@@ -14,6 +14,8 @@ date-modified: 2026-11-03
 pal_list、pal_get、pal_show 及 Brewer、HCL、ggsci、viridis 色卡，命名映射与热图应用。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 UtilsR `680ef17d`（0.6.22）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 UtilsR `fafe93a3`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-02 追加按已推送 UtilsR `4e9d5e95`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -699,6 +701,103 @@ p <- p_bar + scale_fill_manual(values = pal_get("lancet", x = lvls))
 
 `pal_get()` 的 n 小于已有长度时只是截取前 n 色，numeric x 只按该向量自身的范围取色。连续图层示例使用 ggplot 的连续 scale 完成数值映射。色板名称、颜色对象和各来源生成函数不是同一种输入。
 
+### 绘图解析器的数字颜色与输入校验（2026-11-03） {#literal-colours-20261103b}
+
+UtilsR 0.6.22的共享绘图解析器`.resolve_color()`会把数字颜色索引（包括数字字符串）按调用时的`grDevices::palette()`转成固定RGBA。普通颜色名和缺失颜色保持原值。它服务于绘图入口；日常检索和连续插值仍用`pal_get()`，其颜色向量校验不因此放开数字索引。
+
+下面先指定base颜色索引2为绿色，解析后再把索引2改为金色；已返回的颜色仍为绿色。局部作用域退出时恢复原base palette。
+
+<!-- update-20261103b: utils_colour_literals -->
+
+```r
+library(UtilsR)
+frozen_colours <- local({
+  old <- grDevices::palette(c("black", "#009E73"))
+  on.exit(grDevices::palette(old))
+  resolved <- UtilsR::.resolve_color(c("2", "red"))
+  grDevices::palette(c("black", "gold"))
+  resolved
+})
+gt::gtsave(pal_show(list(Frozen_indices = frozen_colours)),
+  file.path(tempdir(), "20261103b-update-fixed-colour-indices.html"))
+```
+
+![数字索引已固定为绿色RGBA，后续改变base palette不改变已返回颜色。](images/palette-guide/20261103b-update-fixed-colour-indices.png){fig-alt="真实pal_show色卡，索引2对应绿色，另一项保留红色，色卡不随之后的base palette改变。"}
+
+[原生色卡 HTML](images/palette-guide/20261103b-update-fixed-colour-indices.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(frozen_colours, c("#009E73FF", "red")))
+factor_colours <- UtilsR::.resolve_color(factor(c("red", "blue")))
+stopifnot(identical(factor_colours, c("red", "blue")), is.na(UtilsR::.resolve_color(NA)))
+colour_errors <- lapply(list(
+  quote(UtilsR::.resolve_color("red", n = matrix(1))),
+  quote(UtilsR::.resolve_color(as.Date("2026-11-03"))),
+  quote(UtilsR::.resolve_color(NULL, n = 0, default = c("badfirst", "badlast"))),
+  quote(UtilsR::.resolve_color(NULL, default = "lancet")),
+  quote(pal_get(c("2", "red")))), function(call) tryCatch({eval(call); ""}, error = conditionMessage))
+stopifnot(all(nzchar(unlist(colour_errors))), length(UtilsR::.resolve_color("red", n = 0)) == 0L)
+validation_values <- list(colours = frozen_colours, factor_colours = factor_colours, errors = colour_errors)
+```
+:::
+
+`n`先按普通非负整数标量校验；fallback `default`必须是非空的真实颜色向量，不展开为注册色板名，即使`n=0`也先检查。因子先转字符；矩阵、带标签数值、integer64和日期等类应显式转换后再选色。多项颜色不足时会循环并提示，不把这些优化换算为未经测量的提速倍数。
+
+<!-- /update-20261103b: utils_colour_literals -->
+
+### 命名映射也按真实颜色校验（2026-11-03） {#named-colours-20261103b}
+
+<!-- update-20261103b: utils_named_colours -->
+
+`plt_cat()`、`plt_con()`和`plt_dist()`选中命名映射中的值后，现在共用同一字面颜色校验。某一类别的值不能写成`"lancet"`等色板名来要求展开；非法颜色在构图阶段报错。数字索引会先固定成RGBA，类别名和顺序仍由命名映射控制。为直接比较颜色，下例把分布柱图的`alpha`显式设为1；其默认值仍为0.7。
+
+```r
+library(UtilsR)
+mapped_data <- data.frame(group = factor(rep(c("A", "B"), each = 6)),
+  stage = rep(c("Early", "Late"), 6), value = seq_len(12))
+mapped_plots <- local({
+  old <- grDevices::palette(c("black", "#009E73"))
+  on.exit(grDevices::palette(old))
+  mapping <- c(A = "2", B = "red")
+  plots <- list(
+    categorical = plt_cat(mapped_data, "group", palette = mapping),
+    continuous = plt_con(mapped_data, "value", group.by = "group", type = "box", palette = mapping),
+    distribution = plt_dist(mapped_data, c("stage", "group"), type = "bar", color = mapping, alpha = 1))
+  grDevices::palette(c("black", "gold"))
+  combined <- patchwork::wrap_plots(lapply(names(plots), function(name)
+    plots[[name]] + ggplot2::labs(title = name)), nrow = 1)
+  ggplot2::ggsave(file.path(tempdir(), "20261103b-update-named-colours.pdf"),
+    combined, width = 11, height = 4.2, device = grDevices::cairo_pdf)
+  plots
+})
+```
+
+![三个入口中的A均保留绿色，B均保留红色，改变base palette后依然一致。](images/palette-guide/20261103b-update-named-colours.png){fig-alt="12行合成数据的分类柱图、连续箱线和分布柱图，A绿色与B红色在三个绘图入口一致。"}
+
+[原生 PDF](images/palette-guide/20261103b-update-named-colours.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+mapped_fill <- lapply(mapped_plots, function(p) {
+  ggplot2::ggplot_build(p)[["plot"]][["scales"]]$get_scales("fill")$map(c("A", "B"))
+})
+expected_rgb <- unname(grDevices::col2rgb(c("#009E73FF", "red"), alpha = TRUE))
+stopifnot(all(vapply(mapped_fill, function(x)
+  identical(unname(grDevices::col2rgb(x, alpha = TRUE)), expected_rgb), FALSE)))
+invalid_mapping <- c(A = "lancet", B = "red")
+named_errors <- list(
+  tryCatch({plt_cat(mapped_data, "group", palette = invalid_mapping); ""}, error = conditionMessage),
+  tryCatch({plt_con(mapped_data, "value", group.by = "group", type = "box", palette = invalid_mapping); ""}, error = conditionMessage),
+  tryCatch({plt_dist(mapped_data, c("stage", "group"), type = "bar", color = invalid_mapping); ""}, error = conditionMessage))
+stopifnot(all(nzchar(unlist(named_errors))))
+validation_values <- list(n = nrow(mapped_data), groups = as.list(table(mapped_data[["group"]])),
+  fill = mapped_fill, errors = named_errors)
+```
+:::
+
+<!-- /update-20261103b: utils_named_colours -->
+
 ## 当前完整接口 {#interfaces}
 
 点击展开查看本次实际执行版本的参数及默认值。
@@ -796,6 +895,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补充绘图解析器的数字颜色、fallback及命名映射校验](#literal-colours-20261103b)。
 - 2026-11-03：[补充缺失颜色、窄控制台与可复制属性](#console-values-20261103)，核对反转和17位精度。
 - 2026-11-03：[明确时间输入、离散名称与标量控制](#mapping-types-20261103)，保留重复值与透明别名语义。
 - 2026-11-03：[补充来源色卡的原生生成、单色显示与HEX输出](#source-preview-20261103)，核对透明轮廓和名称选择。
