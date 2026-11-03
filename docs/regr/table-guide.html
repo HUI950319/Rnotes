@@ -1202,6 +1202,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
+<p>2026-11-03 追加按已推送 RegR <code>769f460c</code>（0.1.3）导出源码；配套依赖固定为 RegR <code>769f460c</code>、UtilsR <code>7bf81d05</code>，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。</p>
 <p>2026-11-03 追加按已推送 RegR <code>f80e0e95</code>（0.1.3）导出源码；配套依赖固定为 RegR <code>f80e0e95</code>、UtilsR <code>680ef17d</code>，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。</p>
 <p>2026-11-03 追加按已推送 RegR <code>415c6453</code>（0.1.3）导出源码；配套依赖固定为 RegR <code>415c6453</code>、UtilsR <code>fafe93a3</code>，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。</p>
 <p><strong>版本与执行范围：</strong> 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。</p>
@@ -2345,17 +2346,277 @@ N = 344</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-al
 </div>
 <!-- /update-20261103b: regr_ums_cox -->
 </section>
+<section id="ums-cohorts-20261103c" class="level3">
+<h3 class="anchored" data-anchor-id="ums-cohorts-20261103c">UMS模型人数、事件数与可继续绘制的表（2026-11-03）</h3>
+<!-- update-20261103c: late_ums_cohorts -->
+<p>当前<code>get_tb_ums()</code>无论<code>format_res</code>真假都返回tibble，只构建并打印最终flextable一次。<code>model_counts</code>属性保留每个模型的N和事件数，<code>notes</code>给出描述队列与拟合队列说明。Cox单因素按各预测变量可用病例拟合，调整模型按入模变量取完整病例；Logistic各模型沿用初始全模型的完整病例，不把删失或缺失规则改成另一套。</p>
+<p>下面120行有30个x缺失，Cox描述N仍为120，x单因素与完整调整模型为90；Logistic初始完整队列为90。<code>plt_tbl()</code>现在可直接画原始或格式化UMS的HR/OR表，保留人数脚注，也不会把NACT这类标签中的NA删掉。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1103</span>)</span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>ums_cohort_data <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">120</span>), <span class="at">z =</span> <span class="fu">factor</span>(<span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="dv">120</span>, <span class="cn">TRUE</span>)))</span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>ums_cohort_data[[<span class="st">"y"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">120</span>, <span class="dv">1</span>, <span class="fu">plogis</span>(ums_cohort_data[[<span class="st">"x"</span>]]))</span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>ums_cohort_data[[<span class="st">"time"</span>]] <span class="ot">&lt;-</span> <span class="fu">rexp</span>(<span class="dv">120</span>, <span class="fu">exp</span>(.<span class="dv">7</span> <span class="sc">*</span> ums_cohort_data[[<span class="st">"x"</span>]])) <span class="sc">+</span> .<span class="dv">02</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>ums_cohort_data[[<span class="st">"DSS"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">120</span>, <span class="dv">1</span>, .<span class="dv">65</span>)</span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>ums_cohort_data[[<span class="st">"x"</span>]][<span class="dv">1</span><span class="sc">:</span><span class="dv">30</span>] <span class="ot">&lt;-</span> <span class="cn">NA_real_</span></span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>ums_cox_raw <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(ums_cohort_data, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">threshold =</span> <span class="dv">1</span>,</span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">format_res =</span> <span class="cn">FALSE</span>, <span class="at">colname_map =</span> <span class="fu">list</span>(<span class="at">x =</span> <span class="st">"NACT"</span>)))</span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>ums_log_formatted <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(ums_cohort_data, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">surv =</span> <span class="st">"y"</span>,</span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">threshold =</span> <span class="dv">1</span>, <span class="at">colname_map =</span> <span class="fu">list</span>(<span class="at">x =</span> <span class="st">"NACT"</span>)))</span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a>ums_cox_ft <span class="ot">&lt;-</span> flextable<span class="sc">::</span><span class="fu">add_footer_lines</span>(autoReg<span class="sc">::</span><span class="fu">myft</span>(ums_cox_raw, <span class="at">digits =</span> <span class="dv">3</span>),</span>
+<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">values =</span> <span class="fu">attr</span>(ums_cox_raw, <span class="st">"notes"</span>))</span>
+<span id="cb20-14"><a href="#cb20-14" aria-hidden="true" tabindex="-1"></a>ums_log_ft <span class="ot">&lt;-</span> flextable<span class="sc">::</span><span class="fu">add_footer_lines</span>(autoReg<span class="sc">::</span><span class="fu">myft</span>(ums_log_formatted, <span class="at">digits =</span> <span class="dv">3</span>),</span>
+<span id="cb20-15"><a href="#cb20-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">values =</span> <span class="fu">attr</span>(ums_log_formatted, <span class="st">"notes"</span>))</span>
+<span id="cb20-16"><a href="#cb20-16" aria-hidden="true" tabindex="-1"></a>flextable<span class="sc">::</span><span class="fu">save_as_html</span>(ums_cox_ft, <span class="at">path =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261103c-update-ums-cohort.html"</span>))</span>
+<span id="cb20-17"><a href="#cb20-17" aria-hidden="true" tabindex="-1"></a><span class="fu">save_tb</span>(ums_log_ft, <span class="at">path =</span> <span class="fu">tempdir</span>(), <span class="at">title =</span> <span class="st">"20261103c-update-ums-cohort.docx"</span>)</span>
+<span id="cb20-18"><a href="#cb20-18" aria-hidden="true" tabindex="-1"></a>ums_cox_table_plot <span class="ot">&lt;-</span> <span class="fu">plt_tbl</span>(ums_cox_raw,</span>
+<span id="cb20-19"><a href="#cb20-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261103c-update-ums-cox-table.pdf"</span>)))</span>
+<span id="cb20-20"><a href="#cb20-20" aria-hidden="true" tabindex="-1"></a>ums_log_table_plot <span class="ot">&lt;-</span> <span class="fu">plt_tbl</span>(ums_log_formatted,</span>
+<span id="cb20-21"><a href="#cb20-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">save =</span> <span class="fu">list</span>(<span class="at">filename =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261103c-update-ums-log-table.pdf"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="tabset-margin-container"></div><div class="panel-tabset">
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">Cox原始表与队列脚注</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">plt_tbl原始HR表</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-3-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-3" role="tab" aria-controls="tabset-4-3" aria-selected="false" href="">plt_tbl格式化OR表</a></li></ul>
+<div class="tab-content">
+<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/table-guide/20261103c-update-ums-cohort.png" class="lightbox" data-gallery="quarto-lightbox-gallery-6" title="实际autoReg flextable带有描述N及各模型N和事件数。"><img src="images/table-guide/20261103c-update-ums-cohort.png" class="img-fluid figure-img" alt="120行输入的实际UMS Cox表，NACT标签保留，脚注分别记录描述N120、x单因素90、z单因素120及调整模型人数与事件数。" loading="lazy" decoding="async" width="1476" height="182" srcset="../assets/figure-previews/edc14bd338ef7012b136e19a246de79a.webp"></a></p>
+<figcaption>实际autoReg flextable带有描述N及各模型N和事件数。</figcaption>
+</figure>
+</div>
+<p><a href="images/table-guide/20261103c-update-ums-cohort.html">原生表格 HTML</a></p>
+</div>
+<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/table-guide/20261103c-update-ums-cox-table.png" class="lightbox" data-gallery="quarto-lightbox-gallery-7" title="plt_tbl直接绘制原始UMS Cox返回表并保留队列说明。"><img src="images/table-guide/20261103c-update-ums-cox-table.png" class="img-fluid figure-img" alt="原始UMS HR列直接转换的ggplot文字表，含NACT标签及实际人数与事件数脚注。" loading="lazy" decoding="async" width="1797" height="274" srcset="../assets/figure-previews/a2a4f74ad1c037a136c6755dc7bae4cd.webp"></a></p>
+<figcaption>plt_tbl直接绘制原始UMS Cox返回表并保留队列说明。</figcaption>
+</figure>
+</div>
+<p><a href="images/table-guide/20261103c-update-ums-cox-table.pdf">原生 PDF</a></p>
+</div>
+<div id="tabset-4-3" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-3-tab">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/table-guide/20261103c-update-ums-log-table.png" class="lightbox" data-gallery="quarto-lightbox-gallery-8" title="格式化Logistic表显示OR、显著性符号与90人完整病例说明。"><img src="images/table-guide/20261103c-update-ums-log-table.png" class="img-fluid figure-img" alt="格式化UMS Logistic表直接绘制，OR与P符号分列，各模型N90，原始标签和队列脚注均保留。" loading="lazy" decoding="async" width="1710" height="274" srcset="../assets/figure-previews/e17ccc791393210e43fd9b06e2aeab6d.webp"></a></p>
+<figcaption>格式化Logistic表显示OR、显著性符号与90人完整病例说明。</figcaption>
+</figure>
+</div>
+<p><a href="images/table-guide/20261103c-update-ums-log-table.pdf">原生 PDF</a> · <a href="images/table-guide/20261103c-update-ums-cohort.docx">原生 Word</a></p>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-7" class="callout-7-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>cox_counts <span class="ot">&lt;-</span> <span class="fu">attr</span>(ums_cox_raw, <span class="st">"model_counts"</span>)</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>log_counts <span class="ot">&lt;-</span> <span class="fu">attr</span>(ums_log_formatted, <span class="st">"model_counts"</span>)</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">inherits</span>(ums_cox_raw, <span class="st">"tbl_df"</span>), <span class="fu">inherits</span>(ums_log_formatted, <span class="st">"tbl_df"</span>),</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>  cox_counts[[<span class="st">"n"</span>]][cox_counts[[<span class="st">"model"</span>]] <span class="sc">==</span> <span class="st">"univariable"</span> <span class="sc">&amp;</span> cox_counts[[<span class="st">"variable"</span>]] <span class="sc">==</span> <span class="st">"x"</span>] <span class="sc">==</span> <span class="dv">90</span>,</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>  cox_counts[[<span class="st">"n"</span>]][cox_counts[[<span class="st">"model"</span>]] <span class="sc">==</span> <span class="st">"univariable"</span> <span class="sc">&amp;</span> cox_counts[[<span class="st">"variable"</span>]] <span class="sc">==</span> <span class="st">"z"</span>] <span class="sc">==</span> <span class="dv">120</span>,</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>  cox_counts[[<span class="st">"n"</span>]][cox_counts[[<span class="st">"model"</span>]] <span class="sc">==</span> <span class="st">"multivariable"</span>] <span class="sc">==</span> <span class="dv">90</span>,</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(log_counts[[<span class="st">"n"</span>]] <span class="sc">==</span> <span class="dv">90</span>),</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">grepl</span>(<span class="st">"Descriptive N=120"</span>, <span class="fu">attr</span>(ums_cox_raw, <span class="st">"notes"</span>), <span class="at">fixed =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>manual_cox <span class="ot">&lt;-</span> survival<span class="sc">::</span><span class="fu">coxph</span>(survival<span class="sc">::</span><span class="fu">Surv</span>(time, DSS) <span class="sc">~</span> x, <span class="at">data =</span> ums_cohort_data)</span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(cox_counts[[<span class="st">"events"</span>]][cox_counts[[<span class="st">"model"</span>]] <span class="sc">==</span> <span class="st">"univariable"</span> <span class="sc">&amp;</span></span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>  cox_counts[[<span class="st">"variable"</span>]] <span class="sc">==</span> <span class="st">"x"</span>] <span class="sc">==</span> manual_cox[[<span class="st">"nevent"</span>]])</span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>grob_labels <span class="ot">&lt;-</span> <span class="cf">function</span>(grob) {</span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.list</span>(grob)) <span class="fu">return</span>(<span class="fu">character</span>())</span>
+<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">c</span>(<span class="cf">if</span> (<span class="fu">is.character</span>(grob[[<span class="st">"label"</span>]])) grob[[<span class="st">"label"</span>]],</span>
+<span id="cb21-15"><a href="#cb21-15" aria-hidden="true" tabindex="-1"></a>    <span class="fu">unlist</span>(<span class="fu">lapply</span>(grob[[<span class="st">"grobs"</span>]], grob_labels), <span class="at">use.names =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb21-16"><a href="#cb21-16" aria-hidden="true" tabindex="-1"></a>    <span class="fu">unlist</span>(<span class="fu">lapply</span>(grob[[<span class="st">"children"</span>]], grob_labels), <span class="at">use.names =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb21-17"><a href="#cb21-17" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb21-18"><a href="#cb21-18" aria-hidden="true" tabindex="-1"></a>other_tables <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb21-19"><a href="#cb21-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(ums_cohort_data, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">threshold =</span> <span class="dv">1</span>,</span>
+<span id="cb21-20"><a href="#cb21-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">colname_map =</span> <span class="fu">list</span>(<span class="at">x =</span> <span class="st">"NACT"</span>))),</span>
+<span id="cb21-21"><a href="#cb21-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(ums_cohort_data, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">surv =</span> <span class="st">"y"</span>, <span class="at">threshold =</span> <span class="dv">1</span>,</span>
+<span id="cb21-22"><a href="#cb21-22" aria-hidden="true" tabindex="-1"></a>    <span class="at">format_res =</span> <span class="cn">FALSE</span>, <span class="at">colname_map =</span> <span class="fu">list</span>(<span class="at">x =</span> <span class="st">"NACT"</span>))))</span>
+<span id="cb21-23"><a href="#cb21-23" aria-hidden="true" tabindex="-1"></a>all_table_plots <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fu">list</span>(ums_cox_table_plot, ums_log_table_plot), <span class="fu">lapply</span>(other_tables, plt_tbl))</span>
+<span id="cb21-24"><a href="#cb21-24" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (plot <span class="cf">in</span> all_table_plots) {</span>
+<span id="cb21-25"><a href="#cb21-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="st">"NACT"</span> <span class="sc">%in%</span> <span class="fu">grob_labels</span>(plot[[<span class="st">"layers"</span>]][[<span class="dv">1</span>]][[<span class="st">"geom_params"</span>]][[<span class="st">"grob"</span>]]),</span>
+<span id="cb21-26"><a href="#cb21-26" aria-hidden="true" tabindex="-1"></a>    <span class="fu">grepl</span>(<span class="st">"Model sample sizes"</span>, ggplot2<span class="sc">::</span><span class="fu">get_labs</span>(plot)[[<span class="st">"caption"</span>]], <span class="at">fixed =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb21-27"><a href="#cb21-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">invisible</span>(ggplot2<span class="sc">::</span><span class="fu">ggplotGrob</span>(plot))</span>
+<span id="cb21-28"><a href="#cb21-28" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb21-29"><a href="#cb21-29" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> <span class="fu">nrow</span>(ums_cohort_data), <span class="at">cox_counts =</span> cox_counts,</span>
+<span id="cb21-30"><a href="#cb21-30" aria-hidden="true" tabindex="-1"></a>  <span class="at">logistic_counts =</span> log_counts, <span class="at">notes =</span> <span class="fu">c</span>(<span class="fu">attr</span>(ums_cox_raw, <span class="st">"notes"</span>), <span class="fu">attr</span>(ums_log_formatted, <span class="st">"notes"</span>)))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<p>HTML和Word使用实际返回表的同一autoReg后端，并把返回的<code>notes</code>附为页脚；绘图返回仍为ggplot，可继续组合和保存。原有gtsummary的HR/CI入口继续保留。</p>
+<!-- /update-20261103c: late_ums_cohorts -->
+</section>
+<section id="ums-precision-20261103c" class="level3">
+<h3 class="anchored" data-anchor-id="ums-precision-20261103c">UMS原始统计量与舍入边界（2026-11-03）</h3>
+<!-- update-20261103c: late_ums_precision -->
+<p><code>model_stats</code>现在直接从保留的模型提取未舍入HR/OR、Wald区间和P值，显著性符号也用该P值计算。不要解析显示字符串的0.05来重建星号，或把<code>p&lt;.001</code>当成P等于0。下面用120行合成数据数值求根构造临界P值，分别核对Cox和Logistic；这是显示边界示例，不是临床结果。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>precision_rows <span class="ot">&lt;-</span> <span class="fu">local</span>({</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set.seed</span>(<span class="dv">41</span>)</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>  cox_data <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">time =</span> <span class="fu">rexp</span>(<span class="dv">120</span>), <span class="at">DSS =</span> <span class="dv">1</span>L)</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>  cox_noise <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(<span class="dv">120</span>)</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>  cox_score <span class="ot">&lt;-</span> <span class="sc">-</span><span class="fu">log</span>(cox_data[[<span class="st">"time"</span>]])</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>  cox_fit <span class="ot">&lt;-</span> <span class="cf">function</span>(a) {</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>    d <span class="ot">&lt;-</span> cox_data</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>    d[[<span class="st">"x"</span>]] <span class="ot">&lt;-</span> cox_noise <span class="sc">+</span> a <span class="sc">*</span> cox_score</span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>    survival<span class="sc">::</span><span class="fu">coxph</span>(survival<span class="sc">::</span><span class="fu">Surv</span>(time, DSS) <span class="sc">~</span> x, <span class="at">data =</span> d)</span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>  cox_center <span class="ot">&lt;-</span> <span class="fu">uniroot</span>(<span class="cf">function</span>(a) <span class="fu">summary</span>(<span class="fu">cox_fit</span>(a))[[<span class="st">"coefficients"</span>]][<span class="dv">1</span>, <span class="st">"z"</span>],</span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a>    <span class="fu">c</span>(<span class="sc">-</span><span class="dv">3</span>, <span class="dv">3</span>), <span class="at">tol =</span> <span class="fl">1e-12</span>)[[<span class="st">"root"</span>]]</span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">set.seed</span>(<span class="dv">5</span>)</span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a>  y <span class="ot">&lt;-</span> <span class="fu">rep</span>(<span class="dv">0</span><span class="sc">:</span><span class="dv">1</span>, <span class="at">each =</span> <span class="dv">60</span>)</span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a>  w <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(<span class="dv">120</span>)</span>
+<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a>  log_center <span class="ot">&lt;-</span> <span class="fu">mean</span>(w[y <span class="sc">==</span> <span class="dv">0</span>]) <span class="sc">-</span> <span class="fu">mean</span>(w[y <span class="sc">==</span> <span class="dv">1</span>])</span>
+<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>  log_fit <span class="ot">&lt;-</span> <span class="cf">function</span>(a) <span class="fu">glm</span>(y <span class="sc">~</span> x, <span class="at">data =</span> <span class="fu">data.frame</span>(<span class="at">y =</span> y, <span class="at">x =</span> w <span class="sc">+</span> a <span class="sc">*</span> y), <span class="at">family =</span> <span class="fu">binomial</span>())</span>
+<span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a>  dplyr<span class="sc">::</span><span class="fu">bind_rows</span>(<span class="fu">lapply</span>(<span class="fu">c</span>(<span class="st">"Cox"</span>, <span class="st">"Logistic"</span>), <span class="cf">function</span>(model) {</span>
+<span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a>    fit_at <span class="ot">&lt;-</span> <span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) cox_fit <span class="cf">else</span> log_fit</span>
+<span id="cb22-21"><a href="#cb22-21" aria-hidden="true" tabindex="-1"></a>    center <span class="ot">&lt;-</span> <span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) cox_center <span class="cf">else</span> log_center</span>
+<span id="cb22-22"><a href="#cb22-22" aria-hidden="true" tabindex="-1"></a>    p_at <span class="ot">&lt;-</span> <span class="cf">function</span>(a) <span class="fu">summary</span>(<span class="fu">fit_at</span>(a))[[<span class="st">"coefficients"</span>]][<span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) <span class="dv">1</span> <span class="cf">else</span> <span class="dv">2</span>, <span class="st">"Pr(&gt;|z|)"</span>]</span>
+<span id="cb22-23"><a href="#cb22-23" aria-hidden="true" tabindex="-1"></a>    dplyr<span class="sc">::</span><span class="fu">bind_rows</span>(<span class="fu">lapply</span>(<span class="fu">c</span>(.<span class="dv">050004</span>, .<span class="dv">010004</span>, .<span class="dv">001004</span>, .<span class="dv">0004</span>), <span class="cf">function</span>(target) {</span>
+<span id="cb22-24"><a href="#cb22-24" aria-hidden="true" tabindex="-1"></a>      shift <span class="ot">&lt;-</span> <span class="fu">uniroot</span>(<span class="cf">function</span>(a) <span class="fu">p_at</span>(a) <span class="sc">-</span> target, <span class="fu">c</span>(center, center <span class="sc">+</span> <span class="dv">3</span>), <span class="at">tol =</span> <span class="fl">1e-12</span>)[[<span class="st">"root"</span>]]</span>
+<span id="cb22-25"><a href="#cb22-25" aria-hidden="true" tabindex="-1"></a>      d <span class="ot">&lt;-</span> <span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) cox_data <span class="cf">else</span> <span class="fu">data.frame</span>(<span class="at">y =</span> y)</span>
+<span id="cb22-26"><a href="#cb22-26" aria-hidden="true" tabindex="-1"></a>      d[[<span class="st">"x"</span>]] <span class="ot">&lt;-</span> <span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) cox_noise <span class="sc">+</span> shift <span class="sc">*</span> cox_score <span class="cf">else</span> w <span class="sc">+</span> shift <span class="sc">*</span> y</span>
+<span id="cb22-27"><a href="#cb22-27" aria-hidden="true" tabindex="-1"></a>      result <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(d, <span class="st">"x"</span>, <span class="at">surv =</span> <span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) <span class="cn">TRUE</span> <span class="cf">else</span> <span class="st">"y"</span>, <span class="at">threshold =</span> <span class="dv">1</span>))</span>
+<span id="cb22-28"><a href="#cb22-28" aria-hidden="true" tabindex="-1"></a>      stats <span class="ot">&lt;-</span> <span class="fu">attr</span>(result, <span class="st">"model_stats"</span>)</span>
+<span id="cb22-29"><a href="#cb22-29" aria-hidden="true" tabindex="-1"></a>      stats <span class="ot">&lt;-</span> stats[stats[[<span class="st">"id"</span>]] <span class="sc">==</span> <span class="st">"x"</span>, ]</span>
+<span id="cb22-30"><a href="#cb22-30" aria-hidden="true" tabindex="-1"></a>      metric <span class="ot">&lt;-</span> <span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) <span class="st">"HR"</span> <span class="cf">else</span> <span class="st">"OR"</span></span>
+<span id="cb22-31"><a href="#cb22-31" aria-hidden="true" tabindex="-1"></a>      star <span class="ot">&lt;-</span> result[[<span class="fu">paste0</span>(metric, <span class="st">" (univariable)_p"</span>)]]</span>
+<span id="cb22-32"><a href="#cb22-32" aria-hidden="true" tabindex="-1"></a>      reference <span class="ot">&lt;-</span> <span class="fu">summary</span>(<span class="fu">fit_at</span>(shift))[[<span class="st">"coefficients"</span>]]</span>
+<span id="cb22-33"><a href="#cb22-33" aria-hidden="true" tabindex="-1"></a>      beta <span class="ot">&lt;-</span> reference[<span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) <span class="dv">1</span> <span class="cf">else</span> <span class="dv">2</span>, <span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) <span class="st">"coef"</span> <span class="cf">else</span> <span class="st">"Estimate"</span>]</span>
+<span id="cb22-34"><a href="#cb22-34" aria-hidden="true" tabindex="-1"></a>      <span class="fu">stopifnot</span>(<span class="fu">all</span>(<span class="fu">abs</span>(stats[[<span class="st">"p"</span>]] <span class="sc">-</span> <span class="fu">p_at</span>(shift)) <span class="sc">&lt;</span> <span class="fl">1e-12</span>),</span>
+<span id="cb22-35"><a href="#cb22-35" aria-hidden="true" tabindex="-1"></a>        <span class="fu">all</span>(<span class="fu">abs</span>(stats[[metric]] <span class="sc">-</span> <span class="fu">exp</span>(beta)) <span class="sc">&lt;</span> <span class="fl">1e-12</span>),</span>
+<span id="cb22-36"><a href="#cb22-36" aria-hidden="true" tabindex="-1"></a>        <span class="fu">identical</span>(star, UtilsR<span class="sc">::</span><span class="fu">stat_pval</span>(<span class="fu">p_at</span>(shift), <span class="at">mode =</span> <span class="st">"stars"</span>)))</span>
+<span id="cb22-37"><a href="#cb22-37" aria-hidden="true" tabindex="-1"></a>      <span class="fu">data.frame</span>(<span class="at">Model =</span> model, <span class="at">Target =</span> target, <span class="at">P_unrounded =</span> stats[[<span class="st">"p"</span>]][<span class="dv">1</span>],</span>
+<span id="cb22-38"><a href="#cb22-38" aria-hidden="true" tabindex="-1"></a>        <span class="at">Display =</span> stats[[<span class="st">"stats"</span>]][<span class="dv">1</span>], <span class="at">Stars =</span> star)</span>
+<span id="cb22-39"><a href="#cb22-39" aria-hidden="true" tabindex="-1"></a>    }))</span>
+<span id="cb22-40"><a href="#cb22-40" aria-hidden="true" tabindex="-1"></a>  }))</span>
+<span id="cb22-41"><a href="#cb22-41" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb22-42"><a href="#cb22-42" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">fmt_number</span>(gt<span class="sc">::</span><span class="fu">gt</span>(precision_rows), <span class="at">columns =</span> <span class="fu">c</span>(Target, P_unrounded), <span class="at">decimals =</span> <span class="dv">8</span>),</span>
+<span id="cb22-43"><a href="#cb22-43" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261103c-update-ums-precision.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/table-guide/20261103c-update-ums-precision.png" class="lightbox" data-gallery="quarto-lightbox-gallery-9" title="显示P接近相同阈值时，星号仍按未舍入P计算。"><img src="images/table-guide/20261103c-update-ums-precision.png" class="img-fluid figure-img" alt="Cox和Logistic各四组实际模型统计，0.050004、0.010004、0.001004及0.0004的未舍入P与显示字符串和星号分列，保留小P的不等号。" loading="lazy" decoding="async" width="834" height="498" srcset="../assets/figure-previews/157bd168f72ffd31db3a7d4324b58e4e.webp"></a></p>
+<figcaption>显示P接近相同阈值时，星号仍按未舍入P计算。</figcaption>
+</figure>
+</div>
+<p><a href="images/table-guide/20261103c-update-ums-precision.html">原生统计量表 HTML</a></p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-8" class="callout-8-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(precision_rows) <span class="sc">==</span> <span class="dv">8</span>L,</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">max</span>(<span class="fu">abs</span>(precision_rows[[<span class="st">"Target"</span>]] <span class="sc">-</span> precision_rows[[<span class="st">"P_unrounded"</span>]])) <span class="sc">&lt;</span> <span class="fl">1e-10</span>,</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(precision_rows[[<span class="st">"P_unrounded"</span>]] <span class="sc">&gt;</span> <span class="dv">0</span>),</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">grepl</span>(<span class="st">"p&lt;.001"</span>, precision_rows[[<span class="st">"Display"</span>]][precision_rows[[<span class="st">"Target"</span>]] <span class="sc">==</span> .<span class="dv">0004</span>], <span class="at">fixed =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n_per_model =</span> <span class="dv">120</span>, <span class="at">rows =</span> precision_rows)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<!-- /update-20261103c: late_ums_precision -->
+</section>
+<section id="ums-boundaries-20261103c" class="level3">
+<h3 class="anchored" data-anchor-id="ums-boundaries-20261103c">UMS空筛选、编码与列类型边界（2026-11-03）</h3>
+<!-- update-20261103c: late_ums_boundaries -->
+<p>没有变量通过筛选时，UMS保留单因素结果，多因素和final列为空，并给出说明；不会把空公式继续交给后端。Cox筛选沿用<code>p &lt;= threshold</code>，Logistic沿用严格<code>p &lt; threshold</code>，不要把这两个比较符统一改写。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1103</span>)</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>boundary_data <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">x =</span> <span class="fu">rnorm</span>(<span class="dv">120</span>), <span class="at">z =</span> <span class="fu">factor</span>(<span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="dv">120</span>, <span class="cn">TRUE</span>)))</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>boundary_data[[<span class="st">"y"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">120</span>, <span class="dv">1</span>, <span class="fu">plogis</span>(boundary_data[[<span class="st">"x"</span>]]))</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>boundary_data[[<span class="st">"time"</span>]] <span class="ot">&lt;-</span> <span class="fu">rexp</span>(<span class="dv">120</span>, <span class="fu">exp</span>(.<span class="dv">7</span> <span class="sc">*</span> boundary_data[[<span class="st">"x"</span>]])) <span class="sc">+</span> .<span class="dv">02</span></span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>boundary_data[[<span class="st">"DSS"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(<span class="dv">120</span>, <span class="dv">1</span>, .<span class="dv">65</span>)</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>empty_ums <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">list</span>(<span class="at">Cox =</span> <span class="cn">TRUE</span>, <span class="at">Logistic =</span> <span class="st">"y"</span>), <span class="cf">function</span>(outcome) {</span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(boundary_data, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">surv =</span> outcome, <span class="at">threshold =</span> <span class="dv">0</span>, <span class="at">format_res =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>empty_ft <span class="ot">&lt;-</span> flextable<span class="sc">::</span><span class="fu">add_footer_lines</span>(autoReg<span class="sc">::</span><span class="fu">myft</span>(empty_ums[[<span class="st">"Logistic"</span>]], <span class="at">digits =</span> <span class="dv">3</span>),</span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">values =</span> <span class="fu">attr</span>(empty_ums[[<span class="st">"Logistic"</span>]], <span class="st">"notes"</span>))</span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>flextable<span class="sc">::</span><span class="fu">save_as_html</span>(empty_ft, <span class="at">path =</span> <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261103c-update-ums-empty.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/table-guide/20261103c-update-ums-empty.png" class="lightbox" data-gallery="quarto-lightbox-gallery-10" title="阈值0时单因素OR保留，调整和最终模型列留空。"><img src="images/table-guide/20261103c-update-ums-empty.png" class="img-fluid figure-img" alt="120行实际UMS Logistic空筛选表，单因素OR仍有估计，多因素和final列为空，没有用零值填充。" loading="lazy" decoding="async" width="1296" height="182" srcset="../assets/figure-previews/9a3502d7c1509f872c82475ab141b353.webp"></a></p>
+<figcaption>阈值0时单因素OR保留，调整和最终模型列留空。</figcaption>
+</figure>
+</div>
+<p><a href="images/table-guide/20261103c-update-ums-empty.html">原生表格 HTML</a></p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (model <span class="cf">in</span> <span class="fu">names</span>(empty_ums)) {</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>  metric <span class="ot">&lt;-</span> <span class="cf">if</span> (model <span class="sc">==</span> <span class="st">"Cox"</span>) <span class="st">"HR"</span> <span class="cf">else</span> <span class="st">"OR"</span></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>  tab <span class="ot">&lt;-</span> empty_ums[[model]]</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">inherits</span>(tab, <span class="st">"tbl_df"</span>), <span class="fu">any</span>(<span class="fu">nzchar</span>(tab[[<span class="fu">paste0</span>(metric, <span class="st">" (univariable)"</span>)]])),</span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">all</span>(tab[[<span class="fu">paste0</span>(metric, <span class="st">" (multivariable)"</span>)]] <span class="sc">==</span> <span class="st">""</span>), <span class="fu">all</span>(tab[[<span class="fu">paste0</span>(metric, <span class="st">" (final)"</span>)]] <span class="sc">==</span> <span class="st">""</span>))</span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>cox_fit <span class="ot">&lt;-</span> survival<span class="sc">::</span><span class="fu">coxph</span>(survival<span class="sc">::</span><span class="fu">Surv</span>(time, DSS) <span class="sc">~</span> x, <span class="at">data =</span> boundary_data)</span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a>exact_p <span class="ot">&lt;-</span> <span class="fu">summary</span>(cox_fit)[[<span class="st">"coefficients"</span>]][<span class="dv">1</span>, <span class="st">"Pr(&gt;|z|)"</span>]</span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a>inclusive <span class="ot">&lt;-</span> <span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(boundary_data, <span class="st">"x"</span>, <span class="at">threshold =</span> exact_p))</span>
+<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="st">"multivariable"</span> <span class="sc">%in%</span> <span class="fu">attr</span>(inclusive, <span class="st">"model_counts"</span>)[[<span class="st">"model"</span>]])</span>
+<span id="cb25-11"><a href="#cb25-11" aria-hidden="true" tabindex="-1"></a>spss_data <span class="ot">&lt;-</span> plain_data <span class="ot">&lt;-</span> boundary_data</span>
+<span id="cb25-12"><a href="#cb25-12" aria-hidden="true" tabindex="-1"></a>spss_data[[<span class="st">"x"</span>]] <span class="ot">&lt;-</span> haven<span class="sc">::</span><span class="fu">labelled_spss</span>(<span class="fu">replace</span>(spss_data[[<span class="st">"x"</span>]], <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>, <span class="dv">999</span>), <span class="at">na_values =</span> <span class="dv">999</span>)</span>
+<span id="cb25-13"><a href="#cb25-13" aria-hidden="true" tabindex="-1"></a>plain_data[[<span class="st">"x"</span>]][<span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>] <span class="ot">&lt;-</span> <span class="cn">NA_real_</span></span>
+<span id="cb25-14"><a href="#cb25-14" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(<span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(spss_data, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">surv =</span> <span class="st">"y"</span>)),</span>
+<span id="cb25-15"><a href="#cb25-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">run_quiet</span>(<span class="fu">get_tb_ums</span>(plain_data, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">surv =</span> <span class="st">"y"</span>))))</span>
+<span id="cb25-16"><a href="#cb25-16" aria-hidden="true" tabindex="-1"></a>column_errors <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">list</span>(<span class="fu">I</span>(<span class="fu">as.list</span>(boundary_data[[<span class="st">"x"</span>]])), <span class="fu">I</span>(<span class="fu">cbind</span>(boundary_data[[<span class="st">"x"</span>]], boundary_data[[<span class="st">"x"</span>]])),</span>
+<span id="cb25-17"><a href="#cb25-17" aria-hidden="true" tabindex="-1"></a>  boundary_data[[<span class="st">"x"</span>]] <span class="sc">+</span> <span class="dv">1</span>i, bit64<span class="sc">::</span><span class="fu">as.integer64</span>(<span class="fu">rep</span>(<span class="st">"9007199254740993"</span>, <span class="dv">120</span>)),</span>
+<span id="cb25-18"><a href="#cb25-18" aria-hidden="true" tabindex="-1"></a>  lubridate<span class="sc">::</span><span class="fu">period</span>(<span class="at">month =</span> <span class="fu">rep</span>(<span class="dv">1</span>, <span class="dv">120</span>))), <span class="cf">function</span>(value) {</span>
+<span id="cb25-19"><a href="#cb25-19" aria-hidden="true" tabindex="-1"></a>    bad <span class="ot">&lt;-</span> boundary_data</span>
+<span id="cb25-20"><a href="#cb25-20" aria-hidden="true" tabindex="-1"></a>    bad[[<span class="st">"x"</span>]] <span class="ot">&lt;-</span> value</span>
+<span id="cb25-21"><a href="#cb25-21" aria-hidden="true" tabindex="-1"></a>    <span class="fu">tryCatch</span>({<span class="fu">get_tb_ums</span>(bad, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">surv =</span> <span class="st">"y"</span>); <span class="st">""</span>}, <span class="at">error =</span> conditionMessage)</span>
+<span id="cb25-22"><a href="#cb25-22" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb25-23"><a href="#cb25-23" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">all</span>(<span class="fu">grepl</span>(<span class="st">"x"</span>, <span class="fu">unlist</span>(column_errors), <span class="at">fixed =</span> <span class="cn">TRUE</span>)), <span class="fu">all</span>(<span class="fu">nzchar</span>(<span class="fu">unlist</span>(column_errors))))</span>
+<span id="cb25-24"><a href="#cb25-24" aria-hidden="true" tabindex="-1"></a>collision_data <span class="ot">&lt;-</span> boundary_data</span>
+<span id="cb25-25"><a href="#cb25-25" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(collision_data)[<span class="fu">names</span>(collision_data) <span class="sc">==</span> <span class="st">"x"</span>] <span class="ot">&lt;-</span> <span class="st">"zB"</span></span>
+<span id="cb25-26"><a href="#cb25-26" aria-hidden="true" tabindex="-1"></a>collision_errors <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">list</span>(get_tb_ums, plt_tb_ums), <span class="cf">function</span>(fn)</span>
+<span id="cb25-27"><a href="#cb25-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tryCatch</span>({<span class="fu">fn</span>(collision_data, <span class="fu">c</span>(<span class="st">"zB"</span>, <span class="st">"z"</span>), <span class="at">surv =</span> <span class="st">"y"</span>); <span class="st">""</span>}, <span class="at">error =</span> conditionMessage))</span>
+<span id="cb25-28"><a href="#cb25-28" aria-hidden="true" tabindex="-1"></a>bad_contrasts <span class="ot">&lt;-</span> boundary_data</span>
+<span id="cb25-29"><a href="#cb25-29" aria-hidden="true" tabindex="-1"></a><span class="fu">contrasts</span>(bad_contrasts[[<span class="st">"z"</span>]]) <span class="ot">&lt;-</span> stats<span class="sc">::</span><span class="fu">contr.sum</span>(<span class="dv">2</span>)</span>
+<span id="cb25-30"><a href="#cb25-30" aria-hidden="true" tabindex="-1"></a>contrast_errors <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">list</span>(get_tb_ums, plt_tb_ums), <span class="cf">function</span>(fn)</span>
+<span id="cb25-31"><a href="#cb25-31" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tryCatch</span>({<span class="fu">fn</span>(bad_contrasts, <span class="fu">c</span>(<span class="st">"x"</span>, <span class="st">"z"</span>), <span class="at">surv =</span> <span class="st">"y"</span>); <span class="st">""</span>}, <span class="at">error =</span> conditionMessage))</span>
+<span id="cb25-32"><a href="#cb25-32" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">all</span>(<span class="fu">grepl</span>(<span class="st">"term identifiers collide"</span>, <span class="fu">unlist</span>(collision_errors), <span class="at">fixed =</span> <span class="cn">TRUE</span>)),</span>
+<span id="cb25-33"><a href="#cb25-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">grepl</span>(<span class="st">"contrasts"</span>, <span class="fu">unlist</span>(contrast_errors), <span class="at">fixed =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb25-34"><a href="#cb25-34" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> <span class="fu">nrow</span>(boundary_data), <span class="at">empty_counts =</span> <span class="fu">lapply</span>(empty_ums, attr, <span class="at">which =</span> <span class="st">"model_counts"</span>),</span>
+<span id="cb25-35"><a href="#cb25-35" aria-hidden="true" tabindex="-1"></a>  <span class="at">inclusive_threshold =</span> exact_p, <span class="at">errors =</span> <span class="fu">c</span>(column_errors, collision_errors, contrast_errors))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<p>UMS接受可无损转成数值的integer64、Date/POSIX时间、difftime和Duration：Date按天，POSIX/Duration按秒，difftime沿用记录单位；日历Period应先明确换算单位。SPSS用户缺失按NA处理。列表、矩阵、复数、精度会损失的integer64及显式NA因子水平需要调用方先处理。</p>
+<p>这里的autoReg路径要求能对应水平效应的命名treatment编码；有序、sum或其他无法匹配水平的编码会拒绝。它与<a href="../regr/um-guide.html#contrasts-20261103c">get_um的编码恢复</a>不同。若变量zB和因子z的B水平形成相同内部标识，也会在拟合前拒绝，应先消除重名，不能让两行结果错配。</p>
+<p>本节实际执行了SPSS缺失对照、非法列、重名和sum编码错误；日期/时长单位、有序因子和其他编码类型按固定源码核对。</p>
+<!-- /update-20261103c: late_ums_boundaries -->
+</section>
 </section>
 <section id="生存摘要hr-与时点生存概率" class="level2">
 <h2 class="anchored" data-anchor-id="生存摘要hr-与时点生存概率">生存摘要：HR 与时点生存概率</h2>
 <p>HR 来自各变量分别拟合的单变量 Cox 模型；时点列是 S(t)，不是 HR，也不是 CIF。show_summary 控制是否合并按 DSS 事件状态的描述列。本页 36/60 月均按原始月单位输入。</p>
 <div class="tabset-margin-container"></div><div class="panel-tabset">
-<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-4-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-1" role="tab" aria-controls="tabset-4-1" aria-selected="true" href="">完整摘要</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-4-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-4-2" role="tab" aria-controls="tabset-4-2" aria-selected="false" href="">精简摘要</a></li></ul>
+<ul class="nav nav-tabs" role="tablist"><li class="nav-item" role="presentation"><a class="nav-link active" id="tabset-5-1-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-1" role="tab" aria-controls="tabset-5-1" aria-selected="true" href="">完整摘要</a></li><li class="nav-item" role="presentation"><a class="nav-link" id="tabset-5-2-tab" data-bs-toggle="tab" data-bs-target="#tabset-5-2" role="tab" aria-controls="tabset-5-2" aria-selected="false" href="">精简摘要</a></li></ul>
 <div class="tab-content">
-<div id="tabset-4-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-4-1-tab">
+<div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
 <p>合并描述、单变量 HR、36/60 月生存概率。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_tb_survival</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"stage"</span>),</span>
-<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">times =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">60</span>), <span class="at">show_summary =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_tb_survival</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"stage"</span>),</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">times =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">60</span>), <span class="at">show_summary =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive">
 <div id="sfzqykgtmt" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
 
@@ -2518,10 +2779,10 @@ N = 87</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-ali
 </div>
 </div>
 </div>
-<div id="tabset-4-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-4-2-tab">
+<div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
 <p>隐藏描述部分，保留 HR 与时点概率。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_tb_survival</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"stage"</span>),</span>
-<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">times =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">60</span>), <span class="at">show_summary =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_tb_survival</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"stage"</span>),</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">times =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">60</span>), <span class="at">show_summary =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive">
 <div id="yzhbozedyn" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
 
@@ -2654,23 +2915,23 @@ N = 87</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-ali
 </section>
 <section id="保留对象继续加工与导出" class="level2">
 <h2 class="anchored" data-anchor-id="保留对象继续加工与导出">保留对象继续加工与导出</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>tb <span class="ot">&lt;-</span> <span class="fu">get_tb_gtsummary</span>(td, <span class="at">group_var =</span> <span class="st">"Sex"</span>, <span class="at">com_var =</span> table_vars,</span>
-<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>                       <span class="at">digits_continuous =</span> <span class="dv">2</span>, <span class="at">output_format =</span> <span class="st">"none"</span>)</span>
-<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>gt_table <span class="ot">&lt;-</span> gtsummary<span class="sc">::</span><span class="fu">as_gt</span>(tb)</span>
-<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>word_table <span class="ot">&lt;-</span> gtsummary<span class="sc">::</span><span class="fu">as_flex_table</span>(tb)</span>
-<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 按保存接口帮助页设置文件名与目录。</span></span>
-<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a><span class="co"># RegR::save_gt(gt_table, ...)</span></span>
-<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a><span class="co"># RegR::save_tb(word_table, ...)</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>tb <span class="ot">&lt;-</span> <span class="fu">get_tb_gtsummary</span>(td, <span class="at">group_var =</span> <span class="st">"Sex"</span>, <span class="at">com_var =</span> table_vars,</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>                       <span class="at">digits_continuous =</span> <span class="dv">2</span>, <span class="at">output_format =</span> <span class="st">"none"</span>)</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>gt_table <span class="ot">&lt;-</span> gtsummary<span class="sc">::</span><span class="fu">as_gt</span>(tb)</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>word_table <span class="ot">&lt;-</span> gtsummary<span class="sc">::</span><span class="fu">as_flex_table</span>(tb)</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 按保存接口帮助页设置文件名与目录。</span></span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a><span class="co"># RegR::save_gt(gt_table, ...)</span></span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a><span class="co"># RegR::save_tb(word_table, ...)</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>输出类型转换只影响表格载体。P 值表示当前描述/检验规格下的组间证据，SMD 是差异尺度；两者都不能证明组间不存在混杂。生存随访不足时需报告 at-risk 数和可估计性，不能仅靠把 times 拉长产生远期结论。</p>
 </section>
 <section id="save-tb-format" class="level2">
 <h2 class="anchored" data-anchor-id="save-tb-format">save_tb()：整数计数与小数概率</h2>
 <p>2026-10-05 核对的 <code>save_tb()</code> 会把整列均为整数值的普通 double 数值列显示为零位小数；带小数的列仍按两位小数显示。它改变 Word 格式，保留原始数值。已有 flextable、gtsummary 或 data.frame 均可进入此保存入口。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>counts <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Group =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="at">Events =</span> <span class="fu">c</span>(<span class="dv">12</span>, <span class="dv">18</span>),</span>
-<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">Probability =</span> <span class="fu">c</span>(<span class="fl">0.125</span>, <span class="fl">0.234</span>))</span>
-<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a><span class="co"># path 是目录；title 同时确定输出文件名，自动补 .docx。</span></span>
-<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>ft <span class="ot">&lt;-</span> <span class="fu">save_tb</span>(counts, <span class="at">path =</span> <span class="fu">tempdir</span>(), <span class="at">title =</span> <span class="st">"counts-and-probabilities"</span>,</span>
-<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>              <span class="at">line_spacing =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>counts <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Group =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="at">Events =</span> <span class="fu">c</span>(<span class="dv">12</span>, <span class="dv">18</span>),</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">Probability =</span> <span class="fu">c</span>(<span class="fl">0.125</span>, <span class="fl">0.234</span>))</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a><span class="co"># path 是目录；title 同时确定输出文件名，自动补 .docx。</span></span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>ft <span class="ot">&lt;-</span> <span class="fu">save_tb</span>(counts, <span class="at">path =</span> <span class="fu">tempdir</span>(), <span class="at">title =</span> <span class="st">"counts-and-probabilities"</span>,</span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a>              <span class="at">line_spacing =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive" tabindex="0" role="region" aria-label="Word数字格式对照，可横向滚动">
 <table class="caption-top table">
 <colgroup>
@@ -2725,13 +2986,13 @@ N = 87</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-ali
 <li><p>单多因素表帮助页：<a href="https://hui950319.github.io/RegR/reference/get_tb_autoreg.html"><code>get_tb_autoreg()</code></a>、<a href="https://hui950319.github.io/RegR/reference/get_tb_ums.html"><code>get_tb_ums()</code></a>、<a href="https://hui950319.github.io/RegR/reference/plt_tb_ums.html"><code>plt_tb_ums()</code></a></p></li>
 <li><p>汇总函数帮助页：<a href="https://hui950319.github.io/RegR/reference/get_all.html"><code>get_all()</code></a>、<a href="https://hui950319.github.io/RegR/reference/get_gt_cat.html"><code>get_gt_cat()</code></a></p></li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
-<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="本页更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2740,9 +3001,12 @@ N = 87</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-ali
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-7" class="callout-7-contents callout-collapse collapse">
+<div id="callout-10" class="callout-10-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li>2026-11-03：<a href="#ums-boundaries-20261103c">补齐空筛选、Cox阈值与列类型/编码边界</a>。</li>
+<li>2026-11-03：<a href="#ums-precision-20261103c">补齐未舍入UMS统计量和显著性边界</a>。</li>
+<li>2026-11-03：<a href="#ums-cohorts-20261103c">补齐UMS真实模型人数、事件与plt_tbl</a>。</li>
 <li>2026-11-03：<a href="#ums-inputs-20261103b">补齐UMS的特殊列名、全局绑定和Cox结局校验</a>。</li>
 <li>2026-11-03：<a href="#fisher-footnote-20261103">补充Fisher模拟脚注与Word制表符修复</a>，保留真实表格与导出文件。</li>
 <li>2026-10-24：<a href="#precision-columns-20261024">精度与自动选列</a></li>

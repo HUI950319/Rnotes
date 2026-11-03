@@ -15,6 +15,8 @@ directory:
 先明确表格描述什么、百分比分母是什么，再选择展示和导出形式。下面比较同一队列的中位数、均数、列/行百分比、分层基线和生存摘要；每个标签页展示实际生成的表格。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 RegR `769f460c`（0.1.3）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `7bf81d05`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 RegR `f80e0e95`（0.1.3）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 RegR `415c6453`（0.1.3）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -468,6 +470,238 @@ validation_values <- list(input_n = nrow(cox_ums_data), complete_n = nrow(cox_co
 
 <!-- /update-20261103b: regr_ums_cox -->
 
+### UMS模型人数、事件数与可继续绘制的表（2026-11-03） {#ums-cohorts-20261103c}
+
+<!-- update-20261103c: late_ums_cohorts -->
+
+当前`get_tb_ums()`无论`format_res`真假都返回tibble，只构建并打印最终flextable一次。`model_counts`属性保留每个模型的N和事件数，`notes`给出描述队列与拟合队列说明。Cox单因素按各预测变量可用病例拟合，调整模型按入模变量取完整病例；Logistic各模型沿用初始全模型的完整病例，不把删失或缺失规则改成另一套。
+
+下面120行有30个x缺失，Cox描述N仍为120，x单因素与完整调整模型为90；Logistic初始完整队列为90。`plt_tbl()`现在可直接画原始或格式化UMS的HR/OR表，保留人数脚注，也不会把NACT这类标签中的NA删掉。
+
+```r
+library(RegR)
+set.seed(1103)
+ums_cohort_data <- data.frame(x = rnorm(120), z = factor(sample(c("A", "B"), 120, TRUE)))
+ums_cohort_data[["y"]] <- rbinom(120, 1, plogis(ums_cohort_data[["x"]]))
+ums_cohort_data[["time"]] <- rexp(120, exp(.7 * ums_cohort_data[["x"]])) + .02
+ums_cohort_data[["DSS"]] <- rbinom(120, 1, .65)
+ums_cohort_data[["x"]][1:30] <- NA_real_
+ums_cox_raw <- run_quiet(get_tb_ums(ums_cohort_data, c("x", "z"), threshold = 1,
+  format_res = FALSE, colname_map = list(x = "NACT")))
+ums_log_formatted <- run_quiet(get_tb_ums(ums_cohort_data, c("x", "z"), surv = "y",
+  threshold = 1, colname_map = list(x = "NACT")))
+ums_cox_ft <- flextable::add_footer_lines(autoReg::myft(ums_cox_raw, digits = 3),
+  values = attr(ums_cox_raw, "notes"))
+ums_log_ft <- flextable::add_footer_lines(autoReg::myft(ums_log_formatted, digits = 3),
+  values = attr(ums_log_formatted, "notes"))
+flextable::save_as_html(ums_cox_ft, path = file.path(tempdir(), "20261103c-update-ums-cohort.html"))
+save_tb(ums_log_ft, path = tempdir(), title = "20261103c-update-ums-cohort.docx")
+ums_cox_table_plot <- plt_tbl(ums_cox_raw,
+  save = list(filename = file.path(tempdir(), "20261103c-update-ums-cox-table.pdf")))
+ums_log_table_plot <- plt_tbl(ums_log_formatted,
+  save = list(filename = file.path(tempdir(), "20261103c-update-ums-log-table.pdf")))
+```
+
+::: {.panel-tabset}
+#### Cox原始表与队列脚注 {.unnumbered}
+
+![实际autoReg flextable带有描述N及各模型N和事件数。](images/table-guide/20261103c-update-ums-cohort.png){fig-alt="120行输入的实际UMS Cox表，NACT标签保留，脚注分别记录描述N120、x单因素90、z单因素120及调整模型人数与事件数。"}
+
+[原生表格 HTML](images/table-guide/20261103c-update-ums-cohort.html)
+
+#### plt_tbl原始HR表 {.unnumbered}
+
+![plt_tbl直接绘制原始UMS Cox返回表并保留队列说明。](images/table-guide/20261103c-update-ums-cox-table.png){fig-alt="原始UMS HR列直接转换的ggplot文字表，含NACT标签及实际人数与事件数脚注。"}
+
+[原生 PDF](images/table-guide/20261103c-update-ums-cox-table.pdf)
+
+#### plt_tbl格式化OR表 {.unnumbered}
+
+![格式化Logistic表显示OR、显著性符号与90人完整病例说明。](images/table-guide/20261103c-update-ums-log-table.png){fig-alt="格式化UMS Logistic表直接绘制，OR与P符号分列，各模型N90，原始标签和队列脚注均保留。"}
+
+[原生 PDF](images/table-guide/20261103c-update-ums-log-table.pdf) · [原生 Word](images/table-guide/20261103c-update-ums-cohort.docx)
+:::
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cox_counts <- attr(ums_cox_raw, "model_counts")
+log_counts <- attr(ums_log_formatted, "model_counts")
+stopifnot(inherits(ums_cox_raw, "tbl_df"), inherits(ums_log_formatted, "tbl_df"),
+  cox_counts[["n"]][cox_counts[["model"]] == "univariable" & cox_counts[["variable"]] == "x"] == 90,
+  cox_counts[["n"]][cox_counts[["model"]] == "univariable" & cox_counts[["variable"]] == "z"] == 120,
+  cox_counts[["n"]][cox_counts[["model"]] == "multivariable"] == 90,
+  all(log_counts[["n"]] == 90),
+  grepl("Descriptive N=120", attr(ums_cox_raw, "notes"), fixed = TRUE))
+manual_cox <- survival::coxph(survival::Surv(time, DSS) ~ x, data = ums_cohort_data)
+stopifnot(cox_counts[["events"]][cox_counts[["model"]] == "univariable" &
+  cox_counts[["variable"]] == "x"] == manual_cox[["nevent"]])
+grob_labels <- function(grob) {
+  if (!is.list(grob)) return(character())
+  c(if (is.character(grob[["label"]])) grob[["label"]],
+    unlist(lapply(grob[["grobs"]], grob_labels), use.names = FALSE),
+    unlist(lapply(grob[["children"]], grob_labels), use.names = FALSE))
+}
+other_tables <- list(
+  run_quiet(get_tb_ums(ums_cohort_data, c("x", "z"), threshold = 1,
+    colname_map = list(x = "NACT"))),
+  run_quiet(get_tb_ums(ums_cohort_data, c("x", "z"), surv = "y", threshold = 1,
+    format_res = FALSE, colname_map = list(x = "NACT"))))
+all_table_plots <- c(list(ums_cox_table_plot, ums_log_table_plot), lapply(other_tables, plt_tbl))
+for (plot in all_table_plots) {
+  stopifnot("NACT" %in% grob_labels(plot[["layers"]][[1]][["geom_params"]][["grob"]]),
+    grepl("Model sample sizes", ggplot2::get_labs(plot)[["caption"]], fixed = TRUE))
+  invisible(ggplot2::ggplotGrob(plot))
+}
+validation_values <- list(n = nrow(ums_cohort_data), cox_counts = cox_counts,
+  logistic_counts = log_counts, notes = c(attr(ums_cox_raw, "notes"), attr(ums_log_formatted, "notes")))
+```
+:::
+
+HTML和Word使用实际返回表的同一autoReg后端，并把返回的`notes`附为页脚；绘图返回仍为ggplot，可继续组合和保存。原有gtsummary的HR/CI入口继续保留。
+
+<!-- /update-20261103c: late_ums_cohorts -->
+
+### UMS原始统计量与舍入边界（2026-11-03） {#ums-precision-20261103c}
+
+<!-- update-20261103c: late_ums_precision -->
+
+`model_stats`现在直接从保留的模型提取未舍入HR/OR、Wald区间和P值，显著性符号也用该P值计算。不要解析显示字符串的0.05来重建星号，或把`p<.001`当成P等于0。下面用120行合成数据数值求根构造临界P值，分别核对Cox和Logistic；这是显示边界示例，不是临床结果。
+
+```r
+library(RegR)
+precision_rows <- local({
+  set.seed(41)
+  cox_data <- data.frame(time = rexp(120), DSS = 1L)
+  cox_noise <- rnorm(120)
+  cox_score <- -log(cox_data[["time"]])
+  cox_fit <- function(a) {
+    d <- cox_data
+    d[["x"]] <- cox_noise + a * cox_score
+    survival::coxph(survival::Surv(time, DSS) ~ x, data = d)
+  }
+  cox_center <- uniroot(function(a) summary(cox_fit(a))[["coefficients"]][1, "z"],
+    c(-3, 3), tol = 1e-12)[["root"]]
+  set.seed(5)
+  y <- rep(0:1, each = 60)
+  w <- rnorm(120)
+  log_center <- mean(w[y == 0]) - mean(w[y == 1])
+  log_fit <- function(a) glm(y ~ x, data = data.frame(y = y, x = w + a * y), family = binomial())
+  dplyr::bind_rows(lapply(c("Cox", "Logistic"), function(model) {
+    fit_at <- if (model == "Cox") cox_fit else log_fit
+    center <- if (model == "Cox") cox_center else log_center
+    p_at <- function(a) summary(fit_at(a))[["coefficients"]][if (model == "Cox") 1 else 2, "Pr(>|z|)"]
+    dplyr::bind_rows(lapply(c(.050004, .010004, .001004, .0004), function(target) {
+      shift <- uniroot(function(a) p_at(a) - target, c(center, center + 3), tol = 1e-12)[["root"]]
+      d <- if (model == "Cox") cox_data else data.frame(y = y)
+      d[["x"]] <- if (model == "Cox") cox_noise + shift * cox_score else w + shift * y
+      result <- run_quiet(get_tb_ums(d, "x", surv = if (model == "Cox") TRUE else "y", threshold = 1))
+      stats <- attr(result, "model_stats")
+      stats <- stats[stats[["id"]] == "x", ]
+      metric <- if (model == "Cox") "HR" else "OR"
+      star <- result[[paste0(metric, " (univariable)_p")]]
+      reference <- summary(fit_at(shift))[["coefficients"]]
+      beta <- reference[if (model == "Cox") 1 else 2, if (model == "Cox") "coef" else "Estimate"]
+      stopifnot(all(abs(stats[["p"]] - p_at(shift)) < 1e-12),
+        all(abs(stats[[metric]] - exp(beta)) < 1e-12),
+        identical(star, UtilsR::stat_pval(p_at(shift), mode = "stars")))
+      data.frame(Model = model, Target = target, P_unrounded = stats[["p"]][1],
+        Display = stats[["stats"]][1], Stars = star)
+    }))
+  }))
+})
+gt::gtsave(gt::fmt_number(gt::gt(precision_rows), columns = c(Target, P_unrounded), decimals = 8),
+  file.path(tempdir(), "20261103c-update-ums-precision.html"))
+```
+
+![显示P接近相同阈值时，星号仍按未舍入P计算。](images/table-guide/20261103c-update-ums-precision.png){fig-alt="Cox和Logistic各四组实际模型统计，0.050004、0.010004、0.001004及0.0004的未舍入P与显示字符串和星号分列，保留小P的不等号。"}
+
+[原生统计量表 HTML](images/table-guide/20261103c-update-ums-precision.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(nrow(precision_rows) == 8L,
+  max(abs(precision_rows[["Target"]] - precision_rows[["P_unrounded"]])) < 1e-10,
+  all(precision_rows[["P_unrounded"]] > 0),
+  all(grepl("p<.001", precision_rows[["Display"]][precision_rows[["Target"]] == .0004], fixed = TRUE)))
+validation_values <- list(n_per_model = 120, rows = precision_rows)
+```
+:::
+
+<!-- /update-20261103c: late_ums_precision -->
+
+### UMS空筛选、编码与列类型边界（2026-11-03） {#ums-boundaries-20261103c}
+
+<!-- update-20261103c: late_ums_boundaries -->
+
+没有变量通过筛选时，UMS保留单因素结果，多因素和final列为空，并给出说明；不会把空公式继续交给后端。Cox筛选沿用`p <= threshold`，Logistic沿用严格`p < threshold`，不要把这两个比较符统一改写。
+
+```r
+library(RegR)
+set.seed(1103)
+boundary_data <- data.frame(x = rnorm(120), z = factor(sample(c("A", "B"), 120, TRUE)))
+boundary_data[["y"]] <- rbinom(120, 1, plogis(boundary_data[["x"]]))
+boundary_data[["time"]] <- rexp(120, exp(.7 * boundary_data[["x"]])) + .02
+boundary_data[["DSS"]] <- rbinom(120, 1, .65)
+empty_ums <- lapply(list(Cox = TRUE, Logistic = "y"), function(outcome) {
+  run_quiet(get_tb_ums(boundary_data, c("x", "z"), surv = outcome, threshold = 0, format_res = FALSE))
+})
+empty_ft <- flextable::add_footer_lines(autoReg::myft(empty_ums[["Logistic"]], digits = 3),
+  values = attr(empty_ums[["Logistic"]], "notes"))
+flextable::save_as_html(empty_ft, path = file.path(tempdir(), "20261103c-update-ums-empty.html"))
+```
+
+![阈值0时单因素OR保留，调整和最终模型列留空。](images/table-guide/20261103c-update-ums-empty.png){fig-alt="120行实际UMS Logistic空筛选表，单因素OR仍有估计，多因素和final列为空，没有用零值填充。"}
+
+[原生表格 HTML](images/table-guide/20261103c-update-ums-empty.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (model in names(empty_ums)) {
+  metric <- if (model == "Cox") "HR" else "OR"
+  tab <- empty_ums[[model]]
+  stopifnot(inherits(tab, "tbl_df"), any(nzchar(tab[[paste0(metric, " (univariable)")]])),
+    all(tab[[paste0(metric, " (multivariable)")]] == ""), all(tab[[paste0(metric, " (final)")]] == ""))
+}
+cox_fit <- survival::coxph(survival::Surv(time, DSS) ~ x, data = boundary_data)
+exact_p <- summary(cox_fit)[["coefficients"]][1, "Pr(>|z|)"]
+inclusive <- run_quiet(get_tb_ums(boundary_data, "x", threshold = exact_p))
+stopifnot("multivariable" %in% attr(inclusive, "model_counts")[["model"]])
+spss_data <- plain_data <- boundary_data
+spss_data[["x"]] <- haven::labelled_spss(replace(spss_data[["x"]], 1:10, 999), na_values = 999)
+plain_data[["x"]][1:10] <- NA_real_
+stopifnot(identical(run_quiet(get_tb_ums(spss_data, c("x", "z"), surv = "y")),
+  run_quiet(get_tb_ums(plain_data, c("x", "z"), surv = "y"))))
+column_errors <- lapply(list(I(as.list(boundary_data[["x"]])), I(cbind(boundary_data[["x"]], boundary_data[["x"]])),
+  boundary_data[["x"]] + 1i, bit64::as.integer64(rep("9007199254740993", 120)),
+  lubridate::period(month = rep(1, 120))), function(value) {
+    bad <- boundary_data
+    bad[["x"]] <- value
+    tryCatch({get_tb_ums(bad, c("x", "z"), surv = "y"); ""}, error = conditionMessage)
+})
+stopifnot(all(grepl("x", unlist(column_errors), fixed = TRUE)), all(nzchar(unlist(column_errors))))
+collision_data <- boundary_data
+names(collision_data)[names(collision_data) == "x"] <- "zB"
+collision_errors <- lapply(list(get_tb_ums, plt_tb_ums), function(fn)
+  tryCatch({fn(collision_data, c("zB", "z"), surv = "y"); ""}, error = conditionMessage))
+bad_contrasts <- boundary_data
+contrasts(bad_contrasts[["z"]]) <- stats::contr.sum(2)
+contrast_errors <- lapply(list(get_tb_ums, plt_tb_ums), function(fn)
+  tryCatch({fn(bad_contrasts, c("x", "z"), surv = "y"); ""}, error = conditionMessage))
+stopifnot(all(grepl("term identifiers collide", unlist(collision_errors), fixed = TRUE)),
+  all(grepl("contrasts", unlist(contrast_errors), fixed = TRUE)))
+validation_values <- list(n = nrow(boundary_data), empty_counts = lapply(empty_ums, attr, which = "model_counts"),
+  inclusive_threshold = exact_p, errors = c(column_errors, collision_errors, contrast_errors))
+```
+:::
+
+UMS接受可无损转成数值的integer64、Date/POSIX时间、difftime和Duration：Date按天，POSIX/Duration按秒，difftime沿用记录单位；日历Period应先明确换算单位。SPSS用户缺失按NA处理。列表、矩阵、复数、精度会损失的integer64及显式NA因子水平需要调用方先处理。
+
+这里的autoReg路径要求能对应水平效应的命名treatment编码；有序、sum或其他无法匹配水平的编码会拒绝。它与[get_um的编码恢复](um-guide.qmd#contrasts-20261103c)不同。若变量zB和因子z的B水平形成相同内部标识，也会在拟合前拒绝，应先消除重名，不能让两行结果错配。
+
+本节实际执行了SPSS缺失对照、非法列、重名和sum编码错误；日期/时长单位、有序因子和其他编码类型按固定源码核对。
+
+<!-- /update-20261103c: late_ums_boundaries -->
+
 ## 生存摘要：HR 与时点生存概率
 
 
@@ -587,6 +821,9 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补齐空筛选、Cox阈值与列类型/编码边界](#ums-boundaries-20261103c)。
+- 2026-11-03：[补齐未舍入UMS统计量和显著性边界](#ums-precision-20261103c)。
+- 2026-11-03：[补齐UMS真实模型人数、事件与plt_tbl](#ums-cohorts-20261103c)。
 - 2026-11-03：[补齐UMS的特殊列名、全局绑定和Cox结局校验](#ums-inputs-20261103b)。
 - 2026-11-03：[补充Fisher模拟脚注与Word制表符修复](#fisher-footnote-20261103)，保留真实表格与导出文件。
 - 2026-10-24：[精度与自动选列](#precision-columns-20261024)
