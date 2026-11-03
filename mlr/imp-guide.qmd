@@ -4,16 +4,18 @@ description: "比较 SHAP、impurity/Gain、permutation 与 rfsrc 的 VIMP/最�
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-10-26
+date-modified: 2026-11-03
 directory:
   title: "特征重要性：rfsrc、重复稳定性与9类图"
   topic: 模型解释
-  updated: 2026-10-26
+  updated: 2026-11-03
 ---
 
 本页先说明 `get_imp()` 如何组织多种重要性，再用同一份结果比较全部 9 个 `plt_imp_*()` 函数。关键选项放在标签页中，代码与图片相邻；点击图片可放大。重要性回答变量对预测贡献有多大，方向与个体解释接着看 [SHAP 页](shap-guide.qmd)。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 MLR `48bce006`（0.1.13）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 **版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出本页 **25 张参数对照图**。绘图复用 ToyData::toy_imp，没有重新训练 get_imp 的模型。环形图按实际基础绘图设备导出；其余图检查构建或实际保存边界。
 :::
 
@@ -386,6 +388,50 @@ plt_imp_bar_per(imp, mode = "bar_per2", add_name = labels)
 
 
 :::
+
+### 条形与环图接受pal_get色板（2026-11-03） {#bar-palettes-20261103}
+
+<!-- update-20261103: mlr_importance_palette -->
+
+`plt_bar_per()`及`plt_imp_bar_per()`的两项色板分别控制条形和环图。每项可为原HCL名称、`pal_get()`已知名称或颜色向量；向量放在list内。同名HCL色板优先保留原来的颜色，避免已有图在升级后悄悄变色。
+
+以下三特征表是人工聚合的mean.SHAP绘图输入，没有拟合模型。条形使用RdYlBu，环图使用实际生成的Blues向量。单变量SHAP交互和总体SHAP的同族参数见[SHAP配色优先级](shap-guide.qmd#palettes-20261103)。
+
+```r
+library(MLR)
+palette_importance <- data.frame(var = c("Age", "Marker", "Treatment"),
+  yhat = c(.4, .2, .1), imp_type = "mean.SHAP")
+importance_palette_plot <- plt_imp_bar_per(palette_importance, imp_type = "mean.SHAP",
+  mode = "bar_per2", bar_display = "b",
+  bar_per_palette = list("RdYlBu", UtilsR::pal_get("Blues")),
+  save = list(filename = file.path(tempdir(), "20261103-update-importance-palettes.pdf")))
+```
+
+![三特征重要性组合图使用两项不同来源色板，数值和份额不因配色改变。](images/imp-guide/20261103-update-importance-palettes.png){fig-alt="人工聚合的三特征重要性图，条形使用RdYlBu，百分比双环使用Blues向量，分别控制两个面板。"}
+
+[原生 PDF](images/imp-guide/20261103-update-importance-palettes.pdf)
+
+本图条形保留输入的0.4、0.2、0.1；轴题“Normalized scaled value”是该版本的既有标签，不能据此判断已经缩放。`plt_imp_bar_per()`与[当前SHAP入口的默认归一化](shap-guide.qmd#bar-defaults-20261103)应分别核对。
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+palette_bar <- plt_imp_bar_per(palette_importance, imp_type = "mean.SHAP", mode = "bar",
+  bar_per_palette = list("RdYlBu", UtilsR::pal_get("Blues")))
+legacy_bar <- plt_imp_bar_per(palette_importance, imp_type = "mean.SHAP", mode = "bar",
+  bar_per_palette = c("Greens", "Reds"))
+raw_bar_x <- ggplot2::layer_data(palette_bar, 1)[["xmax"]]
+bar_ends <- function(p) unname(ggplot2::ggplot_build(p)[["plot"]][["scales"]]$get_scales("fill")$palette(c(0, 1)))
+stopifnot(isTRUE(all.equal(sort(raw_bar_x), sort(palette_importance[["yhat"]]))),
+  identical(bar_ends(palette_bar), c("#A50026", "#313695")),
+  identical(bar_ends(legacy_bar), colorspace::sequential_hcl(palette = "Greens", n = 10, rev = TRUE)[c(3, 10)]),
+  length(attr(importance_palette_plot, "plot_size")) == 2L)
+validation_values <- list(features = 3L, input = palette_importance,
+  palette_ends = bar_ends(palette_bar), legacy_ends = bar_ends(legacy_bar),
+  size = attr(importance_palette_plot, "plot_size"))
+```
+:::
+
+<!-- /update-20261103: mlr_importance_palette -->
 
 ## `plt_imp_bar_per()`：方法、配色与布局
 
@@ -992,6 +1038,7 @@ attr(p_rank_save, "plot_size")
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补齐条形和环图的pal_get色板及向量输入](#bar-palettes-20261103)，保持同名HCL颜色。
 - 2026-10-26：补充[径向比例条 label_args](#radial-labels-20261026)的单行、换行及包装入口 PDF。
 - 2026-10-25：[标签、份额与绘图缩放](#labels-shares-20261025)
 :::
