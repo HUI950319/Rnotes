@@ -15,6 +15,8 @@ date-modified: 2026-11-03
 get_um() 用同一单因素行模板对齐多个多因素模型，适合清楚展示调整集合的变化。页面先展示预先指定模型，再展示自动筛选和绝对效应，最后比较 autoReg 的表格/绘图入口。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 RegR `769f460c`（0.1.3）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `7bf81d05`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 RegR `f80e0e95`（0.1.3）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 原页模型和图表保留2026-10-01的RegR 0.1.3、WSL R4.4.3执行快照；下方新增小样本核对另记固定提交。示例用于理解接口和输出，不构成外部验证或临床效果结论。
@@ -353,6 +355,112 @@ validation_values <- list(n = nrow(literal_data), selected = um_literal[["var_mu
 
 <!-- /update-20261103b: regr_literal_names -->
 
+### 缺失值规范化与各模型人数（2026-11-03） {#cohorts-20261103c}
+
+<!-- update-20261103c: late_um_cohorts -->
+
+`get_um()`先规范化模型列：SPSS用户缺失值和缺失范围按NA处理，变量标签保留；不支持的列形状、无限值与常量候选列按列名报错。每个模型表的计数来自该模型的完整病例，宽表共用的描述列仍来自各单因素队列。需要模型总人数与事件数时读`attr(result$tables[[模型名]], "fit_info")`，不要用宽表某列代替所有模型的N。
+
+下面120行中，x有15个SPSS用户缺失，z有60个普通缺失：x单因素用105人，z单因素和完整模型用60人。
+
+```r
+library(RegR)
+set.seed(1987)
+cohort_data <- data.frame(y = rbinom(120, 1, .4), x = rnorm(120), z = rnorm(120),
+  g = factor(rep(c("A", "B", "C"), length.out = 120)))
+cohort_data[["x"]][1:10] <- 99
+cohort_data[["x"]][11:15] <- 95
+cohort_data[["x"]] <- haven::labelled_spss(cohort_data[["x"]],
+  na_values = 99, na_range = c(90, 98), label = "Predictor X")
+cohort_data[["z"]][1:60] <- NA_real_
+cohort_result <- get_um(cohort_data, c("x", "z", "g"), surv = "y")
+cohort_rows <- dplyr::bind_rows(lapply(names(cohort_result[["tables"]]), function(model) {
+  tab <- cohort_result[["tables"]][[model]]
+  dplyr::mutate(tab[c("variable", "label", "num1", "eve1")], Model = model)
+}))
+cohort_gt <- gt::gt(cohort_rows, groupname_col = "Model")
+gt::gtsave(cohort_gt, file.path(tempdir(), "20261103c-update-um-cohorts.html"))
+```
+
+![同一预测变量在单因素与完整模型中的人数，随该模型实际可用队列变化。](images/um-guide/20261103c-update-um-cohorts.png){fig-alt="实际get_um模型表的计数：120行输入，x单因素105人，z和完整模型60人；各模型保留自己的事件数。"}
+
+[原生表格 HTML](images/um-guide/20261103c-update-um-cohorts.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+plain_data <- cohort_data
+plain_data[["x"]] <- as.double(plain_data[["x"]])
+plain_data[["x"]][1:15] <- NA_real_
+plain_result <- get_um(plain_data, c("x", "z", "g"), surv = "y")
+stopifnot(isTRUE(all.equal(cohort_result[["tables"]][["full"]][["estimate"]],
+  plain_result[["tables"]][["full"]][["estimate"]])))
+uni_counts <- cohort_result[["tables"]][["univariable"]]
+full_counts <- cohort_result[["tables"]][["full"]]
+stopifnot(trimws(uni_counts[["num1"]][uni_counts[["variable"]] == "x"]) == "105(100.0)",
+  trimws(full_counts[["num1"]][full_counts[["variable"]] == "x"]) == "60(100.0)",
+  attr(full_counts, "fit_info")[["n"]] == 60)
+invalid_columns <- lapply(list(rep(1, 120), complex(real = plain_data[["x"]]),
+  I(as.list(plain_data[["x"]]))), function(value) {
+    bad <- plain_data
+    bad[["x"]] <- value
+    tryCatch({get_um(bad, c("x", "z"), surv = "y"); ""}, error = conditionMessage)
+})
+stopifnot(all(grepl("Column 'x'", unlist(invalid_columns), fixed = TRUE)))
+validation_values <- list(n = nrow(cohort_data), counts = cohort_rows,
+  full_n = attr(full_counts, "fit_info")[["n"]], errors = invalid_columns)
+```
+:::
+
+同一调用内相同变量集合与方法的拟合会复用，p值筛选也复用已经计算的单因素模型；请求的模型名称和顺序保留。这部分按固定源码核对，本轮没有新增速度倍数或内存基准。
+
+<!-- /update-20261103c: late_um_cohorts -->
+
+### 非默认因子编码仍比较首水平（2026-11-03） {#contrasts-20261103c}
+
+<!-- update-20261103c: late_um_contrasts -->
+
+`get_um()`从拟合的contrast矩阵和协方差重建因子水平比较：sum、polynomial或另指定基准的treatment编码下，结果表仍以因子首水平为参考，不直接把编码系数当成某一水平的OR。UMS的autoReg入口有不同限制，见[UMS编码校验](table-guide.qmd)。
+
+```r
+library(RegR)
+set.seed(1987)
+contrast_data <- data.frame(y = rbinom(120, 1, .4), x = rnorm(120), z = rnorm(120),
+  g = factor(rep(c("A", "B", "C"), length.out = 120)))
+baseline_contrast <- get_um(contrast_data, c("g", "z"), surv = "y", conf_level = .90)
+contrast_results <- lapply(list(sum = stats::contr.sum(3), polynomial = stats::contr.poly(3),
+  treatment_B = stats::contr.treatment(3, base = 2)), function(coding) {
+    changed <- contrast_data
+    contrasts(changed[["g"]]) <- coding
+    get_um(changed, c("g", "z"), surv = "y", conf_level = .90)
+})
+contrast_rows <- dplyr::bind_rows(lapply(names(contrast_results), function(coding) {
+  tab <- contrast_results[[coding]][["tables"]][["full"]]
+  dplyr::mutate(tab[tab[["variable"]] == "g" & tab[["row_type"]] == "level",
+    c("label", "estimate", "conf.low", "conf.high", "p_value")], Coding = coding)
+}))
+gt::gtsave(gt::gt(contrast_rows, groupname_col = "Coding"),
+  file.path(tempdir(), "20261103c-update-um-contrasts.html"))
+```
+
+![三种编码得到同一组首水平参照OR和90%区间。](images/um-guide/20261103c-update-um-contrasts.png){fig-alt="120行实际Logistic拟合，sum、polynomial和以B编码为基准的treatment结果表均显示A为参考，B/C的OR与90%区间相同。"}
+
+[原生表格 HTML](images/um-guide/20261103c-update-um-contrasts.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (result in contrast_results) for (model in c("univariable", "full")) {
+  columns <- c("estimate", "conf.low", "conf.high", "p_value")
+  stopifnot(isTRUE(all.equal(result[["tables"]][[model]][columns],
+    baseline_contrast[["tables"]][[model]][columns], tolerance = 1e-8)))
+}
+validation_values <- list(n = nrow(contrast_data), rows = contrast_rows)
+```
+:::
+
+本节实际重跑Logistic。Cox/Fine–Gray和有序因子的同类恢复按固定源码及上游测试核对，没有另报本节的生存模型执行结果。
+
+<!-- /update-20261103c: late_um_contrasts -->
+
 ## 自动筛选与拟合状态
 
 
@@ -682,6 +790,70 @@ validation_values <- list(n = nrow(row_data), groups = as.list(table(row_data[["
 :::
 
 <!-- /update-20261103b: regr_abs_rows -->
+
+### 绝对差的P值口径与不可估计状态（2026-11-03） {#absolute-p-20261103c}
+
+<!-- update-20261103c: late_um_abs -->
+
+Logistic绝对差的`p_value`与其他效应表共用固定1.96的区间换算口径；当置信水平不是95%时，它可能随所选区间改变。差值模型自身的Wald P保存在`p.value_0.95`，不随`conf_level`改变。区分这两个字段，避免把90%区间反算的P当成模型原始Wald P。
+
+```r
+library(RegR)
+set.seed(1987)
+abs_data <- data.frame(y = rbinom(120, 1, .4), x = rnorm(120), z = rnorm(120),
+  g = factor(rep(c("A", "B", "C"), length.out = 120)))
+abs_results <- lapply(c(.95, .90), function(level) get_um(abs_data, c("g", "z"),
+  surv = "y", conf_level = level, abs_args = list(enabled = TRUE)))
+abs_rows <- dplyr::bind_rows(lapply(seq_along(abs_results), function(i) {
+  tab <- abs_results[[i]][["absolute"]][["tables"]][["full"]]
+  dplyr::mutate(tab[tab[["variable"]] == "g" & tab[["row_type"]] == "level",
+    c("label", "estimate", "conf.low", "conf.high", "p_value", "p.value_0.95")],
+    CI = c("95%", "90%")[i])
+}))
+gt::gtsave(gt::gt(abs_rows, groupname_col = "CI"),
+  file.path(tempdir(), "20261103c-update-um-absolute-p.html"))
+```
+
+![相同标准化风险差下，90%与95%区间对应的P字段分别保留。](images/um-guide/20261103c-update-um-absolute-p.png){fig-alt="同一120行模型的实际绝对差结果，90%区间更窄，固定1.96反算的p_value与95%时不同，而p.value_0.95保留同一Wald P。"}
+
+[原生表格 HTML](images/um-guide/20261103c-update-um-absolute-p.html)
+
+::: {.callout-note collapse="true" title="复核代码与完全分离示例"}
+```r
+tabs <- lapply(abs_results, function(x) x[["absolute"]][["tables"]][["full"]])
+row <- which(tabs[[1]][["label"]] == "B")
+stopifnot(isTRUE(all.equal(tabs[[1]][["p.value_0.95"]][row], tabs[[2]][["p.value_0.95"]][row])),
+  isTRUE(all.equal(tabs[[2]][["p_value"]][row], 2 * pnorm(-abs(tabs[[2]][["estimate"]][row] /
+    ((tabs[[2]][["conf.high"]][row] - tabs[[2]][["conf.low"]][row]) / (2 * 1.96)))))))
+separated <- abs_data
+separated[["g"]] <- factor(rep(c("A", "B"), each = 60))
+separated[["y"]] <- rep(0:1, each = 60)
+abs_warnings <- list()
+separated_result <- withCallingHandlers(get_um(separated, c("g", "z"), surv = "y",
+  abs_args = list(enabled = TRUE)), warning = function(w) {
+    abs_warnings[[length(abs_warnings) + 1L]] <<- w
+    invokeRestart("muffleWarning")
+})
+separated_table <- separated_result[["absolute"]][["tables"]][["full"]]
+level_rows <- separated_table[["row_type"]] == "level"
+stopifnot(sum(vapply(abs_warnings, inherits, FALSE, "RegR_absolute_not_estimable")) == 2,
+  all(separated_table[["absolute_status"]][level_rows] == "not_estimable"),
+  all(is.na(separated_table[["estimate_sur"]][level_rows])))
+gt::gtsave(gt::gt(separated_table[level_rows, c("label", "estimate_sur", "absolute_status")]),
+  file.path(tempdir(), "20261103c-update-um-not-estimable.html"))
+validation_values <- list(n = nrow(abs_data), rows = abs_rows,
+  separated = separated_table[level_rows, c("label", "estimate_sur", "absolute_status")],
+  warning_classes = lapply(abs_warnings, class))
+```
+:::
+
+![完全分离的两个水平保留不可估计状态，不补成零效应。](images/um-guide/20261103c-update-um-not-estimable.png){fig-alt="实际完全分离Logistic绝对风险表，两水平的estimate_sur均缺失，absolute_status均为not_estimable。"}
+
+[原生状态表 HTML](images/um-guide/20261103c-update-um-not-estimable.html)
+
+完全分离已在上例实际触发警告；不收敛和边界拟合的同类处理按源码核对。出现此状态时，不应把缺失风险或差值解读为无效应。
+
+<!-- /update-20261103c: late_um_abs -->
 
 ## Cox：60 月 S(t) 与参照减比较
 
@@ -1045,6 +1217,9 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[明确绝对差P值与不可估计状态](#absolute-p-20261103c)。
+- 2026-11-03：[补齐非默认contrast编码的首水平比较](#contrasts-20261103c)。
+- 2026-11-03：[补齐SPSS缺失规范化与各模型真实人数](#cohorts-20261103c)。
 - 2026-11-03：[补齐同名标题与水平的绝对风险对齐](#absolute-rows-20261103b)。
 - 2026-11-03：[核对特殊列名和内部名称避让](#literal-names-20261103b)。
 :::
