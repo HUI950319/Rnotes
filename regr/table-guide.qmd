@@ -15,6 +15,8 @@ directory:
 先明确表格描述什么、百分比分母是什么，再选择展示和导出形式。下面比较同一队列的中位数、均数、列/行百分比、分层基线和生存摘要；每个标签页展示实际生成的表格。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-03 追加按已推送 RegR `f80e0e95`（0.1.3）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 RegR `415c6453`（0.1.3）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
@@ -370,6 +372,102 @@ get_tb_autoreg(td, group_var = "Sex", com_var = table_vars)
 
 :::
 
+### UMS输入校验、特殊列名与全局绑定（2026-11-03） {#ums-inputs-20261103b}
+
+<!-- update-20261103b: regr_ums_names -->
+
+`get_tb_ums()`和`plt_tb_ums()`接受变量名向量或tidyselect选择，内部适配autoReg后保留原始显示名。`surv`只接受TRUE（Cox）或一个结局列名（Logistic）；`threshold`是0–1的有限数值标量，`format_res`只在表格入口接受单个TRUE/FALSE。空数据、空选择和缺少必要结局列会给出明确错误。
+
+下例用120行合成数据展示含空格的预测/结局名。`get_tb_ums()`返回数据框，运行时另打印flextable；这里从实际返回值生成同一autoReg表格后端，并导出HTML和Word。
+
+```r
+library(RegR)
+set.seed(1103)
+ums_data <- data.frame(x = rnorm(120), z = factor(sample(c("A", "B"), 120, TRUE)))
+ums_data[["y"]] <- rbinom(120, 1, plogis(ums_data[["x"]]))
+names(ums_data)[match(c("x", "y"), names(ums_data))] <- c("age years", "outcome event")
+ums_raw <- run_quiet(get_tb_ums(ums_data, c("age years", "z"), surv = "outcome event",
+  threshold = 1, format_res = FALSE))
+ums_ft <- autoReg::myft(ums_raw, digits = 3)
+flextable::save_as_html(ums_ft, path = file.path(tempdir(), "20261103b-update-ums-names.html"))
+save_tb(ums_ft, path = tempdir(), title = "20261103b-update-ums-names.docx")
+```
+
+![autoReg原生表格保留age years的显示名称。](images/table-guide/20261103b-update-ums-names.png){fig-alt="120行合成Logistic的实际autoReg flextable，预测和结局名称含空格，表中保留原始预测名称与OR。"}
+
+[原生表格 HTML](images/table-guide/20261103b-update-ums-names.html) · [原生 Word](images/table-guide/20261103b-update-ums-names.docx)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot("age years" %in% ums_raw[["name"]], "age years" %in% ums_raw[["id"]],
+  nzchar(ums_raw[["OR (univariable)"]][ums_raw[["id"]] == "age years"]))
+global_binding_ok <- local({
+  rlang::local_bindings(data = NULL, .env = .GlobalEnv)
+  invisible(run_quiet(get_tb_ums(ums_data, c("age years", "z"), surv = "outcome event",
+    threshold = 1, format_res = FALSE)))
+  stopifnot(exists("data", .GlobalEnv, inherits = FALSE), is.null(get("data", .GlobalEnv)))
+  errors <- lapply(list(
+    quote(get_tb_ums(ums_data, "age years", surv = FALSE)),
+    quote(get_tb_ums(ums_data, "age years", threshold = c(.1, .2))),
+    quote(get_tb_ums(ums_data, "age years", format_res = 1))), function(call) {
+      tryCatch({eval(call); ""}, error = conditionMessage)
+  })
+  stopifnot(all(nzchar(unlist(errors))), exists("data", .GlobalEnv, inherits = FALSE),
+    is.null(get("data", .GlobalEnv)))
+  TRUE
+})
+validation_values <- list(n = nrow(ums_data), names = ums_raw[["name"]], ids = ums_raw[["id"]],
+  null_global_restored = global_binding_ok)
+```
+:::
+
+这段状态复核在独立R进程执行，并在退出局部作用域时恢复原绑定。UMS为了autoReg暂存的全局`data`，现在也能在成功或失败后恢复原先存在的NULL，而不是将它删除。
+
+<!-- /update-20261103b: regr_ums_names -->
+
+### UMS Cox的缺失结局与二分类编码（2026-11-03） {#ums-cox-20261103b}
+
+<!-- update-20261103b: regr_ums_cox -->
+
+这两个autoReg入口的Cox路径要求`DSS`为0（删失）/1（事件），忽略缺失结局，且至少有一个事件。0/1/2竞争结局和全删失数据给出诊断；不要把`get_um()`的二水平标准化或Fine–Gray分派规则套用到此入口。
+
+```r
+library(RegR)
+set.seed(1103)
+cox_ums_data <- data.frame(x = rnorm(120), z = factor(sample(c("A", "B"), 120, TRUE)))
+cox_ums_data[["time"]] <- rexp(120, exp(.7 * cox_ums_data[["x"]])) + .02
+cox_ums_data[["DSS"]] <- rbinom(120, 1, .65)
+cox_ums_data[["DSS"]][1] <- NA_integer_
+cox_ums_table <- run_quiet(get_tb_ums(cox_ums_data, c("x", "z"), threshold = 1, format_res = FALSE))
+cox_ums_plot <- run_quiet(plt_tb_ums(cox_ums_data, c("x", "z"),
+  save = list(filename = file.path(tempdir(), "20261103b-update-ums-cox.pdf"), width = 10, height = 4)))
+```
+
+![一行缺失结局被排除后，Cox路径仍输出HR森林图。](images/table-guide/20261103b-update-ums-cox.png){fig-alt="120行输入含一行缺失DSS，实际Cox模型基于119行可用结局绘制单因素和多因素HR森林图，仍以1为参考。"}
+
+[原生 PDF](images/table-guide/20261103b-update-ums-cox.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+cox_complete <- cox_ums_data[!is.na(cox_ums_data[["DSS"]]), ]
+cox_manual_table <- run_quiet(get_tb_ums(cox_complete, c("x", "z"), threshold = 1, format_res = FALSE))
+stopifnot(nrow(cox_complete) == 119L, identical(cox_ums_table, cox_manual_table))
+cox_errors <- lapply(list(get_tb_ums, plt_tb_ums), function(fn) {
+  competing <- cox_ums_data
+  competing[["DSS"]] <- factor(rep(0:2, length.out = 120))
+  no_events <- cox_ums_data
+  no_events[["DSS"]] <- 0L
+  c(competing = tryCatch({fn(competing, "x"); ""}, error = conditionMessage),
+    no_events = tryCatch({fn(no_events, "x"); ""}, error = conditionMessage))
+})
+stopifnot(all(nzchar(unlist(cox_errors))))
+validation_values <- list(input_n = nrow(cox_ums_data), complete_n = nrow(cox_complete),
+  events = sum(cox_complete[["DSS"]]), errors = cox_errors)
+```
+:::
+
+<!-- /update-20261103b: regr_ums_cox -->
+
 ## 生存摘要：HR 与时点生存概率
 
 
@@ -489,6 +587,7 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-03：[补齐UMS的特殊列名、全局绑定和Cox结局校验](#ums-inputs-20261103b)。
 - 2026-11-03：[补充Fisher模拟脚注与Word制表符修复](#fisher-footnote-20261103)，保留真实表格与导出文件。
 - 2026-10-24：[精度与自动选列](#precision-columns-20261024)
 :::
