@@ -2,18 +2,20 @@
 title: "集合比较：Venn、UpSet、成员分组与 Jaccard 热图"
 description: "plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵；含历史参数对照与当前集合身份、透明填色和组合图示例。"
 date: 2026-10-20
-date-modified: 2026-11-02
+date-modified: 2026-11-04
 lightbox: true
 toc-depth: 2
 directory:
   title: "集合比较：Venn、UpSet、成员分组与 Jaccard 热图"
   topic: 绘图与格式化
-  updated: 2026-11-02
+  updated: 2026-11-04
 ---
 
 plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -673,6 +675,45 @@ data.frame(identical_matrix = identical(m1, m2), A_B = m1["A", "B"])
 
 :::
 
+### 精确时间成员与 Jaccard 空集合（2026-11-04） {#sets_time-20261104}
+
+<!-- update-20261104: sets_time -->
+
+`plt_upset()` 用同类时间值选择成员时保留分数精度。日期时间按实际时间点匹配，`difftime` 按秒匹配。Period 使用日历成分，Interval 使用起点和长度。字符选择继续按显示文本匹配。`PlotHeatmapJaccard()` 用完整类型键匹配特征与分组，支持 SPSS 用户缺失及 `integer64` 缺失。显式 `group_levels` 会检查重复显示标签，忽略缺失项，并将未观察水平保留为空集合。空集合与自身的 Jaccard 值也为 0。
+
+```r
+library(UtilsR)
+instants <- as.POSIXct(c(1, 1 + 1e-7, NA), origin = "1970-01-01", tz = "UTC")
+members <- data.frame(A = instants, B = c("No", "No", "No"))
+membership <- plt_upset(members, c("A", "B"), levels = instants[1], output = "data")
+starts <- as.POSIXct(c(1, 2, 2, 2, 3, NA), origin = "1970-01-01", tz = "UTC")
+features <- data.frame(cell_type = rep(c("A", "B"), each = 3))
+features[["gene"]] <- lubridate::interval(starts, starts + 5)
+similarity <- PlotHeatmapJaccard(features, group_levels = c("Empty", "B", "A"),
+                                 show_diag = TRUE, return_type = "both")
+ggplot2::ggsave(file.path(tempdir(), "20261104-update-jaccard-time.pdf"),
+                similarity[["plot"]], width = 5.8, height = 5, device = grDevices::cairo_pdf)
+```
+
+![同长度的时间区间按起点区分，A 和 B 交集一项并集三项](images/sets-guide/20261104-update-jaccard-time.png){fig-alt="同长度的时间区间按起点区分，A 和 B 交集一项并集三项"}
+
+[原生 PDF](images/sets-guide/20261104-update-jaccard-time.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(as.character(membership[["intersect_group"]]), c("A", "None", "None")),
+  identical(rownames(similarity[["matrix"]]), c("Empty", "B", "A")),
+  all(similarity[["matrix"]]["Empty", ] == 0),
+  isTRUE(all.equal(similarity[["matrix"]]["A", "B"], 1/3)),
+  inherits(tryCatch(PlotHeatmapJaccard(features, group_levels = c("A", "A")),
+                    error = identity), "error"))
+validation_values <- list(n = nrow(features), membership = as.character(membership[["intersect_group"]]),
+                          matrix = similarity[["matrix"]])
+```
+:::
+
+<!-- /update-20261104: sets_time -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 `plt_upset()` 的Venn是ggplot，UpSet是upset_plot/aplot；当前both返回完整patchwork组合，all同时提供三个图对象和分组数据。上方0.6.8的回退截图与返回类型表是历史记录；当前行为见[实跑示例](#identity-20261031)。
@@ -807,6 +848,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-04：[精确时间成员与 Jaccard 空集合](#sets_time-20261104)。
 - 2026-11-02：[补充标签集合与矩阵直返](#jaccard-cache-20261102b)，核对请求保存和返回图不保留原始载荷。
 - 2026-11-01：补充交集水平与16集合边界；同步参数表和返回说明中的当前透明填色行为。
 - 2026-11-01：[区分分类UpSet入口](#cat-upset-20261101)，补充单行、透明度与忽略列的链接。
