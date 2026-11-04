@@ -2,18 +2,20 @@
 title: "分类分布与流向：堆积柱、Alluvial 和 Sankey"
 description: "plt_dist 的分派，plt_alluvial 的比例、间隔和命名 list，plt_sankey 的节点次序与标签；26 个实际图形示例。"
 date: 2026-10-20
-date-modified: 2026-11-03
+date-modified: 2026-11-04
 lightbox: true
 toc-depth: 2
 directory:
   title: "分类流向：Sankey命名list、标签映射与保存"
   topic: 绘图与格式化
-  updated: 2026-11-03
+  updated: 2026-11-04
 ---
 
 plt_dist 的分派，plt_alluvial 的比例、间隔和命名 list，plt_sankey 的节点次序与标签。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 UtilsR `7bf81d05`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `7bf81d05`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 UtilsR `680ef17d`（0.6.22）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -916,6 +918,51 @@ validation_values <- list(paths = unique(sankey_pathsC(sankey_plotC)),
 
 <!-- /update-20261101c: utils_flow_fields -->
 
+### 近邻数值、SPSS 缺失节点与分母（2026-11-04） {#flow_identity-20261104}
+
+<!-- update-20261104: flow_identity -->
+
+`plt_dist()` 在柱图、热图和分面中以精确数值区分类别，普通数值按升序排列，标签重合时增加精度。`plt_alluvial()` 同样保留实际类别，并在计数前拒绝矩阵、数组或数据框列。`plt_sankey()` 将 SPSS 用户缺失值转为缺失节点，所有输入行仍参与流量与比例分母。`show_text = "name"` 也会显示缺失节点名。
+
+```r
+library(UtilsR)
+neighbours <- c(1, 1 + 1e-15)
+distribution <- data.frame(stage = c("A", "A", "B", "B"),
+                           code = neighbours[c(1, 2, 2, 2)])
+bars <- plt_dist(distribution, c("stage", "code"), type = "bar")
+flows <- plt_alluvial(distribution, "stage", "code", stratum_args = list(gap = 0))
+paths <- data.frame(
+  from = haven::labelled_spss(c(1, 99, NA, 1), na_values = 99),
+  to = c("X", "X", "Y", "Y"))
+missing_flow <- plt_sankey(paths, vars = c("from", "to"), show_text = "name")
+ggplot2::ggsave(file.path(tempdir(), "20261104-update-dist-keys.pdf"),
+                bars, width = 7.5, height = 4.5, device = grDevices::cairo_pdf)
+ggplot2::ggsave(file.path(tempdir(), "20261104-update-sankey-na.pdf"),
+                missing_flow, width = 7, height = 4.5, device = grDevices::cairo_pdf)
+```
+
+![两组近邻数值的组成保持各自计数](images/flow-guide/20261104-update-dist-keys.png){fig-alt="两组近邻数值的组成保持各自计数"}
+
+[原生 PDF](images/flow-guide/20261104-update-dist-keys.pdf)
+
+![SPSS 缺失码与实际 NA 进入缺失节点，四行流量保留](images/flow-guide/20261104-update-sankey-na.png){fig-alt="SPSS 缺失码与实际 NA 进入缺失节点，四行流量保留"}
+
+[原生 PDF](images/flow-guide/20261104-update-sankey-na.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+nodes <- ggplot2::ggplot_build(missing_flow)$data
+stopifnot(identical(as.double(levels(bars$data$code)), neighbours),
+  identical(as.double(levels(flows$data$.group)), neighbours),
+  sum(bars$data$n) == 4, sum(flows$data$count) == 4, "NA" %in% nodes[[3]]$label,
+  all(nodes[[2]]$ymax - nodes[[2]]$ymin == 2))
+validation_values <- list(n = nrow(distribution), categories = nlevels(bars$data$code),
+                          paths = nrow(paths), node_height = nodes[[2]]$ymax - nodes[[2]]$ymin)
+```
+:::
+
+<!-- /update-20261104: flow_identity -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 三个入口返回 ggplot，当前均支持非空 `save` 转交 `RegR::save_plt()` 保存 PDF；省略尺寸时按内容估算，见[当前保存示例](#save-20261020)。上方历史保存示例显式给出宽高，其输出保留原记录。
@@ -1096,6 +1143,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-04：[近邻数值、SPSS 缺失节点与分母](#flow_identity-20261104)。
 - 2026-11-03：[补齐全局部分主题下的默认字号回退](#font-fallback-20261103c)。
 - 2026-11-03：[补充分布柱图与热图的部分主题字号继承](#partial-font-20261103b)。
 - 2026-11-01：补充分布入口的类定义缺失分母，以及Sankey列名隔离、显示节点配色和载荷边界。
