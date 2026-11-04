@@ -7,8 +7,8 @@ toc-depth: 2
 directory:
   title: "组合散点图：边际分布、双分组与配对差值，23 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-11-02
-date-modified: 2026-11-02
+  updated: 2026-11-04
+date-modified: 2026-11-04
 ---
 
 PlotScatter1/2/3 的点、椭圆、回归、相关、边际布局、栅格化和配对差值插图。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -16,6 +16,8 @@ PlotScatter1/2/3 的点、椭圆、回归、相关、边际布局、栅格化和
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 23 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -455,6 +457,61 @@ validation_values <- list(single_n = nrow(scatter_manyC), single_groups = length
 
 <!-- /update-20261101c: utils_scatter_mapping -->
 
+### 共享列角色、双图例与配对差值（2026-11-04） {#scatter_roles-20261104}
+
+<!-- update-20261104: scatter_roles -->
+
+`PlotScatter1()`、`PlotScatter2()` 和 `PlotScatter3()` 可将同一列用于数值轴和分组，图层单独保留分组键。名为 `.data` 的列也可以用于轴或分组。`PlotScatter2()` 的显式颜色、形状与填充映射须覆盖观察水平。未命名值按首次出现顺序，颜色与形状图例可独立控制。边际图和主图使用相同的显示范围，密度仍由原始数据估计。椭圆按颜色组构建，右下角两套填充图例可独立于全局主题显示。
+
+`PlotScatter3()` 先将整数测量提升到 double，再计算配对检验和 y−x。直方图有 `hist_bins` 个等宽箱，显式显示范围不改变检验与完整差值的中位数。裁切观察或标注时仍可能出现 ggplot2 的范围警告。
+
+```r
+library(UtilsR)
+library(ggplot2)
+d <- data.frame(.data = rep(c(10, 20), each = 6),
+                y = c(1, 2, 4, 3, 5, 6, 5, 4, 6, 7, 8, 9),
+                shape = rep(c("X", "Y"), 6))
+s <- PlotScatter2(d, ".data", "y", ".data", group2 = "shape",
+                 colors = c("20" = "#D55E00", "10" = "#0072B2"),
+                 shapes = c(X = 21, Y = 24), legend_color_pos = "bottom")
+single <- PlotScatter1(d, ".data", "y", ".data", show_ellipse = FALSE)
+pairs <- data.frame(Control = c(-2000000000L, -1900000000L, 0L, 10L, 1800000000L, 2000000000L),
+                    Treat = c(2000000000L, 1800000000L, 4L, 15L, -1900000000L, -2000000000L),
+                    group = rep(c("A", "B"), each = 3))
+paired <- PlotScatter3(pairs, test_method = "t.test", cor_method = "none",
+                       hist_bins = 5, hist_x_breaks = c(-4e9, 0, 4e9))
+ggsave(file.path(tempdir(), "20261104-update-scatter-shared.pdf"), s,
+       width = 9, height = 7, device = grDevices::cairo_pdf)
+ggsave(file.path(tempdir(), "20261104-update-scatter-difference.pdf"), paired,
+       width = 8, height = 7, device = grDevices::cairo_pdf)
+```
+
+![数值横轴保持 10 与 20，同时用同一列分组并展示双图例](images/scatter-guide/20261104-update-scatter-shared.png){fig-alt="数值横轴保持 10 与 20，同时用同一列分组并展示双图例"}
+
+[原生 PDF](images/scatter-guide/20261104-update-scatter-shared.pdf)
+
+![六对极端整数测量及其五箱差值分布](images/scatter-guide/20261104-update-scatter-difference.png){fig-alt="六对极端整数测量及其五箱差值分布"}
+
+[原生 PDF](images/scatter-guide/20261104-update-scatter-difference.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+main <- ggplot_build(s[[1]])
+stopifnot(setequal(main$data[[1]]$x, c(10, 20)), inherits(grob_as(single), "gtable"))
+stopifnot(inherits(tryCatch(PlotScatter2(d, ".data", "y", ".data",
+  colors = c("10" = "red")), error = identity), "error"))
+delta <- as.double(pairs$Treat) - as.double(pairs$Control)
+expected <- paste0("p = ", format.pval(t.test(delta)$p.value, digits = 2))
+annotations <- unlist(lapply(ggplot_build(paired[[1]])$data, function(d) d$label))
+stopifnot(all(is.finite(delta)), max(delta) == 4e9, min(delta) == -4e9,
+          expected %in% annotations)
+validation_values <- list(n = nrow(d), pairs = nrow(pairs), x = sort(unique(main$data[[1]]$x)),
+                          delta = delta)
+```
+:::
+
+<!-- /update-20261104: scatter_roles -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 三个函数返回 patchwork。`filename = NULL` 不保存；给出文件名时由函数按 width/height/dpi 导出。当前接口使用 filename，并非统一 save list。
@@ -576,6 +633,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-04：[共享列角色、双图例与配对差值](#scatter_roles-20261104)。
 - 2026-11-02：补充配对差值直方图的独立自动范围、平移不变性及零差值示例。
 - 2026-11-01：补充默认映射容量、完整显式映射和提前报错；参数表在手机宽度下独立横向滚动。
 :::
