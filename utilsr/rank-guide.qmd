@@ -2,18 +2,22 @@
 title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖"
 description: "排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局；28 个实际参数示例。"
 date: 2026-10-01
-date-modified: 2026-11-02
+date-modified: 2026-11-04
 lightbox: true
 toc-depth: 2
 directory:
   title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖，28 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-11-02
+  updated: 2026-11-04
 ---
 
 排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-04 追加按已推送 UtilsR `6b03397f`（0.6.22）导出源码，同时固定 RegR `769f460c` 与 UtilsR `6b03397f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -520,6 +524,50 @@ validation_values <- list(ranks = as.data.frame(p_rank[["data"]]), correlation =
 
 <!-- /update-20261024: rank_missing -->
 
+### 大偏移分数、空方法名与多组副标题（2026-11-04） {#late_rankcor-20261104}
+
+<!-- update-20261104: late_rankcor -->
+
+`PlotRankCor(use_rank = FALSE)` 计算相关性或缩放前先中心化有限分数，大共同偏移下可保留原本能表示的组内差异。空字符串仍是有效方法标签，真正缺失的方法值另行处理。同一列同时用于配对键和点大小或透明度时，配对继续使用原始键。组较多时，副标题在完整的组统计摘要之间换行。
+
+```r
+library(UtilsR)
+d <- expand.grid(item = 1:4, group = sprintf("Group %02d", 1:4),
+                 method = c("", "Second"), stringsAsFactors = FALSE)
+offsets <- c(0, 1, 3, 8)
+other <- c(1, 2, 0, 7)
+d$score <- c(rep(2^52 + offsets, 4), rep(other, 4))
+p <- PlotRankCor(d, stat.by = "item", value.by = "score", method.by = "method",
+  group.by = "group", use_rank = FALSE, scale_x = "minmax", scale_y = "minmax",
+  size_by = "item")
+ggplot2::ggsave(file.path(tempdir(), "20261104-update-rank-offset.pdf"),
+  p + ggplot2::theme(legend.position = "right"),
+  width = 9, height = 5.5, device = grDevices::cairo_pdf)
+```
+
+![四组配对分数保留组内差异，副标题按完整的统计摘要换行](images/rank-guide/20261104-update-rank-offset.png){fig-alt="四组配对分数保留组内差异，副标题按完整的统计摘要换行"}
+
+[原生 PDF](images/rank-guide/20261104-update-rank-offset.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+results <- attr(p, "cor_results")
+summaries <- sprintf("%s: r = %.3f (p = %.3g)", results$group, results$rho, results$p.value)
+subtitle <- p$labels$subtitle
+points <- ggplot2::ggplot_build(p)$data[[1]]
+stopifnot(nrow(p$data) == 16L, all(nzchar(names(p$data))), setequal(p$data$item, 1:4),
+  p$labels$x == " (minmax)", p$labels$y == "Second (minmax)",
+  all(abs(results$rho - cor(offsets, other)) < 1e-14),
+  all(is.finite(points$size)), isTRUE(all.equal(sort(unique(points$x)), offsets / max(offsets))),
+  grepl("\n", subtitle, fixed = TRUE),
+  identical(gsub("\n", "    ", subtitle, fixed = TRUE), paste(summaries, collapse = "    ")))
+validation_values <- list(rows = nrow(d), pairs = nrow(p$data),
+  rho = results$rho, x = p$labels$x, y = p$labels$y)
+```
+:::
+
+<!-- /update-20261104: late_rankcor -->
+
 ## 点映射与对齐数据
 
 ::: {.panel-tabset}
@@ -798,6 +846,51 @@ PlotCircleLollipop(circle_dat, color_col = "color", show_links = FALSE,
 
 :::
 
+### 精确方法、整数参数与圆图分数（2026-11-04） {#rank_keys-20261104}
+
+<!-- update-20261104: rank_keys -->
+
+`PlotRank()` 的 `top_n`、`max_show` 和 `ncol` 都会提前校验整数范围，`top_n = 0` 取消高亮，`ncol = NULL` 自动排布。不同分组若显示同名，需要先赋唯一标签。`PlotRankCor()` 先按原值区分组和方法，再用后缀消除显示重名。方法必须恰有两种，非因子按出现次序映射横轴和纵轴。`PlotCircleLollipop()` 以字符或有序因子的数值标签排序与缩放，不能解析的非缺失分数会报错。近邻组标签重合时会提高精度并按需加后缀，各扇区继续分别缩放。
+
+```r
+library(UtilsR)
+ranks <- data.frame(item = rep(letters[1:4], 2),
+                    method = rep(c(1, 1 + .Machine$double.eps), each = 4),
+                    score = c(40, 30, 20, 10, 8, 2, 6, 4))
+association <- PlotRankCor(ranks, stat.by = "item", value.by = "score",
+                           method.by = "method")
+ggplot2::ggsave(file.path(tempdir(), "20261104-update-rank-method.pdf"),
+                association, width = 6.5, height = 5, device = grDevices::cairo_pdf)
+circle <- data.frame(group = rep(c("A", "B"), each = 3),
+                     name = rep(c("One", "Two", "Three"), 2),
+                     value = ordered(c(".1", ".4", ".9", ".2", ".8", ".6"),
+                       levels = c(".9", ".1", ".8", ".6", ".4", ".2")))
+PlotCircleLollipop(circle, top_n = 2, value_scale = "group", show_yaxis = FALSE,
+  filename = file.path(tempdir(), "20261104-update-circle-score.png"), width = 6, height = 6)
+```
+
+![显示原本相同的两个方法分别作为横纵轴，四项特征完成配对](images/rank-guide/20261104-update-rank-method.png){fig-alt="显示原本相同的两个方法分别作为横纵轴，四项特征完成配对"}
+
+[原生 PDF](images/rank-guide/20261104-update-rank-method.pdf)
+
+![按有序因子的实际数值标签选取每组前两项后绘制的圆图](images/rank-guide/20261104-update-circle-score.png){fig-alt="按有序因子的实际数值标签选取每组前两项后绘制的圆图"}
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+reject <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+stopifnot(identical(association$labels$x, "1 (rank)"),
+          identical(association$labels$y, "1.1 (rank)"),
+          nrow(association$data) == 4,
+          reject(PlotRank(setNames(1:3, letters[1:3]), top_n = 1.5)),
+          reject(PlotCircleLollipop(circle, top_n = 1.5)),
+          file.info(file.path(tempdir(), "20261104-update-circle-score.png"))$size > 0)
+validation_values <- list(n = nrow(ranks), aligned = nrow(association$data),
+                          x = association$labels$x, y = association$labels$y)
+```
+:::
+
+<!-- /update-20261104: rank_keys -->
+
 ## 圆图保存与对象
 
 ::: {.panel-tabset}
@@ -916,6 +1009,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-04：[大偏移分数、空方法名与多组副标题](#late_rankcor-20261104)。
+- 2026-11-04：[精确方法、整数参数与圆图分数](#rank_keys-20261104)。
 - 2026-11-02：[补充圆图极端范围与分组预检](#circle-groups-20261102b)，省略未使用水平并拒绝缺失或漏列组。
 - 2026-11-02：[补充极端分数的缩放范围](#rank-ranges-20261102b)，区分完整组与实际显示值。
 - 2026-11-02：补充圆图常数分数的最小显示高度及成功、保存和报错后的图形状态恢复。
