@@ -2,18 +2,20 @@
 title: "因子与统计文本：排序、合并、分箱和区间格式化"
 description: "fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界；参数对照及重编码、缺失和分箱边界。"
 date: 2026-10-20
-date-modified: 2026-11-02
+date-modified: 2026-11-04
 lightbox: true
 toc-depth: 2
 directory:
   title: "因子与统计文本：排序、合并、分箱和区间格式化及数据边界"
   topic: 数据准备与筛选
-  updated: 2026-11-02
+  updated: 2026-11-04
 ---
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-02 追加按已推送 UtilsR `41d36456`（0.6.20）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -1246,6 +1248,57 @@ validation_values <- list(order = orders, p = p_table,
 
 <!-- /update-20261023: pvalue_stats -->
 
+### 手稿空白、精确 P 值边界与组合键（2026-11-04） {#factor_precision-20261104}
+
+<!-- update-20261104: factor_precision -->
+
+`stat_ci()` 和 `stat_ci_parse()` 接受手稿里括号、分隔符及首尾的 Unicode 空白。`stat_ci_parse()` 的 `digits` 是 0 到 8190 的整数，且格式化后的每个数仍须满足 8192 字节限制。`stat_pval()` 先按原始十进制文本判断 0–1 的范围，避免越界数舍入为端点。很长但数学上等于 1 的输入仍可格式化。`fct_to_combine()` 按原值辨别组合，`integer64` 按带符号的精确数值排序。不同组合若生成同一标签，先显式提供唯一文本，例如用 `sprintf("%.17g", x)` 表示普通 double。
+
+```r
+library(UtilsR)
+manuscript <- "\u00a01.23 ( 0.95, 1.59 )\u00a0"
+one_text <- paste0("1", strrep("0", 5000), "e-5000")
+keys <- c(1, 1 + 1e-15)
+combined <- fct_to_combine(sprintf("%.17g", keys), c("X", "X"))
+interval <- stat_ci_parse(manuscript, exp = TRUE)
+display <- data.frame(
+  Example = c("CI from manuscript", "Long decimal equal to 1", rep("Combination key", 2)),
+  Result = c(interval, stat_pval(one_text), levels(combined)))
+gt::gtsave(gt::gt(display), file.path(tempdir(), "20261104-update-factor-precision.html"))
+```
+
+![手稿区间与精确 P 值的格式化结果，以及保留精度的两个组合标签](images/factor-guide/20261104-update-factor-precision.png){fig-alt="手稿区间与精确 P 值的格式化结果，以及保留精度的两个组合标签"}
+
+[原生表格 HTML](images/factor-guide/20261104-update-factor-precision.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+rejected <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+stopifnot(identical(interval, stat_ci_parse("1.23 (0.95, 1.59)", exp = TRUE)),
+  identical(stat_ci(manuscript), stat_ci("1.23 (0.95, 1.59)")),
+  identical(stat_pval(one_text), "1.000"),
+  rejected(stat_pval("1.00000000000000001")), rejected(stat_pval("-1e-999")),
+  rejected(stat_ci_parse("-1 (-2, 0)", digits = 8190, exp = FALSE)),
+  rejected(fct_to_combine(keys, c("X", "X"))), nlevels(combined) == 2)
+large_ids <- bit64::as.integer64(c("9007199254740993", "-9007199254740993",
+                                  "9007199254740992"))
+integer64_order <- tryCatch(fct_to_combine(large_ids), error = identity)
+if ("order.integer64" %in% getNamespaceExports("bit64")) {
+  stopifnot(identical(levels(integer64_order),
+    c("-9007199254740993", "9007199254740992", "9007199254740993")))
+} else {
+  stopifnot(inherits(integer64_order, "error"),
+    grepl("order.integer64", conditionMessage(integer64_order), fixed = TRUE))
+  message("bit64 ", packageVersion("bit64"), ": ", conditionMessage(integer64_order))
+}
+validation_values <- display
+```
+:::
+
+WSL 的 bit64 4.6.0.1 已验证精确排序。Windows 的 bit64 4.8.0 上，当前 UtilsR 调用了该版本未导出的 `order.integer64()`，因此这一分支报错。复核代码同时记录了这两个结果。
+
+<!-- /update-20261104: factor_precision -->
+
 ## 输入合同与错误
 
 ::: {.panel-tabset}
@@ -1468,6 +1521,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-04：[手稿空白、精确 P 值边界与组合键](#factor_precision-20261104)。
 - 2026-11-02：[补充标准误溢出的差值区间](#se-overflow-20261102b)，核对置信水平调整与缩小参考值。
 - 2026-11-02：补充极大差值区间的稳定解析、等比例缩放复核，以及输入位数对自动尺度判断的影响。
 - 2026-11-01：补充极端比值区间的稳定对数计算与近似检验边界。
