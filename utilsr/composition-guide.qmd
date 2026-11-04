@@ -2,18 +2,23 @@
 title: "图形组合与导出：展平、grob、插图和栅格化"
 description: "嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较；实际参数对照与递归栅格化示例。"
 date: 2026-10-09
-date-modified: 2026-10-19
+date-modified: 2026-11-04
 lightbox: true
 toc-depth: 2
 directory:
   title: "图形组合：共享轴标题默认值与展平"
   topic: 绘图与格式化
-  updated: 2026-10-19
+  updated: 2026-11-04
 ---
 
 嵌套 patchwork 的选择和重排、gtable 边缘组件与插图、三种 raster 后端、面板尺寸和真实 PDF 比较。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 **核对记录：** 本次按已推送 UtilsR `fc078ec` 重新执行展平示例，保留最外层注释，并新增命名 list、插图单元、坐标标题和 guide 作用域对照。其他 grob / 栅格化图及文件大小表保留原执行快照；包版本仍为 0.6.8。本页使用固定随机种子的模拟数据。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 数据准备与输入约定 {#data}
 
@@ -358,6 +363,63 @@ wrapped | p3
 
 :::
 
+### 组合图转换与多面板对齐（2026-11-04） {#composition_panels-20261104}
+
+<!-- update-20261104: composition_panels -->
+
+`grob_as()` 使用 patchwork 的布局转换保留子图、注释和收集的图例，也保留单独 `wrap_elements()` 的内容。`grob_add()` 的边缘组件跨越全部主面板，连续追加时已添加的边缘组件不会改变对齐基准。`grob_insert(align_to = "panel")` 优先使用标准 panel 名称和 patchwork 的 panel-area。自定义 gtable 可以使用含 panel 的名称作为回退。没有面板时可选择 `plot` 或 `full` 对齐插图。
+
+```r
+library(UtilsR)
+library(ggplot2)
+d <- expand.grid(x = 1:3, row = c("Top", "Bottom"), column = c("Left", "Right"))
+d$y <- rep(c(2, 1, 3), 4)
+base <- ggplot(d, aes(x, y)) + geom_point() + facet_grid(row ~ column)
+native <- grob_as(base)
+band <- grid::rectGrob(gp = grid::gpar(fill = "#DFEBF8", col = NA))
+with_top <- grob_add(native, band, "top", space = grid::unit(3, "mm"))
+with_right <- grob_add(with_top, band, "right", space = grid::unit(3, "mm"))
+with_inset <- grob_insert(with_right, grid::textGrob("Panel inset"),
+                         left = .56, right = .96, bottom = .03, top = .19)
+ggsave(file.path(tempdir(), "20261104-update-grob-panels.pdf"), with_inset,
+       width = 7, height = 5, device = grDevices::cairo_pdf)
+```
+
+![上缘与右缘分别跨越四个面板的完整宽度和高度](images/composition-guide/20261104-update-grob-panels.png){fig-alt="上缘与右缘分别跨越四个面板的完整宽度和高度"}
+
+[原生 PDF](images/composition-guide/20261104-update-grob-panels.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+panels <- native$layout[grepl("^panel", native$layout$name), ]
+top <- tail(with_top$layout, 1)
+right <- tail(with_right$layout, 1)
+inset <- tail(with_inset$layout, 1)
+stopifnot(nrow(panels) == 4,
+  identical(c(top$l, top$r), c(min(panels$l), max(panels$r))),
+  right$b - right$t == max(panels$b) - min(panels$t),
+  inset$r - inset$l == max(panels$r) - min(panels$l),
+  inset$b - inset$t == max(panels$b) - min(panels$t))
+combo <- patchwork::wrap_plots(base, base, ncol = 2) +
+  patchwork::plot_annotation(title = "Two faceted plots")
+wrapped <- patchwork::wrap_elements(full = grid::textGrob("Wrapped text"))
+device_before <- grDevices::dev.cur()
+converted <- grob_as(combo)
+wrapper <- grob_as(wrapped)
+stopifnot(identical(grDevices::dev.cur(), device_before))
+reference <- local({
+  withr::local_pdf(NULL)
+  patchwork::patchworkGrob(combo)
+})
+stopifnot(identical(converted$layout, reference$layout),
+  any(grepl("^title", converted$layout$name)), inherits(wrapper, "gtable"))
+validation_values <- list(n = nrow(d), panels = nrow(panels),
+                          inset_columns = inset$r - inset$l)
+```
+:::
+
+<!-- /update-20261104: composition_panels -->
+
 ## 栅格化后端和分辨率
 
 ::: {.panel-tabset}
@@ -434,7 +496,7 @@ fmt_raster(p, method = "ragg", dpi = 300, width = 11, height = 8,
 
 ### 完整多图先转 gtable {.unnumbered}
 
-两个实际面板可给两个尺寸；先完整转 gtable，避免 grob_as 的 patchwork 转换遗漏子图。
+两个实际面板可给两个尺寸。此处沿用历史示例的显式 gtable 转换。当前版本也可通过 [grob_as 的完整转换](#composition_panels-20261104) 保留 patchwork 的子图。
 
 ```r
 gt <- patchwork::patchworkGrob(p1 | p3)
@@ -443,7 +505,7 @@ p <- fmt_raster(gt, method = "ragg", dpi = 150,
 p
 ```
 
-![两个实际面板可给两个尺寸；先完整转 gtable，避免 grob_as 的 patchwork 转换遗漏子图。](images/composition-guide/ragg-multiple.png){fig-alt="图形组合与导出：展平、grob、插图和栅格化；完整多图先转 gtable；固定模拟数据的实际参数对照结果。"}
+![历史示例先把组合图显式转换成 gtable，再指定两组面板尺寸。](images/composition-guide/ragg-multiple.png){fig-alt="两个实际面板分别使用指定尺寸的组合图"}
 
 ### 按返回总尺寸保存 {.unnumbered}
 
@@ -608,7 +670,7 @@ wrap_elements(full = p_text_keep) / wrap_elements(full = p_text_collect) +
 
 flatten_patchwork 返回 patchwork；grob_as 返回 grob/gtable；grob_add 与 grob_insert 返回 gtable，可用 grid.draw，或 grob_to_gg 包装后保存。grob_to_gg 不恢复原始 ggplot 数据层结构。
 
-当前 grob_as(patchwork) 复用 ggplotGrob，实测会遗漏组合子图；先用 patchwork::patchworkGrob 完整转换，再交给 UtilsR 的 grob 工具或 ragg 后端。grob_add 的对齐位置取面板布局行列的均值，多面板时不能保证对每个面板分别对齐，本页边缘组件只用单面板。
+`grob_as()` 保留完整的 patchwork 布局。多面板边缘和插图以全部主面板的行列范围对齐，见[多面板实测](#composition_panels-20261104)。
 
 ggrastr 后端由 UtilsR 显式选择点与 tile 层，其他层保持原路径；当前示例见[选择性栅格化](#current-20261019)。ragg 后端以面板子 grob 名称、class、viewport 等启发式保留文字，并非任意注释都保证矢量。两者都应在最终 PDF 的所需放大倍率检查可读性。
 
@@ -802,3 +864,9 @@ grob_image <- fmt_raster(grob_current, method = "image",
 ggrastr 后端由 UtilsR 选择 `GeomPoint` / `GeomTile` 层，线、柱、多边形与文字保持原绘制路径；不能从 ggrastr 依赖的默认 `layers` 推断范围。`image` 模式可用于 grob、recordedplot 及能通过 `print()` 绘制的对象，整图包括文字都会变成位图。带自身 class 的 list 对象按整体图形处理，普通无 class 的 list 才递归处理。
 
 展平时显式重设 `axes` 而未设置 `axis_titles`，会清除继承的轴标题收集设置；需要收集标题时显式给出 `axis_titles="collect"`。原命名 list、插图归属及 source plot 应保留，本节实际构建并导出以上结果。
+
+## 更新记录 {#page-updates}
+
+::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-04：[组合图转换与多面板对齐](#composition_panels-20261104)。
+:::
