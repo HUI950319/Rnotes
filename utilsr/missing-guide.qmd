@@ -14,6 +14,8 @@ directory:
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-04 追加按已推送 UtilsR `6b03397f`（0.6.22）导出源码，同时固定 RegR `769f460c` 与 UtilsR `6b03397f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -667,6 +669,65 @@ validation_values <- list(rows = nrow(missing31), missing_counts = missing_count
 输入列名须唯一、非缺失且非空；矩阵或数组列会在作图前报出列名。标签字典的键也须唯一且非空。上述验证只涉及缺失图，没有插补或改变输入数据。
 
 <!-- /update-20261031: utils_missing -->
+
+### SPSS 用户缺失与数值检视（2026-11-04） {#late_missing-20261104}
+
+<!-- update-20261104: late_missing -->
+
+`lv()` 会先识别 SPSS 用户缺失码和缺失区间，再计算数值摘要、分组或列联计数。分组计数可把用户缺失和普通 `NA` 汇入同一缺失组。唯一值太多时，摘要里的数值筛选建议保留足够的有效数字，复制条件时仍可区分相邻的 double 值。输入仍保留原来的 SPSS 标签与缺失元数据。
+
+```r
+library(UtilsR)
+d <- data.frame(
+  score = haven::labelled_spss(c(1:11, 98, 99, 100, NA),
+    na_values = 100, na_range = c(98, 99)),
+  group = haven::labelled_spss(c(rep("A", 12), "missing", "missing", NA),
+    na_values = "missing")
+)
+lv(d, score)
+lv(d, count = group)
+```
+
+![原生计数表把 SPSS 用户缺失和普通 NA 合为 3 条缺失记录](images/missing-guide/20261104-update-lv-spss-count.png){fig-alt="原生计数表把 SPSS 用户缺失和普通 NA 合为 3 条缺失记录"}
+
+[原生表格 HTML](images/missing-guide/20261104-update-lv-spss-count.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+before <- d
+console <- cli::ansi_strip(capture.output(suppressMessages(lv(d, score))))
+stopifnot(any(grepl("Range +1 to 11", console)),
+  any(grepl("Mean [(]SD[)] +6 [(]3[.]32[)]", console)))
+near <- data.frame(score = haven::labelled_spss(
+  c(0.123456789012345 + seq(0, 1e-15, length.out = 11), 99), na_values = 99))
+out <- cli::ansi_strip(capture.output(suppressMessages(lv(near, score))))
+suggestion <- grep("^get_flt", out, value = TRUE)
+filter <- parse(text = suggestion)[[1L]][[2L]]
+expected <- head(sort(as.numeric(near$score[!is.na(near$score)])), 8)
+stopifnot(length(suggestion) == 1L, identical(eval(filter[[3L]]), expected),
+  sum(eval(filter, envir = near)) == 8L)
+old_format <- knitr::opts_knit$get("rmarkdown.pandoc.to")
+knitr::opts_knit$set(rmarkdown.pandoc.to = "html")
+fence <- strrep("`", 3)
+html <- tryCatch(knitr::knit(text = c(
+  paste0(fence, "{r, results='asis', echo=FALSE, message=FALSE, error=FALSE}"),
+  "returned <- withVisible(lv(d, count = group))",
+  "stopifnot(identical(returned[['value']], d), !returned[['visible']])",
+  fence), envir = environment(), quiet = TRUE),
+  finally = knitr::opts_knit$set(rmarkdown.pandoc.to = old_format))
+doc <- xml2::read_html(paste0("<html><head><meta charset='utf-8'></head><body>", html, "</body></html>"))
+tbl <- xml2::xml_find_first(doc, "//table[contains(@class,'gt_table')]")
+cells <- trimws(xml2::xml_text(xml2::xml_find_all(tbl, ".//tbody/tr/td")))
+stopifnot(all(c("12", "3", "80.0%", "20.0%") %in% cells), identical(d, before))
+writeLines(paste0("<!doctype html><html><head><meta charset='utf-8'></head><body>",
+  as.character(xml2::xml_parent(tbl)), "</body></html>"),
+  file.path(tempdir(), "20261104-update-lv-spss-count.html"), useBytes = TRUE)
+validation_values <- list(rows = nrow(d), observed_scores = 11, mean = 6,
+                          group_count = c(12, 3), selected = length(expected))
+```
+:::
+
+<!-- /update-20261104: late_missing -->
 
 ## 联合缺失
 
@@ -1752,6 +1813,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-04：[SPSS 用户缺失与数值检视](#late_missing-20261104)。
 - 2026-11-04：[缺失分组、独立正则与大数值插补](#missing_contracts-20261104)。
 - 2026-11-02：[核对标签缺失的供体检查](#knn-cold-20261102b)，补充独立RDS冷启动证据。
 - 2026-11-01：[补充时间类型与行身份](#knn-time-20261101b)，记录VIM版本适配范围。
