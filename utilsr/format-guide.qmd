@@ -2,13 +2,13 @@
 title: "ggplot 格式化：主题、坐标、图例、条带与面板标签"
 description: "fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化；实际参数对照与嵌套布局示例。"
 date: 2026-10-09
-date-modified: 2026-11-03
+date-modified: 2026-11-04
 lightbox: true
 toc-depth: 2
 directory:
   title: "ggplot格式化：参考线、坐标、分布与箱线"
   topic: 绘图与格式化
-  updated: 2026-11-03
+  updated: 2026-11-04
 ---
 
 fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -16,6 +16,10 @@ fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面�
 **核对记录：** 2026-10-18 按已推送 UtilsR `237b839` 重绘轴颜色条与彩色轴文字的六张图，并补充 `fmt_axis()`、`fmt_expand()` 的新警告和 `fmt_scale()` 的副轴说明。此前按已推送 UtilsR `fc078ec` 更新统计比较、背景与图例，修复越界的 label.y.prop 示例，并实际执行新增的配对、单侧与校正 P 值对照。已有轴文字、颜色条、条带及其他图保留各自执行快照；2026-10-12–13新增12张实图：统计、背景与图例按fc078ec执行，后补4张留白图按已推送1eb5faf执行。包版本仍为 0.6.8；输入均为固定种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-04 追加按已推送 UtilsR `6b03397f`（0.6.22）导出源码，同时固定 RegR `769f460c` 与 UtilsR `6b03397f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 UtilsR `680ef17d`（0.6.22）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-01 追加按已推送 UtilsR `129c5a71`（0.6.19）导出源码；配套依赖固定为 RegR `5067cdf`、UtilsR `129c5a71`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -178,6 +182,41 @@ validation_values <- list(n = nrow(theme_data), builtin_size = builtin_theme[["t
 工厂执行错误和自定义名称绑定的求值错误原样保留，不会静默改用其他主题。错误返回会写明工厂名和实际类型，便于定位。上面用baseenv隔离名称查找，验证ggplot2导出回退；没有修改本机包库或RStudio会话。
 
 <!-- /update-20261103b: utils_theme_factory -->
+
+### 扩展主题元素和动态参数（2026-11-04） {#format_theme-20261104}
+
+<!-- update-20261104: format_theme -->
+
+`theme_sc()` 与 `theme_blank()` 将注册过的扩展元素传给 `ggplot2::theme()`。可以直接命名，也可以用 `!!!` 展开参数列表。同名元素覆盖主题函数提供的默认元素。
+
+```r
+library(UtilsR)
+library(ggplot2)
+d <- expand.grid(x = 1:4, batch = c("A", "B"), group = c("C", "D"))
+d$y <- rep(c(1, 3, 2, 4), 4)
+styles <- list(ggh4x.facet.nestline = element_line(colour = "steelblue", linewidth = 1))
+nested <- ggplot(d, aes(x, y)) + geom_point() +
+  ggh4x::facet_nested(~ batch + group, nest_line = TRUE)
+sc <- theme_sc(NULL, 12, !!!styles)
+blank <- theme_blank(add_coord = FALSE, ggh4x.facet.nestline = styles[[1]])
+p <- patchwork::wrap_plots(nested + sc, nested + blank, ncol = 1)
+ggsave(file.path(tempdir(), "20261104-update-theme-extension.pdf"), p,
+       width = 8, height = 6, device = grDevices::cairo_pdf)
+```
+
+![两种主题都保留分面条带上的蓝色嵌套线](images/format-guide/20261104-update-theme-extension.png){fig-alt="两种主题都保留分面条带上的蓝色嵌套线"}
+
+[原生 PDF](images/format-guide/20261104-update-theme-extension.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(sc[["ggh4x.facet.nestline"]], styles[[1]]),
+          identical(blank[[1]][[1]][["ggh4x.facet.nestline"]], styles[[1]]))
+validation_values <- list(n = nrow(d), extension = styles[[1]][["colour"]])
+```
+:::
+
+<!-- /update-20261104: format_theme -->
 
 ## 坐标、网格与文字
 
@@ -763,6 +802,75 @@ p_log_com
 :::
 
 配对检验没有 ID 时依赖组内原始顺序和相等组大小；显式 ID 更适合真实纵向数据。`group.by="x.var"` 在各 x 内比较图例组，`"legend.var"` 在各图例组内比较 x；统计分组应明确设置。scale limits 会筛除用于检验的观测，观察窗优先用 `coord_cartesian()`。自定义数据 / mapping 用于多个图层来源不一致时，不能假定每条线都参与同一检验。
+
+### SPSS 环境向量与比较子集（2026-11-04） {#format_compare-20261104}
+
+<!-- update-20261104: format_compare -->
+
+`fmt_com()` 在执行统计映射之前识别 SPSS 用户缺失值。映射可以引用数据列或环境向量，`log()` 等变换不会把缺失码变成有效观测。缺失的比较组或子集会被排除，包括普通 `NA`。配对检验先保持行对齐，再按完整配对计算，分面仍使用原值。
+
+```r
+library(UtilsR)
+library(ggplot2)
+d <- data.frame(arm = rep(c("A", "B"), each = 6))
+outcome <- haven::labelled_spss(c(1:5, 99, 2, 3, 4, 7, 8, 9), na_values = 99)
+p <- ggplot(d, aes(arm, log(.env$outcome))) + geom_point()
+compared <- fmt_com(p, method = "t_test", na.rm = TRUE)
+results <- unique(ggplot_build(compared)$data[[2]][c("n1", "n2", "p")])
+gt::gtsave(gt::gt(results), file.path(tempdir(), "20261104-update-comparison-missing.html"))
+```
+
+![实际检验层显示 5 与 6 个有效观测，P 值与独立 t 检验核对](images/format-guide/20261104-update-comparison-missing.png){fig-alt="实际检验层显示 5 与 6 个有效观测，P 值与独立 t 检验核对"}
+
+[原生表格 HTML](images/format-guide/20261104-update-comparison-missing.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+expected <- t.test(log(1:5), log(c(2, 3, 4, 7, 8, 9)))$p.value
+stopifnot(results$n1 == 5, results$n2 == 6, results$p == signif(expected, 3),
+  identical(p$data, d), haven::is.labelled(outcome))
+validation_values <- results
+```
+:::
+
+<!-- /update-20261104: format_compare -->
+
+### 比较参照的显示位次与空水平（2026-11-04） {#late_format_ref-20261104}
+
+<!-- update-20261104: late_format_ref -->
+
+`fmt_com(ref.group = 3)` 的数字表示比较轴上的显示位次。至少要有一个面板在该位置拥有可用于比较的观测。仅靠 `drop = FALSE` 保留的空水平不能作参照。使用自由横轴分面时，位次按各面板的横轴顺序解释。如果希望跨面板固定同一个参照组，可传入组名。`ref.group = "all"` 使用合并后的观测作总体参照。
+
+```r
+library(UtilsR)
+library(ggplot2)
+d <- data.frame(group = factor(rep(c("A", "C"), each = 4), levels = c("A", "B", "C")),
+                y = c(2, 3, 4, 7, 4, 6, 8, 9))
+p <- ggplot(d, aes(group, y)) + geom_point() + scale_x_discrete(drop = FALSE)
+by_position <- fmt_com(p, ref.group = 3, method = "t_test")
+by_name <- fmt_com(p, ref.group = "C", method = "t_test")
+ggsave(file.path(tempdir(), "20261104-update-comparison-ref.pdf"),
+       by_position, width = 6.5, height = 4.5, device = grDevices::cairo_pdf)
+```
+
+![轴上保留空水平 B，位次 3 和组名 C 产生同一比较结果](images/format-guide/20261104-update-comparison-ref.png){fig-alt="轴上保留空水平 B，位次 3 和组名 C 产生同一比较结果"}
+
+[原生 PDF](images/format-guide/20261104-update-comparison-ref.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stat_layer <- function(p) unique(ggplot_build(p)$data[[2]][c("group1", "group2", "n1", "n2", "p")])
+result <- stat_layer(by_position)
+expected <- t.test(y ~ group, data = d)$p.value
+empty <- tryCatch(fmt_com(p, ref.group = 2, method = "t_test"), error = conditionMessage)
+stopifnot(identical(result, stat_layer(by_name)), nrow(result) == 1L,
+  result$n1 == 4, result$n2 == 4, result$p == signif(expected, 3),
+  is.character(empty), grepl("ref.group.*rank", empty))
+validation_values <- result
+```
+:::
+
+<!-- /update-20261104: late_format_ref -->
 
 ## 背景与图例的新行为 {#background-legend-current}
 
@@ -1410,6 +1518,41 @@ stopifnot(nrow(built_points) == 60L, identical(.Random.seed, seed_before))
 
 本例没有随机位置图层，抽样构建前后调用者的随机状态相同。按行的外部向量在抽样后无法可靠对齐，应先放入data并映射列；不要把它们作为固定颜色、大小或mapping环境向量继续传入。
 
+### 分箱参数与精确抽样层（2026-11-04） {#format_sampling-20261104}
+
+<!-- update-20261104: format_sampling -->
+
+`fmt_point()` 的抽样层按原始数值识别分组和分面。`cut()` 的断点、标签及 `factor()`、`ordered()` 的配置向量可从环境引用，按行的外部向量仍需先放入绘图数据。例中每个箱最多抽取一个点。
+
+```r
+library(UtilsR)
+library(ggplot2)
+point_data <- data.frame(x = 1:6, y = 6:1)
+breaks <- c(0, 2, 4, 6, 8)
+p <- ggplot(point_data, aes(x, y, colour = cut(y, breaks = .env$breaks)))
+sampled <- fmt_point(p, sample_n = 1, seed = 42, dodge.width = 0)
+ggsave(file.path(tempdir(), "20261104-update-sample-cut.pdf"), sampled,
+       width = 6, height = 4.2, device = grDevices::cairo_pdf)
+```
+
+![从三个实际分箱各抽取一个点](images/format-guide/20261104-update-sample-cut.png){fig-alt="从三个实际分箱各抽取一个点"}
+
+[原生 PDF](images/format-guide/20261104-update-sample-cut.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+points <- ggplot_build(sampled)$data[[1]]
+point_data$key <- rep(c(1, 1 + 1e-15), each = 3)
+exact <- fmt_point(ggplot(point_data, aes(x, y, group = key)),
+                   sample_n = 1, seed = 42, dodge.width = 0)
+stopifnot(nrow(points) == 3, all(table(points$colour) == 1),
+  nrow(ggplot_build(exact)$data[[1]]) == 2)
+validation_values <- list(n = nrow(point_data), bins = nrow(points), exact_groups = 2)
+```
+:::
+
+<!-- /update-20261104: format_sampling -->
+
 ### 白边保留原来的点形和颜色
 
 ```r
@@ -1473,6 +1616,10 @@ width_auto
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-04：[比较参照的显示位次与空水平](#late_format_ref-20261104)。
+- 2026-11-04：[扩展主题元素和动态参数](#format_theme-20261104)。
+- 2026-11-04：[分箱参数与精确抽样层](#format_sampling-20261104)。
+- 2026-11-04：[SPSS 环境向量与比较子集](#format_compare-20261104)。
 - 2026-11-03：[补充共享主题解析、零参数工厂和错误保留](#theme-resolver-20261103b)。
 - 2026-11-01：[补充内置背景随类别重排](#background-20261101)，核对连续图、翻转分类图与空位置。
 - 2026-10-29：[固定面板下的轴色条尺寸](#axis-pins-20261029)，核对横纵方向的英寸比例及图层数据不变。
