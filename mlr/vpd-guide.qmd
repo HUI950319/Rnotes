@@ -4,16 +4,18 @@ description: "get_exp、get_vpd、get_vpd_pnl 与 get_ale2 的工作流；比较
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-11-01
+date-modified: 2026-11-06
 directory:
   title: "变量分布、PDP与二阶ALE：网格与统一入口"
   topic: 模型解释
-  updated: 2026-11-01
+  updated: 2026-11-06
 ---
 
 `get_exp()` 构建预测解释器，`get_vpd()` 将变量分布（VD）与部分依赖（PD）放在一起。本页用实际图形解释两块面板的差别，并对照主要任务和分组路径。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 MLR `80d44aea`（0.1.13）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 **历史版本与执行范围：** 按当时的 MLR 0.1.13 源码核对，使用 WSL R 4.4.3 实际导出原主教程 **12 张参数对照图**。Cox、Logistic 和生存随机森林均实际训练，图形来自公开入口；使用已有临床示例和模拟二分类数据，未执行外部临床验证。
 
 2026-11-01 追加按已推送 MLR `2b5c9154`（0.1.13）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `ec2b136f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。两端的ggplot2 / patchwork / ggrastr / ragg / DALEX / survex分别为4.0.3 / 1.3.2 / 1.0.2 / 1.5.2 / 2.4.3 / 1.2.0。Windows的ggstatsplot / tidyplots / statsExpressions为0.13.1 / 0.2.2 / 1.7.0，WSL为0.12.4 / 0.3.1 / 1.5.5。本站预览来自WSL原生PDF；旧图保留原执行快照，此次没有重跑历史模型或安装包。
@@ -878,6 +880,43 @@ validation_values <- list(rows = nrow(vpd_dataB), group_rows = as.list(table(vpd
 
 <!-- /update-20261101b: mlr_vpd_sample_group -->
 
+### 分组缺水平后的默认颜色与具名色板（2026-11-06） {#mlr_vpd_palette-20261106}
+
+<!-- update-20261106: mlr_vpd_palette -->
+
+VPD 的分类焦点变量按全数据的实际水平固定颜色，即使某个分组没有其中一个水平，默认 Dark2 的对应关系仍一致。具名 `palette` 必须覆盖所有已观测颜色水平，按名字匹配；单连续变量的颜色名字对应结局值，生存对象对应 `DSS`。无名字的色板沿完整结局顺序分配，面板抽样只剩一个结局时仍保留该结局的颜色。
+
+```r
+library(MLR)
+set.seed(42)
+d <- data.frame(Sex = factor(rep(c("F", "M"), each = 45)),
+  Age = rnorm(90, 60, 10),
+  stage = factor(rep(rep(c("A", "B", "C"), each = 15), 2)),
+  y = factor(rbinom(90, 1, .5), labels = c("alive", "event")))
+d <- d[!(d$Sex == "F" & d$stage == "A"), ]
+obj <- get_exp(d, vars = c("Sex", "stage", "Age"), surv = "y")
+p <- get_vpd(obj, exp_var = c("Sex", "stage"), raster = FALSE,
+  sample_args = list(vd = 6L, pd = 10L))
+ggplot2::ggsave(file.path(tempdir(), "20261106-update-vpd-colours.pdf"),
+  p, width = 10, height = 7, device = grDevices::cairo_pdf)
+```
+
+![F 组缺少 A 水平，B 和 C 在四个 VPD 面板中继续使用相同颜色](images/vpd-guide/20261106-update-vpd-colours.png){fig-alt="F 组缺少 A 水平，B 和 C 在四个 VPD 面板中继续使用相同颜色"}
+
+[原生 PDF](images/vpd-guide/20261106-update-vpd-colours.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+expected <- as.character(paletteer::paletteer_d("RColorBrewer::Dark2"))[2:3]
+mapped <- lapply(seq_len(length(p)), function(i)
+  ggplot2::ggplot_build(p[[i]])$plot$scales$get_scales("colour")$map(c("B", "C")))
+stopifnot(length(mapped) == 4L, all(vapply(mapped, function(x) identical(x, expected), logical(1))))
+validation_values <- list(n = nrow(d), colours = mapped)
+```
+:::
+
+<!-- /update-20261106: mlr_vpd_palette -->
+
 ## 模型后端与对象输入
 
 `model = default` 对应 Cox / Logistic；`ranger` 对应随机森林；`xgboost` 对应相应任务的 boosting 模型。改变模型须重新计算解释对象。
@@ -1267,6 +1306,7 @@ get_all现在有13个分析入口。ale2.args必须显式提供才启用；仅�
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[分组缺水平后的默认颜色与具名色板](#mlr_vpd_palette-20261106)。
 - 2026-11-01：[补充默认点栅格化和矢量导出](#raster-20261101b)，核对全量背景、均值点和长条带。
 - 2026-11-01：[补充VD显示点与PD背景采样](#sample-log-20261101b)，验证整体和按组两条路径及非空配色。
 - 2026-11-01：[补充生存分组采样](#sample-sur-20261101b)，区分整体模型VD与组内重建PD。
