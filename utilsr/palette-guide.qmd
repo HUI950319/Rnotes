@@ -7,13 +7,15 @@ toc-depth: 2
 directory:
   title: "配色系统：检索、颜色映射与离散和连续色阶，21 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-11-03
-date-modified: 2026-11-03
+  updated: 2026-11-06
+date-modified: 2026-11-06
 ---
 
 pal_list、pal_get、pal_show 及 Brewer、HCL、ggsci、viridis 色卡，命名映射与热图应用。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 UtilsR `680ef17d`（0.6.22）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 UtilsR `fafe93a3`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -601,6 +603,50 @@ validation_values <- list(one = lapply(one_sources, source_hex), cap = lapply(ca
 
 <!-- /update-20261103: utils_palette_sources -->
 
+### 可读色卡、筛选范围与 LaTeX 列宽（2026-11-06） {#palette_catalogue-20261106}
+
+<!-- update-20261106: palette_catalogue -->
+
+`pal_show()` 的 `pattern`、`type` 和 `index` 用于浏览目录。显式给色板名时，名称选择优先于 `pattern` 和 `type`；颜色向量模式需要先自行取子集。具名颜色向量插值生成更多颜色后，预览改用 HEX 标签。小画布可用 `ncol` 分行，透明色的标签按白底计算对比度。返回的 gt 表可继续用 `cols_width()` 和 `cols_hide()` 加工；双栏 LaTeX 短表需关闭 longtable 和重复表头。
+
+```r
+library(UtilsR)
+colours <- c(Clear = "transparent", Half = "#33669980", Solid = "#D55E00")
+p <- pal_show(colours, output = "gg", ncol = 2) +
+  ggplot2::theme(panel.background = ggplot2::element_rect(fill = "white", colour = NA))
+ggplot2::ggsave(file.path(tempdir(), "20261106-update-palette-layout.pdf"),
+  p, width = 6, height = 4, device = grDevices::cairo_pdf)
+catalogue <- pal_show("Set1", max_colors = 3)
+custom <- gt::cols_width(catalogue, palette ~ gt::pct(35), n_colors ~ gt::pct(15),
+                         preview ~ gt::pct(50))
+custom <- gt::cols_hide(custom, columns = type)
+custom <- gt::tab_options(custom, table.width = gt::px(720))
+gt::gtsave(custom, file.path(tempdir(), "20261106-update-palette-catalogue.html"))
+```
+
+![透明色、半透明色与实色在白底上分行显示](images/palette-guide/20261106-update-palette-layout.png){fig-alt="透明色、半透明色与实色在白底上分行显示"}
+
+[原生 PDF](images/palette-guide/20261106-update-palette-layout.pdf)
+
+![通过 gt 返回对象调整列宽并隐藏类型列后的原生色卡](images/palette-guide/20261106-update-palette-catalogue.png){fig-alt="通过 gt 返回对象调整列宽并隐藏类型列后的原生色卡"}
+
+[原生表格 HTML](images/palette-guide/20261106-update-palette-catalogue.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+latex <- gt::tab_options(catalogue, latex.use_longtable = FALSE, latex.header_repeat = FALSE)
+latex <- gt::cols_width(latex, palette ~ gt::pct(24), type ~ gt::pct(25),
+                        n_colors ~ gt::pct(16), preview ~ gt::pct(35))
+tex <- as.character(gt::as_latex(latex))
+stopifnot(inherits(p, "ggplot"), inherits(custom, "gt_tbl"),
+  !grepl("\\begin{longtable}", tex, fixed = TRUE))
+validation_values <- list(requested = names(colours), rows = nrow(custom[["_data"]]),
+                          latex_longtable = grepl("\\begin{longtable}", tex, fixed = TRUE))
+```
+:::
+
+<!-- /update-20261106: palette_catalogue -->
+
 ## viridis 的色域控制
 
 ::: {.panel-tabset}
@@ -688,6 +734,42 @@ wrap_plots(pal_show(cols_short, output = "gg", label = FALSE) + labs(title = "Fi
 ![当前 pal_get(n=9) 取已有色板前九色，和覆盖完整范围的九色不同；两种行为用实际色卡并排核对。](images/palette-guide/truncate.png){fig-alt="配色系统：检索、颜色映射与离散和连续色阶；短截取与完整色域对照；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 数值颜色索引与重复值映射（2026-11-06） {#palette_numeric-20261106}
+
+<!-- update-20261106: palette_numeric -->
+
+共享 `.resolve_color()` 将数值颜色索引固定为 RGBA HEX，保留 double 精度，并在进入绘图前检查截断后的整数范围。目录入口 `pal_get()` 的数字开头字符串须先通过颜色文本校验。重复数值、单色及常数映射继续保留输入位置、缺失位置和透明度。长向量验证的内部优化不改变这些输出合同。
+
+```r
+library(UtilsR)
+index <- c(first = 1, again = 1, second = 2)
+resolved <- UtilsR::.resolve_color(index)
+values <- c(low = 0, middle = .5, high = 1, missing = NA)
+mapped <- pal_get(c("#33669980", "#D55E00"), x = values, alpha = .5)
+shown <- data.frame(position = names(values), value = unname(values), colour = as.character(mapped))
+gt::gtsave(gt::sub_missing(gt::gt(shown), missing_text = "NA"),
+  file.path(tempdir(), "20261106-update-palette-numeric.html"))
+```
+
+![映射保留输入顺序、名字和缺失位置](images/palette-guide/20261106-update-palette-numeric.png){fig-alt="映射保留输入顺序、名字和缺失位置"}
+
+[原生表格 HTML](images/palette-guide/20261106-update-palette-numeric.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+reject <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+expected <- grDevices::col2rgb(unname(index), alpha = TRUE)
+expected <- grDevices::rgb(expected[1, ], expected[2, ], expected[3, ], expected[4, ], maxColorValue = 255)
+stopifnot(identical(unname(resolved), expected),
+  reject(UtilsR::.resolve_color(2^31)),
+  reject(pal_get("2147483648")),
+  length(mapped) == length(values))
+validation_values <- shown
+```
+:::
+
+<!-- /update-20261106: palette_numeric -->
 
 ## 返回对象、保存与使用边界 {#output}
 
@@ -895,6 +977,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[数值颜色索引与重复值映射](#palette_numeric-20261106)。
+- 2026-11-06：[可读色卡、筛选范围与 LaTeX 列宽](#palette_catalogue-20261106)。
 - 2026-11-03：[补充绘图解析器的数字颜色、fallback及命名映射校验](#literal-colours-20261103b)。
 - 2026-11-03：[补充缺失颜色、窄控制台与可复制属性](#console-values-20261103)，核对反转和17位精度。
 - 2026-11-03：[明确时间输入、离散名称与标量控制](#mapping-types-20261103)，保留重复值与透明别名语义。
