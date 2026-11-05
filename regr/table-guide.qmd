@@ -476,7 +476,7 @@ validation_values <- list(input_n = nrow(cox_ums_data), complete_n = nrow(cox_co
 
 <!-- update-20261103c: late_ums_cohorts -->
 
-当前`get_tb_ums()`无论`format_res`真假都返回tibble，只构建并打印最终flextable一次。`model_counts`属性保留每个模型的N和事件数，`notes`给出描述队列与拟合队列说明。Cox单因素按各预测变量可用病例拟合，调整模型按入模变量取完整病例；Logistic各模型沿用初始全模型的完整病例，不把删失或缺失规则改成另一套。
+`get_tb_ums()` 无论 `format_res` 真假都返回 tibble，默认只构建并打印最终 flextable 一次。当前可用 `options(RegR.ums.print = FALSE)` 跳过表格构建与打印。`model_counts`属性保留每个模型的N和事件数，`notes`给出描述队列与拟合队列说明。Cox单因素按各预测变量可用病例拟合，调整模型按入模变量取完整病例；Logistic各模型沿用初始全模型的完整病例，不把删失或缺失规则改成另一套。
 
 下面120行有30个x缺失，Cox描述N仍为120，x单因素与完整调整模型为90；Logistic初始完整队列为90。`plt_tbl()`现在可直接画原始或格式化UMS的HR/OR表，保留人数脚注，也不会把NACT这类标签中的NA删掉。
 
@@ -698,7 +698,7 @@ validation_values <- list(n = nrow(boundary_data), empty_counts = lapply(empty_u
 
 UMS接受可无损转成数值的integer64、Date/POSIX时间、difftime和Duration：Date按天，POSIX/Duration按秒，difftime沿用记录单位；日历Period应先明确换算单位。SPSS用户缺失按NA处理。列表、矩阵、复数、精度会损失的integer64及显式NA因子水平需要调用方先处理。
 
-这里的autoReg路径要求能对应水平效应的命名treatment编码；有序、sum或其他无法匹配水平的编码会拒绝。它与[get_um的编码恢复](um-guide.qmd#contrasts-20261103c)不同。若变量zB和因子z的B水平形成相同内部标识，也会在拟合前拒绝，应先消除重名，不能让两行结果错配。
+这里的autoReg路径要求能对应水平效应的命名treatment编码；有序、sum或其他无法匹配水平的编码会拒绝。它与[get_um的编码恢复](um-guide.qmd#contrasts-20261103c)不同。本节保留 RegR `769f460c` 的历史错误示例。当前 `7dad336b` 已为恢复后重复的标识添加数字后缀，原变量身份继续保留，见下方[标识对照](#ums_identifiers-20261106)。
 
 本节实际执行了SPSS缺失对照、非法列、重名和sum编码错误；日期/时长单位、有序因子和其他编码类型按固定源码核对。
 
@@ -737,6 +737,42 @@ validation_values <- counts
 :::
 
 <!-- /update-20261106: ums_cohorts -->
+
+### 重复标识的恢复与原变量身份（2026-11-06） {#ums_identifiers-20261106}
+
+<!-- update-20261106: ums_identifiers -->
+
+因子水平与另一变量拼接后出现重复标识时，当前 UMS 会添加数字后缀，并在 `model_stats$variable` 保留原变量身份。真实重名的输入列仍需先改为唯一列名。显示标签相同不能代替模型行的身份信息。
+
+```r
+library(RegR)
+set.seed(934)
+d <- data.frame(y = rep(0:1, 45), z = factor(rep(c("A", "B-1", "C"), 30)),
+                check.names = FALSE)
+d[["zB-1"]] <- rnorm(90)
+res <- withr::with_options(list(RegR.ums.print = FALSE),
+  get_tb_ums(d, c("z", "zB-1"), surv = "y", threshold = 1, format_res = FALSE))
+shown <- res[c("name", "desc", "id")]
+gt::gtsave(gt::gt(shown), file.path(tempdir(), "20261106-update-ums-identifiers.html"))
+```
+
+![因子 z 的 B-1 水平与名为 zB-1 的变量各自保留独立标识](images/table-guide/20261106-update-ums-identifiers.png){fig-alt="因子 z 的 B-1 水平与名为 zB-1 的变量各自保留独立标识"}
+
+[原生表格 HTML](images/table-guide/20261106-update-ums-identifiers.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stats <- attr(res, "model_stats")
+uni <- stats[stats$mode == "univariate", ]
+factor_id <- res$id[res$desc == "B-1"]
+stopifnot(!anyDuplicated(res$id),
+  identical(uni$variable[match(factor_id, uni$id)], "z"),
+  any(uni$variable == "zB-1", na.rm = TRUE))
+validation_values <- shown
+```
+:::
+
+<!-- /update-20261106: ums_identifiers -->
 
 ## 生存摘要：HR 与时点生存概率
 
@@ -857,6 +893,7 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[重复标识的恢复与原变量身份](#ums_identifiers-20261106)。
 - 2026-11-06：[UMS 缺失策略、空队列和批量输出](#ums_cohorts-20261106)。
 - 2026-11-03：[补齐空筛选、Cox阈值与列类型/编码边界](#ums-boundaries-20261103c)。
 - 2026-11-03：[补齐未舍入UMS统计量和显著性边界](#ums-precision-20261103c)。

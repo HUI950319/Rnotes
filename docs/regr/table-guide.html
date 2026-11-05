@@ -2350,7 +2350,7 @@ N = 344</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-al
 <section id="ums-cohorts-20261103c" class="level3">
 <h3 class="anchored" data-anchor-id="ums-cohorts-20261103c">UMS模型人数、事件数与可继续绘制的表（2026-11-03）</h3>
 <!-- update-20261103c: late_ums_cohorts -->
-<p>当前<code>get_tb_ums()</code>无论<code>format_res</code>真假都返回tibble，只构建并打印最终flextable一次。<code>model_counts</code>属性保留每个模型的N和事件数，<code>notes</code>给出描述队列与拟合队列说明。Cox单因素按各预测变量可用病例拟合，调整模型按入模变量取完整病例；Logistic各模型沿用初始全模型的完整病例，不把删失或缺失规则改成另一套。</p>
+<p><code>get_tb_ums()</code> 无论 <code>format_res</code> 真假都返回 tibble，默认只构建并打印最终 flextable 一次。当前可用 <code>options(RegR.ums.print = FALSE)</code> 跳过表格构建与打印。<code>model_counts</code>属性保留每个模型的N和事件数，<code>notes</code>给出描述队列与拟合队列说明。Cox单因素按各预测变量可用病例拟合，调整模型按入模变量取完整病例；Logistic各模型沿用初始全模型的完整病例，不把删失或缺失规则改成另一套。</p>
 <p>下面120行有30个x缺失，Cox描述N仍为120，x单因素与完整调整模型为90；Logistic初始完整队列为90。<code>plt_tbl()</code>现在可直接画原始或格式化UMS的HR/OR表，保留人数脚注，也不会把NACT这类标签中的NA删掉。</p>
 <div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
 <span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1103</span>)</span>
@@ -2603,7 +2603,7 @@ N = 344</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-al
 </div>
 </div>
 <p>UMS接受可无损转成数值的integer64、Date/POSIX时间、difftime和Duration：Date按天，POSIX/Duration按秒，difftime沿用记录单位；日历Period应先明确换算单位。SPSS用户缺失按NA处理。列表、矩阵、复数、精度会损失的integer64及显式NA因子水平需要调用方先处理。</p>
-<p>这里的autoReg路径要求能对应水平效应的命名treatment编码；有序、sum或其他无法匹配水平的编码会拒绝。它与<a href="../regr/um-guide.html#contrasts-20261103c">get_um的编码恢复</a>不同。若变量zB和因子z的B水平形成相同内部标识，也会在拟合前拒绝，应先消除重名，不能让两行结果错配。</p>
+<p>这里的autoReg路径要求能对应水平效应的命名treatment编码；有序、sum或其他无法匹配水平的编码会拒绝。它与<a href="../regr/um-guide.html#contrasts-20261103c">get_um的编码恢复</a>不同。本节保留 RegR <code>769f460c</code> 的历史错误示例。当前 <code>7dad336b</code> 已为恢复后重复的标识添加数字后缀，原变量身份继续保留，见下方<a href="#ums_identifiers-20261106">标识对照</a>。</p>
 <p>本节实际执行了SPSS缺失对照、非法列、重名和sum编码错误；日期/时长单位、有序因子和其他编码类型按固定源码核对。</p>
 <!-- /update-20261103c: late_ums_boundaries -->
 </section>
@@ -2649,6 +2649,50 @@ N = 344</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-al
 </div>
 <!-- /update-20261106: ums_cohorts -->
 </section>
+<section id="ums_identifiers-20261106" class="level3">
+<h3 class="anchored" data-anchor-id="ums_identifiers-20261106">重复标识的恢复与原变量身份（2026-11-06）</h3>
+<!-- update-20261106: ums_identifiers -->
+<p>因子水平与另一变量拼接后出现重复标识时，当前 UMS 会添加数字后缀，并在 <code>model_stats$variable</code> 保留原变量身份。真实重名的输入列仍需先改为唯一列名。显示标签相同不能代替模型行的身份信息。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">934</span>)</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>d <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">y =</span> <span class="fu">rep</span>(<span class="dv">0</span><span class="sc">:</span><span class="dv">1</span>, <span class="dv">45</span>), <span class="at">z =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B-1"</span>, <span class="st">"C"</span>), <span class="dv">30</span>)),</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>                <span class="at">check.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>d[[<span class="st">"zB-1"</span>]] <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(<span class="dv">90</span>)</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>res <span class="ot">&lt;-</span> withr<span class="sc">::</span><span class="fu">with_options</span>(<span class="fu">list</span>(<span class="at">RegR.ums.print =</span> <span class="cn">FALSE</span>),</span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">get_tb_ums</span>(d, <span class="fu">c</span>(<span class="st">"z"</span>, <span class="st">"zB-1"</span>), <span class="at">surv =</span> <span class="st">"y"</span>, <span class="at">threshold =</span> <span class="dv">1</span>, <span class="at">format_res =</span> <span class="cn">FALSE</span>))</span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>shown <span class="ot">&lt;-</span> res[<span class="fu">c</span>(<span class="st">"name"</span>, <span class="st">"desc"</span>, <span class="st">"id"</span>)]</span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(shown), <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261106-update-ums-identifiers.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/table-guide/20261106-update-ums-identifiers.png" class="lightbox" data-gallery="quarto-lightbox-gallery-12" title="因子 z 的 B-1 水平与名为 zB-1 的变量各自保留独立标识"><img src="images/table-guide/20261106-update-ums-identifiers.png" class="img-fluid figure-img" alt="因子 z 的 B-1 水平与名为 zB-1 的变量各自保留独立标识" loading="lazy" decoding="async" width="312" height="276" srcset="../assets/figure-previews/1b3796c0ab8573d92d3b6ee3639813a2.webp"></a></p>
+<figcaption>因子 z 的 B-1 水平与名为 zB-1 的变量各自保留独立标识</figcaption>
+</figure>
+</div>
+<p><a href="images/table-guide/20261106-update-ums-identifiers.html">原生表格 HTML</a></p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-11-contents" aria-controls="callout-11" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-11" class="callout-11-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>stats <span class="ot">&lt;-</span> <span class="fu">attr</span>(res, <span class="st">"model_stats"</span>)</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>uni <span class="ot">&lt;-</span> stats[stats<span class="sc">$</span>mode <span class="sc">==</span> <span class="st">"univariate"</span>, ]</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>factor_id <span class="ot">&lt;-</span> res<span class="sc">$</span>id[res<span class="sc">$</span>desc <span class="sc">==</span> <span class="st">"B-1"</span>]</span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="sc">!</span><span class="fu">anyDuplicated</span>(res<span class="sc">$</span>id),</span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">identical</span>(uni<span class="sc">$</span>variable[<span class="fu">match</span>(factor_id, uni<span class="sc">$</span>id)], <span class="st">"z"</span>),</span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">any</span>(uni<span class="sc">$</span>variable <span class="sc">==</span> <span class="st">"zB-1"</span>, <span class="at">na.rm =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb29-7"><a href="#cb29-7" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> shown</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<!-- /update-20261106: ums_identifiers -->
+</section>
 </section>
 <section id="生存摘要hr-与时点生存概率" class="level2">
 <h2 class="anchored" data-anchor-id="生存摘要hr-与时点生存概率">生存摘要：HR 与时点生存概率</h2>
@@ -2658,8 +2702,8 @@ N = 344</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-al
 <div class="tab-content">
 <div id="tabset-5-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-5-1-tab">
 <p>合并描述、单变量 HR、36/60 月生存概率。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_tb_survival</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"stage"</span>),</span>
-<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">times =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">60</span>), <span class="at">show_summary =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_tb_survival</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"stage"</span>),</span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">times =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">60</span>), <span class="at">show_summary =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive">
 <div id="sfzqykgtmt" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
 
@@ -2824,8 +2868,8 @@ N = 87</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-ali
 </div>
 <div id="tabset-5-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-5-2-tab">
 <p>隐藏描述部分，保留 HR 与时点概率。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_tb_survival</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"stage"</span>),</span>
-<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">times =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">60</span>), <span class="at">show_summary =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">get_tb_survival</span>(d, <span class="at">cat_var =</span> <span class="fu">c</span>(<span class="st">"Sex"</span>, <span class="st">"stage"</span>),</span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">times =</span> <span class="fu">c</span>(<span class="dv">36</span>, <span class="dv">60</span>), <span class="at">show_summary =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive">
 <div id="yzhbozedyn" style="padding-left:0px;padding-right:0px;padding-top:10px;padding-bottom:10px;overflow-x:auto;overflow-y:auto;width:auto;height:auto;">
 
@@ -2958,23 +3002,23 @@ N = 87</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-ali
 </section>
 <section id="保留对象继续加工与导出" class="level2">
 <h2 class="anchored" data-anchor-id="保留对象继续加工与导出">保留对象继续加工与导出</h2>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a>tb <span class="ot">&lt;-</span> <span class="fu">get_tb_gtsummary</span>(td, <span class="at">group_var =</span> <span class="st">"Sex"</span>, <span class="at">com_var =</span> table_vars,</span>
-<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>                       <span class="at">digits_continuous =</span> <span class="dv">2</span>, <span class="at">output_format =</span> <span class="st">"none"</span>)</span>
-<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>gt_table <span class="ot">&lt;-</span> gtsummary<span class="sc">::</span><span class="fu">as_gt</span>(tb)</span>
-<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>word_table <span class="ot">&lt;-</span> gtsummary<span class="sc">::</span><span class="fu">as_flex_table</span>(tb)</span>
-<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 按保存接口帮助页设置文件名与目录。</span></span>
-<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a><span class="co"># RegR::save_gt(gt_table, ...)</span></span>
-<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a><span class="co"># RegR::save_tb(word_table, ...)</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>tb <span class="ot">&lt;-</span> <span class="fu">get_tb_gtsummary</span>(td, <span class="at">group_var =</span> <span class="st">"Sex"</span>, <span class="at">com_var =</span> table_vars,</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a>                       <span class="at">digits_continuous =</span> <span class="dv">2</span>, <span class="at">output_format =</span> <span class="st">"none"</span>)</span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>gt_table <span class="ot">&lt;-</span> gtsummary<span class="sc">::</span><span class="fu">as_gt</span>(tb)</span>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>word_table <span class="ot">&lt;-</span> gtsummary<span class="sc">::</span><span class="fu">as_flex_table</span>(tb)</span>
+<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 按保存接口帮助页设置文件名与目录。</span></span>
+<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a><span class="co"># RegR::save_gt(gt_table, ...)</span></span>
+<span id="cb32-7"><a href="#cb32-7" aria-hidden="true" tabindex="-1"></a><span class="co"># RegR::save_tb(word_table, ...)</span></span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <p>输出类型转换只影响表格载体。P 值表示当前描述/检验规格下的组间证据，SMD 是差异尺度；两者都不能证明组间不存在混杂。生存随访不足时需报告 at-risk 数和可估计性，不能仅靠把 times 拉长产生远期结论。</p>
 </section>
 <section id="save-tb-format" class="level2">
 <h2 class="anchored" data-anchor-id="save-tb-format">save_tb()：整数计数与小数概率</h2>
 <p>2026-10-05 核对的 <code>save_tb()</code> 会把整列均为整数值的普通 double 数值列显示为零位小数；带小数的列仍按两位小数显示。它改变 Word 格式，保留原始数值。已有 flextable、gtsummary 或 data.frame 均可进入此保存入口。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>counts <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Group =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="at">Events =</span> <span class="fu">c</span>(<span class="dv">12</span>, <span class="dv">18</span>),</span>
-<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">Probability =</span> <span class="fu">c</span>(<span class="fl">0.125</span>, <span class="fl">0.234</span>))</span>
-<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a><span class="co"># path 是目录；title 同时确定输出文件名，自动补 .docx。</span></span>
-<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>ft <span class="ot">&lt;-</span> <span class="fu">save_tb</span>(counts, <span class="at">path =</span> <span class="fu">tempdir</span>(), <span class="at">title =</span> <span class="st">"counts-and-probabilities"</span>,</span>
-<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>              <span class="at">line_spacing =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>counts <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Group =</span> <span class="fu">c</span>(<span class="st">"A"</span>, <span class="st">"B"</span>), <span class="at">Events =</span> <span class="fu">c</span>(<span class="dv">12</span>, <span class="dv">18</span>),</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">Probability =</span> <span class="fu">c</span>(<span class="fl">0.125</span>, <span class="fl">0.234</span>))</span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a><span class="co"># path 是目录；title 同时确定输出文件名，自动补 .docx。</span></span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a>ft <span class="ot">&lt;-</span> <span class="fu">save_tb</span>(counts, <span class="at">path =</span> <span class="fu">tempdir</span>(), <span class="at">title =</span> <span class="st">"counts-and-probabilities"</span>,</span>
+<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a>              <span class="at">line_spacing =</span> <span class="dv">1</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="table-responsive" tabindex="0" role="region" aria-label="Word数字格式对照，可横向滚动">
 <table class="caption-top table">
 <colgroup>
@@ -3029,13 +3073,13 @@ N = 87</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-ali
 <li><p>单多因素表帮助页：<a href="https://hui950319.github.io/RegR/reference/get_tb_autoreg.html"><code>get_tb_autoreg()</code></a>、<a href="https://hui950319.github.io/RegR/reference/get_tb_ums.html"><code>get_tb_ums()</code></a>、<a href="https://hui950319.github.io/RegR/reference/plt_tb_ums.html"><code>plt_tb_ums()</code></a></p></li>
 <li><p>汇总函数帮助页：<a href="https://hui950319.github.io/RegR/reference/get_all.html"><code>get_all()</code></a>、<a href="https://hui950319.github.io/RegR/reference/get_gt_cat.html"><code>get_gt_cat()</code></a></p></li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
-<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb34"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="本页更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-11-contents" aria-controls="callout-11" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -3044,9 +3088,10 @@ N = 87</span><span class="gt_footnote_marks" style="font-size: 75%; vertical-ali
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-11" class="callout-11-contents callout-collapse collapse">
+<div id="callout-12" class="callout-12-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li>2026-11-06：<a href="#ums_identifiers-20261106">重复标识的恢复与原变量身份</a>。</li>
 <li>2026-11-06：<a href="#ums_cohorts-20261106">UMS 缺失策略、空队列和批量输出</a>。</li>
 <li>2026-11-03：<a href="#ums-boundaries-20261103c">补齐空筛选、Cox阈值与列类型/编码边界</a>。</li>
 <li>2026-11-03：<a href="#ums-precision-20261103c">补齐未舍入UMS统计量和显著性边界</a>。</li>
