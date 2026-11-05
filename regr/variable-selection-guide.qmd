@@ -2,13 +2,13 @@
 title: "变量筛选：策略比较、LASSO 路径与共线性"
 description: "变量筛选、LASSO、Boruta、相关性与共线性；get_cor 的完整统计矩阵、P值校正、阈值、排序与无损转换边界。"
 date: 2026-10-01
-date-modified: 2026-11-03
+date-modified: 2026-11-06
 lightbox: true
 toc-depth: 2
 directory:
   title: "变量筛选：策略比较、LASSO 路径与共线性"
   topic: 回归与生存分析
-  updated: 2026-11-03
+  updated: 2026-11-06
 ---
 
 
@@ -17,6 +17,8 @@ directory:
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 RegR `769f460c`（0.1.3）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `7bf81d05`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 RegR `f80e0e95`（0.1.3）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -284,6 +286,45 @@ validation_values <- list(n = nrow(step_data), selected = step_rows)
 
 <!-- /update-20261103c: late_step -->
 
+### 筛选的完整病例、事件编码与公式（2026-11-06） {#selection_cohorts-20261106}
+
+<!-- update-20261106: selection_cohorts -->
+
+`get_var_sel(methods = "p")` 独立使用每个预测变量的可用观测，`step` 和 `lasso` 使用候选列、时间及结局的共同完整病例。事件类型先按原数据实际观测的水平判定。只观测到 0 和 2 的生存子集按 Cox 分析，2 为事件，即使因子仍声明 0、1、2。返回公式记录实际事件值，重用时还需执行相同的列类型和 SPSS 缺失规范化。Stepwise 的拟合队列需包含两类 Logistic 结局或相应的生存事件。
+
+```r
+library(RegR)
+set.seed(160)
+d <- data.frame(x1 = rnorm(90), x2 = rnorm(90), follow = rexp(90) + .1,
+  outcome = factor(rep(c(0, 2), 45), levels = 0:2))
+d$x1[1:8] <- NA_real_
+d$x2[4:9] <- NA_real_
+result <- withr::with_options(list(na.action = "na.fail"),
+  get_var_sel(d, c("x1", "x2"), time = "follow", outcome = "outcome",
+    methods = "p", p_args = list(p_threshold = 1)))
+info <- attr(result$details$p$selection, "fit_info")
+gt::gtsave(gt::gt(info[c("variable", "n", "events", "formula")]),
+  file.path(tempdir(), "20261106-update-selection-cohorts.html"))
+```
+
+![P 筛选逐变量记录完整病例人数，并保留调用方的列名](images/variable-selection-guide/20261106-update-selection-cohorts.png){fig-alt="P 筛选逐变量记录完整病例人数，并保留调用方的列名"}
+
+[原生表格 HTML](images/variable-selection-guide/20261106-update-selection-cohorts.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+expected_n <- vapply(c("x1", "x2"), function(v)
+  sum(complete.cases(d[c(v, "follow", "outcome")])), integer(1), USE.NAMES = FALSE)
+response <- model.response(model.frame(result$details$p$final_formula, data = d))
+stopifnot(identical(info$n, expected_n),
+  identical(attr(response, "type"), "right"),
+  all(response[, "status"] == as.integer(as.character(d$outcome[complete.cases(d)]) == "2")))
+validation_values <- list(counts = info[c("variable", "n")], model = result$summary$model)
+```
+:::
+
+<!-- /update-20261106: selection_cohorts -->
+
 ## 策略热图与可导出的摘要
 
 
@@ -418,6 +459,48 @@ plot_cv_glmnet(lasso[["cv.fit"]], xvar = "log_lambda", error_type = "both")
 
 :::
 
+
+### 单连续变量 LASSO 与交叉验证边界（2026-11-06） {#selection_lasso-20261106}
+
+<!-- update-20261106: selection_lasso -->
+
+独立的 `get_var_sel()` 现在支持只有一个连续预测变量的 LASSO。内部辅助零列不参与变量选择；返回原始变量名。`nfolds` 至少为 3，且不能超过完整病例人数。不可行的随机训练折会直接报错，折的重新分配需由调用者决定。Cox LASSO 的完整病例随访需严格为正。`get_um()` 的 Cox LASSO 固定使用 Breslow 并列时间处理，因子仍按水平指示列筛选。
+
+```r
+library(RegR)
+set.seed(200)
+d <- data.frame(x = rnorm(90))
+d$y <- rbinom(90, 1, plogis(2 * d$x))
+set.seed(101)
+result <- get_var_sel(d, "x", time = NULL, outcome = "y", methods = "lasso",
+  lasso_args = list(nfolds = 3L))
+cv <- result$details$lasso$selection$cv.fit
+plot <- plot_cv_glmnet(cv, error_type = "ribbon")
+ggplot2::ggsave(file.path(tempdir(), "20261106-update-selection-lasso.pdf"),
+  plot, width = 6, height = 4.5, device = grDevices::cairo_pdf)
+```
+
+![单个连续预测变量的真实三折交叉验证曲线](images/variable-selection-guide/20261106-update-selection-lasso.png){fig-alt="单个连续预测变量的真实三折交叉验证曲线"}
+
+[原生 PDF](images/variable-selection-guide/20261106-update-selection-lasso.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+set.seed(101)
+expected <- glmnet::cv.glmnet(cbind(x = d$x, zero = 0), d$y,
+  family = "binomial", alpha = 1, nfolds = 3L)
+stopifnot(identical(cv$lambda.min, expected$lambda.min),
+  identical(cv$lambda.1se, expected$lambda.1se),
+  all(unlist(result$vars, use.names = FALSE) %in% "x"))
+reject <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+stopifnot(reject(get_var_sel(d, "x", time = NULL, outcome = "y", methods = "lasso",
+  lasso_args = list(nfolds = 91L))))
+validation_values <- list(n = nrow(d), min = cv$lambda.min, one_se = cv$lambda.1se,
+                          vars = result$vars)
+```
+:::
+
+<!-- /update-20261106: selection_lasso -->
 
 ## 系数路径与变量编码
 
@@ -1003,6 +1086,8 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[单连续变量 LASSO 与交叉验证边界](#selection_lasso-20261106)。
+- 2026-11-06：[筛选的完整病例、事件编码与公式](#selection_cohorts-20261106)。
 - 2026-11-03：[补齐StepReg特殊名称的Logistic/Cox核对](#step-literals-20261103c)。
 - 2026-11-03：[补齐LASSO全水平指示列与原始变量回收](#lasso-indicators-20261103c)。
 - 2026-11-03：[补充特殊列名的P值筛选与名称往返](#literal-selection-20261103b)。
