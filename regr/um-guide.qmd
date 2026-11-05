@@ -601,6 +601,8 @@ info
 
 `p_args$p_threshold` 比较原始系数的 Wald P 值，`conf_level` 改变区间显示时仍使用同一筛选证据。区间显示溢出与模型分离分别记录。完全或近完全分离可使对应比较不可估计，此时检查 `model_info$status`，保留其他可估计的比较。
 
+本轮在 RegR `7dad336b` 复现了分离诊断缺陷。同一构造的 120 人数据被标记为不可估计，60 人数据却返回 OR 约 1 和 `fitted`。下面记录实际输出，60 人结果应按分离问题复核。
+
 ```r
 library(RegR)
 d <- data.frame(g = factor(rep(c("A", "B"), each = 50)),
@@ -619,6 +621,10 @@ gt::gtsave(gt::gt(summary), file.path(tempdir(), "20261106-update-um-wald.html")
 
 [原生表格 HTML](images/um-guide/20261106-update-um-wald.html)
 
+![两个样本量下完全分离数据的实际诊断结果](images/um-guide/20261106-update-um-separation.png){fig-alt="同一完全分离构造在 60 人和 120 人时出现不一致诊断，60 人结果属于已复现的上游缺陷"}
+
+[原生表格 HTML](images/um-guide/20261106-update-um-separation.html)
+
 ::: {.callout-note collapse="true" title="复核代码"}
 ```r
 wald <- coef(summary(glm(y ~ g, d, family = binomial())))[2, 4]
@@ -628,7 +634,16 @@ separated$x <- (2 * separated$y - 1) * 1e6
 diagnosed <- suppressWarnings(get_um(separated, x, surv = "y"))
 stopifnot(diagnosed$tables$full$effect == "Not estimable",
           all(diagnosed$model_info$status == "fit_warning"))
-validation_values <- list(screen = summary, separated = diagnosed$model_info$status)
+small <- data.frame(y = rep(0:1, each = 30))
+small$x <- (2 * small$y - 1) * 1e6
+observed <- suppressWarnings(get_um(small, x, surv = "y"))
+diagnostics <- data.frame(n = c(60, 120),
+  effect = c(observed$tables$full$effect, diagnosed$tables$full$effect),
+  status = c(observed$model_info$status[2], diagnosed$model_info$status[2]))
+stopifnot(observed$model_info$status[2] == "fitted",
+  abs(observed$tables$full$estimate - 1) < .001)
+gt::gtsave(gt::gt(diagnostics), file.path(tempdir(), "20261106-update-um-separation.html"))
+validation_values <- list(screen = summary, diagnostics = diagnostics)
 ```
 :::
 
@@ -1188,7 +1203,7 @@ validation_values <- shown
 ## autoReg 路线：表格与绘图入口
 
 
-get_tb_ums() 使用 autoReg 的单因素/最终模型流程，threshold 默认 0.1；plt_tb_ums() 默认 threshold=1，不能认为两者无参数时拟合的是同一个模型。本例显式统一为 0.1。show.OR 是 autoReg 参数名，在 Cox 路线实际显示 HR。
+get_tb_ums() 以单因素结果筛选后执行后退 AIC，threshold 默认 0.1；plt_tb_ums() 默认 threshold=1，不能认为两者无参数时拟合的是同一个模型。本例显式统一为 0.1。show.OR 是 autoReg 参数名，在 Cox 路线实际显示 HR。
 
 ::: {.panel-tabset}
 
