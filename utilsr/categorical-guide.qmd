@@ -7,8 +7,8 @@ toc-depth: 2
 directory:
   title: "分类变量：plt_cat 的 11 种图形与重要参数"
   topic: 绘图与格式化
-  updated: 2026-11-04
-date-modified: 2026-11-04
+  updated: 2026-11-06
+date-modified: 2026-11-06
 ---
 
 `plt_cat()` 用一个公共入口组织 11 种分类图形。本页先比较同一张频数表的显示方式，再分别展示流向、弦图和集合交集。图形选项放在标签页中，点击结果图可放大。
@@ -16,6 +16,8 @@ date-modified: 2026-11-04
 **历史版本与执行范围：** 以下原有31个参数示例按 UtilsR **0.6.8** 核对；31 个示例已在 WSL R 4.4.3 中实际执行，其中 31 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-01 追加按已推送 UtilsR `9ebf1e95`（0.6.20）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -1184,6 +1186,48 @@ validation_values <- list(rows = c(2L, 4L), retained_input_levels = c(50000L, 50
 
 <!-- /update-20261101c: utils_cat_chord -->
 
+### 集合阳性值、全缺失列与精确时间（2026-11-06） {#cat_membership-20261106}
+
+<!-- update-20261106: cat_membership -->
+
+`plt_cat(type = "upset" / "venn")` 先按原值判断成员，再生成显示标签。逻辑型和声明 No/Yes 水平的二分类因子保留既定的阳性水平，全阴性子集不会被反转。自动识别时，全缺失列表示空集合。时间类选择值放在 `stat_level` 的命名 list 中；跨时区的同一时间点可匹配。混用 `integer64` 和普通数值时，转换必须无精度损失。
+
+```r
+library(UtilsR)
+d <- data.frame(A = rep(FALSE, 3), B = c(FALSE, TRUE, FALSE), Missing = rep(NA_character_, 3))
+automatic <- plt_cat(d, c("A", "B", "Missing"), type = "upset", NA_stat = TRUE)
+explicit <- plt_cat(d, c("A", "B"), type = "upset",
+  stat_level = list(A = FALSE, B = TRUE))
+ggplot2::ggsave(file.path(tempdir(), "20261106-update-set-positive.pdf"),
+  explicit, width = 6, height = 4.5, device = grDevices::cairo_pdf)
+```
+
+![显式选择 FALSE 后，A 包含全部三行，A 与 B 的交集为一行](images/categorical-guide/20261106-update-set-positive.png){fig-alt="显式选择 FALSE 后，A 包含全部三行，A 与 B 的交集为一行"}
+
+[原生 PDF](images/categorical-guide/20261106-update-set-positive.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(automatic$data$intersection, list("B")),
+  identical(explicit$data$intersection, list("A", c("A", "B"), "A")))
+start <- as.POSIXct("2026-11-05 12:00:00", tz = "UTC")
+timed <- data.frame(A = I(start + 0:2), B = c(FALSE, TRUE, FALSE))
+chosen <- plt_cat(timed, c("A", "B"), type = "upset",
+  stat_level = list(A = as.POSIXct("2026-11-05 20:00:00", tz = "Asia/Shanghai"), B = TRUE))
+stopifnot(identical(chosen$data$intersection, list("A", "B")))
+ids <- data.frame(A = bit64::as.integer64(c("1000000000000000", "1000000000000001", "1000000000000001")),
+                  B = c(FALSE, TRUE, FALSE))
+lossless <- plt_cat(ids, c("A", "B"), type = "upset", stat_level = list(A = 1e15, B = TRUE))
+bad <- tryCatch(plt_cat(ids, c("A", "B"), type = "upset",
+  stat_level = list(A = 1.9, B = TRUE)), error = identity)
+stopifnot(identical(lossless$data$intersection, list("A", "B")), inherits(bad, "error"))
+validation_values <- list(auto = automatic$data$intersection, explicit = explicit$data$intersection,
+                          time = chosen$data$intersection)
+```
+:::
+
+<!-- /update-20261106: cat_membership -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 标准类型返回 ggplot；`split.by` 通常返回 patchwork。弦图分支返回 recordedplot，并已经在当前设备绘制，不能将它直接传给 `ggsave()`。
@@ -1325,6 +1369,7 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[集合阳性值、全缺失列与精确时间](#cat_membership-20261106)。
 - 2026-11-04：[相同时间标签下的独立类别](#categorical_time-20261104)。
 - 2026-11-01：[补充弦图的未用水平与空白类别](#chord-20261101c)，核对实际保存和颜色回放。
 - 2026-11-01：[补充分层数量与背景字典](#quantity-20261101c)，核对Venn透明度、标签底框及空成员。
