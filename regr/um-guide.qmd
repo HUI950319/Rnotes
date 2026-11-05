@@ -7,14 +7,16 @@ toc-depth: 2
 directory:
   title: "单多因素分析：手工模型、自动筛选与绝对效应"
   topic: 回归与生存分析
-  updated: 2026-11-03
-date-modified: 2026-11-03
+  updated: 2026-11-06
+date-modified: 2026-11-06
 ---
 
 
 get_um() 用同一单因素行模板对齐多个多因素模型，适合清楚展示调整集合的变化。页面先展示预先指定模型，再展示自动筛选和绝对效应，最后比较 autoReg 的表格/绘图入口。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 RegR `769f460c`（0.1.3）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `7bf81d05`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 RegR `f80e0e95`（0.1.3）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -461,6 +463,51 @@ validation_values <- list(n = nrow(contrast_data), rows = contrast_rows)
 
 <!-- /update-20261103c: late_um_contrasts -->
 
+### 缺失参照水平与绝对概率（2026-11-06） {#um_reference-20261106}
+
+<!-- update-20261106: um_reference -->
+
+`get_um()` 的每个模型按自身完整病例拟合。某个水平在该模型中没有观测时，结果保留该行并标记 `Not estimable`。相对效应的实际参照可从各模型表的 `reference_row` 读取；宽表的共享标记来自单因素模型。绝对概率按可观测水平保留。如果原始参照水平从拟合队列消失，参照减比较的差值无法估计。
+
+```r
+library(RegR)
+set.seed(322)
+d <- data.frame(g = factor(rep(c("A", "B", "C"), each = 30)),
+  z = rnorm(90), y = rep(0:1, 45))
+d$z[d$g == "A"] <- NA_real_
+res <- get_um(d, c(g, z), surv = "y", abs_args = list(enabled = TRUE))
+relative <- res$tables$full
+absolute <- res$absolute$tables$full
+shown <- cbind(relative[relative$row_type == "level", c("label", "effect", "reference_row")],
+  absolute[absolute$row_type == "level", c("estimate_sur", "estimate", "absolute_status")])
+gt::gtsave(gt::sub_missing(gt::gt(shown), missing_text = "NA"),
+  file.path(tempdir(), "20261106-update-um-reference.html"))
+```
+
+![A 水平保留为空估计，B 成为相对模型参照，B 和 C 的绝对概率继续可用](images/um-guide/20261106-update-um-reference.png){fig-alt="A 水平保留为空估计，B 成为相对模型参照，B 和 C 的绝对概率继续可用"}
+
+[原生表格 HTML](images/um-guide/20261106-update-um-reference.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+fit <- glm(y ~ g + z, d, family = binomial())
+available <- d[complete.cases(d), ]
+prob <- vapply(c("B", "C"), function(level) {
+  counterfactual <- available
+  counterfactual$g <- factor(level, levels = levels(available$g))
+  mean(predict(fit, newdata = counterfactual, type = "response"))
+}, numeric(1))
+levels <- absolute$row_type == "level"
+stopifnot(attr(relative, "fit_info")$n == 60, shown$effect[1] == "Not estimable",
+  identical(shown$reference_row, c(FALSE, TRUE, FALSE)),
+  all(is.na(absolute$estimate[levels])),
+  isTRUE(all.equal(absolute$estimate_sur[levels][-1], unname(prob), tolerance = 1e-9)))
+validation_values <- shown
+```
+:::
+
+<!-- /update-20261106: um_reference -->
+
 ## 自动筛选与拟合状态
 
 
@@ -547,6 +594,45 @@ info
 
 :::
 
+
+### 筛选用 Wald P 值与分离诊断（2026-11-06） {#um_wald-20261106}
+
+<!-- update-20261106: um_wald -->
+
+`p_args$p_threshold` 比较原始系数的 Wald P 值，`conf_level` 改变区间显示时仍使用同一筛选证据。区间显示溢出与模型分离分别记录。完全或近完全分离可使对应比较不可估计，此时检查 `model_info$status`，保留其他可估计的比较。
+
+```r
+library(RegR)
+d <- data.frame(g = factor(rep(c("A", "B"), each = 50)),
+  y = c(rep(1L, 20), rep(0L, 30), rep(1L, 26), rep(0L, 24)))
+runs <- lapply(c(.90, .95, .99), function(level)
+  get_um(d, g, var_mul = "p", surv = "y", conf_level = level))
+summary <- do.call(rbind, lapply(seq_along(runs), function(i) {
+  tab <- runs[[i]]$tables$univariable
+  data.frame(conf_level = c(.90, .95, .99)[i],
+    Wald_P = tab$p.value_0.95[3], selected = length(runs[[i]]$var_mul$select_p))
+}))
+gt::gtsave(gt::gt(summary), file.path(tempdir(), "20261106-update-um-wald.html"))
+```
+
+![90%、95% 和 99% 区间对应相同的原始 Wald P 值与筛选结果](images/um-guide/20261106-update-um-wald.png){fig-alt="90%、95% 和 99% 区间对应相同的原始 Wald P 值与筛选结果"}
+
+[原生表格 HTML](images/um-guide/20261106-update-um-wald.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+wald <- coef(summary(glm(y ~ g, d, family = binomial())))[2, 4]
+stopifnot(wald > .2, all(abs(summary$Wald_P - wald) < 1e-12), all(summary$selected == 0))
+separated <- data.frame(y = rep(0:1, each = 60))
+separated$x <- (2 * separated$y - 1) * 1e6
+diagnosed <- suppressWarnings(get_um(separated, x, surv = "y"))
+stopifnot(diagnosed$tables$full$effect == "Not estimable",
+          all(diagnosed$model_info$status == "fit_warning"))
+validation_values <- list(screen = summary, separated = diagnosed$model_info$status)
+```
+:::
+
+<!-- /update-20261106: um_wald -->
 
 ## Logistic：相对 OR 与标准化绝对风险
 
@@ -1056,6 +1142,49 @@ ggplot(a, aes(x = estimate, y = row)) +
 :::
 
 
+### 生存单位、事件列与内部名称（2026-11-06） {#um_survival-20261106}
+
+<!-- update-20261106: um_survival -->
+
+绝对生存效应要求 `time` 已换算为数值月数，`abs_args$time` 同样以月为单位。Fine–Gray 优先取 `event`，否则使用 `status`；两列都有有效事件编码时，共同观测的编码必须一致。名为 `group` 的调整变量及 `.fg_time`、`.fg_event` 等候选列仍按原变量进入模型。相同变量集的绝对 Cox 结果会复用拟合。
+
+```r
+library(RegR)
+set.seed(762)
+n <- 90
+d <- data.frame(g = factor(rep(c("A", "B", "C"), each = 30)), group = rnorm(n))
+d$time <- rexp(n, .03 * exp(.3 * d$group))
+d$DSS <- rep(c(1L, 0L, 1L), 30)
+d$event <- rep(0:2, 30)
+res <- get_um(d, c(g, group), abs_args = list(enabled = TRUE, time = 24))
+tab <- res$absolute$tables$full
+shown <- tab[tab$row_type == "level", c("label", "estimate_sur", "estimate", "absolute_status")]
+gt::gtsave(gt::gt(shown), file.path(tempdir(), "20261106-update-um-survival.html"))
+```
+
+![以 24 月计算的调整生存概率与参照减比较差值](images/um-guide/20261106-update-um-survival.png){fig-alt="以 24 月计算的调整生存概率与参照减比较差值"}
+
+[原生表格 HTML](images/um-guide/20261106-update-um-survival.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+renamed <- d
+names(renamed)[names(renamed) == "group"] <- "adjuster"
+expected <- get_um(renamed, c(g, adjuster), abs_args = list(enabled = TRUE, time = 24))
+stopifnot(isTRUE(all.equal(tab$estimate_sur, expected$absolute$tables$full$estimate_sur)))
+reject <- function(expr) inherits(tryCatch(force(expr), error = identity), "error")
+bad_time <- d
+bad_time$time <- as.difftime(d$time, units = "days")
+conflict <- d
+conflict$status <- ifelse(d$event == 1, 2L, ifelse(d$event == 2, 1L, 0L))
+stopifnot(reject(get_um(bad_time, g, abs_args = list(enabled = TRUE))),
+          reject(get_um(conflict, g, surv = FALSE)))
+validation_values <- shown
+```
+:::
+
+<!-- /update-20261106: um_survival -->
+
 ## autoReg 路线：表格与绘图入口
 
 
@@ -1182,6 +1311,45 @@ plt_tb_ums(d, co_var = candidate, threshold = 0.1,
 :::
 
 
+### UMS 森林图、表格与保存对象（2026-11-06） {#ums_forest-20261106}
+
+<!-- update-20261106: ums_forest -->
+
+`plt_tb_ums()` 与 `get_tb_ums()` 共用效应提取、参照检查及模型队列。统一 `threshold` 后可以逐项核对。`uni = FALSE` 且不筛选的 Cox 图只需要调整模型。保存后在新会话 `readRDS()`，`modelPlot` 的打印方法会恢复。
+
+```r
+library(RegR)
+set.seed(934)
+d <- data.frame(time = rexp(90, .03), DSS = rep(0:1, 45),
+  x = rnorm(90), z = factor(rep(c("A", "B", "C"), 30)))
+d$x[d$z == "A"] <- NA_real_
+table <- withr::with_options(list(RegR.ums.print = FALSE),
+  get_tb_ums(d, c("x", "z"), threshold = 1, format_res = FALSE))
+forest <- plt_tb_ums(d, c("x", "z"), threshold = 1, uni = FALSE)
+grDevices::cairo_pdf(file.path(tempdir(), "20261106-update-ums-forest.pdf"), width = 10, height = 4)
+print(forest)
+grDevices::dev.off()
+saveRDS(forest, file.path(tempdir(), "ums-forest.rds"))
+```
+
+![调整模型失去 A 参照时，森林图和回归表一致标记无法估计的比较](images/um-guide/20261106-update-ums-forest.png){fig-alt="调整模型失去 A 参照时，森林图和回归表一致标记无法估计的比较"}
+
+[原生 PDF](images/um-guide/20261106-update-ums-forest.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+pd <- forest$tab1$data
+stopifnot(inherits(forest, "modelPlot"),
+  identical(pd$stats[pd$id == "zB"], table[["HR (multivariable)"]][table$id == "zB"]),
+  is.na(pd$HR[pd$id == "zB"]), !any(pd$id == "zA" & pd$mode == "Reference"))
+loaded <- readRDS(file.path(tempdir(), "ums-forest.rds"))
+stopifnot(identical(class(loaded), "modelPlot"))
+validation_values <- list(rows = nrow(d), forest = pd[c("id", "stats", "mode")])
+```
+:::
+
+<!-- /update-20261106: ums_forest -->
+
 ## 使用边界、保存与复现记录
 
 
@@ -1217,6 +1385,10 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[UMS 森林图、表格与保存对象](#ums_forest-20261106)。
+- 2026-11-06：[生存单位、事件列与内部名称](#um_survival-20261106)。
+- 2026-11-06：[筛选用 Wald P 值与分离诊断](#um_wald-20261106)。
+- 2026-11-06：[缺失参照水平与绝对概率](#um_reference-20261106)。
 - 2026-11-03：[明确绝对差P值与不可估计状态](#absolute-p-20261103c)。
 - 2026-11-03：[补齐非默认contrast编码的首水平比较](#contrasts-20261103c)。
 - 2026-11-03：[补齐SPSS缺失规范化与各模型真实人数](#cohorts-20261103c)。
