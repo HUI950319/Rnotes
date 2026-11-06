@@ -15,6 +15,8 @@ directory:
 get_eff_cat() 把同一个分类暴露在不同模型下的估计排成行，便于检查调整集合、结局定义和分层怎样改变结果。它与逐个预测变量的 get_eff()/get_um() 表格组织方式不同。页面提供同一数据的模型表、森林图和绝对效应。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 本轮补充按已推送 RegR `6d15ecd`（0.1.3）及 UtilsR `ce17def`（0.6.13）导出源码，使用 Windows / WSL R 4.4.3 独立运行；合成数据与新增输出在对应小节说明，既有图表保留原执行快照。
@@ -1017,6 +1019,108 @@ validation_values <- list(input_n = 240L, subset_n = vapply(cohorts29e, nrow, 0L
 
 <!-- /update-20261029e: regr_cat_data -->
 
+### ATT 目标水平与效应对比方向（2026-11-06） {#ps_att-20261106b}
+
+<!-- update-20261106b: ps_att -->
+
+`att_level=2` 默认把二分类暴露的第二水平作为 ATT 目标人群，`att_level=1` 将 PS 匹配和 SMR 加权同时指向第一水平。它不改变结果表中的第二水平比第一水平这一对比方向。匹配第一水平时内部采用 MatchIt 的 `ATC`；`ps_methods` 本身仍不接受 `ATC`。单个加权模型的 `weightit_args$focal` 优先于全局设置，ATE、ATO、ATM、EW 不受 `att_level` 影响。
+
+```r
+library(RegR)
+set.seed(1106)
+n <- 160
+d <- data.frame(exposure = factor(rep(c("Yes", "No"), n / 2),
+  levels = c("Yes", "No")), age = rnorm(n),
+  sex = factor(sample(c("Female", "Male"), n, replace = TRUE)))
+d[["y"]] <- rbinom(n, 1, plogis(-.5 + .5 * (d[["exposure"]] == "No") +
+  .4 * d[["age"]] + .2 * (d[["sex"]] == "Male")))
+methods <- c("PS matching (nearest, ATT)", "SMR weighting (ATT)", "Stabilized IPTW (ATE)")
+run <- function(level) get_eff_cat(d, cat_var = "exposure",
+  adj_var = c("age", "sex"), surv = "y", ps_methods = methods, att_level = level)
+first <- run(1)
+second <- run(2)
+extract <- function(r) {
+  tab <- r[["haz_models"]]
+  tab <- tab[tab[["row_type"]] == "model" & tab[["term"]] == "exposureNo", ]
+  setNames(tab[["estimate"]], tab[["model_label"]])[methods]
+}
+shown <- data.frame(method = methods, ATT_Yes = unname(extract(first)),
+  ATT_No = unname(extract(second)))
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106b-update-ps-att.html"))
+```
+
+![ATT 目标改为 Yes 或 No 时，对比方向仍为 No 比 Yes，ATE 结果相同](images/eff-cat-guide/20261106b-update-ps-att.png){fig-alt="ATT 目标改为 Yes 或 No 时，对比方向仍为 No 比 Yes，ATE 结果相同"}
+
+[原生表格 HTML](images/eff-cat-guide/20261106b-update-ps-att.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(extract(second), extract(get_eff_cat(d, cat_var = "exposure",
+  adj_var = c("age", "sex"), surv = "y", ps_methods = methods))),
+  abs(shown[["ATT_Yes"]][3] - shown[["ATT_No"]][3]) < 1e-12)
+or_of <- function(data, weights) exp(unname(coef(suppressWarnings(
+  glm(y ~ exposure, data = data, family = binomial(), weights = weights)))[["exposureNo"]]))
+for (level in 1:2) {
+  matched <- MatchIt::match.data(suppressWarnings(MatchIt::matchit(exposure ~ age + sex,
+    data = d, method = "nearest", estimand = if (level == 1) "ATC" else "ATT",
+    ratio = 1, caliper = .2)))
+  weighted <- WeightIt::weightit(exposure ~ age + sex, data = d, method = "glm",
+    estimand = "ATT", focal = levels(d[["exposure"]])[level])
+  expected <- c(or_of(matched, matched[["weights"]]), or_of(d, weighted[["weights"]]))
+  stopifnot(max(abs(unname(extract(if (level == 1) first else second))[1:2] - expected)) < 1e-8)
+}
+validation_values <- list(n = n, results = shown, contrast = "No vs Yes")
+```
+:::
+
+<!-- /update-20261106b: ps_att -->
+
+### 有放回匹配的稳健区间（2026-11-06） {#ps_replacement-20261106b}
+
+<!-- update-20261106b: ps_replacement -->
+
+`matchit_args=list(replace=TRUE)` 现在可以完成匹配。无放回匹配按配对 `subclass` 聚类；有放回时匹配数据没有 `subclass`，`ps_robust=TRUE` 按每个匹配单位聚类，匹配权重计入重复使用。下面以合成数据将返回的 OR 和区间与同一匹配权重的 survey 拟合逐项核对。平衡与目标人群仍需单独评估。
+
+```r
+library(RegR)
+set.seed(1106)
+n <- 160
+d <- data.frame(exposure = factor(rep(c("Yes", "No"), n / 2),
+  levels = c("Yes", "No")), age = rnorm(n),
+  sex = factor(sample(c("Female", "Male"), n, replace = TRUE)))
+d[["y"]] <- rbinom(n, 1, plogis(-.5 + .5 * (d[["exposure"]] == "No") +
+  .4 * d[["age"]]))
+r <- get_eff_cat(d, cat_var = "exposure", adj_var = c("age", "sex"), surv = "y",
+  ps_methods = list(PSM = list(design = "matching", method = "nearest", estimand = "ATT",
+    matchit_args = list(ratio = 1, caliper = .2, replace = TRUE))))
+tab <- r[["haz_models"]]
+row <- tab[tab[["model_label"]] == "PSM" & tab[["term"]] %in% "exposureNo", ]
+gt::gtsave(gt::gt(row[c("model_label", "estimate", "conf.low", "conf.high")]),
+  file.path(tempdir(), "20261106b-update-ps-replacement.html"))
+```
+
+![有放回匹配返回的 OR 与按匹配单位聚类的稳健区间](images/eff-cat-guide/20261106b-update-ps-replacement.png){fig-alt="有放回匹配返回的 OR 与按匹配单位聚类的稳健区间"}
+
+[原生表格 HTML](images/eff-cat-guide/20261106b-update-ps-replacement.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+matched <- MatchIt::match.data(MatchIt::matchit(exposure ~ age + sex, data = d,
+  method = "nearest", estimand = "ATT", ratio = 1, caliper = .2, replace = TRUE))
+matched[["unit"]] <- seq_len(nrow(matched))
+fit <- survey::svyglm(y ~ exposure, design = survey::svydesign(
+  ids = ~unit, weights = ~weights, data = matched), family = quasibinomial())
+expected <- c(exp(coef(fit)[["exposureNo"]]), exp(confint(fit)["exposureNo", ]))
+stopifnot(!"subclass" %in% names(matched), nrow(row) == 1,
+  max(abs(unname(unlist(row[c("estimate", "conf.low", "conf.high")])) - expected)) < 1e-8)
+validation_values <- list(n = nrow(d), matched_n = nrow(matched),
+  OR = unname(row[["estimate"]]), CI = unname(unlist(row[c("conf.low", "conf.high")])))
+```
+:::
+
+<!-- /update-20261106b: ps_replacement -->
+
 ## 使用边界、保存与复现记录
 
 
@@ -1154,6 +1258,8 @@ p_step_vertical
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[有放回匹配的稳健区间](#ps_replacement-20261106b)。
+- 2026-11-06：[ATT 目标水平与效应对比方向](#ps_att-20261106b)。
 - 2026-11-06：[相似系数名仍按原变量匹配](#effect_identity-20261106)。
 - 2026-10-29：[数据列表与场景](#data-list-20261029e)：逐数据框比较调整模型，核对多结局结构并提供两份实际PDF。
 - 2026-10-22：[sub_inter 模型行的交叉核对](#sub-inter-check-20261022)

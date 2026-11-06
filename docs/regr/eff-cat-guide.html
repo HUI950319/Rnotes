@@ -1205,6 +1205,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 <div id="callout-1" class="callout-1-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
+<p>2026-11-06 追加按已推送 RegR <code>1ef6309c</code>（0.1.3）导出源码，同时固定 RegR <code>1ef6309c</code> 与 UtilsR <code>ea6abfa0</code>，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。</p>
 <p>2026-11-06 追加按已推送 RegR <code>7dad336b</code>（0.1.3）导出源码，同时固定 RegR <code>7dad336b</code> 与 UtilsR <code>8ceda1e9</code>，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。</p>
 <p>本轮补充按已推送 RegR <code>6d15ecd</code>（0.1.3）及 UtilsR <code>ce17def</code>（0.6.13）导出源码，使用 Windows / WSL R 4.4.3 独立运行；合成数据与新增输出在对应小节说明，既有图表保留原执行快照。</p>
 <p><strong>版本与执行范围：</strong> 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。</p>
@@ -2597,6 +2598,124 @@ estimated
 </div>
 <!-- /update-20261029e: regr_cat_data -->
 </section>
+<section id="ps_att-20261106b" class="level3">
+<h3 class="anchored" data-anchor-id="ps_att-20261106b">ATT 目标水平与效应对比方向（2026-11-06）</h3>
+<!-- update-20261106b: ps_att -->
+<p><code>att_level=2</code> 默认把二分类暴露的第二水平作为 ATT 目标人群，<code>att_level=1</code> 将 PS 匹配和 SMR 加权同时指向第一水平。它不改变结果表中的第二水平比第一水平这一对比方向。匹配第一水平时内部采用 MatchIt 的 <code>ATC</code>；<code>ps_methods</code> 本身仍不接受 <code>ATC</code>。单个加权模型的 <code>weightit_args$focal</code> 优先于全局设置，ATE、ATO、ATM、EW 不受 <code>att_level</code> 影响。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1106</span>)</span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a>n <span class="ot">&lt;-</span> <span class="dv">160</span></span>
+<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>d <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">exposure =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"No"</span>), n <span class="sc">/</span> <span class="dv">2</span>),</span>
+<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"No"</span>)), <span class="at">age =</span> <span class="fu">rnorm</span>(n),</span>
+<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">sex =</span> <span class="fu">factor</span>(<span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), n, <span class="at">replace =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a>d[[<span class="st">"y"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n, <span class="dv">1</span>, <span class="fu">plogis</span>(<span class="sc">-</span>.<span class="dv">5</span> <span class="sc">+</span> .<span class="dv">5</span> <span class="sc">*</span> (d[[<span class="st">"exposure"</span>]] <span class="sc">==</span> <span class="st">"No"</span>) <span class="sc">+</span></span>
+<span id="cb35-8"><a href="#cb35-8" aria-hidden="true" tabindex="-1"></a>  .<span class="dv">4</span> <span class="sc">*</span> d[[<span class="st">"age"</span>]] <span class="sc">+</span> .<span class="dv">2</span> <span class="sc">*</span> (d[[<span class="st">"sex"</span>]] <span class="sc">==</span> <span class="st">"Male"</span>)))</span>
+<span id="cb35-9"><a href="#cb35-9" aria-hidden="true" tabindex="-1"></a>methods <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">"PS matching (nearest, ATT)"</span>, <span class="st">"SMR weighting (ATT)"</span>, <span class="st">"Stabilized IPTW (ATE)"</span>)</span>
+<span id="cb35-10"><a href="#cb35-10" aria-hidden="true" tabindex="-1"></a>run <span class="ot">&lt;-</span> <span class="cf">function</span>(level) <span class="fu">get_eff_cat</span>(d, <span class="at">cat_var =</span> <span class="st">"exposure"</span>,</span>
+<span id="cb35-11"><a href="#cb35-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"age"</span>, <span class="st">"sex"</span>), <span class="at">surv =</span> <span class="st">"y"</span>, <span class="at">ps_methods =</span> methods, <span class="at">att_level =</span> level)</span>
+<span id="cb35-12"><a href="#cb35-12" aria-hidden="true" tabindex="-1"></a>first <span class="ot">&lt;-</span> <span class="fu">run</span>(<span class="dv">1</span>)</span>
+<span id="cb35-13"><a href="#cb35-13" aria-hidden="true" tabindex="-1"></a>second <span class="ot">&lt;-</span> <span class="fu">run</span>(<span class="dv">2</span>)</span>
+<span id="cb35-14"><a href="#cb35-14" aria-hidden="true" tabindex="-1"></a>extract <span class="ot">&lt;-</span> <span class="cf">function</span>(r) {</span>
+<span id="cb35-15"><a href="#cb35-15" aria-hidden="true" tabindex="-1"></a>  tab <span class="ot">&lt;-</span> r[[<span class="st">"haz_models"</span>]]</span>
+<span id="cb35-16"><a href="#cb35-16" aria-hidden="true" tabindex="-1"></a>  tab <span class="ot">&lt;-</span> tab[tab[[<span class="st">"row_type"</span>]] <span class="sc">==</span> <span class="st">"model"</span> <span class="sc">&amp;</span> tab[[<span class="st">"term"</span>]] <span class="sc">==</span> <span class="st">"exposureNo"</span>, ]</span>
+<span id="cb35-17"><a href="#cb35-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setNames</span>(tab[[<span class="st">"estimate"</span>]], tab[[<span class="st">"model_label"</span>]])[methods]</span>
+<span id="cb35-18"><a href="#cb35-18" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb35-19"><a href="#cb35-19" aria-hidden="true" tabindex="-1"></a>shown <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">method =</span> methods, <span class="at">ATT_Yes =</span> <span class="fu">unname</span>(<span class="fu">extract</span>(first)),</span>
+<span id="cb35-20"><a href="#cb35-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">ATT_No =</span> <span class="fu">unname</span>(<span class="fu">extract</span>(second)))</span>
+<span id="cb35-21"><a href="#cb35-21" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(shown),</span>
+<span id="cb35-22"><a href="#cb35-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261106b-update-ps-att.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/eff-cat-guide/20261106b-update-ps-att.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="ATT 目标改为 Yes 或 No 时，对比方向仍为 No 比 Yes，ATE 结果相同"><img src="images/eff-cat-guide/20261106b-update-ps-att.png" class="img-fluid figure-img" alt="ATT 目标改为 Yes 或 No 时，对比方向仍为 No 比 Yes，ATE 结果相同" loading="lazy" decoding="async" width="561" height="221" srcset="../assets/figure-previews/f2e5ef1607ca302c1ec7bef9c4ca3ea7.webp"></a></p>
+<figcaption>ATT 目标改为 Yes 或 No 时，对比方向仍为 No 比 Yes，ATE 结果相同</figcaption>
+</figure>
+</div>
+<p><a href="images/eff-cat-guide/20261106b-update-ps-att.html">原生表格 HTML</a></p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">identical</span>(<span class="fu">extract</span>(second), <span class="fu">extract</span>(<span class="fu">get_eff_cat</span>(d, <span class="at">cat_var =</span> <span class="st">"exposure"</span>,</span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"age"</span>, <span class="st">"sex"</span>), <span class="at">surv =</span> <span class="st">"y"</span>, <span class="at">ps_methods =</span> methods))),</span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">abs</span>(shown[[<span class="st">"ATT_Yes"</span>]][<span class="dv">3</span>] <span class="sc">-</span> shown[[<span class="st">"ATT_No"</span>]][<span class="dv">3</span>]) <span class="sc">&lt;</span> <span class="fl">1e-12</span>)</span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>or_of <span class="ot">&lt;-</span> <span class="cf">function</span>(data, weights) <span class="fu">exp</span>(<span class="fu">unname</span>(<span class="fu">coef</span>(<span class="fu">suppressWarnings</span>(</span>
+<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">glm</span>(y <span class="sc">~</span> exposure, <span class="at">data =</span> data, <span class="at">family =</span> <span class="fu">binomial</span>(), <span class="at">weights =</span> weights)))[[<span class="st">"exposureNo"</span>]]))</span>
+<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (level <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>) {</span>
+<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a>  matched <span class="ot">&lt;-</span> MatchIt<span class="sc">::</span><span class="fu">match.data</span>(<span class="fu">suppressWarnings</span>(MatchIt<span class="sc">::</span><span class="fu">matchit</span>(exposure <span class="sc">~</span> age <span class="sc">+</span> sex,</span>
+<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> d, <span class="at">method =</span> <span class="st">"nearest"</span>, <span class="at">estimand =</span> <span class="cf">if</span> (level <span class="sc">==</span> <span class="dv">1</span>) <span class="st">"ATC"</span> <span class="cf">else</span> <span class="st">"ATT"</span>,</span>
+<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">ratio =</span> <span class="dv">1</span>, <span class="at">caliper =</span> .<span class="dv">2</span>)))</span>
+<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a>  weighted <span class="ot">&lt;-</span> WeightIt<span class="sc">::</span><span class="fu">weightit</span>(exposure <span class="sc">~</span> age <span class="sc">+</span> sex, <span class="at">data =</span> d, <span class="at">method =</span> <span class="st">"glm"</span>,</span>
+<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">estimand =</span> <span class="st">"ATT"</span>, <span class="at">focal =</span> <span class="fu">levels</span>(d[[<span class="st">"exposure"</span>]])[level])</span>
+<span id="cb36-12"><a href="#cb36-12" aria-hidden="true" tabindex="-1"></a>  expected <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fu">or_of</span>(matched, matched[[<span class="st">"weights"</span>]]), <span class="fu">or_of</span>(d, weighted[[<span class="st">"weights"</span>]]))</span>
+<span id="cb36-13"><a href="#cb36-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stopifnot</span>(<span class="fu">max</span>(<span class="fu">abs</span>(<span class="fu">unname</span>(<span class="fu">extract</span>(<span class="cf">if</span> (level <span class="sc">==</span> <span class="dv">1</span>) first <span class="cf">else</span> second))[<span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>] <span class="sc">-</span> expected)) <span class="sc">&lt;</span> <span class="fl">1e-8</span>)</span>
+<span id="cb36-14"><a href="#cb36-14" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb36-15"><a href="#cb36-15" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> n, <span class="at">results =</span> shown, <span class="at">contrast =</span> <span class="st">"No vs Yes"</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<!-- /update-20261106b: ps_att -->
+</section>
+<section id="ps_replacement-20261106b" class="level3">
+<h3 class="anchored" data-anchor-id="ps_replacement-20261106b">有放回匹配的稳健区间（2026-11-06）</h3>
+<!-- update-20261106b: ps_replacement -->
+<p><code>matchit_args=list(replace=TRUE)</code> 现在可以完成匹配。无放回匹配按配对 <code>subclass</code> 聚类；有放回时匹配数据没有 <code>subclass</code>，<code>ps_robust=TRUE</code> 按每个匹配单位聚类，匹配权重计入重复使用。下面以合成数据将返回的 OR 和区间与同一匹配权重的 survey 拟合逐项核对。平衡与目标人群仍需单独评估。</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(RegR)</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1106</span>)</span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>n <span class="ot">&lt;-</span> <span class="dv">160</span></span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a>d <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">exposure =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"No"</span>), n <span class="sc">/</span> <span class="dv">2</span>),</span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"Yes"</span>, <span class="st">"No"</span>)), <span class="at">age =</span> <span class="fu">rnorm</span>(n),</span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">sex =</span> <span class="fu">factor</span>(<span class="fu">sample</span>(<span class="fu">c</span>(<span class="st">"Female"</span>, <span class="st">"Male"</span>), n, <span class="at">replace =</span> <span class="cn">TRUE</span>)))</span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a>d[[<span class="st">"y"</span>]] <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n, <span class="dv">1</span>, <span class="fu">plogis</span>(<span class="sc">-</span>.<span class="dv">5</span> <span class="sc">+</span> .<span class="dv">5</span> <span class="sc">*</span> (d[[<span class="st">"exposure"</span>]] <span class="sc">==</span> <span class="st">"No"</span>) <span class="sc">+</span></span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a>  .<span class="dv">4</span> <span class="sc">*</span> d[[<span class="st">"age"</span>]]))</span>
+<span id="cb37-9"><a href="#cb37-9" aria-hidden="true" tabindex="-1"></a>r <span class="ot">&lt;-</span> <span class="fu">get_eff_cat</span>(d, <span class="at">cat_var =</span> <span class="st">"exposure"</span>, <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"age"</span>, <span class="st">"sex"</span>), <span class="at">surv =</span> <span class="st">"y"</span>,</span>
+<span id="cb37-10"><a href="#cb37-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">ps_methods =</span> <span class="fu">list</span>(<span class="at">PSM =</span> <span class="fu">list</span>(<span class="at">design =</span> <span class="st">"matching"</span>, <span class="at">method =</span> <span class="st">"nearest"</span>, <span class="at">estimand =</span> <span class="st">"ATT"</span>,</span>
+<span id="cb37-11"><a href="#cb37-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">matchit_args =</span> <span class="fu">list</span>(<span class="at">ratio =</span> <span class="dv">1</span>, <span class="at">caliper =</span> .<span class="dv">2</span>, <span class="at">replace =</span> <span class="cn">TRUE</span>))))</span>
+<span id="cb37-12"><a href="#cb37-12" aria-hidden="true" tabindex="-1"></a>tab <span class="ot">&lt;-</span> r[[<span class="st">"haz_models"</span>]]</span>
+<span id="cb37-13"><a href="#cb37-13" aria-hidden="true" tabindex="-1"></a>row <span class="ot">&lt;-</span> tab[tab[[<span class="st">"model_label"</span>]] <span class="sc">==</span> <span class="st">"PSM"</span> <span class="sc">&amp;</span> tab[[<span class="st">"term"</span>]] <span class="sc">%in%</span> <span class="st">"exposureNo"</span>, ]</span>
+<span id="cb37-14"><a href="#cb37-14" aria-hidden="true" tabindex="-1"></a>gt<span class="sc">::</span><span class="fu">gtsave</span>(gt<span class="sc">::</span><span class="fu">gt</span>(row[<span class="fu">c</span>(<span class="st">"model_label"</span>, <span class="st">"estimate"</span>, <span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>)]),</span>
+<span id="cb37-15"><a href="#cb37-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">file.path</span>(<span class="fu">tempdir</span>(), <span class="st">"20261106b-update-ps-replacement.html"</span>))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><a href="images/eff-cat-guide/20261106b-update-ps-replacement.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="有放回匹配返回的 OR 与按匹配单位聚类的稳健区间"><img src="images/eff-cat-guide/20261106b-update-ps-replacement.png" class="img-fluid figure-img" alt="有放回匹配返回的 OR 与按匹配单位聚类的稳健区间" loading="lazy" decoding="async" width="528" height="110" srcset="../assets/figure-previews/419db985e6e3ec09cb5a8897af6068cc.webp"></a></p>
+<figcaption>有放回匹配返回的 OR 与按匹配单位聚类的稳健区间</figcaption>
+</figure>
+</div>
+<p><a href="images/eff-cat-guide/20261106b-update-ps-replacement.html">原生表格 HTML</a></p>
+<div class="callout callout-style-default callout-note callout-titled" title="复核代码">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">注记</span>复核代码
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-10" class="callout-10-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a>matched <span class="ot">&lt;-</span> MatchIt<span class="sc">::</span><span class="fu">match.data</span>(MatchIt<span class="sc">::</span><span class="fu">matchit</span>(exposure <span class="sc">~</span> age <span class="sc">+</span> sex, <span class="at">data =</span> d,</span>
+<span id="cb38-2"><a href="#cb38-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">method =</span> <span class="st">"nearest"</span>, <span class="at">estimand =</span> <span class="st">"ATT"</span>, <span class="at">ratio =</span> <span class="dv">1</span>, <span class="at">caliper =</span> .<span class="dv">2</span>, <span class="at">replace =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb38-3"><a href="#cb38-3" aria-hidden="true" tabindex="-1"></a>matched[[<span class="st">"unit"</span>]] <span class="ot">&lt;-</span> <span class="fu">seq_len</span>(<span class="fu">nrow</span>(matched))</span>
+<span id="cb38-4"><a href="#cb38-4" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> survey<span class="sc">::</span><span class="fu">svyglm</span>(y <span class="sc">~</span> exposure, <span class="at">design =</span> survey<span class="sc">::</span><span class="fu">svydesign</span>(</span>
+<span id="cb38-5"><a href="#cb38-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">ids =</span> <span class="sc">~</span>unit, <span class="at">weights =</span> <span class="sc">~</span>weights, <span class="at">data =</span> matched), <span class="at">family =</span> <span class="fu">quasibinomial</span>())</span>
+<span id="cb38-6"><a href="#cb38-6" aria-hidden="true" tabindex="-1"></a>expected <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="fu">exp</span>(<span class="fu">coef</span>(fit)[[<span class="st">"exposureNo"</span>]]), <span class="fu">exp</span>(<span class="fu">confint</span>(fit)[<span class="st">"exposureNo"</span>, ]))</span>
+<span id="cb38-7"><a href="#cb38-7" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="sc">!</span><span class="st">"subclass"</span> <span class="sc">%in%</span> <span class="fu">names</span>(matched), <span class="fu">nrow</span>(row) <span class="sc">==</span> <span class="dv">1</span>,</span>
+<span id="cb38-8"><a href="#cb38-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">max</span>(<span class="fu">abs</span>(<span class="fu">unname</span>(<span class="fu">unlist</span>(row[<span class="fu">c</span>(<span class="st">"estimate"</span>, <span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>)])) <span class="sc">-</span> expected)) <span class="sc">&lt;</span> <span class="fl">1e-8</span>)</span>
+<span id="cb38-9"><a href="#cb38-9" aria-hidden="true" tabindex="-1"></a>validation_values <span class="ot">&lt;-</span> <span class="fu">list</span>(<span class="at">n =</span> <span class="fu">nrow</span>(d), <span class="at">matched_n =</span> <span class="fu">nrow</span>(matched),</span>
+<span id="cb38-10"><a href="#cb38-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">OR =</span> <span class="fu">unname</span>(row[[<span class="st">"estimate"</span>]]), <span class="at">CI =</span> <span class="fu">unname</span>(<span class="fu">unlist</span>(row[<span class="fu">c</span>(<span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>)])))</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+<!-- /update-20261106b: ps_replacement -->
+</section>
 </section>
 <section id="使用边界保存与复现记录" class="level2">
 <h2 class="anchored" data-anchor-id="使用边界保存与复现记录">使用边界、保存与复现记录</h2>
@@ -2614,30 +2733,30 @@ estimated
 <li><p><a href="https://hui950319.github.io/RegR/reference/plt_eff.html"><code>plt_eff()</code> 帮助页</a></p></li>
 <li><p><a href="https://hui950319.github.io/RegR/reference/get_eff.html"><code>get_eff()</code> 帮助页</a></p></li>
 </ul>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
-<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="fu">packageVersion</span>(<span class="st">"RegR"</span>)</span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </section>
 <section id="dat-adj-ps" class="level2">
 <h2 class="anchored" data-anchor-id="dat-adj-ps">dat_adj_ps：各队列分别拟合的敏感性分析</h2>
 <p>本节按 RegR 0.1.3 源码 <code>40515e1</code> 核对，复用本页 800 人演示样本，在 WSL R 4.4.3 中实际执行。<code>dat_adj_ps</code> 是具名场景 list：每个场景必须提供自己的 <code>data</code>，可分别提供 <code>adj_var</code> 与 <code>ps_methods</code>，每个场景都重新拟合自己的模型。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb36"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a>scenario_fit <span class="ot">&lt;-</span> <span class="fu">get_eff_cat</span>(d, <span class="at">cat_var =</span> <span class="st">"Sex"</span>, <span class="at">surv =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">ps_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Tum"</span>, <span class="st">"stage"</span>),</span>
-<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">dat_adj_ps =</span> <span class="fu">list</span>(</span>
-<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">Full_cohort =</span> <span class="fu">list</span>(<span class="at">data =</span> d, <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Tum"</span>, <span class="st">"stage"</span>)),</span>
-<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">Older_cohort =</span> <span class="fu">list</span>(<span class="at">data =</span> <span class="fu">droplevels</span>(d[d[[<span class="st">"Age"</span>]] <span class="sc">&gt;=</span> <span class="dv">55</span>, ]),</span>
-<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a>      <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Tum"</span>, <span class="st">"stage"</span>),</span>
-<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a>      <span class="at">ps_methods =</span> <span class="fu">list</span>(<span class="at">IPTW =</span> <span class="fu">list</span>(<span class="at">design =</span> <span class="st">"weighting"</span>, <span class="at">method =</span> <span class="st">"glm"</span>, <span class="at">estimand =</span> <span class="st">"ATE"</span>)))</span>
-<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a>  ))</span>
-<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a>scenario_tables <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">names</span>(scenario_fit), <span class="cf">function</span>(panel) {</span>
-<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a>  tab <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(scenario_fit[[panel]])</span>
-<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a>  tab <span class="ot">&lt;-</span> tab[tab[[<span class="st">"status"</span>]] <span class="sc">!=</span> <span class="st">"header"</span>, , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
-<span id="cb36-12"><a href="#cb36-12" aria-hidden="true" tabindex="-1"></a>  tab[[<span class="st">"panel"</span>]] <span class="ot">&lt;-</span> panel</span>
-<span id="cb36-13"><a href="#cb36-13" aria-hidden="true" tabindex="-1"></a>  tab[, <span class="fu">intersect</span>(<span class="fu">c</span>(<span class="st">"panel"</span>, <span class="st">"label"</span>, <span class="st">"model_label"</span>, <span class="st">"level"</span>, <span class="st">"reference"</span>, <span class="st">"estimate"</span>,</span>
-<span id="cb36-14"><a href="#cb36-14" aria-hidden="true" tabindex="-1"></a>    <span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>, <span class="st">"p_value"</span>, <span class="st">"status"</span>), <span class="fu">names</span>(tab)), drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
-<span id="cb36-15"><a href="#cb36-15" aria-hidden="true" tabindex="-1"></a>})</span>
-<span id="cb36-16"><a href="#cb36-16" aria-hidden="true" tabindex="-1"></a>scenario_view <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, scenario_tables)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb40"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a>scenario_fit <span class="ot">&lt;-</span> <span class="fu">get_eff_cat</span>(d, <span class="at">cat_var =</span> <span class="st">"Sex"</span>, <span class="at">surv =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">ps_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Tum"</span>, <span class="st">"stage"</span>),</span>
+<span id="cb40-3"><a href="#cb40-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">dat_adj_ps =</span> <span class="fu">list</span>(</span>
+<span id="cb40-4"><a href="#cb40-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">Full_cohort =</span> <span class="fu">list</span>(<span class="at">data =</span> d, <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Tum"</span>, <span class="st">"stage"</span>)),</span>
+<span id="cb40-5"><a href="#cb40-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">Older_cohort =</span> <span class="fu">list</span>(<span class="at">data =</span> <span class="fu">droplevels</span>(d[d[[<span class="st">"Age"</span>]] <span class="sc">&gt;=</span> <span class="dv">55</span>, ]),</span>
+<span id="cb40-6"><a href="#cb40-6" aria-hidden="true" tabindex="-1"></a>      <span class="at">adj_var =</span> <span class="fu">c</span>(<span class="st">"Age"</span>, <span class="st">"Tum"</span>, <span class="st">"stage"</span>),</span>
+<span id="cb40-7"><a href="#cb40-7" aria-hidden="true" tabindex="-1"></a>      <span class="at">ps_methods =</span> <span class="fu">list</span>(<span class="at">IPTW =</span> <span class="fu">list</span>(<span class="at">design =</span> <span class="st">"weighting"</span>, <span class="at">method =</span> <span class="st">"glm"</span>, <span class="at">estimand =</span> <span class="st">"ATE"</span>)))</span>
+<span id="cb40-8"><a href="#cb40-8" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb40-9"><a href="#cb40-9" aria-hidden="true" tabindex="-1"></a>scenario_tables <span class="ot">&lt;-</span> <span class="fu">lapply</span>(<span class="fu">names</span>(scenario_fit), <span class="cf">function</span>(panel) {</span>
+<span id="cb40-10"><a href="#cb40-10" aria-hidden="true" tabindex="-1"></a>  tab <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(scenario_fit[[panel]])</span>
+<span id="cb40-11"><a href="#cb40-11" aria-hidden="true" tabindex="-1"></a>  tab <span class="ot">&lt;-</span> tab[tab[[<span class="st">"status"</span>]] <span class="sc">!=</span> <span class="st">"header"</span>, , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb40-12"><a href="#cb40-12" aria-hidden="true" tabindex="-1"></a>  tab[[<span class="st">"panel"</span>]] <span class="ot">&lt;-</span> panel</span>
+<span id="cb40-13"><a href="#cb40-13" aria-hidden="true" tabindex="-1"></a>  tab[, <span class="fu">intersect</span>(<span class="fu">c</span>(<span class="st">"panel"</span>, <span class="st">"label"</span>, <span class="st">"model_label"</span>, <span class="st">"level"</span>, <span class="st">"reference"</span>, <span class="st">"estimate"</span>,</span>
+<span id="cb40-14"><a href="#cb40-14" aria-hidden="true" tabindex="-1"></a>    <span class="st">"conf.low"</span>, <span class="st">"conf.high"</span>, <span class="st">"p_value"</span>, <span class="st">"status"</span>), <span class="fu">names</span>(tab)), drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb40-15"><a href="#cb40-15" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb40-16"><a href="#cb40-16" aria-hidden="true" tabindex="-1"></a>scenario_view <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, scenario_tables)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="callout callout-style-default callout-note callout-titled" title="复核代码">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-11-contents" aria-controls="callout-11" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2646,12 +2765,12 @@ estimated
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div id="callout-11" class="callout-11-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <p>生成本页时运行的检查，接在上面的代码之后运行；只读教程可以跳过。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(scenario_view) <span class="sc">==</span> <span class="dv">6</span>L,</span>
-<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">c</span>(<span class="st">"haz_models_Unadjusted"</span>, <span class="st">"haz_models_Adjusted"</span>) <span class="sc">%in%</span> <span class="fu">names</span>(scenario_fit)),</span>
-<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(scenario_view[[<span class="st">"status"</span>]] <span class="sc">==</span> <span class="st">"not_estimable"</span>) <span class="sc">==</span> <span class="dv">1</span>L)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="fu">stopifnot</span>(<span class="fu">nrow</span>(scenario_view) <span class="sc">==</span> <span class="dv">6</span>L,</span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">all</span>(<span class="fu">c</span>(<span class="st">"haz_models_Unadjusted"</span>, <span class="st">"haz_models_Adjusted"</span>) <span class="sc">%in%</span> <span class="fu">names</span>(scenario_fit)),</span>
+<span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">sum</span>(scenario_view[[<span class="st">"status"</span>]] <span class="sc">==</span> <span class="st">"not_estimable"</span>) <span class="sc">==</span> <span class="dv">1</span>L)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 </div>
 </div>
 </div>
@@ -2764,10 +2883,10 @@ estimated
 </table>
 </div>
 <p>Older_cohort 提供了 IPTW 设置；Full_cohort 没有该设置，所以 IPTW 面板中保留一行 <code>status="not_estimable"</code>，效应与区间为 NA。这一行表示该场景未拟合此模型，不能解读成效应为零。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_eff</span>(scenario_fit, <span class="at">show_pinter =</span> <span class="st">"none"</span>, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>, <span class="at">base_size =</span> <span class="dv">10</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb42"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb42-1"><a href="#cb42-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plt_eff</span>(scenario_fit, <span class="at">show_pinter =</span> <span class="st">"none"</span>, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>, <span class="at">base_size =</span> <span class="dv">10</span>)</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/eff-cat-guide/scenarios.png" class="lightbox" data-gallery="quarto-lightbox-gallery-21" title="全体队列与年龄至少 55 岁队列分别拟合的 Cox 效应。"><img src="images/eff-cat-guide/scenarios.png" class="img-fluid figure-img" alt="全体与年龄至少 55 岁队列的未调整、调整和场景内 IPTW Cox 结果，队列与调整方法均由标签区分。" loading="lazy" decoding="async" width="1800" height="900" srcset="../assets/figure-previews/6bca39bfb43d0dcfac4c1989c70f5331.webp"></a></p>
+<p><a href="images/eff-cat-guide/scenarios.png" class="lightbox" data-gallery="quarto-lightbox-gallery-23" title="全体队列与年龄至少 55 岁队列分别拟合的 Cox 效应。"><img src="images/eff-cat-guide/scenarios.png" class="img-fluid figure-img" alt="全体与年龄至少 55 岁队列的未调整、调整和场景内 IPTW Cox 结果，队列与调整方法均由标签区分。" loading="lazy" decoding="async" width="1800" height="900" srcset="../assets/figure-previews/6bca39bfb43d0dcfac4c1989c70f5331.webp"></a></p>
 <figcaption>全体队列与年龄至少 55 岁队列分别拟合的 Cox 效应。</figcaption>
 </figure>
 </div>
@@ -2783,32 +2902,32 @@ estimated
 <div class="tab-content">
 <div id="tabset-10-1" class="tab-pane active" role="tabpanel" aria-labelledby="tabset-10-1-tab">
 <p>adj_var_step按给定顺序累计加入协变量；本例依次为age、age+marker、age+marker+sex，外加未调整模型。不能同时给adj_var或dat_adj_ps。plt_eff()识别模型比较表后默认放进同一森林图；每种量纲仍使用自己的横轴。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261015</span>)</span>
-<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>n_step <span class="ot">&lt;-</span> <span class="dv">360</span>L</span>
-<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a>d_step <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">z =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>), <span class="at">each =</span> <span class="dv">180</span>)),</span>
-<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">age =</span> <span class="fu">rnorm</span>(n_step, <span class="dv">55</span>, <span class="dv">10</span>), <span class="at">marker =</span> <span class="fu">rnorm</span>(n_step),</span>
-<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">sex =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"F"</span>, <span class="st">"M"</span>), <span class="dv">180</span>)))</span>
-<span id="cb39-6"><a href="#cb39-6" aria-hidden="true" tabindex="-1"></a>d_step<span class="sc">$</span>time <span class="ot">&lt;-</span> <span class="fu">rexp</span>(n_step, <span class="fu">exp</span>(<span class="sc">-</span><span class="fl">4.5</span> <span class="sc">+</span> <span class="fl">0.4</span> <span class="sc">*</span> (d_step<span class="sc">$</span>z <span class="sc">==</span> <span class="st">"Yes"</span>) <span class="sc">+</span> <span class="fl">0.015</span> <span class="sc">*</span> (d_step<span class="sc">$</span>age <span class="sc">-</span> <span class="dv">55</span>)))</span>
-<span id="cb39-7"><a href="#cb39-7" aria-hidden="true" tabindex="-1"></a>d_step<span class="sc">$</span>DSS <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n_step, <span class="dv">1</span>, <span class="fl">0.65</span>)</span>
-<span id="cb39-8"><a href="#cb39-8" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">RegR.eff_cat.plot =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb39-9"><a href="#cb39-9" aria-hidden="true" tabindex="-1"></a>step_models <span class="ot">&lt;-</span> <span class="fu">get_eff_cat</span>(d_step, <span class="at">cat_var =</span> <span class="st">"z"</span>, <span class="at">adj_var_step =</span> <span class="fu">c</span>(<span class="st">"age"</span>, <span class="st">"marker"</span>, <span class="st">"sex"</span>),</span>
-<span id="cb39-10"><a href="#cb39-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">abs_args =</span> <span class="fu">list</span>(<span class="at">enabled =</span> <span class="cn">TRUE</span>, <span class="at">time =</span> <span class="dv">60</span>))</span>
-<span id="cb39-11"><a href="#cb39-11" aria-hidden="true" tabindex="-1"></a>p_step_default <span class="ot">&lt;-</span> <span class="fu">plt_eff</span>(step_models, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb39-12"><a href="#cb39-12" aria-hidden="true" tabindex="-1"></a>p_step_default</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">20261015</span>)</span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a>n_step <span class="ot">&lt;-</span> <span class="dv">360</span>L</span>
+<span id="cb43-3"><a href="#cb43-3" aria-hidden="true" tabindex="-1"></a>d_step <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">z =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"No"</span>, <span class="st">"Yes"</span>), <span class="at">each =</span> <span class="dv">180</span>)),</span>
+<span id="cb43-4"><a href="#cb43-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">age =</span> <span class="fu">rnorm</span>(n_step, <span class="dv">55</span>, <span class="dv">10</span>), <span class="at">marker =</span> <span class="fu">rnorm</span>(n_step),</span>
+<span id="cb43-5"><a href="#cb43-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">sex =</span> <span class="fu">factor</span>(<span class="fu">rep</span>(<span class="fu">c</span>(<span class="st">"F"</span>, <span class="st">"M"</span>), <span class="dv">180</span>)))</span>
+<span id="cb43-6"><a href="#cb43-6" aria-hidden="true" tabindex="-1"></a>d_step<span class="sc">$</span>time <span class="ot">&lt;-</span> <span class="fu">rexp</span>(n_step, <span class="fu">exp</span>(<span class="sc">-</span><span class="fl">4.5</span> <span class="sc">+</span> <span class="fl">0.4</span> <span class="sc">*</span> (d_step<span class="sc">$</span>z <span class="sc">==</span> <span class="st">"Yes"</span>) <span class="sc">+</span> <span class="fl">0.015</span> <span class="sc">*</span> (d_step<span class="sc">$</span>age <span class="sc">-</span> <span class="dv">55</span>)))</span>
+<span id="cb43-7"><a href="#cb43-7" aria-hidden="true" tabindex="-1"></a>d_step<span class="sc">$</span>DSS <span class="ot">&lt;-</span> <span class="fu">rbinom</span>(n_step, <span class="dv">1</span>, <span class="fl">0.65</span>)</span>
+<span id="cb43-8"><a href="#cb43-8" aria-hidden="true" tabindex="-1"></a><span class="fu">options</span>(<span class="at">RegR.eff_cat.plot =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb43-9"><a href="#cb43-9" aria-hidden="true" tabindex="-1"></a>step_models <span class="ot">&lt;-</span> <span class="fu">get_eff_cat</span>(d_step, <span class="at">cat_var =</span> <span class="st">"z"</span>, <span class="at">adj_var_step =</span> <span class="fu">c</span>(<span class="st">"age"</span>, <span class="st">"marker"</span>, <span class="st">"sex"</span>),</span>
+<span id="cb43-10"><a href="#cb43-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">abs_args =</span> <span class="fu">list</span>(<span class="at">enabled =</span> <span class="cn">TRUE</span>, <span class="at">time =</span> <span class="dv">60</span>))</span>
+<span id="cb43-11"><a href="#cb43-11" aria-hidden="true" tabindex="-1"></a>p_step_default <span class="ot">&lt;-</span> <span class="fu">plt_eff</span>(step_models, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb43-12"><a href="#cb43-12" aria-hidden="true" tabindex="-1"></a>p_step_default</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/eff-cat-guide/20261015-step-default.png" class="lightbox" data-gallery="quarto-lightbox-gallery-22" title="逐项累计调整与当前默认单张森林图。"><img src="images/eff-cat-guide/20261015-step-default.png" class="img-fluid figure-img" alt="逐项累计调整与当前默认单张森林图的固定输入参数对照实图。" loading="lazy" decoding="async" width="1800" height="750" srcset="../assets/figure-previews/5f19a7d27bde718371f7d1140b979b4a.webp"></a></p>
+<p><a href="images/eff-cat-guide/20261015-step-default.png" class="lightbox" data-gallery="quarto-lightbox-gallery-24" title="逐项累计调整与当前默认单张森林图。"><img src="images/eff-cat-guide/20261015-step-default.png" class="img-fluid figure-img" alt="逐项累计调整与当前默认单张森林图的固定输入参数对照实图。" loading="lazy" decoding="async" width="1800" height="750" srcset="../assets/figure-previews/5f19a7d27bde718371f7d1140b979b4a.webp"></a></p>
 <figcaption>逐项累计调整与当前默认单张森林图。</figcaption>
 </figure>
 </div>
 </div>
 <div id="tabset-10-2" class="tab-pane" role="tabpanel" aria-labelledby="tabset-10-2-tab">
 <p>display=“v”仍可明确要求拆成多行。相同效应尺度的面板共享范围，HR/OR与概率差等不同尺度不会强行共用一条轴。这里只重排同一个step_models，不重新拟合。</p>
-<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb40"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a>p_step_vertical <span class="ot">&lt;-</span> <span class="fu">plt_eff</span>(step_models, <span class="at">display =</span> <span class="st">"v"</span>, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>)</span>
-<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a>p_step_vertical</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a>p_step_vertical <span class="ot">&lt;-</span> <span class="fu">plt_eff</span>(step_models, <span class="at">display =</span> <span class="st">"v"</span>, <span class="at">fixed_size =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a>p_step_vertical</span></code></pre></div><button title="复制到剪贴板" class="code-copy-button"><i class="bi"></i></button></div>
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
-<p><a href="images/eff-cat-guide/20261015-step-explicit-v.png" class="lightbox" data-gallery="quarto-lightbox-gallery-23" title="显式v保留分行展示。"><img src="images/eff-cat-guide/20261015-step-explicit-v.png" class="img-fluid figure-img" alt="显式v保留分行展示的固定输入参数对照实图。" loading="lazy" decoding="async" width="1800" height="1050" srcset="../assets/figure-previews/cd1f99cec4c3d18eda64b658742f6033.webp"></a></p>
+<p><a href="images/eff-cat-guide/20261015-step-explicit-v.png" class="lightbox" data-gallery="quarto-lightbox-gallery-25" title="显式v保留分行展示。"><img src="images/eff-cat-guide/20261015-step-explicit-v.png" class="img-fluid figure-img" alt="显式v保留分行展示的固定输入参数对照实图。" loading="lazy" decoding="async" width="1800" height="1050" srcset="../assets/figure-previews/cd1f99cec4c3d18eda64b658742f6033.webp"></a></p>
 <figcaption>显式v保留分行展示。</figcaption>
 </figure>
 </div>
@@ -2819,7 +2938,7 @@ estimated
 <section id="page-updates" class="level2">
 <h2 class="anchored" data-anchor-id="page-updates">更新记录</h2>
 <div class="callout callout-style-default callout-note callout-titled" title="本页更新记录">
-<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="false" aria-label="Toggle callout">
 <div class="callout-icon-container">
 <i class="callout-icon"></i>
 </div>
@@ -2828,9 +2947,11 @@ estimated
 </div>
 <div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
 </div>
-<div id="callout-10" class="callout-10-contents callout-collapse collapse">
+<div id="callout-12" class="callout-12-contents callout-collapse collapse">
 <div class="callout-body-container callout-body">
 <ul>
+<li>2026-11-06：<a href="#ps_replacement-20261106b">有放回匹配的稳健区间</a>。</li>
+<li>2026-11-06：<a href="#ps_att-20261106b">ATT 目标水平与效应对比方向</a>。</li>
 <li>2026-11-06：<a href="#effect_identity-20261106">相似系数名仍按原变量匹配</a>。</li>
 <li>2026-10-29：<a href="#data-list-20261029e">数据列表与场景</a>：逐数据框比较调整模型，核对多结局结构并提供两份实际PDF。</li>
 <li>2026-10-22：<a href="#sub-inter-check-20261022">sub_inter 模型行的交叉核对</a></li>
