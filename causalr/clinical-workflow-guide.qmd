@@ -2,13 +2,13 @@
 title: "观察性研究工作流：平衡、效应、HTE 与敏感性"
 description: "用完整模拟队列串联 PSM、PSW、get_bal、HTE 和未测量混杂敏感性，展示计算与绘图的重要参数。"
 date: 2026-10-02
-date-modified: 2026-10-28
+date-modified: 2026-11-06
 lightbox: true
 toc-depth: 2
 directory:
   title: "观察性工作流：HTE坐标、表头与平衡诊断"
   topic: 因果推断与 HTE
-  updated: 2026-10-28
+  updated: 2026-11-06
 ---
 
 ::: {.callout-note title="运行前核对树变量参数"}
@@ -27,6 +27,11 @@ knitr::opts_chunk$set(collapse = TRUE, comment = "#>", message = FALSE)
 
 工作流从研究问题和目标人群开始，再检查重叠与平衡、估计效应、探索异质性、做敏感性分析。
 本页使用模拟连续结局；各步骤给出可运行代码与参数对照，不构成患者治疗建议。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 causalR `5d4b53bd`（0.0.0.9000）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 每一步传什么对象 {#sec-workflow-map}
 
@@ -960,9 +965,55 @@ validation_values
 
 函数不重新训练森林，原始 `hte_edit` 不变；其他变量的亚组行不变，`P for interaction` 和 `cate_mean` 也保留森林结果。应明确标注替换的来源与用途，不能把未重算的交互检验当作人工替换后的检验。
 
+### 亚组森林图统一使用 name_map（2026-11-06） {#causal_name_map-20261106b}
+
+<!-- update-20261106b: causal_name_map -->
+
+causalR `5d4b53bd` 将 `plt_hte_sub()` 的行标签参数统一为 `name_map`。它覆盖变量名、水平和 `All patients`，重复键仍取第一项。旧名通过 `...` 兼容并警告，同时给出时新名优先。分组选择、`effect` 键和亚组统计继续使用原始名称，不随显示标签改变。
+
+```r
+library(causalR)
+set.seed(1106)
+n <- 160
+d <- data.frame(Tx = factor(rep(c("No", "Yes"), n / 2)),
+  sex = factor(rep(c("Female", "Male"), each = n / 2)), x = rnorm(n))
+d[["y"]] <- .3 * d[["x"]] +
+  (.4 + .2 * (d[["sex"]] == "Male")) * (d[["Tx"]] == "Yes") + rnorm(n)
+hte <- get_hte(d, "Tx", sub_var = "sex", adj_var = c("x", "sex"),
+  surv = "y", grf_args = list(num.trees = 400, num.threads = 1, seed = 1106))
+labels <- c(sex = "Sex", Female = "Women", Male = "Men", "All patients" = "Overall")
+p <- plt_hte_sub(hte, sub_var = "sex", name_map = labels,
+  axis_args = list(percent = FALSE),
+  save = list(filename = file.path(tempdir(), "20261106b-update-causal-name-map.pdf")))
+```
+
+![160 行合成数据的亚组森林图使用统一的 name_map 标签](images/clinical-workflow-guide/20261106b-update-causal-name-map.png){fig-alt="160 行合成数据的亚组森林图使用统一的 name_map 标签"}
+
+[原生 PDF](images/clinical-workflow-guide/20261106b-update-causal-name-map.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+warnings <- character()
+old <- withCallingHandlers(plt_hte_sub(hte, sub_var = "sex",
+  label_column_list = labels, axis_args = list(percent = FALSE)),
+  warning = function(w) {warnings <<- c(warnings, conditionMessage(w)); invokeRestart("muffleWarning")})
+both <- withCallingHandlers(plt_hte_sub(hte, sub_var = "sex", name_map = labels,
+  label_column_list = c(sex = "Ignored"), axis_args = list(percent = FALSE)),
+  warning = function(w) {warnings <<- c(warnings, conditionMessage(w)); invokeRestart("muffleWarning")})
+stopifnot(identical(attr(p, "subgroup"), attr(old, "subgroup")),
+  identical(attr(p, "subgroup"), attr(both, "subgroup")),
+  any(grepl("label_column_list.*deprecated", warnings)),
+  any(grepl("name_map.*wins", warnings)))
+validation_values <- list(subgroup = attr(p, "subgroup"),
+  warnings = warnings, n = nrow(d))
+```
+:::
+
+<!-- /update-20261106b: causal_name_map -->
+
 ## 共用名称字典：重复键保留第一项 {#label-maps-20261020}
 
-2026-10-20 按已推送 causalR `c200683` 在 Windows / WSL R 4.4.3 实跑。`get_bal(var_names=...)`、`plt_hte_unihtee(var_names=...)`、`plt_hte_sub(label_column_list=...)` 现在接受重复的名称键，保留第一次出现的标签，便于直接传入合并后的研究字典。每个值仍须是单个非缺失字符串；这不等于允许无名或无效的映射。
+2026-10-20 按已推送 causalR `c200683` 在 Windows / WSL R 4.4.3 实跑。`get_bal(var_names=...)`、`plt_hte_unihtee(var_names=...)`、`plt_hte_sub(name_map=...)` 现在接受重复的名称键，保留第一次出现的标签，便于直接传入合并后的研究字典。每个值仍须是单个非缺失字符串；这不等于允许无名或无效的映射。
 
 <!-- latest-20261020: causal_labels -->
 ```r
@@ -989,11 +1040,11 @@ hte_labels <- get_hte(d_labels, "Tx", sub_var = "sex", adj_var = c("x", "sex"),
   surv = "y", grf_args = list(num.trees = 400, num.threads = 1, seed = 20261024))
 sub_labels <- c(sex = "Sex (first)", sex = "Ignored sex label", Female = "Women", Male = "Men")
 p_sub_duplicate <- plt_hte_sub(hte_labels, sub_var = "sex",
-  label_column_list = sub_labels, axis_args = list(percent = FALSE),
+  name_map = sub_labels, axis_args = list(percent = FALSE),
   title = "First dictionary entry wins",
   save = list(filename = file.path(tempdir(), "20261020-latest-labels-subgroup.pdf")))
 p_sub_unique <- plt_hte_sub(hte_labels, sub_var = "sex",
-  label_column_list = sub_labels[!duplicated(names(sub_labels))],
+  name_map = sub_labels[!duplicated(names(sub_labels))],
   axis_args = list(percent = FALSE))
 stopifnot(identical(attr(p_sub_duplicate, "subgroup"), attr(p_sub_unique, "subgroup")))
 ```
@@ -1048,6 +1099,7 @@ validation_values <- list(balance_unchanged = TRUE, subgroup_unchanged = TRUE,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-11-06：[亚组森林图统一使用 name_map](#causal_name_map-20261106b)。
 - 2026-10-28：追加 [手工敏感性界限](#manual-bounds-20261028b)的有效情景与 13 类无效输入复核。
 - 2026-10-28：追加 [极端权重的有限摘要与溢出拒绝](#extreme-weights-20261028b)，并说明加权表头 N 与实际患者数的差别。
 - 2026-10-28：补充 [平衡阈值与评分复用](#balance-policy-20261028b)、[小表串行策略和空治疗水平](#balance-table-20261028b)的独立实跑。
