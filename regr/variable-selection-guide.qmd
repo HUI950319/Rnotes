@@ -17,6 +17,8 @@ directory:
 **版本与执行范围：** 按 RegR 0.1.3 当前源码核对，使用 WSL R 4.4.3 实际运行下面的示例并保存汇总输出。示例用于理解接口和输出；不构成外部验证或临床效果结论。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `939a9364`（0.1.3）导出源码，同时固定 RegR `939a9364` 与 UtilsR `b8b5932d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -413,6 +415,69 @@ validation_values <- list(n = info[["n"]], same_variables = TRUE, bad_control = 
 
 <!-- /update-20261106b: selection_missing -->
 
+### Boruta 恢复字面点与相近列名（2026-11-06） {#selection_boruta-20261106c}
+
+<!-- update-20261106c: selection_boruta -->
+
+包含字面列名 `.` 时，Boruta 内部的 `I(.)` 及名称清理可能与 `I...` 或带空格的列名碰撞。现在 `finalDecision`、`ImpHistory`、确认变量和最终公式都恢复原名，重要性、决策和随机状态不变。下例固定 180 人、11 轮和 50 棵树，与直接 Boruta 调用对照；这些小规模设置用于验证接口。
+
+```r
+library(RegR)
+set.seed(929)
+d <- data.frame(x1 = rnorm(180), x2 = rnorm(180))
+d$y <- rbinom(180, 1, plogis(3 * d$x1))
+results <- list()
+for (noise in c("I...", "x 2")) {
+  z <- d
+  names(z)[names(z) == "x1"] <- "."
+  names(z)[names(z) == "x2"] <- noise
+  outcome <- if (noise == "x 2") "I..." else "y"
+  names(z)[names(z) == "y"] <- outcome
+  set.seed(83)
+  result <- get_var_sel(z, c(".", noise), time = NULL, outcome = outcome,
+    methods = "boruta", boruta_args = list(max_runs = 11, num_trees = 50))
+  results[[noise]] <- list(result = result, input = z, outcome = outcome, seed = .Random.seed)
+}
+shown <- do.call(rbind, lapply(names(results), function(noise) {
+  fit <- results[[noise]]$result$details$boruta$selection
+  data.frame(noise = noise, variable = names(fit$finalDecision),
+    decision = as.character(fit$finalDecision))
+}))
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106c-update-boruta-names.html"))
+```
+
+![确认变量和噪声列保留原始名称，I... 与带空格的名称均不占用字面点变量](images/variable-selection-guide/20261106c-update-boruta-names.png){fig-alt="确认变量和噪声列保留原始名称，I... 与带空格的名称均不占用字面点变量"}
+
+[原生表格 HTML](images/variable-selection-guide/20261106c-update-boruta-names.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (noise in names(results)) {
+  entry <- results[[noise]]
+  input <- entry$input
+  input[[entry$outcome]] <- factor(input[[entry$outcome]])
+  formula <- reformulate(c("I(.)", paste0("`", noise, "`")),
+    response = paste0("`", entry$outcome, "`"))
+  set.seed(83)
+  original <- Boruta::Boruta(formula, data = input, pValue = .01,
+    maxRuns = 11, doTrace = 0, getImp = Boruta::getImpRfZ, num.trees = 50)
+  fit <- entry$result$details$boruta$selection
+  stopifnot(identical(.Random.seed, entry$seed),
+    identical(unname(fit$finalDecision), unname(original$finalDecision)),
+    identical(unname(fit$ImpHistory), unname(original$ImpHistory)),
+    identical(names(fit$finalDecision), c(noise, ".")),
+    identical(colnames(fit$ImpHistory), c(noise, ".", "shadowMax", "shadowMean", "shadowMin")),
+    identical(entry$result$vars[[1]], "."))
+  frame <- model.frame(entry$result$details$boruta$final_formula, entry$input)
+  stopifnot(identical(frame[[2]], I(entry$input[["."]])))
+}
+validation_values <- list(n = nrow(d), restored = shown, backend_values_unchanged = TRUE)
+```
+:::
+
+<!-- /update-20261106c: selection_boruta -->
+
 ## 策略热图与可导出的摘要
 
 
@@ -589,6 +654,62 @@ validation_values <- list(n = nrow(d), min = cv$lambda.min, one_se = cv$lambda.1
 :::
 
 <!-- /update-20261106: selection_lasso -->
+
+### LASSO 小队列多水平设计与提前拒绝坏折（2026-11-06） {#selection_indicators-20261106c}
+
+<!-- update-20261106c: selection_indicators -->
+
+大量声明水平会让完整对比矩阵按水平数的平方增长，即使实际队列很小。现在可稀疏构造这一步，保留未观测水平对应的全零指示列。它不等于所有拟合都使用稀疏存储：Cox 及 get_um 的拟合存储约定继续保留。训练折可行性在构建设计矩阵前检查，随机折分、首个失败折和随机状态保持一致；本例不报告性能倍数。
+
+```r
+library(RegR)
+set.seed(94)
+d <- data.frame(y = rep(0:1, 30), follow = rexp(60) + .1,
+  g = factor(rep(c("a", "b"), 30), levels = c("a", "b", paste0("L", 1:1998))))
+set.seed(41)
+result <- get_var_sel(d, "g", time = NULL, outcome = "y", methods = "lasso",
+  lasso_args = list(nfolds = 3, lambda_rule = "min"))
+fit <- result$details$lasso$final_fit
+shown <- data.frame(observations = nrow(d), declared_levels = nlevels(d$g),
+  coefficient_rows = nrow(fit$glmnet.fit$beta),
+  selected_variable = paste(result$vars[[1]], collapse = ", "))
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106c-update-lasso-indicators.html"))
+```
+
+![60 人输入保留全部 2000 个因子水平的指示系数行，与同折分的直接 glmnet 结果一致](images/variable-selection-guide/20261106c-update-lasso-indicators.png){fig-alt="60 人输入保留全部 2000 个因子水平的指示系数行，与同折分的直接 glmnet 结果一致"}
+
+[原生表格 HTML](images/variable-selection-guide/20261106c-update-lasso-indicators.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+dense <- model.matrix(~ 0 + g, d,
+  contrasts.arg = list(g = stats::contrasts(d$g, contrasts = FALSE)))
+set.seed(41)
+foldid <- sample(rep(1:3, length.out = nrow(d)))
+expected <- glmnet::cv.glmnet(dense, d$y, family = "binomial", alpha = 1,
+  nfolds = 3, foldid = foldid)
+stopifnot(nrow(fit$glmnet.fit$beta) == 2000,
+  identical(rownames(fit$glmnet.fit$beta), colnames(dense)),
+  isTRUE(all.equal(fit$cvm, expected$cvm, tolerance = 1e-10)),
+  isTRUE(all.equal(as.matrix(fit$glmnet.fit$beta), as.matrix(expected$glmnet.fit$beta), tolerance = 1e-10)))
+bad <- d
+bad$y <- as.integer(1:60 <= 2)
+set.seed(28)
+folds <- sample(rep(1:3, length.out = nrow(bad)))
+expected_seed <- .Random.seed
+invalid <- vapply(1:3, function(fold) any(tabulate(bad$y[folds != fold] + 1, nbins = 2) < 2), logical(1))
+set.seed(28)
+error <- tryCatch(get_var_sel(bad, "g", time = NULL, outcome = "y", methods = "lasso",
+  lasso_args = list(nfolds = 3)), error = conditionMessage)
+stopifnot(grepl(paste0("training fold (", which(invalid)[1], ")"), error, fixed = TRUE),
+  identical(.Random.seed, expected_seed))
+validation_values <- list(dimensions = shown, first_bad_fold = which(invalid)[1],
+  same_cross_validation = TRUE, same_random_state = TRUE)
+```
+:::
+
+<!-- /update-20261106c: selection_indicators -->
 
 ## 系数路径与变量编码
 
@@ -1174,6 +1295,8 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[LASSO 小队列多水平设计与提前拒绝坏折](#selection_indicators-20261106c)。
+- 2026-11-06：[Boruta 恢复字面点与相近列名](#selection_boruta-20261106c)。
 - 2026-11-06：[NaN 缺失值与请求方法的前置检查](#selection_missing-20261106b)。
 - 2026-11-06：[精确事件标签与可重用的 Logistic 公式](#selection_precision-20261106b)。
 - 2026-11-06：[单连续变量 LASSO 与交叉验证边界](#selection_lasso-20261106)。
