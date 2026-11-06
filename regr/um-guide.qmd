@@ -15,6 +15,8 @@ date-modified: 2026-11-06
 get_um() 用同一单因素行模板对齐多个多因素模型，适合清楚展示调整集合的变化。页面先展示预先指定模型，再展示自动筛选和绝对效应，最后比较 autoReg 的表格/绘图入口。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `939a9364`（0.1.3）导出源码，同时固定 RegR `939a9364` 与 UtilsR `b8b5932d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -514,7 +516,7 @@ validation_values <- shown
 
 <!-- update-20261106b: um_joint -->
 
-每个模型显式选择自己的完整病例，因此不受会话 `na.action="na.fail"` 影响。联合队列内变成常量的因子仍保留结果行并标记不可估计，同队列内可估计的连续变量继续返回。若联合队列完全为空，仅该调整面板为空，单因素估计仍可用。`var_mul` 记录请求的变量集。本次同时复现一个元数据缺陷，空联合队列的 `full` 仍携带单因素 `fit_info` 人数，不能把它解释成调整模型人数；应结合 `model_info$status` 与该模型的完整病例数核对。P 筛选未选中变量的 `empty` 面板则没有 `fit_info`。
+每个模型显式选择自己的完整病例，因此不受会话 `na.action="na.fail"` 影响。联合队列内变成常量的因子仍保留结果行并标记不可估计，同队列内可估计的连续变量继续返回。若联合队列完全为空，仅该调整面板为空，单因素估计仍可用。`var_mul` 记录请求的变量集。以下代码和图保留 RegR `1ef6309c` 的缺陷记录，当时空联合队列的 `full` 仍携带单因素 `fit_info` 人数，不能把它解释成调整模型人数。该缺陷已在后续 `939a9364` 下[复测修复](#um_unavailable-20261106c)。旧断言仅适用于原快照。P 筛选未选中变量的 `empty` 面板则没有 `fit_info`。
 
 ```r
 library(RegR)
@@ -564,11 +566,59 @@ validation_values <- list(panels = shown, empty = empty_summary,
 ```
 :::
 
-![空联合队列的 full 仍携带单因素人数，这些数值不能作为调整模型样本量](images/um-guide/20261106b-update-um-joint-metadata.png){fig-alt="空联合队列的 full 仍携带单因素人数，这些数值不能作为调整模型样本量"}
+![历史 1ef6309c 中空联合队列的 full 曾携带单因素人数，修复结果见下节](images/um-guide/20261106b-update-um-joint-metadata.png){fig-alt="历史 1ef6309c 中空联合队列的 full 曾携带单因素人数，修复结果见下节"}
 
 [原生表格 HTML](images/um-guide/20261106b-update-um-joint-metadata.html)
 
 <!-- /update-20261106b: um_joint -->
+
+### 空联合队列元数据修复与不可用候选隔离（2026-11-06） {#um_unavailable-20261106c}
+
+<!-- update-20261106c: um_unavailable -->
+
+RegR `939a9364` 已修复上一快照 `1ef6309c` 的空联合队列元数据缺陷。沿用上节原始 120 人构造，实际联合队列为 0 人时，full 面板不再携带单因素的 80 / 40 人信息。单个候选变量的完整病例没有事件或没有非事件时，保留不可估计行并从 Wald P 筛选排除，其他可用模型继续返回；其他拟合错误仍会中止调用。
+
+```r
+library(RegR)
+set.seed(1106)
+d <- data.frame(g = factor(rep(c("A", "B", "C"), each = 40)),
+  x = rnorm(120), y = rbinom(120, 1, .45))
+empty <- d
+empty$x[empty$g != "A"] <- NA_real_
+empty$g[!is.na(empty$x)] <- NA
+empty_fit <- get_um(empty, c("g", "x"), surv = "y")
+no_event <- d
+no_event$x[no_event$y == 1] <- NA_real_
+partial <- get_um(no_event, c("g", "x"), surv = "y",
+  var_mul = list(clinical = "g", unavailable = c("g", "x"), selection = "p"),
+  p_args = list(p_threshold = 1))
+shown <- data.frame(
+  case = c("Empty joint full", "Event-free x", "Clinical g", "P selection"),
+  status = c(empty_fit$model_info$status[2], partial$model_info$status[c(1, 2, 4)]),
+  actual_n = c(sum(complete.cases(empty)),
+    sum(complete.cases(no_event[c("x", "y")])), nrow(no_event), nrow(no_event)))
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106c-update-um-unavailable.html"))
+```
+
+![空联合队列不再携带错误人数，无事件候选被隔离而可用模型继续返回](images/um-guide/20261106c-update-um-unavailable.png){fig-alt="空联合队列不再携带错误人数，无事件候选被隔离而可用模型继续返回"}
+
+[原生表格 HTML](images/um-guide/20261106c-update-um-unavailable.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(is.null(attr(empty_fit$tables$full, "fit_info")),
+  !any(is.finite(empty_fit$tables$full$estimate)),
+  any(is.finite(empty_fit$tables$univariable$estimate)),
+  partial$tables$univariable$effect[partial$tables$univariable$variable == "x"] == "Not estimable",
+  identical(partial$var_mul$select_p, "g"),
+  is.null(attr(partial$tables$unavailable, "fit_info")))
+validation_values <- list(shown = shown, empty_fit_info = is.null(attr(empty_fit$tables$full, "fit_info")),
+  selected = partial$var_mul$select_p)
+```
+:::
+
+<!-- /update-20261106c: um_unavailable -->
 
 ## 自动筛选与拟合状态
 
@@ -760,6 +810,115 @@ validation_values <- diagnostics
 :::
 
 <!-- /update-20261106b: um_separation -->
+
+### NaN 与相邻数值标签不改变模型族（2026-11-06） {#um_binary-20261106c}
+
+<!-- update-20261106c: um_binary -->
+
+`get_um()` 与独立变量筛选入口保持同样的二分类规范化：NaN 继续作为缺失，`1` 与 `1+1e-15` 按原数值区分。它们不会意外改变 Logistic 或 Cox 调用的模型族。下面按相同数据与种子逐项核对模型表、选择变量及拟合状态；未观测结局仍从各模型队列排除。
+
+```r
+library(RegR)
+set.seed(713)
+d <- data.frame(g = factor(rep(c("A", "B", "C"), each = 40)),
+  x = rnorm(120), y = rbinom(120, 1, .45), time = (1:120 * 37) %% 127 + 1)
+d$y[1:8] <- NA_real_
+variants <- list("NaN" = replace(d$y, is.na(d$y), NaN), precise = 1 + d$y * 1e-15)
+results <- list()
+for (family in list(Logistic = "y", Cox = TRUE)) {
+  run <- function(values) {
+    q <- d
+    q$y <- q$DSS <- values
+    withr::with_seed(713, get_um(q, c("g", "x"), surv = family,
+      var_mul = "p", p_args = list(p_threshold = 1)))
+  }
+  reference <- run(d$y)
+  for (key in names(variants)) {
+    fit <- run(variants[[key]])
+    results[[paste(if (isTRUE(family)) "Cox" else "Logistic", key)]] <-
+      list(reference = reference, fit = fit)
+  }
+}
+shown <- do.call(rbind, lapply(names(results), function(key) {
+  fit <- results[[key]]$fit
+  info <- attr(fit$tables$select_p, "fit_info")
+  data.frame(case = key, model = unique(info$model), n = unique(info$n),
+    status = fit$model_info$status[2])
+}))
+gt::gtsave(gt::gt(shown), file.path(tempdir(), "20261106c-update-um-binary.html"))
+```
+
+![缺失与相邻数值标签下，Logistic 和 Cox 仍使用相同 112 人及原模型族](images/um-guide/20261106c-update-um-binary.png){fig-alt="缺失与相邻数值标签下，Logistic 和 Cox 仍使用相同 112 人及原模型族"}
+
+[原生表格 HTML](images/um-guide/20261106c-update-um-binary.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+for (result in results) stopifnot(identical(result$fit$tables, result$reference$tables),
+  identical(result$fit$var_mul, result$reference$var_mul),
+  identical(result$fit$model_info, result$reference$model_info))
+stopifnot(all(shown$n == 112), dplyr::n_distinct(variants$precise, na.rm = TRUE) == 2)
+validation_values <- shown
+```
+:::
+
+<!-- /update-20261106c: um_binary -->
+
+### 部分分离与高杠杆值的逐比较诊断（2026-11-06） {#um_partial-20261106c}
+
+<!-- update-20261106c: um_partial -->
+
+某一因子水平完全分离，不代表其他水平间的比较都不可估计。当前诊断按实际显示的对比方向检查，sum、Helmert 和混合编码下的 B 比 A 仍可估计，分离的 C 比 A 保留不可估计。模型总体状态仍会警告。高杠杆观测旁的小设计项也参与分离可行性检查，不能仅因数值尺度差异把正常模型判为分离。
+
+```r
+library(RegR)
+d <- data.frame(g = factor(rep(c("A", "B", "C"), each = 80)),
+  y = c(rep(0:1, 80), rep(1L, 80)))
+reference <- get_um(d[d$g != "C", ], "g", surv = "y")
+codes <- list(Sum = contr.sum(3), Helmert = contr.helmert(3),
+  Mixed = contr.treatment(3) %*% matrix(c(1, 2, 2, 3), 2))
+fits <- lapply(codes, function(coding) {
+  q <- d
+  contrasts(q$g) <- coding
+  get_um(q, "g", surv = "y")
+})
+shown <- do.call(rbind, lapply(names(fits), function(key) {
+  tab <- fits[[key]]$tables$full
+  data.frame(coding = key, level = tab$label,
+    effect = tab$effect, status = fits[[key]]$model_info$status[2])
+}))
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106c-update-um-partial.html"))
+```
+
+![三种编码中 B 比 A 的可估计比较保留，只有 C 比 A 被标记不可估计](images/um-guide/20261106c-update-um-partial.png){fig-alt="三种编码中 B 比 A 的可估计比较保留，只有 C 比 A 被标记不可估计"}
+
+[原生表格 HTML](images/um-guide/20261106c-update-um-partial.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+columns <- c("estimate", "conf.low", "conf.high", "p.value_0.95")
+expected <- reference$tables$full[reference$tables$full$label == "B", columns]
+for (fit in fits) {
+  tab <- fit$tables$full
+  stopifnot(isTRUE(all.equal(unlist(tab[tab$label == "B", columns], use.names = FALSE),
+    unlist(expected, use.names = FALSE), tolerance = 1e-6)),
+    tab$effect[tab$label == "C"] == "Not estimable")
+}
+grid <- expand.grid(x = c(-2, -1, 1, 2), z = c(-1, 1))
+leveraged <- grid[rep(1:nrow(grid), each = 20), ]
+leveraged$y <- rep(0:1, length.out = nrow(leveraged))
+leveraged <- rbind(leveraged, data.frame(x = c(-1e8, 1e8), z = 0, y = c(0L, 1L)))
+ordinary <- glm(y ~ x + z, data = leveraged, family = binomial())
+checked <- get_um(leveraged, c("x", "z"), surv = "y")
+stopifnot(all(checked$model_info$status == "fitted"),
+  max(abs(checked$tables$full$estimate - unname(exp(coef(ordinary)[-1])))) < 1e-8)
+validation_values <- list(contrasts = shown, high_leverage_n = nrow(leveraged),
+  high_leverage_status = checked$model_info$status)
+```
+:::
+
+<!-- /update-20261106c: um_partial -->
 
 ## Logistic：相对 OR 与标准化绝对风险
 
@@ -1067,6 +1226,76 @@ validation_values <- list(n = nrow(abs_data), rows = abs_rows,
 完全分离已在上例实际触发警告；不收敛和边界拟合的同类处理按源码核对。出现此状态时，不应把缺失风险或差值解读为无效应。
 
 <!-- /update-20261103c: late_um_abs -->
+
+### 单水平概率与冗余调整项的可识别绝对效应（2026-11-06） {#um_absolute-20261106c}
+
+<!-- update-20261106c: um_absolute -->
+
+联合队列只剩一个暴露水平时，可以保留该水平的绝对概率及区间，缺失水平和差值比较保持空值。冗余调整列的秩约简保留原完整病例队列，可识别暴露的结果应与同队列精简模型一致。若暴露本身与另一暴露完全相同，干预会破坏拟合设计的线性关系，相关绝对推断不作填补。
+
+```r
+library(RegR)
+set.seed(1106)
+d <- data.frame(g = factor(rep(c("A", "B", "C"), each = 40)),
+  x = rnorm(120), y = rbinom(120, 1, .45))
+d$time <- (1:120 * 37) %% 127 + 1
+d$DSS <- d$y
+single <- d
+single$x[single$g != "A"] <- NA_real_
+redundant <- d
+redundant$duplicate <- redundant$x
+redundant$duplicate[1:9] <- NA_real_
+joint <- redundant[complete.cases(redundant), ]
+results <- list()
+for (family in list(Logistic = "y", Cox = TRUE)) {
+  single_fit <- get_um(single, c("g", "x"), surv = family,
+    abs_args = list(enabled = TRUE, time = 24))
+  full <- get_um(redundant, c("g", "x", "duplicate"), surv = family,
+    abs_args = list(enabled = TRUE, time = 24))
+  reduced <- get_um(joint, c("g", "x"), surv = family,
+    abs_args = list(enabled = TRUE, time = 24))
+  results[[if (isTRUE(family)) "Cox" else "Logistic"]] <-
+    list(single = single_fit, full = full, reduced = reduced)
+}
+shown <- do.call(rbind, lapply(names(results), function(key) {
+  tab <- results[[key]]$single$absolute$tables$full
+  tab <- tab[tab$variable == "g" & tab$row_type == "level", ]
+  data.frame(model = key, level = tab$label, probability = tab$estimate_sur,
+    lower = tab$conf.low_sur, upper = tab$conf.high_sur, difference = tab$estimate)
+}))
+gt::gtsave(gt::gt(shown), file.path(tempdir(), "20261106c-update-um-singleton.html"))
+```
+
+![单水平联合队列保留 A 的 Logistic 风险或 24 月生存概率，B、C 与比较差值保持空值](images/um-guide/20261106c-update-um-singleton.png){fig-alt="单水平联合队列保留 A 的 Logistic 风险或 24 月生存概率，B、C 与比较差值保持空值"}
+
+[原生表格 HTML](images/um-guide/20261106c-update-um-singleton.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+fields <- c("estimate_sur", "conf.low_sur", "conf.high_sur", "estimate",
+  "conf.low", "conf.high", "p_value", "p.value_0.95")
+for (key in names(results)) {
+  result <- results[[key]]
+  a <- result$full$absolute$tables$full
+  b <- result$reduced$absolute$tables$full
+  for (field in fields) stopifnot(isTRUE(all.equal(
+    a[[field]][a$variable == "g"], b[[field]][b$variable == "g"], tolerance = 1e-8)))
+  stopifnot(identical(unique(attr(a, "fit_info")$n), 111L))
+  tab <- result$single$absolute$tables$full
+  rows <- tab$variable == "g" & tab$row_type == "level"
+  stopifnot(sum(is.finite(tab$estimate_sur[rows])) == 1,
+    all(is.na(tab$estimate[rows])), unique(attr(tab, "fit_info")$n) == 40)
+}
+q <- d
+q$h <- q$g
+constrained <- get_um(q, c("g", "h", "x"), surv = "y", abs_args = list(enabled = TRUE))
+stopifnot(!any(is.finite(constrained$absolute$tables$full$estimate_sur)))
+validation_values <- list(singleton = shown, reduced_cohort_n = nrow(joint),
+  identifiable_g_agrees = TRUE, constrained_probabilities_withheld = TRUE)
+```
+:::
+
+<!-- /update-20261106c: um_absolute -->
 
 ## Cox：60 月 S(t) 与参照减比较
 
@@ -1546,6 +1775,10 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[单水平概率与冗余调整项的可识别绝对效应](#um_absolute-20261106c)。
+- 2026-11-06：[部分分离与高杠杆值的逐比较诊断](#um_partial-20261106c)。
+- 2026-11-06：[NaN 与相邻数值标签不改变模型族](#um_binary-20261106c)。
+- 2026-11-06：[空联合队列元数据修复与不可用候选隔离](#um_unavailable-20261106c)。
 - 2026-11-06：[绝对生存时间按实际拟合队列校验](#um_horizon-20261106b)。
 - 2026-11-06：[联合队列退化时保留可用模型](#um_joint-20261106b)。
 - 2026-11-06：[分离诊断缺陷的修复复核](#um_separation-20261106b)。
