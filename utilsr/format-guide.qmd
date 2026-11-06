@@ -16,6 +16,8 @@ fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面�
 **核对记录：** 2026-10-18 按已推送 UtilsR `237b839` 重绘轴颜色条与彩色轴文字的六张图，并补充 `fmt_axis()`、`fmt_expand()` 的新警告和 `fmt_scale()` 的副轴说明。此前按已推送 UtilsR `fc078ec` 更新统计比较、背景与图例，修复越界的 label.y.prop 示例，并实际执行新增的配对、单侧与校正 P 值对照。已有轴文字、颜色条、条带及其他图保留各自执行快照；2026-10-12–13新增12张实图：统计、背景与图例按fc078ec执行，后补4张留白图按已推送1eb5faf执行。包版本仍为 0.6.8；输入均为固定种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 UtilsR `b8b5932d`（0.6.23）导出源码，同时固定 RegR `939a9364` 与 UtilsR `b8b5932d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-04 追加按已推送 UtilsR `6b03397f`（0.6.22）导出源码，同时固定 RegR `769f460c` 与 UtilsR `6b03397f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -322,6 +324,58 @@ fmt_text(p, xlab = "Standardized exposure", ylab = "Simulated response",
 ![文字样式由 fmt_text 控制，示例明确标注模拟数据。](images/format-guide/text.png){fig-alt="ggplot 格式化：主题、坐标、图例、条带与面板标签；标题与字号；固定模拟数据的实际参数对照结果。"}
 
 :::
+
+### 旧 S3 背景主题恢复实际绘制（2026-11-06） {#utils_legacy-20261106c}
+
+<!-- update-20261106c: utils_legacy -->
+
+共享 `.resolve_theme()` 对旧 S3 plot.background 用当前 ggplot2 矩形构造器重建，恢复底色、线宽、线型和边框的实际绘制。主题对象、工厂和工厂名称均适用，原对象保持不变。修复针对背景矩形，其他旧元素仍需满足调用方要求；旧主题外壳仍可能产生 ggplot2 的转换提示。下面同时验证直接解析与 plt_alluvial 的公开调用。
+
+```r
+library(UtilsR)
+rect <- structure(list(fill = "#FFF5D6", colour = "#355C7D", linewidth = 1.3,
+  linetype = 2, inherit.blank = FALSE), class = c("element_rect", "element"))
+legacy <- structure(list(plot.background = rect), class = c("theme", "gg"),
+  complete = FALSE, validate = TRUE)
+factory <- function() legacy
+resolved <- .resolve_theme(factory)
+d <- data.frame(x = 1:8, y = c(1, 3, 2, 4, 5, 4, 6, 7))
+p <- ggplot2::ggplot(d, ggplot2::aes(x, y)) + ggplot2::geom_point(size = 2) + resolved
+ggplot2::ggsave(file.path(tempdir(), "20261106c-update-legacy-theme.pdf"), p,
+  width = 6, height = 4, device = grDevices::cairo_pdf)
+flows <- data.frame(category = c("B", "B", "A", "A", "B", "A", "A", "A"),
+  group = c("G2", "G2", "G1", "G2", "G1", "G2", "G2", "G1"))
+alluvial <- plt_alluvial(flows, cat_var = "category", group = "group", theme_use = legacy)
+ggplot2::ggsave(file.path(tempdir(), "20261106c-update-legacy-alluvial.pdf"), alluvial,
+  width = 6, height = 4, device = grDevices::cairo_pdf)
+```
+
+![解析旧主题后，点图实际绘出浅金底色与蓝色虚线边框](images/format-guide/20261106c-update-legacy-theme.png){fig-alt="解析旧主题后，点图实际绘出浅金底色与蓝色虚线边框"}
+
+[原生 PDF](images/format-guide/20261106c-update-legacy-theme.pdf)
+
+![8 行合成流向输入通过公开 theme_use 调用保留相同背景样式](images/format-guide/20261106c-update-legacy-alluvial.png){fig-alt="8 行合成流向输入通过公开 theme_use 调用保留相同背景样式"}
+
+[原生 PDF](images/format-guide/20261106c-update-legacy-alluvial.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+background <- function(plot) {
+  g <- ggplot2::ggplotGrob(plot)
+  g$grobs[[which(g$layout$name == "background")]]
+}
+for (plot in list(p, alluvial)) {
+  bg <- background(plot)
+  stopifnot(bg$gp$fill == "#FFF5D6", bg$gp$col == "#355C7D", bg$gp$lty == 2,
+    abs(bg$gp$lwd - 1.3 * 72.27 / 25.4) < 1e-8)
+}
+stopifnot(identical(legacy$plot.background, rect))
+validation_values <- list(observations = nrow(d), flow_records = nrow(flows),
+  fill = "#FFF5D6", colour = "#355C7D", linetype = 2, input_unchanged = TRUE)
+```
+:::
+
+<!-- /update-20261106c: utils_legacy -->
 
 ## 图例与参考线
 
@@ -1684,6 +1738,7 @@ width_auto
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[旧 S3 背景主题恢复实际绘制](#utils_legacy-20261106c)。
 - 2026-11-06：[主题解析器转发工厂参数](#theme_forward-20261106)。
 - 2026-11-06：[自由横轴下比较括号的位置](#format_reference-20261106)。
 - 2026-11-04：[比较参照的显示位次与空水平](#late_format_ref-20261104)。
