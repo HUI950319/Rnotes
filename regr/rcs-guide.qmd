@@ -16,6 +16,8 @@ directory:
 **核对记录：** 当前接口按已推送的 RegR 源码 `3c58b3f` 核对，新模型与条带示例于 2026-10-10 在 WSL R 4.4.3 实际拟合、构建并导出。既有 **16 张历史图**保留原执行快照 `0add2bb`，覆盖全部 **7 种 `panel_show`**；本次新增 **6 张参数对照图**。VPD 使用 MLR **0.1.13** 的默认 Cox 解释模型。页面显示保存的图形，复制代码时需安装相应版本及依赖。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `939a9364`（0.1.3）导出源码，同时固定 RegR `939a9364` 与 UtilsR `b8b5932d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -759,6 +761,65 @@ validation_values <- list(n = nrow(d), errors = errors, theme_calls = theme_call
 
 <!-- /update-20261106b: rcs_preflight -->
 
+### 参考值、区间控制与旧背景主题（2026-11-06） {#rcs_controls-20261106c}
+
+<!-- update-20261106c: rcs_controls -->
+
+参考值必须为 median、min、mean 或有限数值标量；字符型 surv 必须是单个非空结局名。conf_level 必须有限且小于 1，显示区间时还必须为正。隐藏区间时保留既有的有限非正值兼容，数值参考值也不强制落在暴露范围内。错误在主题工厂启动前报告。共享解析器同时修复旧 S3 plot.background 的底色与边框，其他旧元素仍按调用方要求兼容。
+
+```r
+library(RegR)
+set.seed(914)
+d <- data.frame(x = rnorm(150), DSS = rbinom(150, 1, .42), time = runif(150, 2, 82))
+rect <- structure(list(fill = "#FFF5D6", colour = "#355C7D", linewidth = 1.3,
+  linetype = 2, inherit.blank = FALSE), class = c("element_rect", "element"))
+legacy <- structure(list(plot.background = rect), class = c("theme", "gg"),
+  complete = FALSE, validate = TRUE)
+theme_calls <- 0L
+factory <- function() { theme_calls <<- theme_calls + 1L; legacy }
+errors <- list(
+  reference = tryCatch(get_rcs(d, x, surv = "DSS", ref_value = Inf, theme_use = factory),
+    error = conditionMessage),
+  confidence = tryCatch(get_rcs(d, x, surv = "DSS", conf_level = 1, theme_use = factory),
+    error = conditionMessage),
+  outcome = tryCatch(get_rcs(d, x, surv = c("DSS", "time"), theme_use = factory),
+    error = conditionMessage))
+p <- get_rcs(d, x, surv = "DSS", show_pvalue = FALSE, theme_use = factory)
+ggplot2::ggsave(file.path(tempdir(), "20261106c-update-rcs-background.pdf"), p,
+  width = 6.5, height = 4.4, device = grDevices::cairo_pdf)
+gt::gtsave(gt::gt(data.frame(case = names(errors), message = unlist(errors, use.names = FALSE))),
+  file.path(tempdir(), "20261106c-update-rcs-controls.html"))
+```
+
+![旧 S3 背景的浅金底色和蓝色虚线外框实际绘出，曲线来自 150 人合成输入](images/rcs-guide/20261106c-update-rcs-background.png){fig-alt="旧 S3 背景的浅金底色和蓝色虚线外框实际绘出，曲线来自 150 人合成输入"}
+
+[原生 PDF](images/rcs-guide/20261106c-update-rcs-background.pdf)
+
+![三类控制项错误均先于主题工厂报告](images/rcs-guide/20261106c-update-rcs-controls.png){fig-alt="三类控制项错误均先于主题工厂报告"}
+
+[原生表格 HTML](images/rcs-guide/20261106c-update-rcs-controls.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(theme_calls == 1L, grepl("ref_value.*finite numeric scalar", errors$reference),
+  grepl("conf_level.*finite", errors$confidence),
+  grepl("surv.*single.*non-missing.*non-empty", errors$outcome))
+grob <- ggplot2::ggplotGrob(p)
+background <- grob$grobs[[which(grob$layout$name == "background")]]
+stopifnot(background$gp$fill == "#FFF5D6", background$gp$col == "#355C7D",
+  background$gp$lty == 2)
+no_band <- get_rcs(d, x, surv = "DSS", conf_int = FALSE, conf_level = 0,
+  ref_value = max(d$x) + 1, theme_use = factory, show_pvalue = FALSE)
+stopifnot(!any(vapply(no_band$layers, function(layer) inherits(layer$geom, "GeomRibbon"), logical(1))),
+  theme_calls == 2L, identical(legacy$plot.background, rect))
+validation_values <- list(n = nrow(d), errors = errors, calls = theme_calls,
+  background = c(fill = background$gp$fill, colour = background$gp$col),
+  hidden_band_compatibility = TRUE)
+```
+:::
+
+<!-- /update-20261106c: rcs_controls -->
+
 ## 返回对象、切点衔接与保存 {#output}
 
 返回一个 `patchwork`。连续子图和组合图携带 `cut_curve_data`，供 `get_cut_plot()` 读取；旧图对象或截图本身没有这个分析属性。
@@ -833,6 +894,7 @@ p_rcs_saved <- get_rcs_all(d, rcs_var = "Age", adj_var = adj,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[参考值、区间控制与旧背景主题](#rcs_controls-20261106c)。
 - 2026-11-06：[先检查结点和分析队列，再调用主题](#rcs_preflight-20261106b)。
 - 2026-11-06：[主题工厂与自定义图例文字](#rcs_theme-20261106)。
 - 2026-11-03：[补充分层RCS拟合失败的定位信息](#fit-diagnostics-20261103)，明确调整集由研究者决定。
