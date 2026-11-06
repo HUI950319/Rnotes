@@ -16,6 +16,8 @@ directory:
 **核对记录：** 当前接口按已推送的 RegR 源码 `3c58b3f` 核对，新模型与条带示例于 2026-10-10 在 WSL R 4.4.3 实际拟合、构建并导出。既有 **16 张历史图**保留原执行快照 `0add2bb`，覆盖全部 **7 种 `panel_show`**；本次新增 **6 张参数对照图**。VPD 使用 MLR **0.1.13** 的默认 Cox 解释模型。页面显示保存的图形，复制代码时需安装相应版本及依赖。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 RegR `415c6453`（0.1.3）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -715,6 +717,48 @@ p_rcs_hidden
 
 数值向量 / list仍按原始p1–p4面板顺序替换显示值；NA或NULL条目保留原值。面板因 `adj_show` 隐藏后，其条目被忽略；需要全局隐藏非线性P时直接用 `"none"`，不要用任意数值冒充检验结果。
 
+### 先检查结点和分析队列，再调用主题（2026-11-06） {#rcs_preflight-20261106b}
+
+<!-- update-20261106b: rcs_preflight -->
+
+`get_rcs()` 在调用主题工厂和设置 datadist 前，检查结点、实际模型需要的结局列、过滤后的观测数及分组水平。自定义结点必须为 3–7 个互异有限值，且在暴露观测范围内。主题工厂有副作用时，无效输入现在会先报明确的数据错误。下例只核对错误路径，没有拟合样条或改变结点默认值。
+
+```r
+library(RegR)
+d <- data.frame(x = seq(-3, 3, length.out = 12), y = rep(0:1, 6),
+  g = factor(rep(c("A", "B"), each = 6)))
+theme_calls <- 0L
+factory <- function() {
+  theme_calls <<- theme_calls + 1L
+  ggplot2::theme_minimal()
+}
+errors <- list(
+  knots = tryCatch(get_rcs(d, x, surv = "y", n_knots = 2, theme_use = factory),
+    error = conditionMessage),
+  outcome = tryCatch(get_rcs(d, x, surv = "missing_outcome", theme_use = factory),
+    error = conditionMessage),
+  group = tryCatch(get_rcs(d, c(x, g), surv = "y", xlim = c(-3, -1),
+    theme_use = factory), error = conditionMessage))
+shown <- data.frame(case = names(errors), message = unlist(errors, use.names = FALSE))
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106b-update-rcs-preflight.html"))
+```
+
+![三类无效输入均在主题工厂启动前给出明确错误](images/rcs-guide/20261106b-update-rcs-preflight.png){fig-alt="三类无效输入均在主题工厂启动前给出明确错误"}
+
+[原生表格 HTML](images/rcs-guide/20261106b-update-rcs-preflight.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(theme_calls == 0L, grepl("n_knots must be 3-7", errors[["knots"]]),
+  grepl("missing_outcome", errors[["outcome"]]),
+  grepl("group factor must have >= 2 levels", errors[["group"]], fixed = TRUE))
+validation_values <- list(n = nrow(d), errors = errors, theme_calls = theme_calls)
+```
+:::
+
+<!-- /update-20261106b: rcs_preflight -->
+
 ## 返回对象、切点衔接与保存 {#output}
 
 返回一个 `patchwork`。连续子图和组合图携带 `cut_curve_data`，供 `get_cut_plot()` 读取；旧图对象或截图本身没有这个分析属性。
@@ -789,6 +833,7 @@ p_rcs_saved <- get_rcs_all(d, rcs_var = "Age", adj_var = adj,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[先检查结点和分析队列，再调用主题](#rcs_preflight-20261106b)。
 - 2026-11-06：[主题工厂与自定义图例文字](#rcs_theme-20261106)。
 - 2026-11-03：[补充分层RCS拟合失败的定位信息](#fit-diagnostics-20261103)，明确调整集由研究者决定。
 - 2026-10-31：[核对颜色来源分派](#layout)，四颜色板名不再误判为四面板覆盖；未重跑历史模型。
