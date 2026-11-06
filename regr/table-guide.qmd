@@ -15,6 +15,8 @@ directory:
 先明确表格描述什么、百分比分母是什么，再选择展示和导出形式。下面比较同一队列的中位数、均数、列/行百分比、分层基线和生存摘要；每个标签页展示实际生成的表格。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 RegR `769f460c`（0.1.3）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `7bf81d05`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -774,6 +776,91 @@ validation_values <- shown
 
 <!-- /update-20261106: ums_identifiers -->
 
+### UMS 保留高水平因子和零频数水平（2026-11-06） {#ums_levels-20261106b}
+
+<!-- update-20261106b: ums_levels -->
+
+UMS 的 Overall 描述和森林图保留全部因子水平，超过 30 个水平时不再截断，未观测水平显示零频数。下面有 30 个实际水平，每个 8 人，另声明一个未观测水平，展示返回表中首尾行。连续描述检验只在表中需要展示 Cox P 值时计算，不改变检验口径。
+
+```r
+library(RegR)
+options(RegR.ums.print = FALSE)
+set.seed(1103)
+n <- 240
+levels <- sprintf("L%02d", 1:31)
+d <- data.frame(x = rnorm(n), z = factor(rep(levels[1:30], 8), levels = levels),
+  time = rexp(n) + .02, DSS = rbinom(n, 1, .65))
+tab <- get_tb_ums(d, c("x", "z"), threshold = 0, format_res = FALSE)
+ids <- paste0("z", levels)
+shown <- tab[match(ids[c(1, 29, 30, 31)], tab[["id"]]), c("id", "stats")]
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106b-update-ums-levels.html"))
+```
+
+![31 个声明水平全部保留，L31 的 Overall 频数为零](images/table-guide/20261106b-update-ums-levels.png){fig-alt="31 个声明水平全部保留，L31 的 Overall 频数为零"}
+
+[原生表格 HTML](images/table-guide/20261106b-update-ums-levels.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(tab[["stats"]][match(ids, tab[["id"]])],
+  c(rep("8 (3.3%)", 30), "0 (0.0%)")))
+validation_values <- list(n = n, levels = length(ids), shown = shown)
+```
+:::
+
+<!-- /update-20261106b: ums_levels -->
+
+### UMS 结局标签避让与局部不可估计模型（2026-11-06） {#ums_labels-20261106b}
+
+<!-- update-20261106b: ums_labels -->
+
+二分类结局的水平即使叫 `name` 或 `desc`，也按结局列保留，不再与内部描述字段冲突。某个 Cox 协变量仅有一个完整观测时，对应推断不可用，其他协变量的单因素估计继续保留。下列合成输入分别核对标签及局部退化，不把一个协变量的人数当成全部模型共同人数。
+
+```r
+library(RegR)
+options(RegR.ums.print = FALSE)
+set.seed(1103)
+n <- 180
+d <- data.frame(x = rnorm(n), z = factor(sample(c("A", "B"), n, TRUE)))
+d[["y"]] <- rbinom(n, 1, plogis(d[["x"]]))
+d[["time"]] <- rexp(n, exp(.7 * d[["x"]])) + .02
+d[["DSS"]] <- rbinom(n, 1, .65)
+base <- get_tb_ums(d, c("x", "z"), surv = "y", threshold = 0, format_res = FALSE)
+labelled <- d
+labelled[["y"]] <- factor(d[["y"]], levels = 0:1, labels = c("name", "desc"))
+mapped <- get_tb_ums(labelled, c("x", "z"), surv = "y", threshold = 0, format_res = FALSE)
+group_columns <- paste0(c("name", "desc"), " (N=", as.integer(table(d[["y"]])), ")")
+shown <- mapped[c("name", "desc", group_columns)]
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106b-update-ums-labels.html"))
+```
+
+![结局 name 和 desc 作为带样本量的分组列，与描述列分开保留](images/table-guide/20261106b-update-ums-labels.png){fig-alt="结局 name 和 desc 作为带样本量的分组列，与描述列分开保留"}
+
+[原生表格 HTML](images/table-guide/20261106b-update-ums-labels.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+columns <- grep("^[01] \\(N=", names(base))
+expected <- base
+names(expected)[columns] <- group_columns
+attr(expected, "groups") <- autoReg::countGroups(labelled, "y")
+stopifnot(identical(mapped, expected))
+d[["w"]] <- NA_real_
+d[["w"]][1] <- .5
+d[["DSS"]][1] <- 1
+partial <- get_tb_ums(d, c("x", "w"), threshold = 0)
+statistics <- attr(partial, "model_stats")
+stopifnot(is.finite(statistics[["HR"]][statistics[["id"]] == "x"]),
+  statistics[["stats"]][statistics[["id"]] == "w"] == "Not estimable")
+validation_values <- list(n = n, group_columns = group_columns, unchanged_statistics = TRUE,
+  partial_columns = names(statistics))
+```
+:::
+
+<!-- /update-20261106b: ums_labels -->
+
 ## 生存摘要：HR 与时点生存概率
 
 
@@ -893,6 +980,8 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[UMS 结局标签避让与局部不可估计模型](#ums_labels-20261106b)。
+- 2026-11-06：[UMS 保留高水平因子和零频数水平](#ums_levels-20261106b)。
 - 2026-11-06：[重复标识的恢复与原变量身份](#ums_identifiers-20261106)。
 - 2026-11-06：[UMS 缺失策略、空队列和批量输出](#ums_cohorts-20261106)。
 - 2026-11-03：[补齐空筛选、Cox阈值与列类型/编码边界](#ums-boundaries-20261103c)。
