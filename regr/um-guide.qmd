@@ -15,6 +15,8 @@ date-modified: 2026-11-06
 get_um() 用同一单因素行模板对齐多个多因素模型，适合清楚展示调整集合的变化。页面先展示预先指定模型，再展示自动筛选和绝对效应，最后比较 autoReg 的表格/绘图入口。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 RegR `769f460c`（0.1.3）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `7bf81d05`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -508,6 +510,66 @@ validation_values <- shown
 
 <!-- /update-20261106: um_reference -->
 
+### 联合队列退化时保留可用模型（2026-11-06） {#um_joint-20261106b}
+
+<!-- update-20261106b: um_joint -->
+
+每个模型显式选择自己的完整病例，因此不受会话 `na.action="na.fail"` 影响。联合队列内变成常量的因子仍保留结果行并标记不可估计，同队列内可估计的连续变量继续返回。若联合队列完全为空，仅该调整面板为空，单因素估计仍可用。`var_mul` 记录请求的变量集。本次同时复现一个元数据缺陷，空联合队列的 `full` 仍携带单因素 `fit_info` 人数，不能把它解释成调整模型人数；应结合 `model_info$status` 与该模型的完整病例数核对。P 筛选未选中变量的 `empty` 面板则没有 `fit_info`。
+
+```r
+library(RegR)
+set.seed(1106)
+n <- 120
+d <- data.frame(g = factor(rep(c("A", "B", "C"), each = 40)),
+  x = rnorm(n), y = rbinom(n, 1, .45))
+d[["x"]][d[["g"]] != "A"] <- NA_real_
+fit <- get_um(d, c("g", "x"), surv = "y",
+  var_mul = list(reduced = "x", full = c("g", "x")))
+with_fail <- withr::with_options(list(na.action = "na.fail"),
+  get_um(d, c("g", "x"), surv = "y",
+    var_mul = list(reduced = "x", full = c("g", "x"))))
+empty_data <- d
+empty_data[["g"]][!is.na(empty_data[["x"]])] <- NA
+empty_fit <- get_um(empty_data, c("g", "x"), surv = "y")
+shown <- data.frame(panel = fit[["model_info"]][["model"]],
+  status = fit[["model_info"]][["status"]])
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106b-update-um-joint.html"))
+```
+
+![联合队列中因子变为常量时，单因素与简化模型继续保留可用结果](images/um-guide/20261106b-update-um-joint.png){fig-alt="联合队列中因子变为常量时，单因素与简化模型继续保留可用结果"}
+
+[原生表格 HTML](images/um-guide/20261106b-update-um-joint.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(fit[["tables"]], with_fail[["tables"]]))
+full <- fit[["tables"]][["full"]]
+reduced <- fit[["tables"]][["reduced"]]
+stopifnot(all.equal(full[["estimate"]][full[["variable"]] == "x"],
+  reduced[["estimate"]][reduced[["variable"]] == "x"]),
+  all(full[["effect"]][full[["variable"]] == "g" & full[["row_type"]] == "level"] == "Not estimable"),
+  sum(is.finite(empty_fit[["tables"]][["univariable"]][["estimate"]])) > 0,
+  !any(is.finite(empty_fit[["tables"]][["full"]][["estimate"]])))
+metadata <- attr(empty_fit[["tables"]][["full"]], "fit_info")
+empty_summary <- data.frame(actual_joint_n = sum(complete.cases(empty_data)),
+  reported_n = paste(metadata[["n"]], collapse = ", "),
+  full_status = empty_fit[["model_info"]][["status"]][2])
+stopifnot(empty_summary[["actual_joint_n"]] == 0,
+  identical(metadata[["n"]], c(80L, 40L)))
+gt::gtsave(gt::gt(empty_summary),
+  file.path(tempdir(), "20261106b-update-um-joint-metadata.html"))
+validation_values <- list(panels = shown, empty = empty_summary,
+  full_n = attr(full, "fit_info")[["n"]])
+```
+:::
+
+![空联合队列的 full 仍携带单因素人数，这些数值不能作为调整模型样本量](images/um-guide/20261106b-update-um-joint-metadata.png){fig-alt="空联合队列的 full 仍携带单因素人数，这些数值不能作为调整模型样本量"}
+
+[原生表格 HTML](images/um-guide/20261106b-update-um-joint-metadata.html)
+
+<!-- /update-20261106b: um_joint -->
+
 ## 自动筛选与拟合状态
 
 
@@ -601,7 +663,7 @@ info
 
 `p_args$p_threshold` 比较原始系数的 Wald P 值，`conf_level` 改变区间显示时仍使用同一筛选证据。区间显示溢出与模型分离分别记录。完全或近完全分离可使对应比较不可估计，此时检查 `model_info$status`，保留其他可估计的比较。
 
-本轮在 RegR `7dad336b` 复现了分离诊断缺陷。同一构造的 120 人数据被标记为不可估计，60 人数据却返回 OR 约 1 和 `fitted`。下面记录实际输出，60 人结果应按分离问题复核。
+以下是历史快照 RegR `7dad336b` 的分离诊断缺陷记录。同一构造的 120 人数据被标记为不可估计，60 人数据却返回 OR 约 1 和 `fitted`。旧代码及表格仅保留该快照的复现证据；新版本的修复结果见[分离诊断复核](#um_separation-20261106b)。
 
 ```r
 library(RegR)
@@ -621,7 +683,7 @@ gt::gtsave(gt::gt(summary), file.path(tempdir(), "20261106-update-um-wald.html")
 
 [原生表格 HTML](images/um-guide/20261106-update-um-wald.html)
 
-![两个样本量下完全分离数据的实际诊断结果](images/um-guide/20261106-update-um-separation.png){fig-alt="同一完全分离构造在 60 人和 120 人时出现不一致诊断，60 人结果属于已复现的上游缺陷"}
+![两个样本量下完全分离数据的实际诊断结果](images/um-guide/20261106-update-um-separation.png){fig-alt="历史快照 7dad336b 中两个样本量下诊断不一致，后续修复见下节"}
 
 [原生表格 HTML](images/um-guide/20261106-update-um-separation.html)
 
@@ -648,6 +710,56 @@ validation_values <- list(screen = summary, diagnostics = diagnostics)
 :::
 
 <!-- /update-20261106: um_wald -->
+
+### 分离诊断缺陷的修复复核（2026-11-06） {#um_separation-20261106b}
+
+<!-- update-20261106b: um_separation -->
+
+RegR `1ef6309c` 已修复前一快照 `7dad336b` 的分离诊断缺陷。沿用上节相同的 60 人、120 人构造，再加入 240 人的准完全分离数据，均应停止给出无效的 Wald 推断。下表保留实际诊断和筛选结果；分离后的空调整模型不提供拟合队列信息。
+
+```r
+library(RegR)
+fixtures <- list(
+  complete_60 = data.frame(y = rep(0:1, each = 30)),
+  complete_120 = data.frame(y = rep(0:1, each = 60)))
+fixtures <- lapply(fixtures, function(d) {
+  d[["x"]] <- (2 * d[["y"]] - 1) * 1e6
+  d
+})
+fixtures[["quasi_240"]] <- data.frame(
+  x = rep(c(-1e6, 0, 0, 1e6), each = 60),
+  y = rep(c(0L, 0L, 1L, 1L), each = 60))
+fits <- lapply(fixtures, function(d)
+  suppressWarnings(get_um(d, x, surv = "y", var_mul = "p",
+    p_args = list(p_threshold = 1))))
+diagnostics <- do.call(rbind, lapply(names(fits), function(key) {
+  fit <- fits[[key]]
+  data.frame(case = key, n = nrow(fixtures[[key]]),
+    effect = fit[["tables"]][["univariable"]][["effect"]],
+    status = fit[["model_info"]][["status"]][1],
+    selected = length(fit[["var_mul"]][["select_p"]]))
+}))
+gt::gtsave(gt::gt(diagnostics),
+  file.path(tempdir(), "20261106b-update-um-separation-fixed.html"))
+```
+
+![相同的完全分离与准完全分离输入均标记为不可估计，未选入调整模型](images/um-guide/20261106b-update-um-separation-fixed.png){fig-alt="相同的完全分离与准完全分离输入均标记为不可估计，未选入调整模型"}
+
+[原生表格 HTML](images/um-guide/20261106b-update-um-separation-fixed.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(all(diagnostics[["effect"]] == "Not estimable"),
+  all(diagnostics[["status"]] == "fit_warning"), all(diagnostics[["selected"]] == 0))
+for (fit in fits) stopifnot(
+  all(is.na(fit[["tables"]][["univariable"]][["p.value_0.95"]])),
+  fit[["model_info"]][["status"]][2] == "empty",
+  is.null(attr(fit[["tables"]][["select_p"]], "fit_info")))
+validation_values <- diagnostics
+```
+:::
+
+<!-- /update-20261106b: um_separation -->
 
 ## Logistic：相对 OR 与标准化绝对风险
 
@@ -1200,6 +1312,40 @@ validation_values <- shown
 
 <!-- /update-20261106: um_survival -->
 
+### 绝对生存时间按实际拟合队列校验（2026-11-06） {#um_horizon-20261106b}
+
+<!-- update-20261106b: um_horizon -->
+
+`abs_args$time` 使用月，必须落在每个实际拟合队列可支持的随访范围。即使原始数据有 30 月随访，调整变量缺失使联合队列只剩 12 月时，也不能请求 24 月预测。`lubridate::Duration` 需先显式换成数值月；非正规 Cox 拟合的绝对推断同样会被抑制。不同单因素标准化人群的人数应读取逐变量 `fit_info`。
+
+```r
+library(RegR)
+set.seed(2026)
+n <- 240
+d <- data.frame(g = factor(rep(LETTERS[1:3], length.out = n)), x = rnorm(n),
+  time = rep(1:30, each = 8), DSS = rep(0:1, length.out = n),
+  event = sample(0:2, n, replace = TRUE))
+d[["x"]][d[["time"]] > 12] <- NA_real_
+horizon_errors <- lapply(c(Cox = TRUE, FineGray = FALSE), function(family)
+  tryCatch(get_um(d, c("g", "x"), surv = family,
+    abs_args = list(enabled = TRUE, time = 24)), error = conditionMessage))
+duration_data <- d
+duration_data[["time"]] <- lubridate::duration(d[["time"]], units = "days")
+duration_error <- tryCatch(get_um(duration_data, g,
+  abs_args = list(enabled = TRUE, time = 6)), error = conditionMessage)
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(all(vapply(horizon_errors, function(e)
+  is.character(e) && grepl("Absolute model 'full'.*24.*12", e), logical(1))),
+  is.character(duration_error), grepl("time.*numeric.*months", duration_error))
+validation_values <- list(horizon = horizon_errors, duration = duration_error)
+```
+:::
+
+<!-- /update-20261106b: um_horizon -->
+
 ## autoReg 路线：表格与绘图入口
 
 
@@ -1400,6 +1546,9 @@ sessionInfo()
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[绝对生存时间按实际拟合队列校验](#um_horizon-20261106b)。
+- 2026-11-06：[联合队列退化时保留可用模型](#um_joint-20261106b)。
+- 2026-11-06：[分离诊断缺陷的修复复核](#um_separation-20261106b)。
 - 2026-11-06：[UMS 森林图、表格与保存对象](#ums_forest-20261106)。
 - 2026-11-06：[生存单位、事件列与内部名称](#um_survival-20261106)。
 - 2026-11-06：[筛选用 Wald P 值与分离诊断](#um_wald-20261106)。
