@@ -14,6 +14,8 @@ directory:
 用 `get_screens()` 一次组织多个人群、治疗对比和修饰变量，再用 `get_screens_grade()` 调整分级、`fmt_screens_gt()` 生成表格、`plt_screens()` 绘制热图。默认 `surv=TRUE` 用 Cox；`surv="Recovery"` 等列名用 Logistic，输出 OR。单个交互模型及 HR / RERI 的解释见[交互分析](interaction-guide.qmd#binary-wald-20261029)。本页独立构造数据，无需先运行其他教程。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `939a9364`（0.1.3）导出源码，同时固定 RegR `939a9364` 与 UtilsR `b8b5932d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-06 按已推送 RegR `7dad336b`（0.1.3）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9` 核对下述接口约定。本页本次仅更新源码与接口说明，旧模型和图保留原执行快照，没有重新拟合或安装包。
@@ -869,6 +871,68 @@ validation_values <- list(comparisons = nrow(all), versions = 2,
 
 <!-- /update-20261106b: screen_richtext -->
 
+### 固定条带按富文本实际宽度换行（2026-11-06） {#screen_wrap-20261106c}
+
+<!-- update-20261106c: screen_wrap -->
+
+固定单元格下，人群条带按富文本渲染后的实际宽度换行，并插入硬换行；内联颜色、粗体和字号保留。无空格的长名称也可拆行，旋转文字按实际尺寸测量。下例手工设置 3 个比较的绘图输入，不是新拟合的交互结果，同时验证旧 S3 背景的底色和边框。
+
+```r
+library(RegR)
+labels <- c("<span style='font-size:11pt; color:red'>All eligible patients &amp; families</span>",
+  "**LongPopulationIdentifierWithoutSpaces**")
+all <- data.frame(id = c("a", "b", "c"), pop = labels[c(1, 1, 2)],
+  trt = c("X", "Y", "Y"), mod = "Age", mod_alt = "High", mod_ref = "Low",
+  planned = "fit", alias_of = NA_character_, grade = "A", stable_A = TRUE)
+specs <- data.frame(id = all$id, mod_alt = all$mod_alt, version = "A3", status = "ok",
+  mult = 1.3, p_mult = .03, reri = .4, p_reri = .02)
+screen <- structure(list(all = all, specs = specs), class = "get_screens",
+  settings = list(surv = TRUE))
+before <- screen
+rect <- structure(list(fill = "#FFF5D6", colour = "#355C7D", linewidth = 1.3,
+  linetype = 2, inherit.blank = FALSE), class = c("element_rect", "element"))
+legacy <- structure(list(plot.background = rect), class = c("theme", "gg"),
+  complete = FALSE, validate = TRUE)
+style <- suppressWarnings(ggplot2::theme(strip.text.x.top =
+  ggtext::element_markdown(size = 10)) + legacy)
+p <- plt_screens(screen, fixed_size = 8, theme_use = style,
+  save = list(filename = file.path(tempdir(), "20261106c-update-screen-wrap.pdf")))
+```
+
+![长名称按条带宽度换行，内联红色、粗体与字号保留，背景外框也继续绘出](images/screening-guide/20261106c-update-screen-wrap.png){fig-alt="长名称按条带宽度换行，内联红色、粗体与字号保留，背景外框也继续绘出"}
+
+[原生 PDF](images/screening-guide/20261106c-update-screen-wrap.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+find_grobs <- function(g, kind) {
+  if (inherits(g, kind)) return(list(g))
+  children <- if (!is.null(g$grobs)) g$grobs else g$children
+  unlist(lapply(children, find_grobs, kind = kind), recursive = FALSE)
+}
+grob <- ggplot2::ggplotGrob(p)
+strips <- which(grepl("^strip-t", grob$layout$name))
+plain <- c("All eligible patients & families", "LongPopulationIdentifierWithoutSpaces")
+stopifnot(length(strips) == 2)
+for (j in seq_along(strips)) {
+  i <- strips[j]
+  text <- find_grobs(grob$grobs[[i]], "richtext_grob")[[1]]
+  available <- sum(grid::convertWidth(grob$widths[grob$layout$l[i]:grob$layout$r[i]], "in", TRUE))
+  actual <- grid::convertWidth(grid::grobWidth(text), "in", TRUE)
+  visible <- vapply(find_grobs(text, "text"), function(z) paste(z$label, collapse = ""), "")
+  stopifnot(actual <= available + .01,
+    paste(gsub("\\s+", "", visible), collapse = "") == gsub("\\s+", "", plain[j]))
+}
+background <- grob$grobs[[which(grob$layout$name == "background")]]
+stopifnot(background$gp$fill == "#FFF5D6", background$gp$col == "#355C7D",
+  p$theme$strip.text.x.top$size == 10, identical(screen, before))
+validation_values <- list(comparisons = 3, labels_complete = plain,
+  unchanged_size = p$theme$strip.text.x.top$size, background_drawn = TRUE)
+```
+:::
+
+<!-- /update-20261106c: screen_wrap -->
+
 ### 长标签、浅色条带与 HTML 画布（2026-10-29） {#layout-20261029c}
 
 RegR `847d71d` 会同时测量倾斜标签两端、多行文字的实际行高和面板间距；条带文字根据底色选黑或白，透明色按主题背景计算。不同条带使用不同文字颜色时，粗体与水平角度仍保留。图的统计值、别名和等级不会因配色改变。
@@ -1150,6 +1214,7 @@ validation_values[["late_checks"]] <- list(factor_error = bad_factor_error29,
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-11-06：[固定条带按富文本实际宽度换行](#screen_wrap-20261106c)。
 - 2026-11-06：[富文本主题在堆叠布局中保留](#screen_richtext-20261106b)。
 - 2026-11-06：[人群色板与保存的旧主题](#screen_theme-20261106)。
 - 2026-10-31：[验证完整id与修饰水平分组、空字符串水平和重新分级一致性](#grade-keys-20261031)。
