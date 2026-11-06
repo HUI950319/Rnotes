@@ -64,6 +64,27 @@ SEER 数据处理：先按癌种与导出 schema 选择入口，再核对记录�
 
 本次实际运行[4 行脊柱](index.qmd#seer_spine-20261106b)与[8 行血液系统](index.qmd#seer_heme-20261106b)合成输入的专用整理函数，完整原始 CSV 流水线和包内真实队列未重跑。新版队列均为恶性记录；不能把良性与交界性肿瘤的缺失解释成零发生，记录数和去重患者数分别核对。
 
+### 新模块的拆分接口与衍生变量（2026-11-06） {#module-steps-20261106b}
+
+下列是 `4c34218e` 源码和帮助中的拆分入口，便于已有标准列时从中间步骤衔接。本次执行的函数范围仍以上一节链接的合成例子为准。
+
+::: {.table-responsive tabindex="0" role="region" aria-label="新模块拆分接口，可横向滚动"}
+
+| 步骤 | 脊柱模块 | 血液系统模块 |
+|---|---|---|
+| 原始字段适配 | `seer_spine_select_2026()` 加骨分级与转移字段 | `seer_heme_select_2026()` 加淋巴瘤分期、B 症状和骨髓瘤字段 |
+| 组织学 | `seer_spine_fmt_his()` 与 ICD_spine | `seer_heme_fmt_his()` 与 ICD_heme，9727 按年代解释 |
+| 分级或分期 | `seer_spine_fmt_grade()` 分开骨分级与 WHO 分级 | `seer_heme_fmt_stage()` 整理 Stage_AA、B_symptoms 和 MM_type |
+| 转移 | `seer_spine_fmt_mets()` 整理器官转移与 M | 不套用脊柱的实体瘤转移字段 |
+| 治疗 | `seer_spine_fmt_treat()` 分骨与 CNS 码表 | `seer_heme_fmt_treat()` 保留手术、不适用、未知的区别 |
+| 通用整理 | `seer_spine_fmt_all()` 加 Compartment、Behavior 等 | `seer_heme_fmt_all()` 整理年代、部位及通用变量 |
+| 完整链与分析列 | `seer_spine_pipeline()` → `seer_spine_select_analysis()` | `seer_heme_pipeline()` → `seer_heme_select_analysis()` |
+| 衍生分组 | `seer_spine_mutate_derived()` 加 Site_loc、Sur_6 等 | `seer_heme_mutate_derived()` 加 Stage_AA_2、年龄组等 |
+
+:::
+
+脊柱 `Site_loc` 的 Pelvis/sacrum 保留 C41.4 混合部位含义，`Tum_3` 的 80 mm 切点用于骨肿瘤。血液系统 `Sur` 分 No surgery / Surgery / Not applicable / Unknown，`Che` 的 No/Unknown 合并未治疗与未知，不能改写成“均未治疗”。`Stage_AA_2` 对适用的分期合并 Early (I-II) 与 Advanced (III-IV)，原 NA 继续为 NA。两条流水线使用各自的选择、整理和分组规则。
+
 ### 队列 Viewer 与中文说明（2026-10-27） {#viewer-20261027}
 
 按已推送 seerR **0.1.0** `91e9de6` 核对，新增 `seer_view()`，现在为 **57 项显式导出**。输入包内队列名或筛选后的数据框，返回 RegR `fmt_page` 页面；概况和注意事项中文化，变量字典沿用英文帮助。筛选框应显式指定 `notes` 来源，说明来源不等于数据验证。[20 行合成页面](index.qmd#viewer-20261027)附原生 HTML，并区分 NA 颜色、Unknown 水平、分析行数与患者数。
@@ -83,6 +104,7 @@ RegR 保持可选依赖；旧三张图谱仍为原日期快照。新增中文说
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-11-06：[补齐新模块拆分接口与衍生变量索引](#module-steps-20261106b)。
 - 2026-11-06：[同步 76 项导出与两个新模块](#modules-20261106b)。
 - 2026-10-27：同步[57 项导出及 seer_view](#viewer-20261027)的中文说明与教程入口。
 - 2026-10-26：补齐[56 项导出与三个新癌种模块](#site-modules-20261026)的教程入口。
