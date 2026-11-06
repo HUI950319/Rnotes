@@ -4,16 +4,18 @@ description: "比较 SHAP、impurity/Gain、permutation 与 rfsrc 的 VIMP/最�
 date: 2026-10-09
 lightbox: true
 toc-depth: 2
-date-modified: 2026-11-03
+date-modified: 2026-11-06
 directory:
   title: "特征重要性：rfsrc、重复稳定性与9类图"
   topic: 模型解释
-  updated: 2026-11-03
+  updated: 2026-11-06
 ---
 
 本页先说明 `get_imp()` 如何组织多种重要性，再用同一份结果比较全部 9 个 `plt_imp_*()` 函数。关键选项放在标签页中，代码与图片相邻；点击图片可放大。重要性回答变量对预测贡献有多大，方向与个体解释接着看 [SHAP 页](shap-guide.qmd)。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 MLR `d1b233aa`（0.1.13）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-03 追加按已推送 MLR `48bce006`（0.1.13）导出源码；配套依赖固定为 RegR `415c6453`、UtilsR `fafe93a3`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **版本与执行范围：** 按 MLR 0.1.13 当前源码核对，使用 WSL R 4.4.3 实际导出本页 **25 张参数对照图**。绘图复用 ToyData::toy_imp，没有重新训练 get_imp 的模型。环形图按实际基础绘图设备导出；其余图检查构建或实际保存边界。
@@ -433,6 +435,48 @@ validation_values <- list(features = 3L, input = palette_importance,
 
 <!-- /update-20261103: mlr_importance_palette -->
 
+### 条形和比例图统一保留或移除末尾单位（2026-11-06） {#mlr_bar_units-20261106b}
+
+<!-- update-20261106b: mlr_bar_units -->
+
+`plt_bar_per()` 与 `plt_imp_bar_per()` 也默认移除变量名末尾的括号单位，普通条形轴和环图共用这一规则。`label_args=list(unit=TRUE)` 保留名称映射后的单位；名称中间的括号不移除。下面使用同一份三变量输入比较显示，数值与比例均不变。
+
+```r
+library(MLR)
+values <- data.frame(var = c("Age (years)", "Sex (M/F) group", "Tumor size (mm)"),
+  yhat = c(6, 3, 1))
+before <- values
+short <- plt_bar_per(values, mode = "bar",
+  save = list(filename = file.path(tempdir(), "20261106b-update-bar-units-off.pdf")))
+full <- plt_bar_per(values, mode = "bar", label_args = list(unit = TRUE),
+  save = list(filename = file.path(tempdir(), "20261106b-update-bar-units-on.pdf")))
+```
+
+![末尾单位被移除，名称中间的 M/F 括号继续保留](images/imp-guide/20261106b-update-bar-units-off.png){fig-alt="末尾单位被移除，名称中间的 M/F 括号继续保留"}
+
+[原生 PDF](images/imp-guide/20261106b-update-bar-units-off.pdf)
+
+![开启 unit 后保留完整名称，三变量数值保持 6、3、1](images/imp-guide/20261106b-update-bar-units-on.png){fig-alt="开启 unit 后保留完整名称，三变量数值保持 6、3、1"}
+
+[原生 PDF](images/imp-guide/20261106b-update-bar-units-on.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(values, before),
+  identical(eval(formals(plt_bar_per)[["label_args"]])[["unit"]], FALSE),
+  identical(eval(formals(plt_imp_bar_per)[["label_args"]])[["unit"]], FALSE))
+short_labels <- unique(unlist(lapply(ggplot2::ggplot_build(short)[["layout"]][["panel_scales_y"]],
+  function(s) s[["get_labels"]]())))
+full_labels <- unique(unlist(lapply(ggplot2::ggplot_build(full)[["layout"]][["panel_scales_y"]],
+  function(s) s[["get_labels"]]())))
+stopifnot(all(c("Age", "Sex (M/F) group", "Tumor size") %in% short_labels),
+  all(values[["var"]] %in% full_labels))
+validation_values <- list(values = values[["yhat"]], labels = sort(short_labels))
+```
+:::
+
+<!-- /update-20261106b: mlr_bar_units -->
+
 ## `plt_imp_bar_per()`：方法、配色与布局
 
 方法选择和变量删减会改变比较集合；`per_position` 只改变插图位置。
@@ -724,6 +768,46 @@ plt_imp_circ(imp8, imp_type = c("permutation", "mean.SHAP"), add_name = labels, 
 
 :::
 
+### 环形重要性图的固定版面目标与单位标签（2026-11-06） {#mlr_circle-20261106b}
+
+<!-- update-20261106b: mlr_circle -->
+
+`plt_imp_circ()` 默认以 6.4 × 6.4 英寸作为版面目标，按实际绘制边界裁掉空白。长标签会让圆环缩小，文字字号保持一致；显式保存尺寸太小时会提示并增大页面。自动 `ylim` 的上限在最长条上方约 5%，不再沿用约 1.5 倍顶端刻度的旧规则。变量名末尾的括号单位默认移除，`label_args=list(unit=TRUE)` 保留。本函数直接绘制并返回不可见的 `NULL`，请用 `save` 保存，尺寸从运行提示和 PDF 读取。
+
+```r
+library(MLR)
+res <- data.frame(var = rep(c("Age (years)", "Marker (ng/mL)", "Tumor size (mm)"), 2),
+  yhat = c(.9, .4, .1, .2, .8, .3), order = rep(1:3, 2),
+  imp_type = rep(c("mean.SHAP", "permutation"), each = 3),
+  yhat_raw = c(100, 4, 1, 80, 2, 1))
+attr(res, "imp_types") <- c("mean.SHAP", "permutation")
+before <- res
+result <- plt_imp_circ(res, add_name = NULL,
+  save = list(filename = file.path(tempdir(), "20261106b-update-circle-default.pdf")))
+plt_imp_circ(res, add_name = NULL, label_args = list(unit = TRUE),
+  save = list(filename = file.path(tempdir(), "20261106b-update-circle-units.pdf")))
+```
+
+![默认去除末尾单位的两方法合成重要性图，圆环在固定目标版面内布局](images/imp-guide/20261106b-update-circle-default.png){fig-alt="默认去除末尾单位的两方法合成重要性图，圆环在固定目标版面内布局"}
+
+[原生 PDF](images/imp-guide/20261106b-update-circle-default.pdf)
+
+![同一输入保留变量单位，重要性数值和百分比口径不变](images/imp-guide/20261106b-update-circle-units.png){fig-alt="同一输入保留变量单位，重要性数值和百分比口径不变"}
+
+[原生 PDF](images/imp-guide/20261106b-update-circle-units.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(is.null(result), identical(res, before),
+  identical(eval(formals(plt_imp_circ)[["label_args"]])[["unit"]], FALSE),
+  file.exists(file.path(tempdir(), "20261106b-update-circle-default.pdf")))
+validation_values <- list(rows = nrow(res), methods = unique(res[["imp_type"]]),
+  returned_NULL = is.null(result), input_unchanged = identical(res, before))
+```
+:::
+
+<!-- /update-20261106b: mlr_circle -->
+
 ## `plt_imp_network()`：柱形、气泡与百分比
 
 此网络连接的是方法与特征，边不是变量间交互。`y_hat` 选择 scale_value / percent；`network_args` 可局部覆盖标签配置。
@@ -760,6 +844,61 @@ plt_imp_network(imp8, add_name = labels, outer_style = "bubble", y_hat = "percen
 
 
 :::
+
+### 网络图的预缩放、自然尺寸与标签间距（2026-11-06） {#mlr_network-20261106b}
+
+<!-- update-20261106b: mlr_network -->
+
+`plt_imp_network()` 新增 `fmt_args=list(cha_var,cha_mult)`，按原变量名匹配，在条形和百分比计算前同时缩放 `yhat` 与 `yhat_raw`。这是显示输入的主动重标度，应明确说明，不能据此声称模型重要性发生了变化。网络图裁切到实际内容，`attr(p,"plot_size")` 和仅给文件名的保存使用该尺寸；`colors` 接受按方法顺序的无名向量。`plt_network()` 同样默认去掉末尾单位，标签偏移默认由 1 改为 0.3，需要旧间距时传 `offset=1`。
+
+```r
+library(MLR)
+res <- data.frame(var = rep(c("Age (years)", "Marker (ng/mL)", "Tumor size (mm)"), 3),
+  yhat = c(.9, .4, .1, .2, .8, .3, .5, .3, .7), order = rep(1:3, 3),
+  imp_type = rep(c("mean.SHAP", "impurity", "permutation"), each = 3),
+  yhat_raw = c(100, 4, 1, 80, 2, 1, 40, 3, 2))
+attr(res, "imp_types") <- c("mean.SHAP", "impurity", "permutation")
+before <- res
+colours <- UtilsR::pal_get("Dark2", n = 3)
+base <- plt_imp_network(res, add_name = NULL, colors = colours,
+  save = list(filename = file.path(tempdir(), "20261106b-update-network-default.pdf")))
+scaled <- plt_imp_network(res, add_name = NULL, colors = colours,
+  fmt_args = list(cha_var = "Marker (ng/mL)", cha_mult = 3),
+  label_args = list(unit = TRUE),
+  save = list(filename = file.path(tempdir(), "20261106b-update-network-scaled.pdf")))
+attr(base, "plot_size")
+```
+
+![网络图按内容裁切版面，默认去除末尾单位，颜色按三种方法顺序提供](images/imp-guide/20261106b-update-network-default.png){fig-alt="网络图按内容裁切版面，默认去除末尾单位，颜色按三种方法顺序提供"}
+
+[原生 PDF](images/imp-guide/20261106b-update-network-default.pdf)
+
+![Marker 的绘图输入乘以 3 后，SHAP 份额为 10.6%，本图同时保留单位标签](images/imp-guide/20261106b-update-network-scaled.png){fig-alt="Marker 的绘图输入乘以 3 后，SHAP 份额为 10.6%，本图同时保留单位标签"}
+
+[原生 PDF](images/imp-guide/20261106b-update-network-scaled.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+leaves <- function(p) p[["data"]][p[["data"]][["level"]] == 3, ]
+stopifnot(identical(res, before),
+  setequal(as.character(leaves(base)[["set"]]), c("Age", "Marker", "Tumor size")),
+  setequal(as.character(leaves(scaled)[["set"]]), unique(res[["var"]])))
+leaf_value <- function(p, method, var) {
+  d <- leaves(p)
+  d[["value"]][d[["category"]] == method & d[["set"]] == var]
+}
+stopifnot(abs(leaf_value(scaled, "mean.SHAP", "Marker (ng/mL)") -
+  3 * leaf_value(base, "mean.SHAP", "Marker")) < 1e-12,
+  identical(eval(formals(plt_network)[["label_args"]])[["offset"]], .3))
+built <- ggplot2::ggplot_build(scaled)
+labels <- built[["data"]][[length(scaled[["layers"]])]][["label"]]
+stopifnot(any(grepl("(10.6%)", labels, fixed = TRUE)))
+validation_values <- list(rows = nrow(res), scale = 3, marker_percent = round(12 / 113 * 100, 1),
+  displayed_variables = sort(unique(as.character(leaves(base)[["set"]]))))
+```
+:::
+
+<!-- /update-20261106b: mlr_network -->
 
 ## `plt_imp_radar()`：归一化与分面
 
@@ -1038,6 +1177,9 @@ attr(p_rank_save, "plot_size")
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[条形和比例图统一保留或移除末尾单位](#mlr_bar_units-20261106b)。
+- 2026-11-06：[网络图的预缩放、自然尺寸与标签间距](#mlr_network-20261106b)。
+- 2026-11-06：[环形重要性图的固定版面目标与单位标签](#mlr_circle-20261106b)。
 - 2026-11-03：[补齐条形和环图的pal_get色板及向量输入](#bar-palettes-20261103)，保持同名HCL颜色。
 - 2026-10-26：补充[径向比例条 label_args](#radial-labels-20261026)的单行、换行及包装入口 PDF。
 - 2026-10-25：[标签、份额与绘图缩放](#labels-shares-20261025)
