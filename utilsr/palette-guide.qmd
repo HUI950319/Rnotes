@@ -14,6 +14,8 @@ date-modified: 2026-11-06
 pal_list、pal_get、pal_show 及 Brewer、HCL、ggsci、viridis 色卡，命名映射与热图应用。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 UtilsR `ea6abfa0`（0.6.23）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-06 追加按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-03 追加按已推送 UtilsR `680ef17d`（0.6.22）导出源码；配套依赖固定为 RegR `f80e0e95`、UtilsR `680ef17d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -166,7 +168,7 @@ validation_values <- list(original = plain_value[["value"]],
 
 <!-- update-20261103: utils_palette_stdout -->
 
-`show_color()`接受无类、无维度的字符颜色向量，`rev`只接受普通逻辑标量。实际`NA_character_`、字面`"NA"`和`"transparent"`按R的透明颜色显示，但返回值与可复制表达式保留它们各自的原值、名称和其他属性；反转时名称随颜色反转。数值属性保留17位精度。环境等特殊属性仍不能保证由`dput()`重建。
+`show_color()`接受无类、无维度的字符颜色向量，`rev`只接受普通逻辑标量。实际`NA_character_`、字面`"NA"`和`"transparent"`按R的透明颜色显示，但返回值与可复制表达式保留它们各自的原值、名称和其他属性；反转时名称随颜色反转。数值属性保留17位精度。环境属性及标记为 `bytes` 编码的名称不能保证由 `dput()` 精确重建；需要完整对象保真时，对返回值使用 `saveRDS()`。
 
 色块按stdout能力、可用宽度与渲染器实际支持的颜色深度绘制；索引终端按其发出的颜色选择文字对比度。旧cli版本最多支持256色，用户自定义终端主题仍可能改变观感。HEX标签保持完整，不把窄控制台的色块换行解释成数据变化。
 
@@ -204,6 +206,56 @@ validation_values <- list(returned = console_return[["value"]], attributes = att
 :::
 
 <!-- /update-20261103: utils_palette_stdout -->
+
+### 批量色卡输出与极大控制台宽度（2026-11-06） {#utils_console_batches-20261106b}
+
+<!-- update-20261106b: utils_console_batches -->
+
+`show_color()` 批量验证大颜色向量、复用白底合成后的背景，并批量应用真彩前景色，保留原始 RGBA 标签、顺序、名称和属性。极大 `cli.width` 不再因整数溢出截断色块。可复制表达式沿用 17 位数值精度；环境属性和 bytes 编码的名称需要 RDS 保存以保证对象保真。
+
+```r
+library(UtilsR)
+colours <- c(Red = "red", Half = "#FF000080", Missing = NA_character_,
+  Clear = "transparent", Blue = "blue")
+lines <- withr::with_options(list(cli.num_colors = 16777216, cli.width = 40),
+  capture.output(returned <- withVisible(show_color(colours))))
+page <- htmltools::tags$html(
+  htmltools::tags$head(htmltools::tags$meta(charset = "UTF-8")),
+  htmltools::tags$body(style = "margin:16px;background:white;",
+    htmltools::tags$pre(`data-native-console` = "true", style = "display:inline-block;font-family:monospace;font-size:14px;white-space:pre;",
+      htmltools::HTML(fansi::sgr_to_html(paste(lines, collapse = "\n"), term.cap = "truecolor")))))
+htmltools::save_html(page,
+  file.path(tempdir(), "20261106b-update-show-color-batches.html"))
+```
+
+![真彩色输出保留原始 RGBA 标签、透明色、缺失值与可复制向量](images/palette-guide/20261106b-update-show-color-batches.png){fig-alt="真彩色输出保留原始 RGBA 标签、透明色、缺失值与可复制向量"}
+
+[原生表格 HTML](images/palette-guide/20261106b-update-show-color-batches.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(returned[["value"]], colours), !returned[["visible"]])
+depths <- c(0, 1, 8, 16, 256, 16777216)
+for (depth in depths) {
+  output <- withr::with_options(list(cli.num_colors = depth, cli.width = .Machine[["integer.max"]],
+    width = 80, warn = 2), capture.output(value <- withVisible(show_color(colours))))
+  plain <- cli::ansi_strip(output)
+  swatches <- grepl("^ *#", plain)
+  labels <- unlist(regmatches(plain[swatches], gregexpr("#[0-9A-F]{8}|#[0-9A-F]{6}", plain[swatches])))
+  stopifnot(identical(unname(labels), c("#FF0000", "#FF000080", "#FFFFFF00", "#FFFFFF00", "#0000FF")),
+    identical(value[["value"]], colours))
+}
+large <- grDevices::rainbow(2048)
+large[c(256, 257, 513, 2048)] <- c("not_a_colour", "not_a_colour", "2e0", "unknown_colour")
+error <- tryCatch(show_color(large), error = conditionMessage)
+stopifnot(all(vapply(c("256", "257", "513", "2048", "not_a_colour", "2e0", "unknown_colour"),
+  function(x) grepl(x, error, fixed = TRUE), logical(1))))
+validation_values <- list(depths = depths, invalid_positions = c(256, 257, 513, 2048),
+  unchanged = identical(returned[["value"]], colours))
+```
+:::
+
+<!-- /update-20261106b: utils_console_batches -->
 
 ## 颜色数量、顺序与透明度
 
@@ -647,6 +699,53 @@ validation_values <- list(requested = names(colours), rows = nrow(custom[["_data
 
 <!-- /update-20261106: palette_catalogue -->
 
+### 窄容器色块、百分比列宽与跨页色卡（2026-11-06） {#palette_width-20261106b}
+
+<!-- update-20261106b: palette_width -->
+
+目录表在窄容器中保持色块宽度并允许横向滚动，显式 `gt::cols_width()` 百分比列宽及 `table.width` 覆盖继续生效。颜色向量的 LaTeX 表也默认使用 longtable 并重复表头；这保留 HEX 文本，不在 LaTeX 中生成 HTML 色块。HCL 浏览名称的反斜杠分隔与原生 HCL 名称匹配保持一致。
+
+```r
+library(UtilsR)
+catalogue <- pal_show(c("Set1", "Blues"), n = 20, max_colors = 20)
+gt::gtsave(catalogue,
+  file.path(tempdir(), "20261106b-update-palette-width.html"))
+custom <- gt::cols_width(catalogue, palette ~ gt::pct(28), type ~ gt::pct(18),
+  n_colors ~ gt::pct(18), preview ~ gt::pct(36))
+custom <- gt::tab_options(custom, table.width = gt::pct(100), container.width = gt::pct(100))
+gt::gtsave(custom,
+  file.path(tempdir(), "20261106b-update-palette-percent.html"))
+hcl_alias <- pal_show_hcl("Dark\\3", n = 3, output = "gg")
+hcl_native <- pal_show_hcl("Dark 3", n = 3, output = "gg")
+long <- pal_show(grDevices::rainbow(60), max_colors = Inf)
+latex <- as.character(gt::as_latex(long))
+```
+
+![20 色目录保持固定色块，窄窗口可以横向滚动](images/palette-guide/20261106b-update-palette-width.png){fig-alt="20 色目录保持固定色块，窄窗口可以横向滚动"}
+
+[原生表格 HTML](images/palette-guide/20261106b-update-palette-width.html)
+
+![用户给定的 28%、18%、18%、36% 列宽继续生效](images/palette-guide/20261106b-update-palette-percent.png){fig-alt="用户给定的 28%、18%、18%、36% 列宽继续生效"}
+
+[原生表格 HTML](images/palette-guide/20261106b-update-palette-percent.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(identical(hcl_alias[["data"]][["color"]], hcl_native[["data"]][["color"]]),
+  grepl("\\\\begin{longtable}", latex, fixed = TRUE) ||
+    grepl("\\begin{longtable}", latex, fixed = TRUE),
+  grepl("endhead", latex, fixed = TRUE))
+html <- gt::as_raw_html(custom, inline_css = FALSE)
+doc <- xml2::read_html(html)
+styles <- xml2::xml_attr(xml2::xml_find_all(doc, "//colgroup/col"), "style")
+stopifnot(identical(as.numeric(gsub("[^0-9.]", "", styles)), c(28, 18, 18, 36)))
+validation_values <- list(HCL_equivalent = TRUE, latex_longtable = TRUE,
+  width_percent = as.numeric(gsub("[^0-9.]", "", styles)))
+```
+:::
+
+<!-- /update-20261106b: palette_width -->
+
 ## viridis 的色域控制
 
 ::: {.panel-tabset}
@@ -977,6 +1076,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[批量色卡输出与极大控制台宽度](#utils_console_batches-20261106b)。
+- 2026-11-06：[窄容器色块、百分比列宽与跨页色卡](#palette_width-20261106b)。
 - 2026-11-06：[数值颜色索引与重复值映射](#palette_numeric-20261106)。
 - 2026-11-06：[可读色卡、筛选范围与 LaTeX 列宽](#palette_catalogue-20261106)。
 - 2026-11-03：[补充绘图解析器的数字颜色、fallback及命名映射校验](#literal-colours-20261103b)。
