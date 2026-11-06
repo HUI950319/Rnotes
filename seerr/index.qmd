@@ -1,10 +1,10 @@
 ---
-description: "按癌种与 schema 选择 SEER ETL；补充肺、结直肠和 CNS 流水线、多原发分析单位、未知 NAT 与 WHO 分级字段。"
-date-modified: 2026-10-27
+description: "按七类模块与 schema 选择 SEER ETL，核对多原发记录、分级年代、脊柱分区及血液肿瘤组织学与分期。"
+date-modified: 2026-11-06
 directory:
   title: "SEER流水线：ETL、衍生变量与编码边界"
   topic: 数据准备与筛选
-  updated: 2026-10-27
+  updated: 2026-11-06
 ---
 
 # seerR 笔记
@@ -12,6 +12,11 @@ directory:
 seerR 把 SEER 导出字段整理为分析变量。先按文件实际 schema 选择入口，再检查输出编码、缺失及分析单位；同名列或成功返回并不说明两个年度的导出文件可以混用。
 
 2026-10-17 按已推送 seerR `82b0960`、UtilsR `f426bc0`，在 Windows / WSL R 4.4.3 实际执行本页两套包内样例及合成边界例。包内样例用于接口演示，不代表本文建立了研究队列；原有 [功能模块图](function-modules.qmd) 保持其历史快照。
+
+::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 seerR `4c34218e`（0.1.0）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
+:::
 
 ## 选择流水线与 schema {#pipeline-current}
 
@@ -291,6 +296,94 @@ validation_values <- list(pipelines = summary_sites26, primary_unit = crc_previe
 `IDH` 与 `Codel_1p19q` 也有组织学和年代适用条件，不能把字段缺失统一当作阴性；这些登记编码不能补出未提供的分子检测结果。CNS 流水线没有肺或结直肠的 TNM、节点和转移整理步骤，不应为凑齐通用列而伪造 T/N/M。
 
 <!-- /update-20261026: seer_sites -->
+
+### 脊柱模块的组织学、分区与分级年代（2026-11-06） {#seer_spine-20261106b}
+
+<!-- update-20261106b: seer_spine -->
+
+新增 `seer_spine_pipeline()`、`seer_spine_select_analysis()`、`seer_spine_mutate_derived()` 及 `seer_spine_2026` 数据，使用 2026 schema。骨性分区包含 C41.2 和 C41.4，后者同时包含骨盆、骶骨、尾骨，不能单凭此码把记录解释成纯骶骨。椎管内 C72.0、C72.1、C70.1 走 CNS 分级和手术规则。以下 4 行合成输入验证骨分级 G2 在 2017 年前属于低级别、2018 年后属于高级别，WHO 分级另存；血液系统组织学不强行赋骨分级。
+
+```r
+library(seerR)
+d <- tibble::tibble(His_ICD = c(9370, 9370, 9391, 9680),
+  Year_of_dia = c("2015", "2020", "2020", "2020"),
+  Primary_Site = c("C41.2-Vertebral column", "C41.4-Pelvic bones, sacrum, coccyx",
+    "C72.0-Spinal cord", "C41.2-Vertebral column"),
+  His_ICD_beh = c("9370/3", "9370/3", "9391/3", "9680/3"),
+  Grade_2017 = c("Moderately differentiated; Grade II", rep("Blank(s)", 3)),
+  Grade_2018 = c("Blank(s)", "Site-specific grade system category (2)",
+    "WHO grade II", "Blank(s)"),
+  Schema_2018 = c("Blank(s)", "Bone Spine", "Brain", "Bone Spine"),
+  CS_schema = "Blank(s)", SSF1 = "Blank(s)", Brain_markers_2018 = "Blank(s)",
+  Chr1p_2010 = "Blank(s)", Chr19q_2010 = "Blank(s)",
+  Age = "60 years", Sex = "Female", Race = "White",
+  Race_5 = "Non-Hispanic White", Tumor_size_1988 = "020",
+  SEER_stage_5 = "Localized only")
+out <- d |> seer_spine_fmt_his() |> seer_spine_fmt_grade() |> seer_spine_fmt_all()
+shown <- out[c("Year_of_dia", "His", "Compartment", "Grade", "WHO_grade", "Grade_2")]
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106b-update-seer-spine.html"))
+```
+
+![4 行合成输入分别核对骨性和椎管内分区，以及跨年代的骨分级](images/index/20261106b-update-seer-spine.png){fig-alt="4 行合成输入分别核对骨性和椎管内分区，以及跨年代的骨分级"}
+
+[原生表格 HTML](images/index/20261106b-update-seer-spine.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(nrow(out) == 4,
+  identical(as.character(out[["His"]]), c("Chordoma", "Chordoma", "Ependymoma", "Lymphoma")),
+  identical(as.character(out[["Compartment"]]), c("Osseous", "Osseous", "Intraspinal", "Osseous")),
+  identical(as.character(out[["Grade_2"]])[1:2], c("Low grade", "High grade")),
+  is.na(out[["Grade"]][4]))
+validation_values <- lapply(shown, as.character)
+```
+:::
+
+<!-- /update-20261106b: seer_spine -->
+
+### 血液系统模块的组织学年代与淋巴瘤分期（2026-11-06） {#seer_heme-20261106b}
+
+<!-- update-20261106b: seer_heme -->
+
+新增 `seer_heme_pipeline()`、`seer_heme_select_analysis()`、`seer_heme_mutate_derived()` 及 `seer_heme_2026` 数据，按 ICD-O-3 组织学 9590–9993 从所有原发部位导出。9727 在 2010 年前后归入不同分组，缺诊断年时保留 other。`Stage_AA` 拼接各年代的淋巴瘤分期，白血病和骨髓瘤不赋此分期，MF/SS 及特定方案也需单独核对。`MM_type` 区分 2012 年起骨髓瘤登记中的 Multiple、Smoldering、Other/Unknown，不提供进展时间。
+
+```r
+library(seerR)
+d <- tibble::tibble(His_ICD = c("9727", "9727", "9680", "9680", "9680", "9732", "9700", "9727"),
+  Year_of_dia = c("2005", "2012", "2015", "2017", "2020", "2020", "2020", NA),
+  Site_WHO2008 = c("", "", rep("NHL - Nodal", 3), "Myeloma", "NHL - Extranodal", ""),
+  Ann_Arbor = c("", "", "Stage II", "", "", "", "", ""),
+  Stage_2016 = c("", "", "", "3", "", "", "", ""),
+  Stage_2018 = c("", "", "", "", "4", "", "1", ""),
+  Schema_2018 = c("", "", "", "", "Lymphoma", "Myeloma", "Lymphoma", ""),
+  CS_schema = "Lymphoma", Primary_Site = "C77.9-Lymph nodes",
+  B_symptoms_2010 = "Blank(s)", SSF2 = "000",
+  MM_term_2012 = c(rep("Blank(s)", 5), "Smoldering myeloma", rep("Blank(s)", 2)),
+  Age = "60 years", Sex = "Female", Race = "White",
+  Race_5 = "Non-Hispanic White", SEER_stage_5 = "Blank(s)")
+out <- d |> seer_heme_fmt_his() |> seer_heme_fmt_stage()
+shown <- out[c("His_ICD", "Year_of_dia", "His", "His_2", "Stage_AA", "MM_type")]
+gt::gtsave(gt::gt(shown),
+  file.path(tempdir(), "20261106b-update-seer-heme.html"))
+```
+
+![8 行合成输入核对 9727 年代分组、三年代淋巴瘤分期和冒烟型骨髓瘤标签](images/index/20261106b-update-seer-heme.png){fig-alt="8 行合成输入核对 9727 年代分组、三年代淋巴瘤分期和冒烟型骨髓瘤标签"}
+
+[原生表格 HTML](images/index/20261106b-update-seer-heme.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+stopifnot(nrow(out) == 8,
+  identical(as.character(out[["His"]])[c(1, 2, 8)], c("ALL_LBL", "Histio_DC", "other")),
+  identical(as.character(out[["Stage_AA"]])[3:5], c("II", "III", "IV")),
+  is.na(out[["Stage_AA"]][6]), is.na(out[["Stage_AA"]][7]),
+  as.character(out[["MM_type"]][6]) == "Smoldering")
+validation_values <- lapply(shown, as.character)
+```
+:::
+
+<!-- /update-20261106b: seer_heme -->
 
 ## 从 ETL 到分析变量 {#derived-current}
 
@@ -572,6 +665,8 @@ table(rec_ties$Patient_ID)
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-11-06：[血液系统模块的组织学年代与淋巴瘤分期](#seer_heme-20261106b)。
+- 2026-11-06：[脊柱模块的组织学、分区与分级年代](#seer_spine-20261106b)。
 - 2026-10-27：补充[seer_view 中文队列页与变量字典](#viewer-20261027)的合成示例、原生 HTML 和说明来源。
 - 2026-10-26：补充[三个新癌种流水线](#site-pipelines-20261026)、[多原发分析单位](#crc-primary-unit-20261026)、[未知 NAT](#crc-nat-20261026)与[CNS 分级来源](#cns-grade-20261026)。
 :::
