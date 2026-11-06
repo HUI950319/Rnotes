@@ -2,18 +2,20 @@
 title: "分面生存曲线：get_facet 与分层重拟合"
 description: "get_facet 的模型、分层与缓存详解；以 598 人 M1 PTC 队列比较 KM、调整生存、CIF、嵌套分面、内嵌表和迷你森林图；补充 get_facet_diff 的三张概率差曲线。"
 date: 2026-10-01
-date-modified: 2026-11-01
+date-modified: 2026-11-06
 lightbox: true
 toc-depth: 2
 directory:
   title: "分面生存曲线：分组标签、默认布局与结果页"
   topic: 回归与生存分析
-  updated: 2026-11-01
+  updated: 2026-11-06
 ---
 
 `get_facet()` 把生存 / 竞争风险曲线、分面条带和每个面板的效应表组织在一张图中。本页沿用 [SHAP 可视化页](../mlr/shap-guide.qmd) 的展示方式：**实际图形配可运行代码，相关参数放在标签页中比较，点击图片可以放大**。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-06 追加按已推送 RegR `1ef6309c`（0.1.3）导出源码，同时固定 RegR `1ef6309c` 与 UtilsR `ea6abfa0`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
+
 2026-11-01 追加按已推送 RegR `5eda8523`（0.1.3）导出源码；配套依赖固定为 RegR `5eda8523`、UtilsR `9ebf1e95`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 **核对记录：** 本次使用 WSL R 4.4.3 与 RegR 本机开发源码（包含 `d54e60f`），重新拟合生存模式分面和差值分析，刷新其布局与内嵌表，补充 split_var 为 group 的实际对照。CIF 图与奇异层示例保留原执行快照。版本仍为0.1.3；2026-10-13复核的已推送基线 `a3881fa` 已包含上述接口及Greenwood修复。本页不提供患者级数据下载。
@@ -1257,6 +1259,55 @@ validation_values <- data.frame(model = names(facet_again), file = basename(face
 
 <!-- /update-20261023: facet_dispatch -->
 
+### 仅设置 xlim 时曲线到达轴终点（2026-11-06） {#facet_endpoint-20261106b}
+
+<!-- update-20261106b: facet_endpoint -->
+
+没有传 `max_t` 时，`plot_params$xlim` 上限现在也是各曲线的共同绘制终点，避免曲线停在上限前的最后一个保存时间。对已有结果缓存重绘也适用；显式 `max_t` 继续优先设定终点。绘制截断不改变 `sur.data` 和 `insert.data` 的计算结果。
+
+```r
+library(RegR)
+d <- expand.grid(time = 1:24, Exposure = factor(c("Early", "Late")),
+  Site = factor(c("A", "B")), repeat_id = 1:3)
+d[["DSS"]] <- as.integer((d[["time"]] + as.integer(d[["Exposure"]]) + d[["repeat_id"]]) %% 4 == 0)
+result <- get_facet(d, split_var = "Site", cat_var = "Exposure", adj_var = NULL,
+  surv = TRUE, method = "both", parallel = 1, timepoint = 10,
+  subgroup_model = "separate", table_params = list(insert_table = FALSE))
+redrawn <- get_facet(result, plot_params = list(xlim = c(0, 13.5)),
+  table_params = list(insert_table = FALSE))
+shorter <- get_facet(result, max_t = 11, plot_params = list(xlim = 13.5),
+  table_params = list(insert_table = FALSE))
+size <- attr(redrawn[["plt"]], "plot_size")
+grDevices::cairo_pdf(file.path(tempdir(), "20261106b-update-facet-endpoint.pdf"),
+  width = size[[1]], height = size[[2]])
+print(redrawn[["plt"]])
+grDevices::dev.off()
+```
+
+![各面板内的合成生存曲线均绘制到 13.5 月的横轴终点](images/facet-guide/20261106b-update-facet-endpoint.png){fig-alt="各面板内的合成生存曲线均绘制到 13.5 月的横轴终点"}
+
+[原生 PDF](images/facet-guide/20261106b-update-facet-endpoint.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+```r
+curve_ends <- function(result) {
+  built <- ggplot2::ggplot_build(result[["plt"]])
+  unlist(lapply(built[["data"]], function(curves) {
+    if (!"x" %in% names(curves) || !nrow(curves)) return(NULL)
+    tapply(curves[["x"]], interaction(curves[["PANEL"]], curves[["group"]], drop = TRUE), max)
+  }))
+}
+stopifnot(identical(result[["sur.data"]], redrawn[["sur.data"]]),
+  identical(result[["insert.data"]], redrawn[["insert.data"]]),
+  all(abs(curve_ends(redrawn) - 13.5) < 1e-8),
+  all(abs(curve_ends(shorter) - 11) < 1e-8))
+validation_values <- list(n = nrow(d), xlim_endpoints = unname(curve_ends(redrawn)),
+  max_t_endpoints = unname(curve_ends(shorter)))
+```
+:::
+
+<!-- /update-20261106b: facet_endpoint -->
+
 ## 相关页面与源码 {#references}
 
 - [效应估计与森林图：get_eff 和 4 个绘图函数](forest-guide.qmd)
@@ -1425,6 +1476,7 @@ facet_cif_only <- get_facet(facet_now[[2]],
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+- 2026-11-06：[仅设置 xlim 时曲线到达轴终点](#facet_endpoint-20261106b)。
 - 2026-11-01：补充曲线与表格按暴露组名配色，以及差值图按方法标签配色的区别。
 - 2026-10-23：[缓存列表的模型识别与轴标题](#facet-dispatch-20261023)
 - 2026-10-20：[双方法多分层：方法独占两列](#nested-layout-20261020)
