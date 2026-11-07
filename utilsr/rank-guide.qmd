@@ -2,18 +2,20 @@
 title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖"
 description: "排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局；28 个实际参数示例。"
 date: 2026-10-01
-date-modified: 2026-11-06
+date-modified: 2026-11-07
 lightbox: true
 toc-depth: 2
 directory:
   title: "排名与共享特征：Rank、方法一致性和圆形棒棒糖，28 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-11-06
+  updated: 2026-11-07
 ---
 
 排名高亮与截断、两种组内缩放、秩和原始分数相关、点映射、共享特征连线及圆形布局。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-07 按已推送 UtilsR `9a2eaf19`（0.6.23）导出源码，配套固定 RegR `939a9364`，在 Windows / WSL R 4.4.3 独立执行本页新增合成示例。历史图和可执行代码块保留原快照，没有重跑历史分析或改动已安装包。
+
 2026-11-06 追加按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-04 追加按已推送 UtilsR `6b03397f`（0.6.22）导出源码，同时固定 RegR `769f460c` 与 UtilsR `6b03397f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -818,6 +820,60 @@ validation_values <- list(observed_order = c("B", "A"), original_levels = levels
 
 <!-- /update-20261102b: utils_circle_groups -->
 
+
+### 圆图保留全缺失组，样式数字与分数数据分开（2026-11-07） {#utils_circle_missing-20261107}
+
+<!-- update-20261107: utils_circle_missing -->
+
+`PlotCircleLollipop()` 拒绝复数、矩阵、list、无限值或整份全缺失分数，避免先丢失信息再画图。只要整份输入仍有有限分数，某个组全缺失时仍保留该组，不会因 min/max 的空范围产生告警；`group` 与 `top_n` 缩放都保留 NA，不把缺失分数补成 0。
+
+`PlotRankCor()` 的分数列仍可按既有合同使用带类数值数据；`pt.size`、`alpha`、字号、尺寸、范围和 `max.overlaps` 等样式控制则要求普通数值，不能让 integer64 或其他类的底层存储位被当作样式大小。
+
+```r
+library(UtilsR)
+circle <- data.frame(group = rep(c("A", "B"), each = 3), name = letters[1:6],
+  value = c(.2, .4, .6, NA_real_, NA_real_, NA_real_))
+before <- circle
+PlotCircleLollipop(circle, value_scale = "group", show_labels = FALSE,
+  show_links = FALSE, show_yaxis = FALSE,
+  filename = file.path(tempdir(), "20261107-update-circle-missing.pdf"), width = 5, height = 5)
+ranked <- data.frame(feature = rep(letters[1:4], 2), method = rep(c("M1", "M2"), each = 4),
+  score = structure(c(4, 3, 2, 1, 4, 2, 3, 1), class = "score_measure"))
+p <- PlotRankCor(ranked, stat.by = "feature", value.by = "score", method.by = "method", show.label = FALSE)
+```
+
+本次还发现当前圆图 PDF 会先写入一张空白页，实际图在第 2 页，Windows / WSL 均可复现；这是待修复的导出问题。本页保留函数原生两页 PDF，预览取第 2 页，没有删除或重写原生文件。
+
+![原生 PDF 第 2 页中 A 组有三个有限分数，B 组保留为空缺扇区](images/rank-guide/20261107-update-circle-missing.png){fig-alt="原生 PDF 第 2 页中 A 组有三个有限分数，B 组保留为空缺扇区"}
+
+[原生 PDF](images/rank-guide/20261107-update-circle-missing.pdf)
+
+![带类分数仍形成四对排名，带类样式数字被明确拒绝](images/rank-guide/20261107-update-rank-storage.png){fig-alt="带类分数仍形成四对排名，带类样式数字被明确拒绝"}
+
+[原生表格 HTML](images/rank-guide/20261107-update-rank-storage.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(identical(circle, before), nrow(p[["data"]]) == 4L)
+devices_before <- grDevices::dev.list()
+bad <- circle; bad[["value"]] <- complex(real = 1:6, imaginary = 1)
+errors <- c(tryCatch(PlotCircleLollipop(bad), error = conditionMessage),
+  tryCatch(PlotRankCor(ranked, "feature", "score", method.by = "method",
+    pt.size = structure(3, class = "score_measure")), error = conditionMessage))
+stopifnot(grepl("value", errors[1], fixed = TRUE), grepl("pt.size", errors[2], fixed = TRUE),
+  identical(grDevices::dev.list(), devices_before))
+gt::gtsave(gt::gt(data.frame(case = c("A finite scores", "B missing scores", "Ranked pairs"),
+  count = c(sum(is.finite(circle[["value"]])), sum(is.na(circle[["value"]])), nrow(p[["data"]])))),
+  file.path(tempdir(), "20261107-update-rank-storage.html"))
+validation_values <- list(finite = sum(is.finite(circle[["value"]])), missing = sum(is.na(circle[["value"]])),
+  rank_pairs = nrow(p[["data"]]), unchanged = identical(circle, before))
+```
+
+:::
+
+<!-- /update-20261107: utils_circle_missing -->
+
 ## 圆形标签与布局
 
 ::: {.panel-tabset}
@@ -1043,6 +1099,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+
+- 2026-11-07：[圆图保留全缺失组，样式数字与分数数据分开](#utils_circle_missing-20261107)。
 - 2026-11-06：[空组标签的具名颜色](#rank_palette-20261106)。
 - 2026-11-04：[大偏移分数、空方法名与多组副标题](#late_rankcor-20261104)。
 - 2026-11-04：[精确方法、整数参数与圆图分数](#rank_keys-20261104)。
