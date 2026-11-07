@@ -2,18 +2,20 @@
 title: "数据检视与缺失：摘要、缺失模式和 KNN 插补"
 description: "lv 的选列摘要，check_na 的 gt 报告和特殊值，check_size 的环境选择、共享内存计量、大小单位与条形，以及缺失模式与 KNN 插补。"
 date: 2026-10-20
-date-modified: 2026-11-04
+date-modified: 2026-11-07
 lightbox: true
 toc-depth: 2
 directory:
   title: "数据检视与缺失：gt 报告表、特殊值词表与插补"
   topic: 数据准备与筛选
-  updated: 2026-11-04
+  updated: 2026-11-07
 ---
 
 lv 和 check_na 的选择与分组，plt_na 四种布局，联合缺失及 impute_na_knn 的 k 对照。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-07 按已推送 UtilsR `9a2eaf19`（0.6.23）导出源码，配套固定 RegR `939a9364`，在 Windows / WSL R 4.4.3 独立执行本页新增合成示例。历史图和可执行代码块保留原快照，没有重跑历史分析或改动已安装包。
+
 2026-11-04 追加按已推送 UtilsR `6b03397f`（0.6.22）导出源码，同时固定 RegR `769f460c` 与 UtilsR `6b03397f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -469,6 +471,123 @@ validation_values <- list(default_tables = length(lv_tables(lv_default)),
 
 <!-- /update-20261024: lv_reports -->
 
+
+### 显式 NA 水平、缺失值和同名文字分别计数（2026-11-07） {#utils_lv_levels-20261107}
+
+<!-- update-20261107: utils_lv_levels -->
+
+`lv()` 现在将因子内的显式 NA 水平显示为 `<NA>`，并与真正缺失分开；如果原来已有同名文字，显示名会加后缀。下面 7 行合成数据同时包含显式 NA、真正缺失、文字 `<NA>`、文字“缺失”和 `<NA>_1`。显式 NA 对应 `<NA>_2`，真正缺失对应“缺失_1”；这些是报告的显示名，输入的因子编码和水平不变。
+
+分组表和二向表都按各自的行数计数，不能把显示为 `<NA>` 的文字当成缺失。默认变量检视给出的筛选条件也会保留显式 NA 水平、排除真正缺失。
+
+```r
+library(UtilsR)
+d <- data.frame(value = c("usual", "explicit", "missing", "literal",
+  "literal_missing", "suffix", "usual"))
+d[["group"]] <- structure(c(1L, 2L, NA_integer_, 3L, 4L, 5L, 1L),
+  levels = c("x", NA_character_, "<NA>", "缺失", "<NA>_1"), class = "factor")
+lv(d, group)
+lv(d, value, group = group)
+lv(d, count = c(value, group))
+```
+
+![原生二向表将显式 NA、真正缺失和同名文字分别列出](images/missing-guide/20261107-update-lv-levels.png){fig-alt="原生二向表将显式 NA、真正缺失和同名文字分别列出"}
+
+[原生表格 HTML](images/missing-guide/20261107-update-lv-levels.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+before <- d
+console <- cli::ansi_strip(capture.output(suppressMessages(lv(d, group))))
+suggestion <- grep("^get_flt", console, value = TRUE)
+condition <- parse(text = suggestion)[[1L]][[2L]]
+stopifnot(length(suggestion) == 1L,
+  identical(eval(condition, envir = d), c(TRUE, TRUE, FALSE, TRUE, TRUE, TRUE, TRUE)))
+old_format <- knitr::opts_knit$get("rmarkdown.pandoc.to")
+knitr::opts_knit$set(rmarkdown.pandoc.to = "html")
+fence <- strrep("`", 3)
+html <- tryCatch(knitr::knit(text = c(
+  paste0(fence, "{r, results='asis', echo=FALSE, message=FALSE, error=FALSE}"),
+  "returned <- withVisible(lv(d, count = c(value, group)))", fence),
+  envir = environment(), quiet = TRUE),
+  finally = knitr::opts_knit$set(rmarkdown.pandoc.to = old_format))
+doc <- xml2::read_html(paste0("<html><meta charset='utf-8'><body>", html, "</body></html>"))
+tbl <- xml2::xml_find_first(doc, "//table[contains(@class,'gt_table')]")
+text <- xml2::xml_text(tbl)
+stopifnot(all(vapply(c("<NA>_2", "缺失_1", "1 (100.0%)", "2 (100.0%)"),
+  function(s) grepl(s, text, fixed = TRUE), logical(1))),
+  identical(d, before), identical(returned[["value"]], d), !returned[["visible"]])
+writeLines(paste0("<!doctype html><html><meta charset='utf-8'><body>",
+  as.character(xml2::xml_parent(tbl)), "</body></html>"),
+  file.path(tempdir(), "20261107-update-lv-levels.html"), useBytes = TRUE)
+validation_values <- list(rows = 7, true_missing = sum(is.na(d[["group"]])),
+  kept = which(eval(condition, envir = d)), unchanged = identical(d, before))
+```
+
+:::
+
+<!-- /update-20261107: utils_lv_levels -->
+
+
+### 时间筛选保留小数秒和原时区（2026-11-07） {#utils_lv_time-20261107}
+
+<!-- update-20261107: utils_lv_time -->
+
+`lv()` 的筛选建议使用原始时间戳数值构造 POSIXct，而不依赖当前显示的小数秒位数；POSIXlt 先转为 POSIXct 比较。这里的 12 条记录有 11 个非缺失时刻，报告只列前 8 个并提示还有 3 个。即使 `digits.secs = 0` 让前三个时刻看起来相同，复制条件仍只保留那 8 个精确时刻。
+
+时区属性随建议保留；全缺失 POSIXct / POSIXlt 列会给出可用的空匹配条件。筛选建议是当前显示值的子集，不是自动筛选整个输入。
+
+```r
+library(UtilsR)
+options(digits.secs = 0, width = 1000)
+t <- as.POSIXct("2020-11-01 04:59:59", tz = "UTC") + c(0, .1, .2, 1:8, NA)
+attr(t, "tzone") <- "America/New_York"
+d <- data.frame(id = seq_along(t), instant = t)
+d[["broken_down"]] <- as.POSIXlt(t)
+lines <- capture.output(suppressMessages(lv(d, instant, broken_down)))
+cat(lines, sep = "\n")
+```
+
+![相同秒级显示仍对应不同时间戳，筛选精确保留前八个时刻](images/missing-guide/20261107-update-lv-time.png){fig-alt="相同秒级显示仍对应不同时间戳，筛选精确保留前八个时刻"}
+
+[原生表格 HTML](images/missing-guide/20261107-update-lv-time.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+before <- d
+suggestions <- grep("^get_flt", cli::ansi_strip(lines), value = TRUE)
+stopifnot(length(suggestions) == 2L)
+for (suggestion in suggestions) {
+  condition <- parse(text = suggestion)[[1L]][[2L]]
+  values <- eval(condition[[3L]])
+  stopifnot(identical(which(eval(condition, envir = d)), 1:8),
+    identical(as.numeric(values), as.numeric(t[1:8])),
+    identical(attr(values, "tzone"), "America/New_York"))
+}
+condition <- parse(text = suggestions[[1L]])[[1L]][[2L]]
+call <- as.call(list(quote(RegR::get_flt), quote(d), condition))
+invisible(capture.output(filtered <- eval(call)))
+stopifnot(identical(filtered[["id"]], 1:8), identical(d, before))
+empty <- data.frame(instant = as.POSIXct(c(NA, NA), origin = "1970-01-01", tz = "UTC"))
+empty[["broken_down"]] <- as.POSIXlt(empty[["instant"]])
+empty_lines <- cli::ansi_strip(capture.output(suppressMessages(lv(empty))))
+for (s in grep("^get_flt", empty_lines, value = TRUE))
+  stopifnot(identical(eval(parse(text = s)[[1L]][[2L]], envir = empty), c(FALSE, FALSE)))
+preview <- data.frame(id = d[["id"]], displayed = format(t),
+  seconds = vapply(as.numeric(t), function(x) sprintf("%.17g", x), ""),
+  selected = d[["id"]] %in% filtered[["id"]])
+gt::gtsave(gt::tab_header(gt::gt(preview), title = "Exact time filters"),
+  file.path(tempdir(), "20261107-update-lv-time.html"))
+validation_values <- list(rows = nrow(d), nonmissing_times = sum(!is.na(t)),
+  selected = filtered[["id"]], zone = attr(t, "tzone"), unchanged = identical(d, before))
+```
+
+:::
+
+<!-- /update-20261107: utils_lv_time -->
+
 ## 数据质量报告
 
 ::: {.panel-tabset}
@@ -728,6 +847,50 @@ validation_values <- list(rows = nrow(d), observed_scores = 11, mean = 6,
 :::
 
 <!-- /update-20261104: late_missing -->
+
+
+### 仅比例图逐列汇总，配色在读取数据前检查（2026-11-07） {#utils_missing_percent-20261107}
+
+<!-- update-20261107: utils_missing_percent -->
+
+`plt_na(output = "percentage")` 逐列计算缺失数后就释放该列的临时掩码，不再保留整份逻辑矩阵；比例分母仍是输入总行数。需要矩阵的布局继续使用完整掩码。这里只核对相同的计数结果，不把内部实现变化写成未经测量的提速比例。
+
+完整的 C 列不进入缺失图。`miss_palette` 必须是一维、至少三色的字符向量，先校验前三色再读取数据；前三色可以有 `NA` 透明色，第四项及之后不参与显示或校验。
+
+```r
+library(UtilsR)
+d <- data.frame(A = c(NA, 2, NA, 4, 5, 6), B = c(1:5, NA), C = 1:6)
+p <- plt_na(d, output = "percentage", sort = "desc",
+  miss_palette = c(NA, "#4C78A8", "#E45756", "unused-invalid-colour"))
+p
+ggplot2::ggsave(file.path(tempdir(), "20261107-update-missing-percent.pdf"),
+  p, width = 6, height = 3.4, device = grDevices::cairo_pdf)
+```
+
+![六条记录中 A 缺失三分之一、B 缺失六分之一，完整 C 列不入图](images/missing-guide/20261107-update-missing-percent.png){fig-alt="六条记录中 A 缺失三分之一、B 缺失六分之一，完整 C 列不入图"}
+
+[原生 PDF](images/missing-guide/20261107-update-missing-percent.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+counts <- vapply(d, function(x) sum(is.na(x)), numeric(1))
+built <- ggplot2::ggplot_build(p)
+shown <- p[["data"]][p[["data"]][["isna"]], ]
+stopifnot(identical(unname(counts), c(2, 1, 0)),
+  identical(as.character(shown[["name"]]), c("A", "B")),
+  isTRUE(all.equal(as.numeric(shown[["pct"]]), unname(counts[1:2] / nrow(d) * 100))))
+errors <- vapply(list(c("red", "blue", "not-a-colour"), matrix(c("red", "blue", "black"))),
+  function(colours) tryCatch({plt_na(stop("data evaluated"), miss_palette = colours); "NO ERROR"},
+    error = conditionMessage), "")
+stopifnot(all(grepl("miss_palette", errors, fixed = TRUE)))
+validation_values <- list(rows = nrow(d), missing = unname(counts),
+  percentages = unname(counts / nrow(d)), validation_before_data = TRUE)
+```
+
+:::
+
+<!-- /update-20261107: utils_missing_percent -->
 
 ## 联合缺失
 
@@ -1274,6 +1437,48 @@ validation_values <- list(package_preview = package_preview25,
 
 <!-- /update-20261025: environment_checks -->
 
+
+### 诊断与工作目录开关先校验再执行（2026-11-07） {#utils_inspect_controls-20261107}
+
+<!-- update-20261107: utils_inspect_controls -->
+
+`check_system()` 的 `return_result`、`show_warnings`，以及 `set_wd()` 的 `create`、`verbose`，现在都要求单个非缺失 TRUE / FALSE；数值 0/1、逻辑向量、矩阵不能替代逻辑标量。无效的诊断开关会在收集资源信息前报错，无效的目录开关会在创建目录或切换路径前报错。
+
+这里在独立示例进程的临时目录中验证错误顺序，不在站点发布本机的资源报告。正常目录调用仍可静默执行。
+
+```r
+library(UtilsR)
+target <- file.path(tempdir(), "rnotes-directory-control-review")
+saved_wd <- getwd()
+bad_diagnostic <- tryCatch(check_system(return_result = 1), error = conditionMessage)
+bad_directory <- tryCatch(set_wd(target, create = 1), error = conditionMessage)
+cat(bad_diagnostic, bad_directory, sep = "\n")
+set_wd(saved_wd, create = FALSE, verbose = FALSE)
+```
+
+![四个开关给出明确参数错误，工作目录和文件系统保持原状](images/missing-guide/20261107-update-inspect-controls.png){fig-alt="四个开关给出明确参数错误，工作目录和文件系统保持原状"}
+
+[原生表格 HTML](images/missing-guide/20261107-update-inspect-controls.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+errors <- c(bad_diagnostic, bad_directory,
+  tryCatch(check_system(show_warnings = matrix(TRUE)), error = conditionMessage),
+  tryCatch(set_wd(target, verbose = NA), error = conditionMessage))
+fields <- c("return_result", "create", "show_warnings", "verbose")
+stopifnot(all(vapply(seq_along(fields), function(i) grepl(fields[i], errors[i], fixed = TRUE), logical(1))),
+  !dir.exists(target), identical(getwd(), saved_wd))
+gt::gtsave(gt::gt(data.frame(argument = fields, diagnostic = errors)),
+  file.path(tempdir(), "20261107-update-inspect-controls.html"))
+validation_values <- list(flags_checked = length(fields), directory_created = dir.exists(target),
+  working_directory_preserved = identical(getwd(), saved_wd))
+```
+
+:::
+
+<!-- /update-20261107: utils_inspect_controls -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 `lv()` 打印报告并不可见返回原输入对象（包括向量、矩阵）；报告不是返回值。`check_na()` 自 UtilsR `e81b5ab`（2026-10-22）起可见返回 gt 报告表：控制台自动打印，Quarto / R Markdown 中直接渲染成表格，也可以继续用 gt 修改或 `gt::gtsave()` 保存；没有表可出（无匹配列、零行或零列，或 `show_all = FALSE` 时没有问题）时不可见返回 `NULL`。旧写法 `dat %>% check_na() %>% ...` 不再得到数据，需要把检视和后续处理分成两步。`plt_na()` 有缺失时返回 ggplot/patchwork，无缺失时返回 NULL。`impute_na_knn()` 返回插补后的 data.frame/tibble，并保留原始观察值。本页 `lv()` 的表格捕获实际打印的 gt/gtsummary 结果，`check_na()` 的表格就是函数返回的 gt 对象。
@@ -1813,6 +2018,14 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+
+- 2026-11-07：[诊断与工作目录开关先校验再执行](#utils_inspect_controls-20261107)。
+
+- 2026-11-07：[仅比例图逐列汇总，配色在读取数据前检查](#utils_missing_percent-20261107)。
+
+- 2026-11-07：[时间筛选保留小数秒和原时区](#utils_lv_time-20261107)。
+
+- 2026-11-07：[显式 NA 水平、缺失值和同名文字分别计数](#utils_lv_levels-20261107)。
 - 2026-11-04：[SPSS 用户缺失与数值检视](#late_missing-20261104)。
 - 2026-11-04：[缺失分组、独立正则与大数值插补](#missing_contracts-20261104)。
 - 2026-11-02：[核对标签缺失的供体检查](#knn-cold-20261102b)，补充独立RDS冷启动证据。
