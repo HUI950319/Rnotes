@@ -7,13 +7,15 @@ execute:
 directory:
   title: "运行提示与步骤进度：.cat_message / .cat_step"
   topic: 打印信息
-  updated: 2026-11-06
-date-modified: 2026-11-06
+  updated: 2026-11-07
+date-modified: 2026-11-07
 ---
 
 结果打印回答“算出了什么”，运行提示回答“正在做什么、做完了没有”：读了多少条记录、删了哪些行、文件存到哪里、哪一步花了多久。这类信息用 `.cat_message()` 和 `.cat_step()` 发出。它们是 cli 消息，不写进结果打印，也能整体关掉。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-07 按已推送 UtilsR `9a2eaf19`（0.6.23）导出源码，配套固定 RegR `939a9364`，在 Windows / WSL R 4.4.3 独立执行本页新增合成示例。历史图和可执行代码块保留原快照，没有重跑历史分析或改动已安装包。
+
 2026-11-06 按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9` 核对下述接口约定。本页本次仅更新源码与接口说明，旧模型和图保留原执行快照，没有重新拟合或安装包。
 
 :::
@@ -155,6 +157,63 @@ validation_values <- list(stdout_n = length(saved_stdout26),
 
 UtilsR::.cat_formula() 对生存结局先识别 SPSS 用户缺失码，再按非缺失的观测水平生成模型提示。由 RDS 读回的 SPSS 列也会加载可选的 haven 依赖。带空格、标点或反引号的列名按 R 名称规则转义；提示不换行，保留列名内部空白。该函数输出 message，并不可见返回 NULL。
 
+
+### 宽字符时间戳、大步骤编号与截距公式（2026-11-07） {#utils_notice_controls-20261107}
+
+<!-- update-20261107: utils_notice_controls -->
+
+`.cat_message()` 按时间戳的可见宽度设置续行缩进，25 列控制台下的中文时间戳也能正确折行。`.cat_step()` 不再把步骤数强制转为 32 位整数，30 亿 / 40 亿这样的可精确表示整数不会溢出；下方切回 80 列展示完整编号，极窄终端仍可能由 cli 省略长进度文本。i/n、verbose 和环境参数在读取提示文本前校验。`verbose = FALSE` 仍跳过未使用的文本和计数。
+
+`.cat_formula(co_var = character())` 现在显示 `~ 1` 的未调整模型提示；它只说明模型设定，不拟合截距模型。旧式 `.cat_line()` 同样先校验规则宽度和可见线条字符。
+
+```r
+library(UtilsR)
+options(cli.width = 25, cli.num_colors = 256)
+message_lines <- cli::cli_fmt(.cat_message("alpha beta gamma delta epsilon zeta eta theta",
+  timestamp_format = "时间", style = "chip"))
+options(cli.width = 80)
+run <- function() .cat_step("Large step", i = 3e9, n = 4e9)
+step_lines <- cli::cli_fmt(run())
+d <- data.frame(event = c(0, 1, 0, 1), time = 1:4)
+formula_lines <- cli::cli_fmt(.cat_formula(d, co_var = character(), time = NULL, outcome = "event"))
+cat(cli::ansi_strip(c(message_lines, step_lines, formula_lines)), sep = "\n")
+```
+
+![中文时间戳按显示宽度缩进，大步骤编号和未调整截距公式完整保留](images/runtime-messages/20261107-update-notice-controls.png){fig-alt="中文时间戳按显示宽度缩进，大步骤编号和未调整截距公式完整保留"}
+
+[原生表格 HTML](images/runtime-messages/20261107-update-notice-controls.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+plain <- cli::ansi_strip(message_lines)
+stopifnot(length(plain) > 1L, all(cli::ansi_nchar(plain, type = "width") <= 25),
+  all(startsWith(plain[-1L], strrep(" ", 12))),
+  any(grepl("[3000000000/4000000000]", cli::ansi_strip(step_lines), fixed = TRUE)),
+  any(grepl("event ~ 1", cli::ansi_strip(formula_lines), fixed = TRUE)))
+errors <- c(tryCatch(.cat_step(stop("message evaluated"), i = 1.5), error = conditionMessage),
+  tryCatch(.cat_step(stop("message evaluated"), verbose = 1), error = conditionMessage),
+  tryCatch(.cat_line(stop("text evaluated"), width = 0), error = conditionMessage),
+  tryCatch(.cat_line(stop("text evaluated"), line_char = ""), error = conditionMessage))
+fields <- c("i", "verbose", "width", "line_char")
+stopifnot(all(vapply(seq_along(fields), function(i) grepl(fields[i], errors[i], fixed = TRUE), logical(1))),
+  identical(cli::cli_fmt(.cat_step(stop("unused message"), i = stop("unused count"), verbose = FALSE)), character()))
+body <- paste(fansi::sgr_to_html(htmltools::htmlEscape(c(message_lines, "", step_lines, "", formula_lines))), collapse = "\n")
+chars <- strsplit(body, "", fixed = TRUE)[[1]]; points <- utf8ToInt(body)
+for (i in which(points > 127L & !(points >= 0x2500L & points <= 0x257fL))) {
+  width <- cli::ansi_nchar(chars[i], type = "width")
+  if (width %in% 1:2) chars[i] <- sprintf('<span style="display:inline-block;width:%dch">%s</span>', width, chars[i])
+}
+writeLines(paste0('<!doctype html><meta charset="utf-8"><style>body{background:white;color:#222;margin:0}pre{padding:20px;margin:0;font:15px/1.6 Consolas,monospace;white-space:pre}</style><pre data-native-console>',
+  paste(chars, collapse = ""), '</pre>'), file.path(tempdir(), "20261107-update-notice-controls.html"), useBytes = TRUE)
+validation_values <- list(widths = as.integer(cli::ansi_nchar(plain, type = "width")),
+  whole_step_count = TRUE, intercept_formula = TRUE, controls = fields)
+```
+
+:::
+
+<!-- /update-20261107: utils_notice_controls -->
+
 ## 旧式函数 {#legacy}
 
 `.cat_line()`（居中带标签的分隔线）和 `.cat_box()`（彩色提示框）是早期的显示函数，用 `cat()` 直接写标准输出，不是消息，`suppressMessages()` 关不掉。它们保留给已有的调用者，新代码用上面两个函数。RegR `get_facet()` 的分层提示和 MLR `get_shp()` 的模型设置原来用这两个函数，2026-10-25 已改为 `.cat_message()`。`.cat_formula()` 现在也是一行 `.cat_message()` 提示（如 `Cox model, unadjusted: Surv(time, DSS) ~ Sex`），按结局的非缺失取值个数区分 Cox 与 CRR（0.6.12 起缺失值不再算作一个水平）。
@@ -188,6 +247,8 @@ stopifnot(length(msg_stdout) == 0L)
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+
+- 2026-11-07：[宽字符时间戳、大步骤编号与截距公式](#utils_notice_controls-20261107)。
 - 2026-11-06：[模型提示的缺失编码与原列名](#formula_notice-20261106)。
 - 2026-10-26：补充[保存状态提示](#saved-20261026)的完整参数、真实临时 PDF 及消息通道复核。
 - 2026-10-25：按 UtilsR 0.6.12 更新[时间戳与多行](#cat-message)和[旧式函数](#legacy)。
