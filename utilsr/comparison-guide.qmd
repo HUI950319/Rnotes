@@ -7,13 +7,15 @@ toc-depth: 2
 directory:
   title: "双侧比较图：Butterfly、分布镜像与 Dumbbell，21 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-11-06
-date-modified: 2026-11-06
+  updated: 2026-11-07
+date-modified: 2026-11-07
 ---
 
 堆积与并排双侧柱形、min-max 和透明度映射、镜像分布、蜂群与配对哑铃插图。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-07 按已推送 UtilsR `9a2eaf19`（0.6.23）导出源码，配套固定 RegR `939a9364`，在 Windows / WSL R 4.4.3 独立执行本页新增合成示例。历史图和可执行代码块保留原快照，没有重跑历史分析或改动已安装包。
+
 2026-11-06 追加按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -646,6 +648,58 @@ validation_values <- list(n = nrow(d), pairs = nrow(pairs), delta = dumbbell$dat
 
 <!-- /update-20261104: comparison_keys -->
 
+
+### 全缺失镜像块和时间端点保持各自含义（2026-11-07） {#utils_comparison_inputs-20261107}
+
+<!-- update-20261107: utils_comparison_inputs -->
+
+`PlotButterfly(minmax = TRUE)` 遇到整个侧别 × 填色块都缺失时，不再对空集合求范围。缺失块没有可解释的柱长，绘图层的零宽占位不能当作原始观测为零。`PlotButterfly()` 的四个柱形列选择器逐项校验；长表 `PlotButterfly2()` 还会拒绝矩阵列、复数和 list 分数，`fill.by = NULL` 仍可省略内部子组。
+
+`PlotDumbbell()` 的三个列选择器要求单个非空列名，端点允许数值或 Date / POSIXt / difftime 向量，拒绝会丢失信息的端点存储。下方三对 Date 端点的差值保留 days 单位。日期图显式关闭数值零参考线 `show_zero_line = FALSE`，避免将日历坐标扩展到 1970 年。
+
+```r
+library(UtilsR)
+d <- data.frame(stat = rep(c("A", "B"), 2), fill = "F",
+  value = c(NA_real_, NA_real_, 1, 2), group = rep(c("L", "R"), each = 2))
+b <- PlotButterfly(d, stat.by = "stat", fill.by = "fill", value.by = "value",
+  group.by = "group", minmax = TRUE)
+long <- data.frame(stat = "S", value = 1:8, group = rep(c("L", "R"), each = 4))
+b2 <- PlotButterfly2(long, stat.by = "stat", value.by = "value", group.by = "group", type = "box")
+pairs <- data.frame(start = as.Date("2026-01-01") + 0:2,
+  end = as.Date("2026-01-01") + 0:2 + c(1, 3, 2), category = c("a", "b", "c"))
+bell <- PlotDumbbell(pairs, sort_by = "none", show_delta = FALSE, show_zero_line = FALSE)
+ggplot2::ggsave(file.path(tempdir(), "20261107-update-comparison-inputs.pdf"),
+  patchwork::wrap_plots(b, bell), width = 11, height = 4.8, device = grDevices::cairo_pdf)
+```
+
+![左侧全缺失没有可解释柱长，右侧正常缩放；日期哑铃保留三个实际端点对](images/comparison-guide/20261107-update-comparison-inputs.png){fig-alt="左侧全缺失没有可解释柱长，右侧正常缩放；日期哑铃保留三个实际端点对"}
+
+[原生 PDF](images/comparison-guide/20261107-update-comparison-inputs.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+left <- ggplot2::ggplot_build(b[[1]])[["data"]][[1L]]
+right <- ggplot2::ggplot_build(b[[2]])[["data"]][[1L]]
+stopifnot(identical(as.numeric(left[["x"]]), c(0, 0)),
+  identical(sort(as.numeric(right[["x"]])), c(0, 1)), all(is.na(d[["value"]][1:2])),
+  inherits(bell[["data"]][[".delta"]], "difftime"),
+  identical(as.numeric(bell[["data"]][[".delta"]], units = "days"), c(1, 3, 2)))
+invisible(lapply(1:2, function(i) ggplot2::ggplot_build(b2[[i]])))
+bad_long <- long; bad_long[["value"]] <- complex(real = long[["value"]], imaginary = 1)
+errors <- c(tryCatch(PlotButterfly(d, stat.by = c("stat", "fill")), error = conditionMessage),
+  tryCatch(PlotButterfly2(bad_long, stat.by = "stat", value.by = "value", group.by = "group"), error = conditionMessage),
+  tryCatch(PlotDumbbell(stop("data evaluated"), x_col = matrix("start")), error = conditionMessage))
+stopifnot(grepl("stat.by", errors[1], fixed = TRUE), grepl("value", errors[2], fixed = TRUE),
+  grepl("x_col", errors[3], fixed = TRUE))
+validation_values <- list(missing_block = sum(is.na(d[["value"]][1:2])), right_scaled = sort(as.numeric(right[["x"]])),
+  date_differences_days = as.numeric(bell[["data"]][[".delta"]], units = "days"))
+```
+
+:::
+
+<!-- /update-20261107: utils_comparison_inputs -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 Butterfly 返回 patchwork；Dumbbell 不可见返回 ggplot/patchwork。可赋值后使用外部 ggsave，或给 filename 使用函数自身保存入口。
@@ -762,6 +816,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+
+- 2026-11-07：[全缺失镜像块和时间端点保持各自含义](#utils_comparison_inputs-20261107)。
 - 2026-11-06：[蝴蝶图缺少颜色与哑铃图主题](#comparison_theme-20261106)。
 - 2026-11-04：[两侧类别配色与整数差值](#comparison_keys-20261104)。
 - 2026-11-02：[补充两侧形状与观察类别上限](#beeswarm-shapes-20261102b)，核对未使用水平和返回图的精简数据。
