@@ -2,18 +2,20 @@
 title: "集合比较：Venn、UpSet、成员分组与 Jaccard 热图"
 description: "plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵；含历史参数对照与当前集合身份、透明填色和组合图示例。"
 date: 2026-10-20
-date-modified: 2026-11-04
+date-modified: 2026-11-07
 lightbox: true
 toc-depth: 2
 directory:
   title: "集合比较：Venn、UpSet、成员分组与 Jaccard 热图"
   topic: 绘图与格式化
-  updated: 2026-11-04
+  updated: 2026-11-07
 ---
 
 plt_upset 的列表和指示列输入、区域标签和返回数据，PlotHeatmapJaccard 的顺序、色阶和矩阵。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-07 按已推送 UtilsR `9a2eaf19`（0.6.23）导出源码，配套固定 RegR `939a9364`，在 Windows / WSL R 4.4.3 独立执行本页新增合成示例。历史图和可执行代码块保留原快照，没有重跑历史分析或改动已安装包。
+
 2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-02 追加按已推送 UtilsR `64d986fc`（0.6.21）导出源码，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -454,6 +456,62 @@ data.frame(component = names(out), class = vapply(out, function(z) paste(class(z
 
 :::
 
+
+### 纯交集数据保留完整水平，矩阵返回跳过绘图样式（2026-11-07） {#utils_set_data-20261107}
+
+<!-- update-20261107: utils_set_data -->
+
+`plt_upset(output = "data")` 直接按每行的集合成员模式计数；原始列和行顺序不变，未观测组合的因子水平仍保留，按计数降序排列，同数时保持组合顺序，None 仍放最后。重名的显示标签也会做唯一化，不能把显示名当作原始集合键。纯数据返回仍拒绝 `save`，因为没有可保存的图。
+
+`PlotHeatmapJaccard(return_type = "data")` 只算相似度矩阵，不读取未使用的绘图样式；绘图路径才校验 TRUE/FALSE 开关、字号、中点及启用条带后的宽度。样式参数不会改变 Jaccard 的交并比。
+
+```r
+library(UtilsR)
+states <- expand.grid(A = c(FALSE, TRUE), B = c(FALSE, TRUE), C = c(FALSE, TRUE))
+d <- as.data.frame(lapply(states, function(x) ifelse(x, "Yes", "No")))
+result <- plt_upset(d, vars = names(d), output = "data")
+sparse <- plt_upset(d[c(8, 8), ], vars = names(d), output = "data")
+collisions <- plt_upset(d, vars = names(d), output = "data",
+  set.labels = c(A = "None", B = "None", C = "None/None"))
+features <- data.frame(cell_type = c("A", "A", "B", "B"), gene = c("a", "b", "b", "c"))
+similarity <- PlotHeatmapJaccard(features, return_type = "data")
+table(result[["intersect_group"]])
+similarity
+```
+
+![八种成员模式独立返回，重名显示标签仍可区分](images/sets-guide/20261107-update-set-data.png){fig-alt="八种成员模式独立返回，重名显示标签仍可区分"}
+
+[原生表格 HTML](images/sets-guide/20261107-update-set-data.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+expected <- apply(states, 1, function(row) if (any(row)) paste(names(states)[row], collapse = "/") else "None")
+stopifnot(identical(as.character(result[["intersect_group"]]), unname(expected)),
+  identical(result[names(d)], d), nlevels(result[["intersect_group"]]) == 8L,
+  nlevels(sparse[["intersect_group"]]) == 8L,
+  identical(as.character(sparse[["intersect_group"]]), c("A/B/C", "A/B/C")),
+  !anyDuplicated(levels(collisions[["intersect_group"]])),
+  isTRUE(all.equal(unname(similarity), matrix(c(1, 1/3, 1/3, 1), 2))))
+unused <- PlotHeatmapJaccard(features, return_type = "data", show_diag = stop("unused style evaluated"))
+error <- tryCatch(PlotHeatmapJaccard(features, show_diag = 1), error = conditionMessage)
+save_error <- tryCatch(plt_upset(d, vars = names(d), output = "data",
+  save = list(filename = file.path(tempdir(), "unneeded.pdf"))), error = conditionMessage)
+stopifnot(identical(unused, similarity), grepl("show_diag", error, fixed = TRUE),
+  grepl("no plot", save_error, fixed = TRUE), !file.exists(file.path(tempdir(), "unneeded.pdf")))
+preview <- cbind(d, group = as.character(result[["intersect_group"]]),
+  colliding_labels = as.character(collisions[["intersect_group"]]))
+gt::gtsave(gt::tab_header(gt::gt(preview), title = "Membership keys and unique labels"),
+  file.path(tempdir(), "20261107-update-set-data.html"))
+validation_values <- list(rows = nrow(result), levels = levels(result[["intersect_group"]]),
+  sparse_levels = nlevels(sparse[["intersect_group"]]), jaccard = unname(similarity),
+  labels = as.character(collisions[["intersect_group"]]))
+```
+
+:::
+
+<!-- /update-20261107: utils_set_data -->
+
 ## Jaccard 热图参数
 
 ::: {.panel-tabset}
@@ -848,6 +906,8 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+
+- 2026-11-07：[纯交集数据保留完整水平，矩阵返回跳过绘图样式](#utils_set_data-20261107)。
 - 2026-11-04：[精确时间成员与 Jaccard 空集合](#sets_time-20261104)。
 - 2026-11-02：[补充标签集合与矩阵直返](#jaccard-cache-20261102b)，核对请求保存和返回图不保留原始载荷。
 - 2026-11-01：补充交集水平与16集合边界；同步参数表和返回说明中的当前透明填色行为。
