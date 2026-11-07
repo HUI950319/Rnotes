@@ -2,13 +2,13 @@
 title: "ggplot 格式化：主题、坐标、图例、条带与面板标签"
 description: "fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化；实际参数对照与嵌套布局示例。"
 date: 2026-10-09
-date-modified: 2026-11-06
+date-modified: 2026-11-07
 lightbox: true
 toc-depth: 2
 directory:
   title: "ggplot格式化：参考线、坐标、分布与箱线"
   topic: 绘图与格式化
-  updated: 2026-11-06
+  updated: 2026-11-07
 ---
 
 fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面板格式化。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -16,6 +16,8 @@ fmt_plot 和常用 fmt_* 的前后对照、主题选择、坐标尺度及多面�
 **核对记录：** 2026-10-18 按已推送 UtilsR `237b839` 重绘轴颜色条与彩色轴文字的六张图，并补充 `fmt_axis()`、`fmt_expand()` 的新警告和 `fmt_scale()` 的副轴说明。此前按已推送 UtilsR `fc078ec` 更新统计比较、背景与图例，修复越界的 label.y.prop 示例，并实际执行新增的配对、单侧与校正 P 值对照。已有轴文字、颜色条、条带及其他图保留各自执行快照；2026-10-12–13新增12张实图：统计、背景与图例按fc078ec执行，后补4张留白图按已推送1eb5faf执行。包版本仍为 0.6.8；输入均为固定种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-07 按已推送 UtilsR `9a2eaf19`（0.6.23）导出源码，配套固定 RegR `939a9364`，在 Windows / WSL R 4.4.3 独立执行本页新增合成示例。历史图和可执行代码块保留原快照，没有重跑历史分析或改动已安装包。
+
 2026-11-06 追加按已推送 UtilsR `b8b5932d`（0.6.23）导出源码，同时固定 RegR `939a9364` 与 UtilsR `b8b5932d`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-06 追加按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -252,6 +254,58 @@ validation_values <- list(n = nrow(d), factory_size = th$text$size, object_size 
 :::
 
 <!-- /update-20261106: theme_forward -->
+
+
+### 命名设置先检查，空格式化保留原组合（2026-11-07） {#utils_format_lists-20261107}
+
+<!-- update-20261107: utils_format_lists -->
+
+`fmt_plot()` 的四个 `fmt_*_list` 及 `fmt_plot_base()` 的标签/尺度 list 先校验名称，拒绝未命名、重名或把 `plot` 混入分派参数的设置，再调用主题工厂或修改图形。数值边距仍为 1 或 4 个有限值，合法的负边距继续保留。
+
+没有文字修改的 `fmt_text()`、没有轴设置的 `fmt_scale()` 直接保留已验证的原对象；递归格式化也跳过未改变的 patchwork 子图。这里核对对象、布局和标题一致，不据此给出未经测量的速度倍数。`theme_my()` 的尺寸/旋转角和 `theme_blank()` 的坐标开关也有明确检查；关闭箭头时仍不读取箭头长度。
+
+```r
+library(UtilsR)
+library(ggplot2)
+p <- ggplot(data.frame(x = 1:6, y = c(1, 3, 2, 4, 3, 5)), aes(x, y)) + geom_point()
+pw <- patchwork::wrap_plots(p, p) + patchwork::plot_annotation(title = "Unchanged container")
+unchanged_text <- fmt_text(pw)
+unchanged_scale <- fmt_scale(pw, x = list(), y = list())
+styled <- fmt_plot_base(p, ggtheme = function() theme_my(base_size = 11,
+  plot.margin = c(-1, 2, 3, 4)), labs_list = list(title = "Checked named options"))
+styled <- fmt_plot(styled, fmt_ref_list = list(y = 0), plot.margin = 4)
+ggsave(file.path(tempdir(), "20261107-update-format-plain.pdf"),
+  patchwork::wrap_plots(p, styled), width = 8, height = 3.8, device = grDevices::cairo_pdf)
+```
+
+![原图与通过命名设置生成的主题和参考线，空操作保留原容器](images/format-guide/20261107-update-format-plain.png){fig-alt="原图与通过命名设置生成的主题和参考线，空操作保留原容器"}
+
+[原生 PDF](images/format-guide/20261107-update-format-plain.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(identical(unchanged_text, pw), identical(unchanged_scale, pw),
+  identical(UtilsR:::.map_plot_leaves(pw, identity), pw))
+factory_calls <- 0L
+error <- tryCatch(fmt_plot_base(p, ggtheme = function() {factory_calls <<- factory_calls + 1L; theme_my()},
+  labs_list = list(title = "A", title = "B")), error = conditionMessage)
+errors <- c(error,
+  tryCatch(fmt_plot(stop("plot evaluated"), fmt_axis_list = list(TRUE)), error = conditionMessage),
+  tryCatch(theme_my(axis_text_angle = c(0, 45)), error = conditionMessage),
+  tryCatch(theme_my(base_size = matrix(12)), error = conditionMessage),
+  tryCatch(theme_blank(add_coord = 1), error = conditionMessage))
+stopifnot(factory_calls == 0L, all(vapply(seq_along(errors), function(i)
+  grepl(c("labs_list", "fmt_axis_list", "axis_text_angle", "base_size", "add_coord")[i], errors[i], fixed = TRUE), logical(1))),
+  inherits(theme_my(plot.margin = c(-1, 0, 1, 2)), "theme"),
+  is.list(theme_blank(add_coord = FALSE, xlen_npc = stop("unused length evaluated"))))
+validation_values <- list(rows = 6, text_identical = identical(unchanged_text, pw),
+  scales_identical = identical(unchanged_scale, pw), factory_calls = factory_calls)
+```
+
+:::
+
+<!-- /update-20261107: utils_format_lists -->
 
 ## 坐标、网格与文字
 
@@ -1293,6 +1347,56 @@ p_box_summary
 :::
 
 
+
+### 样式控制拒绝带类存储，缺失形状仍能映射白边（2026-11-07） {#utils_format_numbers-20261107}
+
+<!-- update-20261107: utils_format_numbers -->
+
+`fmt_expand()` 的扩展量、`fmt_panel()` 的毫米线宽、`fmt_legend()` 的尺寸/行列数、`fmt_his()` 的数值叠加控制、`fmt_bg()` 的透明度和 `fmt_com()` 的比较布局都要求普通数值向量或标量，不能把 integer64、日期或矩阵的底层数据当成样式数值。面板线宽继续使用绝对毫米；透明度为 0 的合法快速路径不变。
+
+`fmt_point()` 的抽样、种子、位置和启用后的栅格分辨率也按该规则检查。未启用的功能保留惰性参数。白边形状向量即使以 NA 开头，也会解析后面的合法名称，并保留 NA 位置。
+
+```r
+library(UtilsR)
+library(ggplot2)
+p <- ggplot(data.frame(x = 1:3, y = 3:1), aes(x, y))
+q <- fmt_point(p, shape = c(NA_character_, "circle open", "square open"),
+  size = 6, white_border = TRUE, color = "#D55E00")
+ggsave(file.path(tempdir(), "20261107-update-format-points.pdf"), q,
+  width = 5.5, height = 3.4, device = grDevices::cairo_pdf)
+```
+
+![首个缺失形状保持缺失，后续圆形和方形正确转换为白边点](images/format-guide/20261107-update-format-points.png){fig-alt="首个缺失形状保持缺失，后续圆形和方形正确转换为白边点"}
+
+[原生 PDF](images/format-guide/20261107-update-format-points.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+shape <- ggplot_build(q)[["data"]][[1L]][["shape"]]
+stopifnot(identical(shape, c(NA_real_, 21, 22)))
+encoded <- structure(.5, class = "encoded_control")
+checks <- list(
+  mult = quote(fmt_expand(stop("plot evaluated"), mult = encoded)),
+  border_linewidth = quote(fmt_panel(stop("plot evaluated"), border_linewidth = encoded)),
+  scale = quote(fmt_legend(stop("plot evaluated"), scale = encoded)),
+  height_ratio = quote(fmt_his(stop("plot evaluated"), height_ratio = encoded)),
+  alpha = quote(fmt_bg(stop("plot evaluated"), alpha = encoded)),
+  tip.length = quote(fmt_com(stop("plot evaluated"), tip.length = encoded)),
+  sample_n = quote(fmt_point(stop("plot evaluated"), sample_n = encoded)))
+for (field in names(checks)) {
+  error <- tryCatch(eval(checks[[field]]), error = conditionMessage)
+  stopifnot(is.character(error), grepl(field, error, fixed = TRUE))
+}
+stopifnot(identical(fmt_bg(p, alpha = 0), p),
+  inherits(fmt_point(p, sample_n = NULL, seed = stop("unused seed evaluated")), "ggplot"))
+validation_values <- list(shape = shape, checks = names(checks), missing_shapes = sum(is.na(shape)))
+```
+
+:::
+
+<!-- /update-20261107: utils_format_numbers -->
+
 ## 箱线来源的固定位置与向量mapping {#box-source-current}
 
 2026-10-16按已推送UtilsR `0a26d95` 实际构建下图，检查固定x=2参与箱线统计，以及无data.frame的向量mapping在build时生成两组箱线。此前图形保留原快照。
@@ -1606,6 +1710,47 @@ ref_nested
 
 ![分面与嵌套组合](images/format-guide/20261016-reference-nested.png){fig-alt="分面与嵌套组合；固定输入、按注明源码快照实际运行的示例。"}
 
+
+### 参考位置是一维向量，不接受嵌套位置（2026-11-07） {#utils_reference_shapes-20261107}
+
+<!-- update-20261107: utils_reference_shapes -->
+
+`fmt_ref()` 的 x/y 参考位置继续允许一维向量、日期时间、缺失或无限位置；矩阵、数组、expression 和嵌套 list 会在处理图形前报错。多个位置仍按对应样式循环，不改变原坐标尺度。
+
+本例只给普通向量，核对两条垂线与一条横线；无效位置示例使用延迟报错的图参数，确认首先指出位置本身。
+
+```r
+library(UtilsR)
+library(ggplot2)
+p <- ggplot(data.frame(x = 1:4, y = c(2, 1, 4, 3)), aes(x, y)) + geom_point()
+q <- fmt_ref(p, x = c(1, 3), y = 2, color = c("#0072B2", "#D55E00"))
+positions <- ggplot_build(q)[["data"]]
+```
+
+![多位置参考线按一维位置构造，保留两条垂线和一条横线](images/format-guide/20261107-update-reference-shapes.png){fig-alt="多位置参考线按一维位置构造，保留两条垂线和一条横线"}
+
+[原生表格 HTML](images/format-guide/20261107-update-reference-shapes.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(identical(as.numeric(positions[[2L]][["xintercept"]]), c(1, 3)),
+  identical(as.numeric(positions[[3L]][["yintercept"]]), 2))
+for (field in c("x", "y")) for (bad in list(matrix(1:4, 2), list(1, 2), expression(1, 2))) {
+  args <- list(plot = quote(stop("plot evaluated"))); args[field] <- list(bad)
+  error <- tryCatch(do.call(fmt_ref, args), error = conditionMessage)
+  stopifnot(grepl(field, error, fixed = TRUE))
+}
+gt::gtsave(gt::gt(data.frame(axis = c("x", "x", "y"), position = c(1, 3, 2))),
+  file.path(tempdir(), "20261107-update-reference-shapes.html"))
+validation_values <- list(x = as.numeric(positions[[2L]][["xintercept"]]),
+  y = as.numeric(positions[[3L]][["yintercept"]]), original_scales_preserved = identical(q[["scales"]], p[["scales"]]))
+```
+
+:::
+
+<!-- /update-20261107: utils_reference_shapes -->
+
 ## 当前点层：联合分组、分面与随机状态 {#point-20261018}
 
 2026-10-18 按已推送UtilsR `545bf4b`，在Windows / WSL R 4.4.3实际构建并绘制本节图形。旧图保留原执行快照，以下用新模拟数据核验当前规则。
@@ -1739,6 +1884,12 @@ width_auto
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+
+- 2026-11-07：[参考位置是一维向量，不接受嵌套位置](#utils_reference_shapes-20261107)。
+
+- 2026-11-07：[样式控制拒绝带类存储，缺失形状仍能映射白边](#utils_format_numbers-20261107)。
+
+- 2026-11-07：[命名设置先检查，空格式化保留原组合](#utils_format_lists-20261107)。
 - 2026-11-06：[旧 S3 背景主题恢复实际绘制](#utils_legacy-20261106c)。
 - 2026-11-06：[主题解析器转发工厂参数](#theme_forward-20261106)。
 - 2026-11-06：[自由横轴下比较括号的位置](#format_reference-20261106)。
