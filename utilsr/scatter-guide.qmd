@@ -7,8 +7,8 @@ toc-depth: 2
 directory:
   title: "组合散点图：边际分布、双分组与配对差值，23 个参数示例"
   topic: 绘图与格式化
-  updated: 2026-11-06
-date-modified: 2026-11-06
+  updated: 2026-11-07
+date-modified: 2026-11-07
 ---
 
 PlotScatter1/2/3 的点、椭圆、回归、相关、边际布局、栅格化和配对差值插图。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
@@ -16,6 +16,8 @@ PlotScatter1/2/3 的点、椭圆、回归、相关、边际布局、栅格化和
 **版本与执行范围：** 本页按 UtilsR **0.6.8** 的公共接口核对；23 个示例已在 WSL R 4.4.3 中实际执行，其中 23 张图已完成构建与 PNG 导出。使用固定随机种子的模拟数据。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-07 按已推送 UtilsR `9a2eaf19`（0.6.23）导出源码，配套固定 RegR `939a9364`，在 Windows / WSL R 4.4.3 独立执行本页新增合成示例。历史图和可执行代码块保留原快照，没有重跑历史分析或改动已安装包。
+
 2026-11-06 追加按已推送 UtilsR `8ceda1e9`（0.6.23）导出源码，同时固定 RegR `7dad336b` 与 UtilsR `8ceda1e9`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -317,6 +319,51 @@ PlotScatter2(dat, "x", "y", "cohort", group2 = "batch", colors = cols,
 
 :::
 
+
+### 分组列与开关在边际图构建前检查（2026-11-07） {#utils_scatter_options-20261107}
+
+<!-- update-20261107: utils_scatter_options -->
+
+`PlotScatter1()`、`PlotScatter2()` 的横轴、纵轴和分组列必须是单个非空列名；相关、椭圆、回归等开关使用 TRUE / FALSE，不能用数值 0/1 或逻辑矩阵代替。双分组入口的 `group2 = NULL` 仍表示只使用第一分组，不会因此要求第二分组列。
+
+下面用同一份 12 行合成数据演示两个入口；关闭统计标注只改变显示，不改变输入数据。错误控制项会在读取数据、组装边际面板前报出参数名。
+
+```r
+library(UtilsR)
+d <- data.frame(x = seq_len(12) / 5, y = seq_len(12) / 6 + sin(seq_len(12)),
+  group = rep(c("A", "B"), each = 6))
+before <- d
+p1 <- PlotScatter1(d, x = "x", y = "y", group = "group",
+  show_ellipse = FALSE, show_regression = FALSE, show_cor = FALSE)
+p2 <- PlotScatter2(d, x = "x", y = "y", group = "group", group2 = NULL,
+  show_ellipse = FALSE, show_regression = FALSE, show_cor = FALSE)
+ggplot2::ggsave(file.path(tempdir(), "20261107-update-scatter-controls.pdf"),
+  patchwork::wrap_plots(p1, p2), width = 11, height = 5.3, device = grDevices::cairo_pdf)
+```
+
+![相同十二行数据分别经单分组和可选第二分组入口生成边际散点图](images/scatter-guide/20261107-update-scatter-controls.png){fig-alt="相同十二行数据分别经单分组和可选第二分组入口生成边际散点图"}
+
+[原生 PDF](images/scatter-guide/20261107-update-scatter-controls.pdf)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+errors <- c(
+  tryCatch(PlotScatter1(stop("data evaluated"), x = c("x", "y"), y = "y", group = "group"), error = conditionMessage),
+  tryCatch(PlotScatter1(stop("data evaluated"), x = "x", y = "y", group = "group", show_cor = 1), error = conditionMessage),
+  tryCatch(PlotScatter2(stop("data evaluated"), x = "x", y = "y", group = "group", group2 = matrix("g")), error = conditionMessage),
+  tryCatch(PlotScatter2(stop("data evaluated"), x = "x", y = "y", group = "group", x_top = NA), error = conditionMessage))
+fields <- c("x", "show_cor", "group2", "x_top")
+stopifnot(all(vapply(seq_along(fields), function(i) grepl(fields[i], errors[i], fixed = TRUE), logical(1))),
+  identical(d, before), inherits(p1, "ggplot"), inherits(p2, "ggplot"))
+validation_values <- list(rows = nrow(d), groups = as.integer(table(d[["group"]])),
+  checked = fields, unchanged = identical(d, before))
+```
+
+:::
+
+<!-- /update-20261107: utils_scatter_options -->
+
 ## 配对散点与差值
 
 ::: {.panel-tabset}
@@ -548,6 +595,51 @@ validation_values <- list(n = nrow(d), pairs = nrow(pairs), x = sort(unique(main
 
 <!-- /update-20261104: scatter_roles -->
 
+
+### 配对端点拒绝复数和矩阵，错误不打开设备（2026-11-07） {#utils_paired_inputs-20261107}
+
+<!-- update-20261107: utils_paired_inputs -->
+
+`PlotScatter3()` 先检查列名、`show_refline` 和正整数 `hist_bins`，再读取端点列；复数、list 和矩阵列会明确报错，避免把虚部或维度静默丢掉。设备在这些检查之后才按需打开。每行仍是同一配对单位，直方图显示 Treat − Control，不改变原来的配对关系或检验定义。
+
+```r
+library(UtilsR)
+d <- data.frame(Control = seq_len(12) / 5,
+  Treat = seq_len(12) / 5 + sin(seq_len(12)) / 3,
+  group = rep(c("Reference", "Highlight"), each = 6))
+before <- d
+p <- PlotScatter3(d, hist_bins = 6, test_method = "none", cor_method = "none")
+```
+
+![配对差值来自同一行的 Treat 减 Control，不重新配对或丢弃端点信息](images/scatter-guide/20261107-update-paired-inputs.png){fig-alt="配对差值来自同一行的 Treat 减 Control，不重新配对或丢弃端点信息"}
+
+[原生表格 HTML](images/scatter-guide/20261107-update-paired-inputs.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+devices_before <- grDevices::dev.list()
+bad <- d
+bad[["Control"]] <- complex(real = d[["Control"]], imaginary = 1)
+errors <- c(tryCatch(PlotScatter3(bad), error = conditionMessage),
+  tryCatch(PlotScatter3(stop("data evaluated"), hist_bins = 1.5), error = conditionMessage),
+  tryCatch(PlotScatter3(stop("data evaluated"), show_refline = 1), error = conditionMessage))
+stopifnot(grepl("Control", errors[1], fixed = TRUE), grepl("hist_bins", errors[2], fixed = TRUE),
+  grepl("show_refline", errors[3], fixed = TRUE),
+  identical(grDevices::dev.list(), devices_before), identical(d, before),
+  isTRUE(all.equal(d[["Treat"]] - d[["Control"]], sin(seq_len(12)) / 3)))
+preview <- data.frame(id = seq_len(nrow(d)), Control = d[["Control"]], Treat = d[["Treat"]],
+  difference = d[["Treat"]] - d[["Control"]])
+gt::gtsave(gt::fmt_number(gt::gt(preview), decimals = 4),
+  file.path(tempdir(), "20261107-update-paired-inputs.html"))
+validation_values <- list(rows = nrow(d), differences = d[["Treat"]] - d[["Control"]],
+  invalid_calls_preserve_devices = identical(grDevices::dev.list(), devices_before), unchanged = identical(d, before))
+```
+
+:::
+
+<!-- /update-20261107: utils_paired_inputs -->
+
 ## 返回对象、保存与使用边界 {#output}
 
 三个函数返回 patchwork。`filename = NULL` 不保存；给出文件名时由函数按 width/height/dpi 导出。当前接口使用 filename，并非统一 save list。
@@ -669,6 +761,10 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+
+- 2026-11-07：[配对端点拒绝复数和矩阵，错误不打开设备](#utils_paired_inputs-20261107)。
+
+- 2026-11-07：[分组列与开关在边际图构建前检查](#utils_scatter_options-20261107)。
 - 2026-11-06：[主图主题元素与工厂校验](#scatter_theme-20261106)。
 - 2026-11-04：[共享列角色、双图例与配对差值](#scatter_roles-20261104)。
 - 2026-11-02：补充配对差值直方图的独立自动范围、平移不变性及零差值示例。
