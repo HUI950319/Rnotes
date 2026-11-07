@@ -2,18 +2,20 @@
 title: "因子与统计文本：排序、合并、分箱和区间格式化"
 description: "fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界；参数对照及重编码、缺失和分箱边界。"
 date: 2026-10-20
-date-modified: 2026-11-04
+date-modified: 2026-11-07
 lightbox: true
 toc-depth: 2
 directory:
   title: "因子与统计文本：排序、合并、分箱和区间格式化及数据边界"
   topic: 数据准备与筛选
-  updated: 2026-11-04
+  updated: 2026-11-07
 ---
 
 fct_cat 的互斥模式、临床水平顺序、固定与自动分箱、列组合与缺失，以及 CI/P 值的格式和边界。各节用固定输入比较重要参数，标签页中展示可复制代码与实际结果。
 
 ::: {.callout-note collapse="true" title="版本与复现记录"}
+2026-11-07 按已推送 UtilsR `9a2eaf19`（0.6.23）导出源码，配套固定 RegR `939a9364`，在 Windows / WSL R 4.4.3 独立执行本页新增合成示例。历史图和可执行代码块保留原快照，没有重跑历史分析或改动已安装包。
+
 2026-11-04 追加按已推送 UtilsR `6b03397f`（0.6.22）导出源码，同时固定 RegR `769f460c` 与 UtilsR `6b03397f`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
 
 2026-11-04 追加按已推送 UtilsR `8447c248`（0.6.22）导出源码；配套依赖固定为 RegR `769f460c`、UtilsR `8447c248`，在 Windows / WSL R 4.4.3 独立运行下述合成示例。旧图保留原执行快照；此次没有重跑历史模型或安装包。
@@ -415,6 +417,59 @@ fct_show(fct_to_group(stage, list(Early = 1:2, 3:4), name_prefix = "Stage", name
 |     2|Stage3+4 |  5|
 
 :::
+
+
+### 重标分类后刷新索引，已命名组保留原名（2026-11-07） {#utils_factor_index-20261107}
+
+<!-- update-20261107: utils_factor_index -->
+
+对 data.table 调用 `fct_label()` 时会先复制输入，再更新目标列；与该列有关的 key / secondary index 失效并清除，与其他列有关的索引保留。下面把四个水平合为 A/B 后，按新标签筛选应得到第 1、3 行，不能继续使用旧水平的索引位置。
+
+`fct_to_group()` 只为未命名组生成标签；命名组保持原名，只有需要自动命名时才读取并校验 `name_prefix`、`name_sep`。
+
+```r
+library(UtilsR)
+d <- data.table::data.table(grade = factor(letters[1:4]), value = 1:4)
+data.table::setkeyv(d, "grade")
+data.table::setindexv(d, c("grade", "value"))
+data.table::setindexv(d, "value")
+before <- data.table::copy(d)
+changed <- fct_label(d, grade, c("A", "B", "A", "B"))
+selected <- changed[grade == "A"]
+grouped <- fct_to_group(factor(letters[1:3]), list(AB = 1:2, 3),
+  name_prefix = "G", name_sep = "+")
+selected
+grouped
+```
+
+![合并水平后按 A 筛选得到原第 1、3 行，原始数据保持四个水平](images/factor-guide/20261107-update-factor-index.png){fig-alt="合并水平后按 A 筛选得到原第 1、3 行，原始数据保持四个水平"}
+
+[原生表格 HTML](images/factor-guide/20261107-update-factor-index.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(is.null(data.table::key(changed)),
+  identical(data.table::indices(changed), "value"),
+  identical(selected[["value"]], c(1L, 3L)), identical(d, before),
+  identical(as.character(grouped), c("AB", "AB", "G3")))
+fully_named <- fct_to_group(factor(letters[1:3]), list(AB = 1:2, C = 3),
+  name_prefix = stop("unused prefix evaluated"), name_sep = stop("unused separator evaluated"))
+bad <- tryCatch(fct_to_group(factor(letters[1:3]), list(1:2, 3), name_prefix = NA_character_),
+  error = conditionMessage)
+stopifnot(identical(as.character(fully_named), c("AB", "AB", "C")),
+  grepl("name_prefix", bad, fixed = TRUE))
+gt::gtsave(gt::tab_header(gt::gt(data.frame(value = changed[["value"]],
+  original = as.character(d[["grade"]]), relabelled = as.character(changed[["grade"]]),
+  selected = changed[["value"]] %in% selected[["value"]])), title = "Relabel before querying"),
+  file.path(tempdir(), "20261107-update-factor-index.html"))
+validation_values <- list(rows = nrow(changed), selected = selected[["value"]],
+  remaining_indices = data.table::indices(changed), grouped = as.character(grouped), input_preserved = identical(d, before))
+```
+
+:::
+
+<!-- /update-20261107: utils_factor_index -->
 
 ## 数值分箱和边界
 
@@ -1343,6 +1398,68 @@ validation_values <- list(formatted = values[[2]], annotated = values[[3]],
 
 <!-- /update-20261104: late_factor -->
 
+
+### 溢出文本保留原文，接近一的置信水平保持有限（2026-11-07） {#utils_ci_limits-20261107}
+
+<!-- update-20261107: utils_ci_limits -->
+
+区间中的数值文本超出 double 范围时，`stat_ci()` 发出解析警告并保留该条原文；`stat_ci_parse(output = "p")` 为该条返回 NA，其他有效区间继续处理。这里的 `1e309` 不能当作可用的无限大效应值。
+
+`level` 为最接近 1 的可表示小数时，正态分位数和本例调整后的差值区间仍有限；大数值比值区间的尺度判断也保留原有舍入容许量。`output = "p"` 只返回带原名称的数值结果，普通精度不再重建未使用的区间字符串。
+
+这些 P 值仍是从打印区间反推的近似值；指定 `level` 后，函数沿用“把调整后的区间按 95% 区间反推 P”的既有定义，不代表重新拟合模型或替代模型原始检验。本例的极大比值区间会使数值 P 下溢为 0，应报告为极小值，不能解释为真实概率恰好为零。
+
+```r
+library(UtilsR)
+x <- c(overflow = "1e309 (1e308, 1e310)", valid = "2.00 (1.00, 3.00)")
+formatted <- stat_ci(x)
+p <- stat_ci_parse(x, output = "p", exp = FALSE)
+level <- 1 - .Machine$double.eps / 2
+adjusted <- stat_ci_parse("1.00 (0.00, 2.00)", level = level, exp = FALSE)
+adjusted_p <- stat_ci_parse("1.00 (0.00, 2.00)", level = level, exp = FALSE, output = "p")
+ratio_p <- stat_ci_parse("1.38e308 (1.1e308, 1.79e308)", exp = TRUE, output = "p")
+list(formatted = formatted, p = p, adjusted = adjusted, adjusted_p = adjusted_p, ratio_p = ratio_p)
+```
+
+![溢出文本不改写为无限效应，其他区间继续给出有限结果](images/factor-guide/20261107-update-ci-limits.png){fig-alt="溢出文本不改写为无限效应，其他区间继续给出有限结果"}
+
+[原生表格 HTML](images/factor-guide/20261107-update-ci-limits.html)
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+z95 <- stats::qnorm(.975)
+z <- stats::qnorm((1 - level) / 2, lower.tail = FALSE)
+expected <- sprintf("1.00 (%.2f, %.2f)", 1 - z / z95, 1 + z / z95)
+stopifnot(identical(formatted[["overflow"]], x[["overflow"]]), is.na(p[["overflow"]]),
+  identical(names(p), names(x)), isTRUE(all.equal(p[["valid"]], 2 * stats::pnorm(-2 * z95))),
+  identical(adjusted, expected), is.finite(adjusted_p), is.finite(ratio_p),
+  isTRUE(all.equal(adjusted_p, 2 * stats::pnorm(-z95^2 / z))), ratio_p == 0)
+est <- c(1.40, 1.67, 1.38, 1.37)
+lo <- c(.9, .95, 1.1, .99); hi <- c(1.75, 1.74, 1.79, 1.7)
+unit <- rbind(c(.01, .1, .01), c(.01, .01, .01), c(.01, .1, .01), c(.01, .01, .1))
+stopifnot(identical(UtilsR:::.ci_scale(est, lo, hi, unit, "auto", rep(TRUE, 4)),
+  UtilsR:::.ci_scale(est * 1e308, lo * 1e308, hi * 1e308, unit * 1e308, "auto", rep(TRUE, 4))))
+for (field in c("level", "digits")) {
+  args <- list(x = character())
+  args[field] <- list(structure(if (field == "level") .95 else 2, class = "encoded_control"))
+  error <- tryCatch(do.call(stat_ci_parse, args), error = conditionMessage)
+  stopifnot(is.character(error), grepl(field, error, fixed = TRUE))
+}
+stopifnot(inherits(tryCatch(stat_ci_parse(matrix(x)), error = identity), "error"))
+preview <- data.frame(case = c("Overflow text", "Ordinary interval", "Level near one", "Large ratio"),
+  result = c(formatted, adjusted, "1.38e308 (1.1e308, 1.79e308)"),
+  p = c(unname(p), adjusted_p, ratio_p))
+gt::gtsave(gt::fmt_number(gt::gt(preview), columns = "p", decimals = 6),
+  file.path(tempdir(), "20261107-update-ci-limits.html"))
+validation_values <- list(p = unname(p), adjusted = adjusted, adjusted_p = adjusted_p,
+  ratio_p = ratio_p, finite_quantile = is.finite(z))
+```
+
+:::
+
+<!-- /update-20261107: utils_ci_limits -->
+
 ## 输入合同与错误
 
 ::: {.panel-tabset}
@@ -1565,6 +1682,10 @@ loaded via a namespace (and not attached):
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="本页更新记录"}
+
+- 2026-11-07：[溢出文本保留原文，接近一的置信水平保持有限](#utils_ci_limits-20261107)。
+
+- 2026-11-07：[重标分类后刷新索引，已命名组保留原名](#utils_factor_index-20261107)。
 - 2026-11-04：[SPSS P 值与重标列名](#late_factor-20261104)。
 - 2026-11-04：[手稿空白、精确 P 值边界与组合键](#factor_precision-20261104)。
 - 2026-11-02：[补充标准误溢出的差值区间](#se-overflow-20261102b)，核对置信水平调整与缩小参考值。
