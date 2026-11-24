@@ -1,13 +1,13 @@
 ---
-description: "区分当前FGR、CSC、CRR的模型和推断路径，提供已执行的sHR后端对照；原FGR/CSC耗时矩阵保留为历史记录。"
+description: "区分当前FGR、CSC、CRR的模型和推断路径，提供已执行的sHR后端对照，以及Fine–Gray拟合改从原因别Cox系数起步后的新旧对照；原FGR/CSC耗时矩阵保留为历史记录。"
 title: "竞争风险 CIF 的 FGR 与 CSC：耗时和结果差异"
 subtitle: "当前 CRR 后端边界与历史 FGR / CSC 性能记录"
 date: 2026-10-09
-date-modified: 2026-10-29
+date-modified: 2026-11-24
 directory:
   title: "CIF后端：FGR、CSC、CRR与历史耗时边界"
   topic: 性能评估
-  updated: 2026-10-29
+  updated: 2026-11-24
 ---
 
 ```{r}
@@ -24,7 +24,7 @@ f2 <- function(x) ifelse(x < 10, sprintf("%.2f", x), sprintf("%.1f", x))
 
 ## 当前实现与历史记录的区别 {#current-backend}
 
-截至 2026-10-09，RegR 0.1.3（源码 `40515e1`）的默认 FGR 标准化使用 `mets::cifregFG()` / `mets::survivalG()`，由影响函数标准误构造 Wald 区间。失败时才进入兼容后端和 bootstrap 回退；sHR 拟合也优先使用 mets，失败后使用 `tidycmprsk::crr()`。因此，下方“50 次 bootstrap”“固定 crr 后端”及相应倍数属于 `7f2aced` 的历史记录，不能直接用来预测当前运行速度或结果。
+截至 2026-10-09，RegR 0.1.3（源码 `40515e1`）的默认 FGR 标准化使用 `mets::cifregFG()` / `mets::survivalG()`，由影响函数标准误构造 Wald 区间。失败时才进入兼容后端和 bootstrap 回退；sHR 拟合也优先使用 mets，失败后使用 `tidycmprsk::crr()`；2026-11-24 起 mets 拟合从原因别 Cox 系数起步，见[下文](#fg-cox-start-20261124)。因此，下方“50 次 bootstrap”“固定 crr 后端”及相应倍数属于 `7f2aced` 的历史记录，不能直接用来预测当前运行速度或结果。
 
 CSC 仍通过各原因 Cox 模型标准化；直接概率差已使用 `riskRegression::ate()` 的联合方差，包含组间协方差。默认 FGR 和 CSC 的工作模型假设不同，解析推断并不保证两种模型产生完全相同的数值。
 
@@ -96,6 +96,87 @@ crr_tidy[crr_tidy[["term"]] == "N_4CND", c("estimate", "conf.low", "conf.high")]
 这是两端一致的本次执行结果，未四舍五入的CRR估计及区间与直接crr调用在 `1e-8` 容差内一致。
 
 这里的FGR与CSC比值来自相同默认拟合路线；CRR与直接crr调用核验一致。表中sHR不是CIF，数值差异也不能解释为某后端更正确。旧概率图及下方历史计时并未用这次结果替换。
+
+### Fine–Gray 拟合从原因别 Cox 系数起步（2026-11-24） {#fg-cox-start-20261124}
+
+RegR `a8e4fcb`（0.1.3）起，经 `mets::cifregFG()` 的 Fine–Gray 拟合都以同一设计矩阵上原因别 Cox 模型的系数为 Newton–Raphson 起点，不再从 0 出发。这个 Cox 模型只把目标事件当作事件，竞争事件和删失都按删失处理。`get_eff()`、`get_inter()`、`get_inter_abs()` 的 sHR 与交互，以及默认 FGR 直接校正 CIF 所用的拟合，都走这条路径。模型、估计目标和影响函数方差没有变，调用方式也不用改；`cif_args = list(model = "CRR")` 直接调用 `tidycmprsk::crr()`，不受影响。
+
+`cifregFG()` 用 `lava::NR()` 求解，第一步是不回溯的整步。某个水平的效应很强时，从 0 出发的整步会越过根，几步之后目标函数变成 NaN，拟合报错。旧版 RegR 随后静默地以半步长（`stepsize = 0.5`）重拟合一次：收敛且没有设计列把目标事件完全分开就采用，否则警告并退回 `tidycmprsk::crr()`。半步长到的是同一个根，只是步数多；样本越大，每一步越慢。
+
+下面用 RegR 回归测试里的合成数据重现：2,000 例，占 3% 的水平 c 对目标事件的 HR 为 16，时间按月取整。
+
+```r
+library(survival)
+set.seed(1)
+n <- 2000
+g <- factor(sample(c("a", "b", "c"), n, TRUE, prob = c(0.77, 0.20, 0.03)))
+x <- factor(sample(c("u", "v"), n, TRUE))
+lp <- log(c(a = 1, b = 2, c = 16))[as.character(g)] + log(2) * (x == "v")
+t1 <- rexp(n, 0.002 * exp(lp)); t2 <- rexp(n, 0.02); cen <- runif(n, 0, 240)
+time <- pmin(t1, t2, cen)
+d <- data.frame(time = pmax(1, ceiling(time)),
+                event = ifelse(time == t1, 1L, ifelse(time == t2, 2L, 0L)), g = g, x = x)
+
+fg <- function(...) tryCatch(
+  mets::cifregFG(mets::Event(time, event) ~ g + x, data = d, cause = 1, ...),
+  error = function(e) conditionMessage(e))
+ctl <- list(tol = 1e-10, iter.max = 100)
+
+from_zero <- fg(control = ctl)                                     # 旧版第一次拟合：从 0 出发
+half_step <- fg(control = c(ctl, stepsize = 0.5))                  # 旧版的半步长重试
+cox_start <- coef(coxph(Surv(time, event == 1) ~ g + x, data = d)) # 新版起点：原因别 Cox 系数
+from_cox  <- fg(control = ctl, beta = unname(cox_start))           # 新版：从 Cox 系数出发
+
+from_zero
+round(exp(rbind(cox_start, half_step = half_step$coef, from_cox = from_cox$coef)), 4)
+```
+
+```
+[1] "infinite or missing values in 'x'"
+              gb      gc     xv
+cox_start 2.3657 18.1293 2.4175
+half_step 2.3432 13.3887 2.3045
+from_cox  2.3432 13.3887 2.3045
+```
+
+::: {.callout-note collapse="true" title="复核代码"}
+
+```r
+stopifnot(is.character(from_zero),
+          isTRUE(all.equal(unname(half_step$coef), unname(from_cox$coef), tolerance = 1e-6)),
+          isTRUE(all.equal(sqrt(diag(half_step$var)), sqrt(diag(from_cox$var)), tolerance = 1e-6)))
+# lava::NR() 的 trace 每走一步打印一行 "Iter=k"
+steps <- function(out) max(as.integer(sub("^Iter=(\\d+).*", "\\1", grep("^Iter=", out, value = TRUE))))
+steps(capture.output(fg(control = c(ctl, trace = 1))))                             # 3：从 0，报错前
+steps(capture.output(fg(control = c(ctl, stepsize = 0.5, trace = 1))))             # 65：半步长
+steps(capture.output(fg(control = c(ctl, trace = 1), beta = unname(cox_start))))   # 4：Cox 起点
+signif(max(abs(exp(from_cox$coef - half_step$coef) - 1)), 2)                       # 2.6e-08
+```
+
+:::
+
+第一行是 `cox_start` 取指数，即原因别 HR，不是 sHR。从 0 出发时，水平 c 的系数第 2 步到 −6.0、第 3 步到 3746，目标函数变成 NaN，`from_zero` 只剩报错信息。半步长用 65 步收敛；从 Cox 系数出发只要 4 步，到的是同一个根，sHR 最大相对差 2.6e-8。以上在 Windows 与 WSL 的 R 4.4.3（mets 1.3.13、lava 1.9.3、survival 3.8.12）上各运行一次，输出相同。WSL 上 5 次平均，半步长拟合一次 1.38 s，Cox 起点连同 `coxph()` 0.18 s。
+
+#### 真实队列：已出结果是否改变
+
+下表只列汇总统计量。甲状腺队列的旧版耗时取自改动当天的记录，本页没有重测；新版耗时是与其他分析进程同时运行时测得的，只看量级。
+
+::: {.table-responsive tabindex="0" role="region" aria-label="Fine–Gray 起点新旧对照，可横向滚动"}
+
+| SEER 队列 | 旧版从 0 出发 | 耗时 | 与旧结果的差异 |
+|:--|:--|:--|:--|
+| 甲状腺乳头状癌，7 个队列，10–17 万例 | 每个校正模型 2–3 步内变成 NaN，全靠半步长重试；一个性别 × 五级腺外侵犯模型重试也失败，退回 crr | 旧版单个校正模型 5–10 min、一次 `get_eff()` 50–70 min，退回 crr 的那次 1.8 h；新版 4–5 步收敛，3 个队列重算 `get_eff()` 20–82 s | 6 个队列的多因素 sHR 共 149 格，两位小数全部相同；其中 3 个队列从旧结果对象重算，单、多因素 152 格 sHR 与 CI 的最大相对差 6.0e-7；4 个队列的交互表两位小数逐字相同；Cox 结果不变 |
+| 胰腺导管腺癌，随机抽 3 个队列，5,058–24,560 例 | 多因素与交互模型从 0 出发即收敛，没有半步长重试 | 同一进程先新后旧各跑一次：`get_eff()` 9–35 s 对 10–16 s，`get_inter()` 5–19 s 对 3–24 s，没有提速 | 单、多因素 128 格 sHR 与 CI 的最大相对差 1.8e-12；交互表（未校正、校正）逐字相同，相乘交互与 RERI 的最大绝对差 7.2e-14；把起点改回 0 重算，与旧结果完全一致 |
+
+:::
+
+据此看已有结果：
+
+- 旧版从 0 出发就收敛的模型（如上表的胰腺队列），新旧结果只差浮点舍入，不用重跑。
+- 旧版靠半步长重试的模型，根相同，差异在 1e-6 以下，两位小数不变；新版主要是快。
+- 旧日志里出现过 `mets::cifregFG() failed ...; refitting with tidycmprsk::crr()` 警告的模型，新版改由 mets 给出。按[上文](#crr-20261019)，月单位的并列时间下 mets 与 crr 可能在小数位上不同，这类结果应重跑核对。
+
+设计里有一列把目标事件完全分开（例如某个水平没有目标事件，这时没有有限的 MLE），或原因别 Cox 拟合失败、系数出现别名或非有限值时，起点仍为 0，保留原来的半步长重试（分离时拒绝重试结果）和 crr 退回。
 
 ## 历史性能记录：7f2aced {#historical-benchmark}
 
@@ -589,5 +670,6 @@ p3 + th("#dee2e6", "#222222", "#3a3f44")
 ## 更新记录 {#page-updates}
 
 ::: {.callout-note collapse="true" title="更新记录"}
+- 2026-11-24：新增[Fine–Gray 拟合从原因别 Cox 系数起步](#fg-cox-start-20261124)，含合成数据实跑和两组 SEER 队列的新旧结果对照；历史图表与计时未重做。
 - 2026-10-29：修复[第一次计时结果](#sexn-benchmark-results)的失效表格引用，仅更新文字链接；保留历史图表、模型、计时与执行快照。
 :::
